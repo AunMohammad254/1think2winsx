@@ -1,0 +1,1 @@
+2025/11/18 19:20:50 [error] 7740#3448: *1 connect() failed (10061: No connection could be made because the target machine actively refused it) while connecting to upstream, client: 127.0.0.1, server: _, request: "POST /api/register HTTP/1.1", upstream: "http://127.0.0.1:3001/api/register", host: "localhost:8080"

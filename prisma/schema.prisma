@@ -1,0 +1,307 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  name          String?
+  email         String    @unique
+  password      String?   // Made optional for OAuth users
+  phone         String?
+  dateOfBirth   DateTime?
+  profilePicture String?
+  points        Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  payments      Payment[]
+  quizAttempts  QuizAttempt[]
+  questionAttempts QuestionAttempt[]
+  winnings      Winning[]
+  prizeRedemptions PrizeRedemption[]
+  dailyPayments DailyPayment[]
+  
+  @@index([points])
+  @@index([createdAt])
+}
+
+model Quiz {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  duration    Int         @default(30) // Duration in minutes
+  passingScore Int        @default(70) // Passing score percentage
+  status      String      @default("active") // active, paused
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  questions   Question[]
+  attempts    QuizAttempt[]
+  questionAttempts QuestionAttempt[]
+  winners     Winning[]
+  
+  @@index([status])
+  @@index([createdAt])
+  @@index([title])
+}
+
+model Question {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  quizId      String    @db.ObjectId
+  quiz        Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  text        String
+  options     String    // JSON string of options array
+  correctOption Int?    // Made optional - admin adds later
+  hasCorrectAnswer Boolean @default(false)
+  status      String    @default("active") // active, paused
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  answers     Answer[]
+  questionAttempts QuestionAttempt[]
+  
+  @@index([quizId])
+  @@index([quizId, createdAt])
+  @@index([hasCorrectAnswer])
+  @@index([status])
+}
+
+model QuizAttempt {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quizId      String
+  quiz        Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  score       Int       @default(0)
+  points      Int       @default(0)
+  isCompleted Boolean   @default(false)
+  isEvaluated Boolean   @default(false)
+  completedAt DateTime?
+  paymentId   String?   // Reference to payment that granted access
+  dailyPaymentId String? // Reference to daily payment that granted access
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  answers     Answer[]
+  
+  @@index([userId])
+  @@index([quizId])
+  @@index([userId, quizId])
+  @@index([isCompleted])
+  @@index([score])
+  @@index([points])
+  @@index([paymentId])
+  @@index([dailyPaymentId])
+}
+
+model Answer {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String      // Direct reference to user for easier queries
+  questionId    String
+  question      Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  quizAttemptId String
+  quizAttempt   QuizAttempt @relation(fields: [quizAttemptId], references: [id], onDelete: Cascade)
+  selectedOption Int
+  isCorrect     Boolean?    // Made optional - determined after admin adds correct answers
+  createdAt     DateTime    @default(now())
+  
+  @@index([questionId])
+  @@index([quizAttemptId])
+  @@index([userId])
+}
+
+model QuestionAttempt {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String      @db.ObjectId
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questionId    String      @db.ObjectId
+  question      Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  quizId        String      @db.ObjectId
+  quiz          Quiz        @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  selectedOption Int
+  isCorrect     Boolean?    // Determined after admin adds correct answers
+  attemptedAt   DateTime    @default(now())
+  
+  @@index([userId, quizId])
+  @@index([questionId])
+  @@index([quizId])
+  @@unique([userId, questionId]) // Ensure one attempt per user per question
+}
+
+model Payment {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount        Float       // 2 PKR
+  status        String      // pending, completed, failed
+  paymentMethod String?
+  transactionId String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+}
+
+model Prize {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  imageUrl    String?
+  modelUrl    String?    // URL to 3D model
+  type        String     // bike, phone, earbuds, watch
+  pointsRequired Int     // Points needed to redeem this prize
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  winnings    Winning[]
+  redemptions PrizeRedemption[]
+  
+  @@index([isActive])
+  @@index([pointsRequired])
+  @@index([type])
+}
+
+model Winning {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quizId      String
+  quiz        Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  prizeId     String
+  prize       Prize     @relation(fields: [prizeId], references: [id], onDelete: Cascade)
+  claimed     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([quizId])
+  @@index([claimed])
+}
+
+model PrizeRedemption {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prizeId     String
+  prize       Prize     @relation(fields: [prizeId], references: [id], onDelete: Cascade)
+  pointsUsed  Int
+  status      String    // pending, approved, rejected, fulfilled
+  fullName    String?   // User's full name for claim
+  whatsappNumber String? // User's WhatsApp number for contact
+  address     String?   // User's delivery address
+  requestedAt DateTime  @default(now())
+  processedAt DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([requestedAt])
+}
+
+model RateLimitEntry {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  key       String   // User ID or IP address
+  createdAt DateTime @default(now())
+  
+  @@index([key, createdAt])
+}
+
+model SecurityEvent {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  type      String   // AUTH_FAILURE, RATE_LIMIT_EXCEEDED, INVALID_INPUT, etc.
+  userId    String?  // Optional user ID
+  ip        String?  // Client IP address
+  userAgent String?  // Client user agent
+  endpoint  String?  // API endpoint accessed
+  details   String?  // JSON string of additional details
+  severity  String?  // LOW, MEDIUM, HIGH, CRITICAL
+  timestamp DateTime @default(now())
+  createdAt DateTime @default(now())
+  
+  @@index([timestamp])
+  @@index([type])
+  @@index([severity])
+  @@index([userId])
+}
+
+model DailyPayment {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Float    @default(2.0) // 2 PKR for daily access
+  status    String   // pending, completed, failed
+  paymentMethod String?
+  transactionId String?
+  expiresAt DateTime // 24 hours from payment time
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([status])
+  @@index([userId, expiresAt]) // Compound index for access checks
+}
+
+model StreamConfiguration {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  name              String   // Friendly name for the stream configuration
+  facebookPageId    String   // Facebook Page ID
+  accessToken       String   // Facebook Page Access Token (encrypted)
+  streamKey         String?  // Optional stream key for RTMP
+  isActive          Boolean  @default(false)
+  isDefault         Boolean  @default(false) // Only one can be default
+  quality           String   @default("auto") // auto, 720p, 480p, 360p
+  autoReconnect     Boolean  @default(true)
+  maxReconnectAttempts Int   @default(5)
+  reconnectDelay    Int      @default(3000) // milliseconds
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  streamSessions    StreamSession[]
+  streamMetrics     StreamMetrics[]
+  
+  @@index([isActive])
+  @@index([isDefault])
+  @@index([facebookPageId])
+}
+
+model StreamSession {
+  id                    String              @id @default(auto()) @map("_id") @db.ObjectId
+  streamConfigurationId String              @db.ObjectId
+  streamConfiguration   StreamConfiguration @relation(fields: [streamConfigurationId], references: [id], onDelete: Cascade)
+  facebookLiveVideoId   String?             // Facebook Live Video ID
+  status                String              // connecting, live, ended, error
+  startedAt             DateTime?
+  endedAt               DateTime?
+  errorMessage          String?
+  reconnectAttempts     Int                 @default(0)
+  viewerCount           Int                 @default(0)
+  peakViewerCount       Int                 @default(0)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  
+  @@index([streamConfigurationId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model StreamMetrics {
+  id                    String              @id @default(auto()) @map("_id") @db.ObjectId
+  streamConfigurationId String              @db.ObjectId
+  streamConfiguration   StreamConfiguration @relation(fields: [streamConfigurationId], references: [id], onDelete: Cascade)
+  sessionId             String?             // Optional reference to stream session
+  metricType            String              // connection_time, viewer_count, quality_change, error_rate
+  value                 Float               // Numeric value of the metric
+  metadata              String?             // JSON string for additional data
+  timestamp             DateTime            @default(now())
+  
+  @@index([streamConfigurationId])
+  @@index([metricType])
+  @@index([timestamp])
+}

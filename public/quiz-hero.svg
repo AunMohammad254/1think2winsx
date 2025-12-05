@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150" width="200" height="150">
+  <rect x="20" y="30" width="160" height="90" rx="10" fill="#4a90e2" stroke="#333" stroke-width="2"/>
+  <rect x="30" y="40" width="140" height="15" rx="3" fill="#fff"/>
+  <rect x="30" y="65" width="60" height="10" rx="2" fill="#e8f4fd"/>
+  <rect x="100" y="65" width="60" height="10" rx="2" fill="#e8f4fd"/>
+  <rect x="30" y="85" width="60" height="10" rx="2" fill="#e8f4fd"/>
+  <rect x="100" y="85" width="60" height="10" rx="2" fill="#e8f4fd"/>
+  <circle cx="45" cy="70" r="3" fill="#4a90e2"/>
+  <circle cx="115" cy="70" r="3" fill="#ff6b6b"/>
+  <text x="100" y="45" text-anchor="middle" font-family="Arial" font-size="10" fill="#333">Quiz Question</text>
+  <path d="M170 10 L180 20 L170 30 L175 25 L185 25 L185 15 L175 15 Z" fill="#ffd93d"/>
+  <path d="M10 10 L20 20 L10 30 L15 25 L25 25 L25 15 L15 15 Z" fill="#ffd93d"/>
+</svg>
