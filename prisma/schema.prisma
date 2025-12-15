@@ -6,12 +6,13 @@ generator client {
 }
 
 datasource db {
-  provider = "mongodb"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
-  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  id            String    @id @default(cuid())
   name          String?
   email         String    @unique
   password      String?   // Made optional for OAuth users
@@ -33,7 +34,7 @@ model User {
 }
 
 model Quiz {
-  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  id          String      @id @default(cuid())
   title       String
   description String?
   duration    Int         @default(30) // Duration in minutes
@@ -52,8 +53,8 @@ model Quiz {
 }
 
 model Question {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  quizId      String    @db.ObjectId
+  id          String    @id @default(cuid())
+  quizId      String
   quiz        Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
   text        String
   options     String    // JSON string of options array
@@ -72,7 +73,7 @@ model Question {
 }
 
 model QuizAttempt {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  id          String    @id @default(cuid())
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   quizId      String
@@ -99,7 +100,7 @@ model QuizAttempt {
 }
 
 model Answer {
-  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  id            String      @id @default(cuid())
   userId        String      // Direct reference to user for easier queries
   questionId    String
   question      Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
@@ -115,12 +116,12 @@ model Answer {
 }
 
 model QuestionAttempt {
-  id            String      @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String      @db.ObjectId
+  id            String      @id @default(cuid())
+  userId        String
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  questionId    String      @db.ObjectId
+  questionId    String
   question      Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  quizId        String      @db.ObjectId
+  quizId        String
   quiz          Quiz        @relation(fields: [quizId], references: [id], onDelete: Cascade)
   selectedOption Int
   isCorrect     Boolean?    // Determined after admin adds correct answers
@@ -133,7 +134,7 @@ model QuestionAttempt {
 }
 
 model Payment {
-  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  id            String      @id @default(cuid())
   userId        String
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   amount        Float       // 2 PKR
@@ -148,7 +149,7 @@ model Payment {
 }
 
 model Prize {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  id          String    @id @default(cuid())
   name        String
   description String?
   imageUrl    String?
@@ -167,7 +168,7 @@ model Prize {
 }
 
 model Winning {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  id          String    @id @default(cuid())
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   quizId      String
@@ -184,7 +185,7 @@ model Winning {
 }
 
 model PrizeRedemption {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  id          String    @id @default(cuid())
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   prizeId     String
@@ -206,7 +207,7 @@ model PrizeRedemption {
 }
 
 model RateLimitEntry {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  id        String   @id @default(cuid())
   key       String   // User ID or IP address
   createdAt DateTime @default(now())
   
@@ -214,7 +215,7 @@ model RateLimitEntry {
 }
 
 model SecurityEvent {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  id        String   @id @default(cuid())
   type      String   // AUTH_FAILURE, RATE_LIMIT_EXCEEDED, INVALID_INPUT, etc.
   userId    String?  // Optional user ID
   ip        String?  // Client IP address
@@ -232,7 +233,7 @@ model SecurityEvent {
 }
 
 model DailyPayment {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   amount    Float    @default(2.0) // 2 PKR for daily access
@@ -250,7 +251,7 @@ model DailyPayment {
 }
 
 model StreamConfiguration {
-  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  id                String   @id @default(cuid())
   name              String   // Friendly name for the stream configuration
   facebookPageId    String   // Facebook Page ID
   accessToken       String   // Facebook Page Access Token (encrypted)
@@ -272,8 +273,8 @@ model StreamConfiguration {
 }
 
 model StreamSession {
-  id                    String              @id @default(auto()) @map("_id") @db.ObjectId
-  streamConfigurationId String              @db.ObjectId
+  id                    String              @id @default(cuid())
+  streamConfigurationId String
   streamConfiguration   StreamConfiguration @relation(fields: [streamConfigurationId], references: [id], onDelete: Cascade)
   facebookLiveVideoId   String?             // Facebook Live Video ID
   status                String              // connecting, live, ended, error
@@ -292,8 +293,8 @@ model StreamSession {
 }
 
 model StreamMetrics {
-  id                    String              @id @default(auto()) @map("_id") @db.ObjectId
-  streamConfigurationId String              @db.ObjectId
+  id                    String              @id @default(cuid())
+  streamConfigurationId String
   streamConfiguration   StreamConfiguration @relation(fields: [streamConfigurationId], references: [id], onDelete: Cascade)
   sessionId             String?             // Optional reference to stream session
   metricType            String              // connection_time, viewer_count, quality_change, error_rate

@@ -20,7 +20,7 @@ const registerSchema = z.object({
     .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s])/, 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
   confirmPassword: z.string(),
   phone: z.string()
-    .regex(/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number')
+    .regex(/^(03\d{9}|\+92\d{10})$/, 'Please enter a valid phone number (e.g., 03123456789 or +923123456789)')
     .optional(),
   dateOfBirth: z.string()
     .refine((date) => {
@@ -46,13 +46,13 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  
+
   // Detect mobile device
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
     };
-    
+
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -71,7 +71,7 @@ export default function Register() {
 
   const strengthColors = ['bg-red-500', 'bg-red-400', 'bg-yellow-500', 'bg-blue-500', 'bg-green-500', 'bg-green-600'];
   const strengthLabels = ['Very Weak', 'Weak', 'Fair', 'Good', 'Strong', 'Very Strong'];
-  
+
   const passwordStrength = password ? Math.min(5, [
     password.length >= 8,
     /[a-z]/.test(password),
@@ -84,7 +84,7 @@ export default function Register() {
     setIsSubmitting(true);
     setError('');
     setSuccess('');
-    
+
     try {
       const response = await fetch('/api/register', {
         method: 'POST',
@@ -99,13 +99,13 @@ export default function Register() {
           dateOfBirth: data.dateOfBirth,
         }),
       });
-      
+
       const result = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(result.message || 'Registration failed');
       }
-      
+
       setSuccess('Account created successfully! Redirecting to login...');
       setTimeout(() => {
         router.push('/login?registered=true');
@@ -179,7 +179,7 @@ export default function Register() {
                 </div>
               </div>
             )}
-          
+
             <form className="space-y-6" onSubmit={handleSubmit(onSubmit)}>
               {/* Name Field */}
               <div>
@@ -252,7 +252,7 @@ export default function Register() {
                     autoComplete="tel"
                     {...register('phone')}
                     className={`relative w-full px-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
-                    placeholder="+1234567890"
+                    placeholder="03123456789 or +923123456789"
                   />
                 </div>
                 {errors.phone && (
@@ -339,7 +339,7 @@ export default function Register() {
                         {strengthLabels[passwordStrength - 1] || 'Very Weak'}
                       </span>
                     </div>
-                    
+
                     {/* Password Criteria Checklist */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       <div className={`flex items-center space-x-2 ${password.length >= 8 ? 'text-green-400' : 'text-slate-400'}`}>
@@ -352,7 +352,7 @@ export default function Register() {
                         </svg>
                         <span>At least 8 characters</span>
                       </div>
-                      
+
                       <div className={`flex items-center space-x-2 ${/[a-z]/.test(password) ? 'text-green-400' : 'text-slate-400'}`}>
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           {/[a-z]/.test(password) ? (
@@ -363,7 +363,7 @@ export default function Register() {
                         </svg>
                         <span>One lowercase letter</span>
                       </div>
-                      
+
                       <div className={`flex items-center space-x-2 ${/[A-Z]/.test(password) ? 'text-green-400' : 'text-slate-400'}`}>
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           {/[A-Z]/.test(password) ? (
@@ -374,7 +374,7 @@ export default function Register() {
                         </svg>
                         <span>One uppercase letter</span>
                       </div>
-                      
+
                       <div className={`flex items-center space-x-2 ${/\d/.test(password) ? 'text-green-400' : 'text-slate-400'}`}>
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           {/\d/.test(password) ? (
@@ -385,7 +385,7 @@ export default function Register() {
                         </svg>
                         <span>One number</span>
                       </div>
-                      
+
                       <div className={`flex items-center space-x-2 col-span-1 sm:col-span-2 ${/[^\w\s]/.test(password) ? 'text-green-400' : 'text-slate-400'}`}>
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           {/[^\w\s]/.test(password) ? (
@@ -541,7 +541,7 @@ export default function Register() {
                   </span>
                 </Link>
               </div>
-              
+
               <div className="text-center">
                 <Link
                   href="/how-to-play"

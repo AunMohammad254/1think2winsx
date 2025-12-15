@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/prisma';
-import { Prisma } from '@prisma/client';
+import { PrismaClientKnownRequestError, PrismaClientInitializationError } from '@prisma/client/runtime/library';
 import { z } from 'zod';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
@@ -20,9 +20,9 @@ const registerSchema = z.object({
   password: z.string()
     .min(8, 'Password must be at least 8 characters')
     .max(128, 'Password too long') // Prevent DoS attacks
-    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/, 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s])/, 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
   phone: z.string()
-    .regex(/^\+?[1-9]\d{1,14}$/, 'Please enter a valid phone number')
+    .regex(/^(03\d{9}|\+92\d{10})$/, 'Please enter a valid phone number (e.g., 03123456789 or +923123456789)')
     .optional(),
   dateOfBirth: z.string()
     .refine((date) => {
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    
+
     // Validate input
     const validationResult = registerSchema.safeParse(body);
     if (!validationResult.success) {
@@ -62,15 +62,15 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     const validatedData = validationResult.data;
     const { name, email, password, phone, dateOfBirth } = validatedData;
-    
+
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
-    
+
     if (existingUser) {
       recordSecurityEvent('DUPLICATE_REGISTRATION_ATTEMPT', request, undefined, {
         email: email,
@@ -81,29 +81,35 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-    
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
-    
-    // Create user data object
-    const userData: Prisma.UserCreateInput = {
+
+    // Create user data object with optional fields
+    const userData: {
+      name: string;
+      email: string;
+      password: string;
+      phone?: string;
+      dateOfBirth?: Date;
+    } = {
       name,
       email,
       password: hashedPassword,
     };
-    
+
     // Add optional fields if provided
     if (phone) userData.phone = phone;
     if (dateOfBirth) userData.dateOfBirth = new Date(dateOfBirth);
-    
+
     // Create user
     const user = await prisma.user.create({
       data: userData,
     });
-    
+
     // Return success with redirect information
     return NextResponse.json(
-      { 
+      {
         message: 'User registered successfully',
         user: {
           id: user.id,
@@ -114,12 +120,12 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
-    
+
   } catch (error) {
     console.error('Registration error:', error);
-    
+
     // Handle specific Prisma errors
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error instanceof PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
         securityLogger.logSuspiciousActivity(undefined, '/api/register', 'Duplicate email registration attempt', request);
         return NextResponse.json(
@@ -128,14 +134,14 @@ export async function POST(request: NextRequest) {
         );
       }
     }
-    
-    if (error instanceof Prisma.PrismaClientInitializationError) {
+
+    if (error instanceof PrismaClientInitializationError) {
       return NextResponse.json(
         { message: 'Database connection error' },
         { status: 503 }
       );
     }
-    
+
     return NextResponse.json(
       { message: 'Internal server error' },
       { status: 500 }
