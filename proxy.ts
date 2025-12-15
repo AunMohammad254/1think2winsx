@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export function middleware(_request: NextRequest) {
+export default function proxy(_request: NextRequest) {
   // Create response
   const response = NextResponse.next();
 
@@ -15,12 +15,12 @@ export function middleware(_request: NextRequest) {
   response.headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
   response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
   response.headers.set('Cross-Origin-Resource-Policy', 'same-origin');
-  
+
   // Content Security Policy - More restrictive in production
   const isDev = process.env.NODE_ENV === 'development';
   const csp = [
     "default-src 'self'",
-    isDev 
+    isDev
       ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" // Dev mode needs these for hot reload
       : "script-src 'self'", // Production should be strict
     "style-src 'self' 'unsafe-inline'", // Needed for CSS-in-JS
@@ -33,9 +33,9 @@ export function middleware(_request: NextRequest) {
     "object-src 'none'",
     "media-src 'self'"
   ].join('; ');
-  
+
   response.headers.set('Content-Security-Policy', csp);
-  
+
   // HSTS (only in production)
   if (process.env.NODE_ENV === 'production') {
     response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
