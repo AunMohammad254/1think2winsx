@@ -3,7 +3,16 @@
 :root {
   --background: linear-gradient(135deg, #1e3a8a 0%, #1f2937 50%, #000000 100%);
   --foreground: #ffffff;
+  
+  /* Theme Colors - Easy to customize for your brand */
+  --color-primary: #16a34a;           /* Cricket Green */
+  --color-primary-rgb: 22, 163, 74;   /* RGB for opacity support */
+  --color-secondary: #eab308;         /* Gold */
+  --color-secondary-rgb: 234, 179, 8; /* RGB for opacity support */
+  --color-accent: #1e40af;            /* Deep Blue */
+  --color-accent-rgb: 30, 64, 175;    /* RGB for opacity support */
 }
+
 
 :root {
   --color-background: var(--background);
