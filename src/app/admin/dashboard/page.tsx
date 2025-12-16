@@ -727,7 +727,7 @@ export default function AdminDashboard() {
               <h1 className="text-xl sm:text-2xl font-bold text-white truncate">Admin Dashboard</h1>
               <p className="text-gray-200 text-sm sm:text-base hidden sm:block">Manage your quiz platform</p>
             </div>
-            <div className="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
+            <div className="flex items-center space-x-2 sm:space-x-4 shrink-0">
               <Link
                 href="/admin/db-stats"
                 className="glass-card glass-border-blue glass-hover glass-transition text-white px-2 sm:px-4 py-2 rounded-md text-xs sm:text-sm"
@@ -863,7 +863,7 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
                 <div className="glass-card glass-transition glass-hover p-4 sm:p-6 rounded-lg">
                   <div className="flex items-center">
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="w-8 h-8 bg-gradient-glass-blue glass-border-blue rounded-md flex items-center justify-center">
                         <span className="text-white font-bold text-sm">U</span>
                       </div>
@@ -877,7 +877,7 @@ export default function AdminDashboard() {
 
                 <div className="glass-card glass-transition glass-hover p-4 sm:p-6 rounded-lg">
                   <div className="flex items-center">
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="w-8 h-8 bg-gradient-glass-blue glass-border-blue rounded-md flex items-center justify-center">
                         <span className="text-white font-bold text-sm">Q</span>
                       </div>
@@ -891,7 +891,7 @@ export default function AdminDashboard() {
 
                 <div className="glass-card glass-transition glass-hover p-4 sm:p-6 rounded-lg">
                   <div className="flex items-center">
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="w-8 h-8 bg-gradient-glass-blue glass-border-blue rounded-md flex items-center justify-center">
                         <span className="text-white font-bold text-sm">A</span>
                       </div>
@@ -905,7 +905,7 @@ export default function AdminDashboard() {
 
                 <div className="glass-card glass-transition glass-hover p-4 sm:p-6 rounded-lg">
                   <div className="flex items-center">
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="w-8 h-8 bg-gradient-glass-blue glass-border-blue rounded-md flex items-center justify-center">
                         <span className="text-white font-bold text-sm">$</span>
                       </div>
