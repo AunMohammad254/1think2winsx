@@ -88,7 +88,7 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'quizzes' | 'evaluation' | 'claims' | 'streaming' | 'maintenance'>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  
+
   // Quiz management state
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [showQuizForm, setShowQuizForm] = useState(false);
@@ -111,7 +111,7 @@ export default function AdminDashboard() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      
+
       // Fetch stats
       const statsResponse = await fetch('/api/admin/stats');
       if (statsResponse.status === 403) {
@@ -125,7 +125,7 @@ export default function AdminDashboard() {
       setStats(statsData);
 
 
-      
+
       // Fetch quizzes
       await fetchQuizzes();
     } catch (err) {
@@ -153,10 +153,10 @@ export default function AdminDashboard() {
       const response = await fetch('/api/admin/quizzes');
       if (response.ok) {
         const data = await response.json();
-        
+
         // Handle the admin API response structure with quizzes array
         const quizzesArray = data.quizzes || [];
-        
+
         // Ensure we have an array before setting - admin API returns proper structure
         if (Array.isArray(quizzesArray)) {
           setQuizzes(quizzesArray);
@@ -186,7 +186,7 @@ export default function AdminDashboard() {
       alert('Please add at least one question to the quiz.');
       return;
     }
-    
+
     // Validate each question
     for (let i = 0; i < quizFormData.questions.length; i++) {
       const question = quizFormData.questions[i];
@@ -199,9 +199,9 @@ export default function AdminDashboard() {
         return;
       }
     }
-    
+
     setIsCreatingQuiz(true);
-    
+
     // Optimistic update - add quiz to list immediately
     const optimisticQuiz: Quiz = {
       id: `temp-${Date.now()}`,
@@ -213,20 +213,20 @@ export default function AdminDashboard() {
       createdAt: new Date().toISOString(),
       _count: { questions: quizFormData.questions.length }
     };
-    
+
     setQuizzes(prev => [optimisticQuiz, ...prev]);
-    
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-      
+
       // Get CSRF token
       const csrfResponse = await fetch('/api/csrf-token');
       if (!csrfResponse.ok) {
         throw new Error('Failed to get CSRF token');
       }
       const { csrfToken } = await csrfResponse.json();
-      
+
       // Prepare data for new API format
       const requestData = {
         title: quizFormData.title,
@@ -240,7 +240,7 @@ export default function AdminDashboard() {
           isActive: true,
         }))
       };
-      
+
       const response = await fetch('/api/admin/quizzes', {
         method: 'POST',
         headers: {
@@ -250,38 +250,38 @@ export default function AdminDashboard() {
         body: JSON.stringify(requestData),
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (response.ok) {
         const result = await response.json();
-        
+
         // Replace optimistic quiz with real data
-        setQuizzes(prev => prev.map(quiz => 
-          quiz.id === optimisticQuiz.id 
-            ? { 
-                ...result.quiz, 
-                _count: { questions: result.quiz.questions?.length || 0 },
-                startDate: quizFormData.startDate,
-                endDate: quizFormData.endDate
-              }
+        setQuizzes(prev => prev.map(quiz =>
+          quiz.id === optimisticQuiz.id
+            ? {
+              ...result.quiz,
+              _count: { questions: result.quiz.questions?.length || 0 },
+              startDate: quizFormData.startDate,
+              endDate: quizFormData.endDate
+            }
             : quiz
         ));
-        
+
         alert('Quiz created successfully!');
         setShowQuizForm(false);
         resetQuizForm();
       } else {
         // Remove optimistic quiz on error
         setQuizzes(prev => prev.filter(quiz => quiz.id !== optimisticQuiz.id));
-        
+
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         alert(`Failed to create quiz: ${errorData.error || 'Server error'}`);
       }
     } catch (error: unknown) {
       // Remove optimistic quiz on error
       setQuizzes(prev => prev.filter(quiz => quiz.id !== optimisticQuiz.id));
-      
+
       if (error instanceof Error && error.name === 'AbortError') {
         alert('Create operation timed out. Please try again.');
       } else {
@@ -295,10 +295,10 @@ export default function AdminDashboard() {
 
   const handleUpdateQuiz = async () => {
     if (!editingQuiz) return;
-    
+
     console.log('Starting quiz update for quiz:', editingQuiz.id);
     console.log('Quiz form data:', quizFormData);
-    
+
     // Validation
     if (!quizFormData.title.trim()) {
       alert('Please enter a quiz title.');
@@ -308,7 +308,7 @@ export default function AdminDashboard() {
       alert('Please add at least one question to the quiz.');
       return;
     }
-    
+
     // Validate each question
     for (let i = 0; i < quizFormData.questions.length; i++) {
       const question = quizFormData.questions[i];
@@ -321,12 +321,12 @@ export default function AdminDashboard() {
         return;
       }
     }
-    
+
     setIsUpdatingQuiz(true);
-    
+
     // Store original quiz for rollback
     const originalQuiz = quizzes.find(q => q.id === editingQuiz.id);
-    
+
     // Optimistic update
     const updatedQuiz: Quiz = {
       ...editingQuiz,
@@ -337,15 +337,15 @@ export default function AdminDashboard() {
       isActive: quizFormData.isActive,
       _count: { questions: quizFormData.questions.length }
     };
-    
-    setQuizzes(prev => prev.map(quiz => 
+
+    setQuizzes(prev => prev.map(quiz =>
       quiz.id === editingQuiz.id ? updatedQuiz : quiz
     ));
-    
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-      
+
       // Prepare questions data for new API format
       const questionsData = quizFormData.questions.map((q, index) => ({
         id: q.id?.startsWith('temp-') ? undefined : q.id,
@@ -355,7 +355,7 @@ export default function AdminDashboard() {
         isActive: true,
         order: index
       }));
-      
+
       const requestBody = {
         title: quizFormData.title,
         description: quizFormData.description || null,
@@ -363,9 +363,9 @@ export default function AdminDashboard() {
         isActive: quizFormData.isActive,
         questions: questionsData
       };
-      
+
       console.log('Sending update request with body:', requestBody);
-      
+
       const response = await fetch(`/api/admin/quizzes/${editingQuiz.id}`, {
         method: 'PUT',
         headers: {
@@ -374,25 +374,25 @@ export default function AdminDashboard() {
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (response.ok) {
         const result = await response.json();
         console.log('Quiz updated successfully:', result);
-        
+
         // Update with real data from server
-        setQuizzes(prev => prev.map(quiz => 
-          quiz.id === editingQuiz.id 
-            ? { 
-                ...result.quiz,
-                _count: { questions: result.quiz.questions?.length || 0 },
-                startDate: quizFormData.startDate,
-                endDate: quizFormData.endDate
-              }
+        setQuizzes(prev => prev.map(quiz =>
+          quiz.id === editingQuiz.id
+            ? {
+              ...result.quiz,
+              _count: { questions: result.quiz.questions?.length || 0 },
+              startDate: quizFormData.startDate,
+              endDate: quizFormData.endDate
+            }
             : quiz
         ));
-        
+
         alert('Quiz updated successfully!');
         setShowQuizForm(false);
         setEditingQuiz(null);
@@ -400,11 +400,11 @@ export default function AdminDashboard() {
       } else {
         // Rollback optimistic update
         if (originalQuiz) {
-          setQuizzes(prev => prev.map(quiz => 
+          setQuizzes(prev => prev.map(quiz =>
             quiz.id === editingQuiz.id ? originalQuiz : quiz
           ));
         }
-        
+
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         console.error('Update failed:', errorData);
         alert(`Failed to update quiz: ${errorData.error || 'Server error'}`);
@@ -412,11 +412,11 @@ export default function AdminDashboard() {
     } catch (error: unknown) {
       // Rollback optimistic update
       if (originalQuiz) {
-        setQuizzes(prev => prev.map(quiz => 
+        setQuizzes(prev => prev.map(quiz =>
           quiz.id === editingQuiz.id ? originalQuiz : quiz
         ));
       }
-      
+
       if (error instanceof Error && error.name === 'AbortError') {
         alert('Update operation timed out. Please try again.');
       } else {
@@ -432,28 +432,28 @@ export default function AdminDashboard() {
   const _handleToggleQuizStatus = async (quizId: string, isActive: boolean) => {
     try {
       // Optimistic update
-      setQuizzes(prev => prev.map(quiz => 
+      setQuizzes(prev => prev.map(quiz =>
         quiz.id === quizId ? { ...quiz, isActive } : quiz
       ));
-      
+
       const response = await fetch(`/api/admin/quizzes/${quizId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive }),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to update quiz status');
       }
-      
+
       const result = await response.json();
-      
+
       // Update with server response
-      setQuizzes(prev => prev.map(quiz => 
+      setQuizzes(prev => prev.map(quiz =>
         quiz.id === quizId ? { ...quiz, ...result.quiz } : quiz
       ));
-      
+
     } catch (error) {
       console.error('Error updating quiz status:', error);
       // Revert optimistic update on error
@@ -479,7 +479,7 @@ export default function AdminDashboard() {
           'X-CSRF-Token': csrfToken,
         },
       });
-      
+
       if (!response.ok) {
         let errorMessage = 'Failed to delete quiz';
         try {
@@ -495,10 +495,10 @@ export default function AdminDashboard() {
         }
         throw new Error(errorMessage);
       }
-      
+
       // Remove quiz from state
       setQuizzes(prev => prev.filter(quiz => quiz.id !== quizId));
-      
+
     } catch (error) {
       console.error('Error deleting quiz:', error);
       alert(error instanceof Error ? error.message : 'Failed to delete quiz');
@@ -518,8 +518,8 @@ export default function AdminDashboard() {
   };
 
   const _handleSelectQuiz = (quizId: string) => {
-    setSelectedQuizzes(prev => 
-      prev.includes(quizId) 
+    setSelectedQuizzes(prev =>
+      prev.includes(quizId)
         ? prev.filter(id => id !== quizId)
         : [...prev, quizId]
     );
@@ -551,7 +551,7 @@ export default function AdminDashboard() {
       const deletePromises = selectedQuizzes.map(async (quizId): Promise<BulkDeleteResult> => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
-        
+
         const response = await fetch(`/api/admin/quizzes/${quizId}`, {
           method: 'DELETE',
           signal: controller.signal,
@@ -560,7 +560,7 @@ export default function AdminDashboard() {
             'X-CSRF-Token': csrfToken,
           },
         });
-        
+
         clearTimeout(timeoutId);
         return { quizId, success: response.ok, error: response.ok ? null : await response.text() };
       });
@@ -589,23 +589,23 @@ export default function AdminDashboard() {
     try {
       setLoading(true);
       console.log('Editing quiz:', quiz.id);
-      
+
       // Fetch complete quiz data with questions from the admin quiz endpoint
       const response = await fetch(`/api/admin/quizzes/${quiz.id}`);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
         console.error('Failed to fetch quiz details:', errorData);
         throw new Error(errorData.message || 'Failed to load quiz');
       }
-      
+
       const responseData = await response.json();
       console.log('Fetched response data:', responseData);
-      
+
       // Extract quiz data from the response - the API returns data nested under 'quiz' property
       const completeQuizData = responseData.quiz || responseData;
       console.log('Complete quiz data:', completeQuizData);
-      
+
       // Process questions to ensure options are arrays and handle correct answers
       const processedQuestions = completeQuizData.questions?.map((q: QuizQuestion) => {
         console.log('Processing question:', q);
@@ -616,9 +616,9 @@ export default function AdminDashboard() {
           correctOption: q.correctOption !== null && q.correctOption !== undefined ? q.correctOption : 0
         };
       }) || [];
-      
+
       console.log('Processed questions:', processedQuestions);
-      
+
       setEditingQuiz(quiz);
       setQuizFormData({
         title: completeQuizData.title || '',
@@ -693,8 +693,11 @@ export default function AdminDashboard() {
   }
 
   if (status === 'unauthenticated') {
-    router.push('/login');
-    return null;
+    return (
+      <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-400"></div>
+      </div>
+    );
   }
 
   if (error) {
@@ -703,8 +706,8 @@ export default function AdminDashboard() {
         <div className="glass-card glass-transition glass-hover p-8 rounded-lg text-center">
           <h1 className="text-2xl font-bold text-white mb-4">Error</h1>
           <p className="text-gray-200 mb-4">{error}</p>
-          <Link 
-            href="/" 
+          <Link
+            href="/"
             className="inline-flex items-center px-4 py-2 glass-card-blue glass-border-blue glass-hover-blue glass-transition text-white rounded-md"
           >
             Go Home
@@ -725,14 +728,14 @@ export default function AdminDashboard() {
               <p className="text-gray-200 text-sm sm:text-base hidden sm:block">Manage your quiz platform</p>
             </div>
             <div className="flex items-center space-x-2 sm:space-x-4 flex-shrink-0">
-              <Link 
+              <Link
                 href="/admin/db-stats"
                 className="glass-card glass-border-blue glass-hover glass-transition text-white px-2 sm:px-4 py-2 rounded-md text-xs sm:text-sm"
               >
                 <span className="hidden sm:inline">Database Stats</span>
                 <span className="sm:hidden">📊</span>
               </Link>
-              <Link 
+              <Link
                 href="/admin/security"
                 className="glass-card glass-border-blue glass-hover glass-transition text-white px-2 sm:px-4 py-2 rounded-md text-xs sm:text-sm"
               >
@@ -742,7 +745,7 @@ export default function AdminDashboard() {
               <span className="text-gray-200 text-xs sm:text-sm hidden md:block truncate max-w-[150px]">
                 Welcome, {session?.user?.name}
               </span>
-              
+
               {/* Mobile Menu Button */}
               <button
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -766,61 +769,55 @@ export default function AdminDashboard() {
           <nav className="hidden md:flex space-x-8 overflow-x-auto">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${
-                activeTab === 'overview'
+              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'overview'
                   ? 'border-blue-400 text-blue-300'
                   : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
-              }`}
+                }`}
             >
               Overview
             </button>
             <button
               onClick={() => setActiveTab('quizzes')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${
-                activeTab === 'quizzes'
+              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'quizzes'
                   ? 'border-blue-400 text-blue-300'
                   : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
-              }`}
+                }`}
             >
               Quiz Management
             </button>
             <button
               onClick={() => setActiveTab('evaluation')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${
-                activeTab === 'evaluation'
+              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'evaluation'
                   ? 'border-blue-400 text-blue-300'
                   : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
-              }`}
+                }`}
             >
               Quiz Evaluation
             </button>
             <button
               onClick={() => setActiveTab('claims')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${
-                activeTab === 'claims'
+              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'claims'
                   ? 'border-blue-400 text-blue-300'
                   : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
-              }`}
+                }`}
             >
               Player Claims
             </button>
             <button
               onClick={() => setActiveTab('streaming')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${
-                activeTab === 'streaming'
+              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'streaming'
                   ? 'border-blue-400 text-blue-300'
                   : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
-              }`}
+                }`}
             >
               Live Streaming
             </button>
             <button
               onClick={() => setActiveTab('maintenance')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${
-                activeTab === 'maintenance'
+              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'maintenance'
                   ? 'border-blue-400 text-blue-300'
                   : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
-              }`}
+                }`}
             >
               Maintenance
             </button>
@@ -843,11 +840,10 @@ export default function AdminDashboard() {
                     setActiveTab(item.key as 'overview' | 'quizzes' | 'evaluation' | 'claims' | 'streaming' | 'maintenance');
                     setIsMobileMenuOpen(false);
                   }}
-                  className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-all duration-300 ${
-                    activeTab === item.key
+                  className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-all duration-300 ${activeTab === item.key
                       ? 'bg-blue-500/20 text-blue-300 border border-blue-400/30'
                       : 'text-gray-300 hover:text-white hover:bg-white/10'
-                  }`}
+                    }`}
                 >
                   <span className="text-lg">{item.icon}</span>
                   <span className="font-medium">{item.label}</span>
@@ -1043,7 +1039,7 @@ export default function AdminDashboard() {
                                 Remove
                               </button>
                             </div>
-                            
+
                             <div className="space-y-4">
                               <div>
                                 <label className="block text-sm font-medium text-gray-200 mb-2">
@@ -1057,7 +1053,7 @@ export default function AdminDashboard() {
                                   placeholder="Enter question text"
                                 />
                               </div>
-                              
+
                               <div>
                                 <label className="block text-sm font-medium text-gray-200 mb-2">
                                   Answer Options *
@@ -1146,7 +1142,7 @@ export default function AdminDashboard() {
               <div className="px-6 py-4 glass-card-blue border-b border-blue-400">
                 <h3 className="text-lg font-medium text-white">All Quizzes</h3>
               </div>
-              
+
               {loading ? (
                 <div className="p-8 text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-400 mx-auto"></div>
@@ -1217,11 +1213,10 @@ export default function AdminDashboard() {
                             {quiz.stats?.totalQuestions || quiz._count?.questions || 0} questions
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded ${
-                              (quiz.status === 'active' || quiz.isActive) 
-                                ? 'bg-green-500 bg-opacity-20 text-green-300 border border-green-400' 
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded ${(quiz.status === 'active' || quiz.isActive)
+                                ? 'bg-green-500 bg-opacity-20 text-green-300 border border-green-400'
                                 : 'bg-red-500 bg-opacity-20 text-red-300 border border-red-400'
-                            }`}>
+                              }`}>
                               {(quiz.status === 'active' || quiz.isActive) ? 'Active' : 'Inactive'}
                             </span>
                           </td>
@@ -1296,8 +1291,8 @@ export default function AdminDashboard() {
               </div>
               <div className="p-6">
                 <div className="space-y-4">
-                  
-                  
+
+
                   <div className="flex items-center justify-between p-4 glass-card-blue glass-border-blue rounded-md">
                     <div>
                       <h4 className="font-medium text-white">Database Statistics</h4>

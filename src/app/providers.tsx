@@ -9,7 +9,11 @@ interface ProvidersProps {
 
 export function Providers({ children }: ProvidersProps) {
   return (
-    <SessionProvider>
+    <SessionProvider
+      basePath="/api/auth"
+      refetchOnWindowFocus={false}
+      refetchWhenOffline={false}
+    >
       <ProfileProvider>
         {children}
       </ProfileProvider>

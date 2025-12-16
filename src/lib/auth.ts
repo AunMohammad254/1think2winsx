@@ -1,13 +1,20 @@
 import NextAuth, { type NextAuthConfig } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
-import * as bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import prisma from './prisma';
-import { Prisma } from '@prisma/client';
-import type { JWT as _JWT } from 'next-auth/jwt';
-import type { Session as _Session, User, Account as _Account } from 'next-auth';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import type { User } from 'next-auth';
 import { securityLogger } from './security-logger';
+
+// Google OAuth profile type
+interface GoogleProfile {
+  name?: string;
+  picture?: string;
+  email?: string;
+  sub?: string;
+}
 
 // Extend the User type to include isAdmin
 interface _ExtendedUser extends User {
@@ -23,22 +30,21 @@ interface ExtendedSession {
   expires: string;
 }
 
-// Environment variables validation
-if (!process.env.NEXTAUTH_SECRET) {
-  console.error('NEXTAUTH_SECRET environment variable is required');
-  throw new Error('NEXTAUTH_SECRET environment variable is required');
+// Environment variables validation - Auth.js v5 uses AUTH_SECRET
+// Support both AUTH_SECRET (preferred) and NEXTAUTH_SECRET (legacy)
+const authSecret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
+if (!authSecret) {
+  console.warn('AUTH_SECRET or NEXTAUTH_SECRET environment variable is missing');
 }
 
-// NEXTAUTH_URL is required in production
 if (process.env.NODE_ENV === 'production' && !process.env.NEXTAUTH_URL) {
-  console.error('NEXTAUTH_URL environment variable is required in production');
-  throw new Error('NEXTAUTH_URL environment variable is required in production');
+  console.warn('NEXTAUTH_URL environment variable is missing in production');
 }
 
 // Log environment configuration (without sensitive data)
 console.log('NextAuth Configuration:', {
   nodeEnv: process.env.NODE_ENV,
-  hasSecret: !!process.env.NEXTAUTH_SECRET,
+  hasSecret: !!authSecret,
   hasUrl: !!process.env.NEXTAUTH_URL,
   url: process.env.NEXTAUTH_URL ? process.env.NEXTAUTH_URL.substring(0, 20) + '...' : 'not set',
   hasAdminEmails: !!process.env.ADMIN_EMAILS
@@ -50,6 +56,9 @@ const loginSchema = z.object({
 });
 
 export const authConfig: NextAuthConfig = {
+  // Trust the host header - important for Auth.js v5
+  trustHost: true,
+  secret: authSecret,
   session: {
     strategy: "jwt" as const,
     maxAge: 24 * 60 * 60, // 24 hours
@@ -140,7 +149,7 @@ export const authConfig: NextAuthConfig = {
           };
         } catch (error) {
           console.error('Auth error:', error);
-          if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          if (error instanceof PrismaClientKnownRequestError) {
             securityLogger.logAuthFailure(
               undefined,
               '/api/auth/signin',
@@ -156,6 +165,9 @@ export const authConfig: NextAuthConfig = {
     async signIn({ user, account, profile }) {
       if (account?.provider === 'google') {
         try {
+          // Cast profile to GoogleProfile for type safety
+          const googleProfile = profile as GoogleProfile | undefined;
+
           // Check if user already exists in database
           const existingUser = await prisma.user.findUnique({
             where: { email: user.email! }
@@ -166,20 +178,20 @@ export const authConfig: NextAuthConfig = {
             const newUser = await prisma.user.create({
               data: {
                 email: user.email!,
-                name: user.name || profile?.name,
-                profilePicture: user.image || profile?.picture,
+                name: user.name || googleProfile?.name,
+                profilePicture: user.image || googleProfile?.picture,
                 // password is optional for OAuth users
               }
             });
-            
+
             // Update the user object with the database ID
             user.id = newUser.id;
-            
+
             console.log('Created new Google OAuth user:', newUser.id);
           } else {
             // Update the user object with the existing database ID
             user.id = existingUser.id;
-            
+
             // Optionally update profile picture if it's new
             if (user.image && user.image !== existingUser.profilePicture) {
               await prisma.user.update({
@@ -187,7 +199,7 @@ export const authConfig: NextAuthConfig = {
                 data: { profilePicture: user.image }
               });
             }
-            
+
             console.log('Found existing Google OAuth user:', existingUser.id);
           }
         } catch (error) {
@@ -201,10 +213,15 @@ export const authConfig: NextAuthConfig = {
       if (user) {
         token.id = user.id;
         token.accessTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-        
+
         // Check if user is admin based on email
         const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
         token.isAdmin = adminEmails.includes(user.email || '');
+      }
+
+      // Ensure expiration is set
+      if (!token.accessTokenExpires) {
+        token.accessTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
       }
 
       // Return previous token if the access token has not expired yet
@@ -212,24 +229,30 @@ export const authConfig: NextAuthConfig = {
         return token;
       }
 
-      // Access token has expired, log and throw error
+      // Access token has expired - log and mark as expired without throwing
       securityLogger.logAuthFailure(
         token.id as string,
         '/api/auth/jwt',
         'Token expired, re-authentication required'
       );
-      throw new Error('RefreshAccessTokenError');
+      return { ...token, expired: true };
     },
     async session({ session, token }) {
+      // If token is expired, return null session to trigger re-auth
+      if (token?.expired) {
+        return null as unknown as typeof session;
+      }
+
       if (token && session.user) {
         session.user.id = token.id as string;
-        (session.user as User & { isAdmin: boolean }).isAdmin = token.isAdmin as boolean;
+        // Use unknown intermediate cast for type safety
+        (session.user as unknown as { isAdmin: boolean }).isAdmin = token.isAdmin as boolean;
         // Add expiration info to session for client-side handling
-        (session as ExtendedSession).expires = new Date(token.accessTokenExpires as number).toISOString();
+        (session as unknown as ExtendedSession).expires = new Date(token.accessTokenExpires as number).toISOString();
       }
       return session;
     },
   },
 };
 
-export const { auth, signIn, signOut } = NextAuth(authConfig);
+export const { auth, signIn, signOut, handlers } = NextAuth(authConfig);

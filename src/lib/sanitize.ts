@@ -26,21 +26,9 @@ export class HTMLSanitizer {
     if (typeof dirty !== 'string') {
       return '';
     }
-    
-    if (this.isServer) {
-      // Server-side: Use simple regex-based sanitization
-      return this.serverSideSanitize(dirty);
-    } else {
-      // Client-side: Use DOMPurify when available
-      if (typeof window !== 'undefined' && window.DOMPurify) {
-        return window.DOMPurify.sanitize(dirty, {
-          ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'u', 'br', 'p'],
-          ALLOWED_ATTR: [],
-          ALLOW_DATA_ATTR: false
-        });
-      }
-      return this.serverSideSanitize(dirty);
-    }
+
+    // Use regex-based sanitization since DOMPurify package was removed
+    return this.serverSideSanitize(dirty);
   }
 
   /**
@@ -51,16 +39,16 @@ export class HTMLSanitizer {
   private serverSideSanitize(dirty: string): string {
     // Remove script tags and their content
     let clean = dirty.replace(/<script[^>]*>.*?<\/script>/gis, '');
-    
+
     // Remove dangerous attributes
     clean = clean.replace(/\s*on\w+\s*=\s*["'][^"']*["']/gi, '');
     clean = clean.replace(/\s*javascript\s*:/gi, '');
     clean = clean.replace(/\s*data\s*:/gi, '');
-    
+
     // Allow only safe tags
     const allowedTags = ['b', 'i', 'em', 'strong', 'u', 'br', 'p'];
     const tagPattern = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g;
-    
+
     clean = clean.replace(tagPattern, (match, tagName) => {
       if (allowedTags.includes(tagName.toLowerCase())) {
         // For allowed tags, remove all attributes for safety
@@ -68,7 +56,7 @@ export class HTMLSanitizer {
       }
       return ''; // Remove disallowed tags
     });
-    
+
     return clean;
   }
 
@@ -81,10 +69,10 @@ export class HTMLSanitizer {
     if (typeof dirty !== 'string') {
       return '';
     }
-    
+
     // Remove all HTML tags and decode entities
     const withoutTags = dirty.replace(/<[^>]*>/g, '');
-    
+
     // Basic entity decoding for common cases
     return withoutTags
       .replace(/&lt;/g, '<')
@@ -103,7 +91,7 @@ export class HTMLSanitizer {
     if (typeof content !== 'string') {
       return '';
     }
-    
+
     // For quiz content, we want to be extra strict - no HTML allowed
     return this.sanitizeText(content).trim();
   }

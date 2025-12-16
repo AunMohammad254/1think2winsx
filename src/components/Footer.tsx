@@ -12,13 +12,13 @@ export default function Footer() {
           <div className="absolute bottom-0 right-1/4 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl md:animate-pulse" style={{ animationDelay: '1s' }}></div>
           <div className="absolute top-1/2 left-1/2 w-24 h-24 bg-blue-400/10 rounded-full blur-2xl hidden lg:block lg:animate-bounce" style={{ animationDuration: '4s' }}></div>
         </div>
-        
+
         <footer className="relative bg-gray-900/80 md:backdrop-blur-xl md:bg-gradient-to-t md:from-gray-900/80 md:via-blue-900/40 md:to-gray-900/60 border-t border-white/10 shadow-lg md:shadow-2xl">
           <div className="container mx-auto px-4 py-12">
-            
+
             {/* Main Footer Content */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
-              
+
               {/* Company Info */}
               <div className="space-y-6">
                 <div className="group">
@@ -40,13 +40,13 @@ export default function Footer() {
                   {/* Simplified glass card - reduced blur on mobile */}
                   <div className="bg-white/5 md:backdrop-blur-sm border border-white/10 rounded-lg p-4">
                     <p className="text-gray-300 text-sm leading-relaxed">
-                      Test your cricket knowledge and win amazing prizes in our innovative quiz competition. 
+                      Test your cricket knowledge and win amazing prizes in our innovative quiz competition.
                       Join thousands of smart thinkers in this exciting journey of knowledge and rewards!
                     </p>
                   </div>
                 </div>
               </div>
-              
+
               {/* Quick Links */}
               <div className="space-y-4">
                 <h4 className="text-lg font-semibold text-white flex items-center space-x-2">
@@ -63,8 +63,8 @@ export default function Footer() {
                       { href: '/leaderboard', label: 'Leaderboard', icon: '📊' }
                     ].map((item) => (
                       <li key={item.href}>
-                        <Link 
-                          href={item.href} 
+                        <Link
+                          href={item.href}
                           className="group flex items-center space-x-3 text-gray-300 hover:text-white transition-colors duration-200 p-2 rounded-md hover:bg-white/10"
                         >
                           <span className="text-sm opacity-70 group-hover:opacity-100 transition-opacity duration-200">
@@ -80,7 +80,7 @@ export default function Footer() {
                   </ul>
                 </div>
               </div>
-              
+
               {/* Support */}
               <div className="space-y-4">
                 <h4 className="text-lg font-semibold text-white flex items-center space-x-2">
@@ -98,8 +98,8 @@ export default function Footer() {
                       { href: '/privacy', label: 'Privacy Policy', icon: '🔒' }
                     ].map((item) => (
                       <li key={item.href}>
-                        <Link 
-                          href={item.href} 
+                        <Link
+                          href={item.href}
                           className="group flex items-center space-x-3 text-gray-300 hover:text-white transition-colors duration-200 p-2 rounded-md hover:bg-white/10"
                         >
                           <span className="text-sm opacity-70 group-hover:opacity-100 transition-opacity duration-200">
@@ -115,7 +115,7 @@ export default function Footer() {
                   </ul>
                 </div>
               </div>
-              
+
               {/* Contact Info */}
               <div className="space-y-4">
                 <h4 className="text-lg font-semibold text-white flex items-center space-x-2">
@@ -124,7 +124,7 @@ export default function Footer() {
                 </h4>
                 {/* Simplified glass card */}
                 <div className="bg-white/5 md:backdrop-blur-sm border border-white/10 rounded-lg p-4 space-y-4">
-                  
+
                   {/* Contact Details */}
                   <div className="space-y-3">
                     <div className="flex items-start space-x-3 p-2 rounded-md hover:bg-white/5 transition-colors duration-200">
@@ -142,7 +142,7 @@ export default function Footer() {
                       </div>
                     </div>
                   </div>
-                  
+
                   {/* Social Links */}
                   <div className="border-t border-white/10 pt-4">
                     <p className="text-xs text-gray-400 mb-3">Follow Us</p>
@@ -166,7 +166,7 @@ export default function Footer() {
                 </div>
               </div>
             </div>
-            
+
             {/* Newsletter Signup */}
             <div className="mb-8">
               {/* Simplified glass card */}
@@ -180,6 +180,7 @@ export default function Footer() {
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
                   <input
+                    suppressHydrationWarning
                     type="email"
                     placeholder="Enter your email"
                     className="flex-1 px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
@@ -190,7 +191,7 @@ export default function Footer() {
                 </div>
               </div>
             </div>
-            
+
             {/* Bottom Bar */}
             <div className="border-t border-white/10 pt-8">
               {/* Simplified glass card */}
@@ -204,7 +205,7 @@ export default function Footer() {
                       Crafted with ❤️ for cricket enthusiasts worldwide
                     </p>
                   </div>
-                  
+
                   <div className="flex items-center space-x-4">
                     <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-green-500/20 border border-green-400/30">
                       <div className="w-2 h-2 bg-green-400 rounded-full md:animate-pulse"></div>

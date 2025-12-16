@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+test-results.json
 
 # next.js
 /.next/
@@ -24,14 +25,18 @@
 .DS_Store
 *.pem
 
-# debug
+# debug & logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+logs/
+
+
 
 # env files (can opt-in for committing if needed)
 .env
+.env.local
 
 # vercel
 .vercel
@@ -40,7 +45,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-.vercel
 # Prisma
 prisma/dev.db
 prisma/dev.db-journal
@@ -48,3 +52,9 @@ prisma/dev.db-shm
 *.db
 *.db-journal
 dev.db
+
+# Build tools
+tools/
+
+# Backup env files
+.env(supabase)
