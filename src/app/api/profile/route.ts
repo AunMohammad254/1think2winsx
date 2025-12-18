@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { z } from 'zod';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -19,7 +19,7 @@ const updateProfileSchema = z.object({
 export async function GET() {
   try {
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { message: 'Unauthorized' },
@@ -95,7 +95,7 @@ export async function GET() {
         ...attempt,
         quiz: {
           ...attempt.quiz,
-          _count: { 
+          _count: {
             questions: attempt.quiz?.questions?.length || 0,
           },
         },
@@ -146,7 +146,7 @@ export async function GET() {
 
     // Get user's prize redemptions (prizes bought with points)
     const prizeRedemptions = await prisma.prizeRedemption.findMany({
-      where: { 
+      where: {
         userId,
         status: { in: ['pending', 'approved', 'fulfilled'] } // Include all successful redemptions
       },
@@ -196,7 +196,7 @@ export async function GET() {
 
     // Get count of successful prize redemptions
     const totalRedemptions = await prisma.prizeRedemption.count({
-      where: { 
+      where: {
         userId,
         status: { in: ['pending', 'approved', 'fulfilled'] }
       },
@@ -219,14 +219,14 @@ export async function GET() {
     }, { status: 200 });
   } catch (error) {
     console.error('Error fetching profile:', error);
-    
+
     if (error instanceof Prisma.PrismaClientInitializationError) {
       return NextResponse.json(
         { message: 'Database connection error' },
         { status: 503 }
       );
     }
-    
+
     return NextResponse.json(
       { message: 'Internal server error' },
       { status: 500 }
@@ -244,7 +244,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { message: 'Unauthorized' },
@@ -266,7 +266,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    
+
     // Validate request body
     const validationResult = updateProfileSchema.safeParse(body);
     if (!validationResult.success) {
@@ -365,7 +365,7 @@ export async function PUT(request: NextRequest) {
     }, { status: 200 });
   } catch (error) {
     console.error('Error updating profile:', error);
-    
+
     // Handle specific Prisma errors
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') {
@@ -381,14 +381,14 @@ export async function PUT(request: NextRequest) {
         );
       }
     }
-    
+
     if (error instanceof Prisma.PrismaClientInitializationError) {
       return NextResponse.json(
         { message: 'Database connection error' },
         { status: 503 }
       );
     }
-    
+
     return NextResponse.json(
       { message: 'Internal server error' },
       { status: 500 }

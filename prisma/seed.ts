@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -10,10 +10,10 @@ async function main() {
   await prisma.question.deleteMany();
   await prisma.quiz.deleteMany();
   await prisma.user.deleteMany();
-  
+
   // Create test user
   const hashedPassword = await bcrypt.hash('password123', 10);
-  
+
   const user = await prisma.user.create({
     data: {
       name: 'Test User',
@@ -21,7 +21,7 @@ async function main() {
       password: hashedPassword,
     },
   });
-  
+
   // Create test quizzes
   const quiz1 = await prisma.quiz.create({
     data: {
@@ -29,14 +29,14 @@ async function main() {
       description: 'Test your general knowledge with this fun quiz!',
     },
   });
-  
+
   const quiz2 = await prisma.quiz.create({
     data: {
       title: 'Science Quiz',
       description: 'Challenge yourself with science questions!',
     },
   });
-  
+
   // Create questions for quiz1
   await prisma.question.create({
     data: {
@@ -46,7 +46,7 @@ async function main() {
       correctOption: 2,
     },
   });
-  
+
   await prisma.question.create({
     data: {
       quizId: quiz1.id,
@@ -55,7 +55,7 @@ async function main() {
       correctOption: 1,
     },
   });
-  
+
   // Create questions for quiz2
   await prisma.question.create({
     data: {
@@ -65,7 +65,7 @@ async function main() {
       correctOption: 0,
     },
   });
-  
+
   await prisma.question.create({
     data: {
       quizId: quiz2.id,
@@ -74,7 +74,7 @@ async function main() {
       correctOption: 0,
     },
   });
-  
+
   console.log({ user, quiz1, quiz2 });
   console.log('Database seeded successfully!');
 }

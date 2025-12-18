@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import prisma from '@/lib/prisma';
 import { PrismaClientKnownRequestError, PrismaClientInitializationError } from '@prisma/client/runtime/library';
 import { z } from 'zod';

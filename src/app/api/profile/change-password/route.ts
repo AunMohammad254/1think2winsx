@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { z } from 'zod';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
@@ -27,7 +27,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const session = await auth();
-    
+
     if (!session || !session.user) {
       securityLogger.logUnauthorizedAccess(undefined, '/api/profile/change-password', request);
       return NextResponse.json(
@@ -54,7 +54,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    
+
     // Validate request body
     const validationResult = changePasswordSchema.safeParse(body);
     if (!validationResult.success) {
@@ -131,9 +131,9 @@ export async function PUT(request: NextRequest) {
       type: 'PASSWORD_CHANGE',
       userId: userId,
       endpoint: '/api/profile/change-password',
-      details: { 
+      details: {
         action: 'User successfully changed password',
-        timestamp: new Date().toISOString() 
+        timestamp: new Date().toISOString()
       }
     });
 
@@ -143,7 +143,7 @@ export async function PUT(request: NextRequest) {
 
   } catch (error) {
     console.error('Error changing password:', error);
-    
+
     // Handle specific Prisma errors
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {
@@ -153,14 +153,14 @@ export async function PUT(request: NextRequest) {
         );
       }
     }
-    
+
     if (error instanceof Prisma.PrismaClientInitializationError) {
       return NextResponse.json(
         { message: 'Database connection error' },
         { status: 503 }
       );
     }
-    
+
     return NextResponse.json(
       { message: 'Internal server error' },
       { status: 500 }

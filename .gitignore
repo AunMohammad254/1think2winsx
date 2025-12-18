@@ -58,5 +58,3 @@ tools/
 
 # Backup env files
 .env(supabase)
-error.log
-error1.log

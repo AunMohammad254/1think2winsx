@@ -7,9 +7,10 @@ const ADMIN_SESSION_COOKIE = 'admin-session';
 export default function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Check if this is an admin route (except admin login page and API)
+  // Check if this is an admin route (except admin login page and API routes)
   const isAdminRoute = pathname.startsWith('/admin') &&
-    !pathname.startsWith('/admin/login');
+    !pathname.startsWith('/admin/login') &&
+    !pathname.startsWith('/api/');
 
   if (isAdminRoute) {
     // Check for admin session cookie
@@ -33,9 +34,11 @@ export default function middleware(request: NextRequest) {
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()');
   response.headers.set('X-DNS-Prefetch-Control', 'on');
-  response.headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
-  response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
-  response.headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+  // Note: COEP 'require-corp' is too restrictive for most apps with external resources
+  // Use 'credentialless' for better compatibility while maintaining security
+  response.headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
+  response.headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  response.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
 
   // Content Security Policy - More restrictive in production
   const isDev = process.env.NODE_ENV === 'development';

@@ -12,12 +12,11 @@ import { withOptimize } from '@prisma/extension-optimize';
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
-// Enhanced connection pool configuration for MongoDB
+// Enhanced connection pool configuration for PostgreSQL
 const connectionPoolConfig = {
-  connection_limit: process.env.NODE_ENV === 'production' ? 50 : 10,
+  connection_limit: process.env.NODE_ENV === 'production' ? 20 : 5,
   pool_timeout: 10,
   connect_timeout: 10,
-  socket_timeout: 30,
 };
 
 // Optimization configuration for different environments
@@ -44,25 +43,21 @@ const optimizeConfig = {
   },
 };
 
-// Build optimized DATABASE_URL with connection pool parameters
+// For PostgreSQL with PgBouncer (like Supabase's pooler), we need to add pgbouncer=true
+// This disables prepared statements which don't work with PgBouncer in transaction mode
 export function getOptimizedDatabaseUrl(): string {
   const baseUrl = process.env.DATABASE_URL || '';
-  
-  // If URL already has parameters, append with &, otherwise start with ?
-  const separator = baseUrl.includes('?') ? '&' : '?';
-  
-  const poolParams = [
-    `maxPoolSize=${connectionPoolConfig.connection_limit}`,
-    `minPoolSize=1`,
-    `maxIdleTimeMS=30000`, // 30 seconds
-    `serverSelectionTimeoutMS=${connectionPoolConfig.pool_timeout * 1000}`,
-    `connectTimeoutMS=${connectionPoolConfig.connect_timeout * 1000}`,
-    `socketTimeoutMS=${connectionPoolConfig.socket_timeout * 1000}`,
-    `retryWrites=true`,
-    `w=majority`
-  ].join('&');
-  
-  return `${baseUrl}${separator}${poolParams}`;
+
+  // Check if URL already has pgbouncer param or if it's using PgBouncer port (6543)
+  const isPgBouncer = baseUrl.includes(':6543') || baseUrl.includes('pooler.');
+
+  if (isPgBouncer && !baseUrl.includes('pgbouncer=true')) {
+    // Add pgbouncer=true to disable prepared statements
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${separator}pgbouncer=true&connection_limit=${connectionPoolConfig.connection_limit}`;
+  }
+
+  return baseUrl;
 }
 
 const prisma =
@@ -83,7 +78,7 @@ const prisma =
     },
   }).$extends(
     // Apply Prisma Optimize extension only if API key is available
-    optimizeConfig.apiKey 
+    optimizeConfig.apiKey
       ? withOptimize({ apiKey: optimizeConfig.apiKey })
       : <T>(client: T) => client
   );
@@ -96,7 +91,7 @@ export default prisma;
 // Setup connection health check for production with optimized intervals
 if (!globalForPrisma.prisma && process.env.NODE_ENV === 'production') {
   const healthCheckInterval = 60000; // Increased to 60 seconds to reduce overhead
-  
+
   // Enhanced health check with connection pool monitoring
   setInterval(async () => {
     try {
@@ -104,29 +99,29 @@ if (!globalForPrisma.prisma && process.env.NODE_ENV === 'production') {
       const startTime = Date.now();
       await prisma.user.count({ take: 1 });
       const queryTime = Date.now() - startTime;
-      
+
       // Log performance metrics
       if (queryTime > 1000) {
         console.warn(`Slow database query detected: ${queryTime}ms`);
       }
-      
+
       // Optional: Log connection pool status (if available in future Prisma versions)
       console.log(`Database health check passed in ${queryTime}ms`);
-      
+
     } catch (error) {
       console.error('Database connection health check failed:', error);
-      
+
       // Enhanced error logging for connection pool issues
       if (error instanceof Error) {
         if (error.message.includes('pool') || error.message.includes('connection')) {
           console.error('Connection pool may be exhausted. Consider increasing pool size.');
         }
       }
-      
+
       // Log the error but don't exit - the connection pool should handle reconnection
     }
   }, healthCheckInterval);
-  
+
   console.log(`Database connection health check enabled with optimized intervals (${healthCheckInterval}ms)`);
   console.log(`Connection pool configured: max=${connectionPoolConfig.connection_limit}, timeout=${connectionPoolConfig.pool_timeout}s`);
   console.log(`Prisma Optimize enabled with caching: ${optimizeConfig.cache.enabled}, TTL: ${optimizeConfig.cache.ttl}s`);
