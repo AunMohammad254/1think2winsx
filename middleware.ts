@@ -1,7 +1,28 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export default function middleware(_request: NextRequest) {
+// Admin session cookie name (must match admin-session.ts)
+const ADMIN_SESSION_COOKIE = 'admin-session';
+
+export default function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Check if this is an admin route (except admin login page and API)
+  const isAdminRoute = pathname.startsWith('/admin') &&
+    !pathname.startsWith('/admin/login');
+
+  if (isAdminRoute) {
+    // Check for admin session cookie
+    const adminSession = request.cookies.get(ADMIN_SESSION_COOKIE);
+
+    if (!adminSession?.value) {
+      // Redirect to admin login
+      const loginUrl = new URL('/admin/login', request.url);
+      loginUrl.searchParams.set('redirect', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+  }
+
   // Create response
   const response = NextResponse.next();
 

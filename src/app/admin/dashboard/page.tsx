@@ -742,7 +742,7 @@ export default function AdminDashboard() {
                 <span className="hidden sm:inline">Security</span>
                 <span className="sm:hidden">🔒</span>
               </Link>
-              <span className="text-gray-200 text-xs sm:text-sm hidden md:block truncate max-w-[150px]">
+              <span className="text-gray-200 text-xs sm:text-sm hidden md:block truncate max-w-37.5">
                 Welcome, {session?.user?.name}
               </span>
 

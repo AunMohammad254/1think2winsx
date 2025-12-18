@@ -136,7 +136,7 @@ export default function DatabaseStatsPage() {
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
               {session?.user?.email && (
-                <span className="text-xs sm:text-sm text-gray-300 truncate max-w-[200px]">
+                <span className="text-xs sm:text-sm text-gray-300 truncate max-w-50">
                   Logged in as: {session.user.email}
                 </span>
               )}
@@ -163,7 +163,7 @@ export default function DatabaseStatsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="glass-card-blue glass-border-blue p-4 rounded-lg">
                   <div className="flex items-center">
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       <div className="w-8 h-8 bg-blue-500 rounded-md flex items-center justify-center">
                         <span className="text-white font-bold text-sm">U</span>
                       </div>
