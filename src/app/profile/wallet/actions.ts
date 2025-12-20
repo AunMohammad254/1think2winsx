@@ -106,14 +106,19 @@ export async function getWalletBalance(): Promise<WalletBalanceResponse> {
             return { success: false, error: 'You must be logged in to view wallet balance' };
         }
 
+        // Query by email since Prisma User uses CUID while Supabase uses UUID
         const { data, error } = await supabase
             .from('User')
             .select('walletBalance')
-            .eq('id', user.id)
+            .eq('email', user.email)
             .single();
 
         if (error) {
             console.error('Error fetching balance from Supabase:', error);
+            // If user not found, return 0 balance (user may not be synced yet)
+            if (error.code === 'PGRST116') {
+                return { success: true, balance: 0 };
+            }
             return { success: false, error: 'Failed to fetch wallet balance' };
         }
 
@@ -139,10 +144,23 @@ export async function getTransactionHistory(): Promise<TransactionHistoryRespons
             return { success: false, error: 'You must be logged in to view transaction history' };
         }
 
+        // First get the user ID from the User table by email
+        const { data: userData, error: userError } = await supabase
+            .from('User')
+            .select('id')
+            .eq('email', user.email)
+            .single();
+
+        if (userError || !userData) {
+            console.error('Error finding user:', userError);
+            // If user not found, return empty transactions
+            return { success: true, transactions: [] };
+        }
+
         const { data: transactions, error } = await supabase
             .from('WalletTransaction')
             .select('*')
-            .eq('userId', user.id)
+            .eq('userId', userData.id)
             .order('createdAt', { ascending: false });
 
         if (error) {
