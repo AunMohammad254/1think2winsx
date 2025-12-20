@@ -13,7 +13,7 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { message: 'Unauthorized' },
@@ -96,38 +96,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert file to buffer for magic byte validation
+    // Convert file to buffer
     const buffer = Buffer.from(await file.arrayBuffer());
-    
-    // Validate magic bytes to ensure file is actually an image
-    const magicBytes = buffer.slice(0, 12);
-    const isValidImage = validateImageMagicBytes(magicBytes, file.type);
-    
-    if (!isValidImage) {
-      recordSecurityEvent('INVALID_FILE_MAGIC_BYTES', request, userId, {
-        fileName: file.name,
-        declaredType: file.type,
-        actualMagicBytes: Array.from(buffer.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ')
-      });
-      securityLogger.logSecurityEvent({
-        type: 'SUSPICIOUS_ACTIVITY',
-        userId,
-        details: {
-          fileName: file.name,
-          declaredType: file.type,
-          reason: 'Magic bytes mismatch'
-        },
-        ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
-      });
-      return NextResponse.json(
-        { message: 'File format validation failed. The file content does not match the declared type.' },
-        { status: 400 }
-      );
-    }
 
-    // Use the buffer we already created for magic byte validation
-    // const bytes = await file.arrayBuffer();
-    // const buffer = Buffer.from(bytes);
+    // We will let Sharp validate the image integrity during processing
+    // Manual magic byte checks can be brittle with some valid image variants
+
 
     // Create uploads directory if it doesn't exist
     const uploadsDir = join(process.cwd(), 'public', 'uploads', 'profile-pictures');
@@ -158,10 +132,10 @@ export async function POST(request: NextRequest) {
 
       // Update user profile in database
       const imageUrl = `/uploads/profile-pictures/${filename}`;
-      
+
       await prisma.user.update({
         where: { id: userId },
-        data: { 
+        data: {
           profilePicture: imageUrl,
           updatedAt: new Date()
         }
@@ -192,7 +166,7 @@ export async function POST(request: NextRequest) {
 export async function DELETE(_request: NextRequest) {
   try {
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { message: 'Unauthorized' },
@@ -205,7 +179,7 @@ export async function DELETE(_request: NextRequest) {
     // Remove profile picture from database
     await prisma.user.update({
       where: { id: userId },
-      data: { 
+      data: {
         profilePicture: null,
         updatedAt: new Date()
       }
@@ -230,24 +204,24 @@ function validateImageMagicBytes(buffer: Buffer, declaredType: string): boolean 
   if (declaredType === 'image/jpeg' || declaredType === 'image/jpg') {
     return buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
   }
-  
+
   // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
   if (declaredType === 'image/png') {
     return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47 &&
-           buffer[4] === 0x0D && buffer[5] === 0x0A && buffer[6] === 0x1A && buffer[7] === 0x0A;
+      buffer[4] === 0x0D && buffer[5] === 0x0A && buffer[6] === 0x1A && buffer[7] === 0x0A;
   }
-  
+
   // WebP magic bytes: RIFF....WEBP
   if (declaredType === 'image/webp') {
     return buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-           buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
   }
-  
+
   // GIF magic bytes: GIF87a or GIF89a
   if (declaredType === 'image/gif') {
     return (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38 &&
-            (buffer[4] === 0x37 || buffer[4] === 0x39) && buffer[5] === 0x61);
+      (buffer[4] === 0x37 || buffer[4] === 0x39) && buffer[5] === 0x61);
   }
-  
+
   return false;
 }

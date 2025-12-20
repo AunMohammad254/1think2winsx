@@ -8,7 +8,7 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { executeCriticalTransaction } from '@/lib/transaction-manager';
 
 // Simple in-memory cache for points allocation data
-const pointsAllocationCache = new Map<string, { 
+const pointsAllocationCache = new Map<string, {
   data: {
     attempts: Array<{
       id: string;
@@ -30,13 +30,13 @@ const pointsAllocationCache = new Map<string, {
     totalCount: number;
     totalPages: number;
     currentPage: number;
-  }; 
-  timestamp: number; 
+  };
+  timestamp: number;
 }>();
 const CACHE_DURATION = 3 * 60 * 1000; // 3 minutes cache for admin data
 
 const pointsAllocationSchema = z.object({
-  quizId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid quiz ID format'),
+  quizId: z.string().min(1, 'Quiz ID is required'),
   pointsPerWinner: z.number().min(1).max(1000).default(10),
   percentageThreshold: z.number().min(0.01).max(100).default(10)
 });
@@ -52,11 +52,11 @@ export async function POST(request: NextRequest) {
 
     // Require admin authentication
     const authResult = await requireAuth({ adminOnly: true });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
 
     // Apply rate limiting for admin operations
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    
+
     // Validate input
     const validationResult = pointsAllocationSchema.safeParse(body);
     if (!validationResult.success) {
@@ -84,15 +84,15 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     const { quizId, pointsPerWinner, percentageThreshold } = validationResult.data;
-    
+
     // Check if quiz exists and is evaluated
     const quiz = await prisma.quiz.findUnique({
       where: { id: quizId },
       include: {
         attempts: {
-          where: { 
+          where: {
             isEvaluated: true
           },
           include: { user: true },
@@ -103,44 +103,44 @@ export async function POST(request: NextRequest) {
         }
       }
     });
-    
+
     if (!quiz) {
       return NextResponse.json(
         { message: 'Quiz not found' },
         { status: 404 }
       );
     }
-    
+
     if (quiz.attempts.length === 0) {
       return NextResponse.json(
         { message: 'No evaluated quiz attempts found for this quiz' },
         { status: 400 }
       );
     }
-    
+
     // Calculate top percentage threshold with minimum 1 user
     const totalAttempts = quiz.attempts.length;
     const topPercentageCount = Math.max(1, Math.ceil(totalAttempts * (percentageThreshold / 100)));
-    
+
     // Get top performers (those with highest scores)
     const topPerformers = quiz.attempts.slice(0, topPercentageCount);
-    
+
     // Filter out attempts with score 0 (no correct answers)
     const eligibleWinners = topPerformers.filter(attempt => attempt.score > 0);
-    
+
     if (eligibleWinners.length === 0) {
       return NextResponse.json(
         { message: 'No eligible winners found (all top performers scored 0)' },
         { status: 400 }
       );
     }
-    
+
     // Allocate points in a transaction using batch operations
     const allocationResult = await executeCriticalTransaction(async (tx) => {
       // Use batch operations for better performance
       const userIds = eligibleWinners.map(attempt => attempt.userId);
       const attemptIds = eligibleWinners.map(attempt => attempt.id);
-      
+
       // Batch update user points
       await tx.user.updateMany({
         where: {
@@ -180,14 +180,14 @@ export async function POST(request: NextRequest) {
           newTotalPoints: updatedUser?.points || 0
         };
       });
-      
+
       return pointsAllocations;
     }, {
       context: 'points_allocation',
       userId: session.user.id,
       description: `Points allocation for quiz ${quizId}`
     });
-    
+
     return NextResponse.json({
       success: true,
       message: 'Points allocated successfully',
@@ -205,10 +205,10 @@ export async function POST(request: NextRequest) {
       },
       winners: allocationResult
     }, { status: 200 });
-    
+
   } catch (error) {
     console.error('Error allocating points:', error);
-    
+
     return NextResponse.json(
       { message: 'Internal server error' },
       { status: 500 }
@@ -221,11 +221,11 @@ export async function GET(request: NextRequest) {
   try {
     // Require admin authentication
     const authResult = await requireAuth({ adminOnly: true });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
 
     // Apply rate limiting for admin operations
@@ -243,22 +243,22 @@ export async function GET(request: NextRequest) {
       });
       return rateLimitResponse;
     }
-    
+
     const url = new URL(request.url);
     const quizId = url.searchParams.get('quizId');
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
     const skip = (page - 1) * limit;
-    
+
     // Create cache key based on query parameters
     const cacheKey = `points_allocation_${quizId || 'all'}_${page}_${limit}`;
-    
+
     // Check cache first
     const cached = pointsAllocationCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
       return NextResponse.json(cached.data);
     }
-    
+
     // Build where clause
     const where: {
       type: string;
@@ -266,11 +266,11 @@ export async function GET(request: NextRequest) {
     } = {
       type: 'EARNED'
     };
-    
+
     if (quizId) {
       where.quizId = quizId;
     }
-    
+
     // Get quiz attempts with points awarded instead of pointsTransaction
     const [attempts, totalCount] = await Promise.all([
       prisma.quizAttempt.findMany({
@@ -297,14 +297,14 @@ export async function GET(request: NextRequest) {
         skip,
         take: limit
       }),
-      prisma.quizAttempt.count({ 
+      prisma.quizAttempt.count({
         where: {
           ...where,
           points: { gt: 0 }
         }
       })
     ]);
-    
+
     const responseData = {
       attempts: attempts.map(attempt => ({
         id: attempt.id,
@@ -353,10 +353,10 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(responseData);
-    
+
   } catch (error) {
     console.error('Error getting points allocation history:', error);
-    
+
     return NextResponse.json(
       { message: 'Internal server error' },
       { status: 500 }

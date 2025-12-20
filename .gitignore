@@ -58,3 +58,7 @@ tools/
 
 # Backup env files
 .env(supabase)
+
+#SQL
+SQL/
+
