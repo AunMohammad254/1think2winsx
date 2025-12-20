@@ -230,6 +230,12 @@ export default function ProfilePage() {
                         Edit Profile
                       </Link>
                       <Link
+                        href="/profile/wallet"
+                        className={`px-6 py-3 bg-gradient-to-r from-emerald-500 to-green-500 text-white font-semibold rounded-xl text-center ${!isMobile ? 'hover:from-emerald-600 hover:to-green-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-emerald-500/25' : ''}`}
+                      >
+                        Manage Wallet
+                      </Link>
+                      <Link
                         href="/profile/change-password"
                         className={`px-6 py-3 backdrop-blur-xl bg-white/10 border border-white/20 text-white font-semibold rounded-xl text-center ${!isMobile ? 'hover:bg-white/20 transform hover:scale-105 transition-all duration-200' : ''}`}
                       >
@@ -243,7 +249,20 @@ export default function ProfilePage() {
           </div>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 lg:gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 lg:gap-6">
+            {/* Wallet Balance */}
+            <div className={`col-span-2 lg:col-span-2 backdrop-blur-xl bg-gradient-to-br from-emerald-500/20 to-green-500/20 border border-emerald-500/30 rounded-2xl p-6 text-center group shadow-lg ${!isMobile ? 'hover:scale-105 transition-all duration-300 hover:shadow-emerald-500/25' : ''}`}>
+              <div className="w-12 h-12 mx-auto mb-4 bg-gradient-to-r from-emerald-400 to-green-400 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                </svg>
+              </div>
+              <p className="text-emerald-200 text-sm font-medium mb-1">Wallet Balance</p>
+              <div className="flex items-center justify-center gap-1">
+                <p className="text-2xl lg:text-3xl font-bold text-white">{profile?.walletBalance?.toFixed(2) || '0.00'}</p>
+                <span className="text-sm font-medium text-emerald-200 mb-1">PKR</span>
+              </div>
+            </div>
             {/* Points Card */}
             <div className={`col-span-2 lg:col-span-1 backdrop-blur-xl bg-gradient-to-br from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 rounded-2xl p-6 text-center group shadow-lg ${!isMobile ? 'hover:scale-105 transition-all duration-300 hover:shadow-yellow-500/25' : ''}`}>
               <div className="w-12 h-12 mx-auto mb-4 bg-gradient-to-r from-yellow-400 to-orange-400 rounded-full flex items-center justify-center">
@@ -476,8 +495,8 @@ export default function ProfilePage() {
                                 </td>
                                 <td className="py-4 px-6">
                                   <span className={`px-3 py-1 rounded-full text-sm font-semibold ${hasWinnings
-                                      ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30'
-                                      : 'bg-gradient-to-r from-slate-500/20 to-gray-500/20 text-slate-300 border border-slate-500/30'
+                                    ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30'
+                                    : 'bg-gradient-to-r from-slate-500/20 to-gray-500/20 text-slate-300 border border-slate-500/30'
                                     }`}>
                                     {hasWinnings ? '🏆 Winner' : '👤 Participant'}
                                   </span>
@@ -504,8 +523,8 @@ export default function ProfilePage() {
                             <div className="flex justify-between items-start mb-3">
                               <h3 className="font-semibold text-white text-sm">{attempt.quiz.title}</h3>
                               <span className={`px-2 py-1 rounded-full text-xs font-semibold ${hasWinnings
-                                  ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : 'bg-gradient-to-r from-slate-500/20 to-gray-500/20 text-slate-300 border border-slate-500/30'
+                                ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-gradient-to-r from-slate-500/20 to-gray-500/20 text-slate-300 border border-slate-500/30'
                                 }`}>
                                 {hasWinnings ? '🏆 Winner' : '👤 Participant'}
                               </span>

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import QuizEvaluationManager from '@/components/QuizEvaluationManager';
 import PlayerClaimsManager from '@/components/admin/PlayerClaimsManager';
 import StreamingManager from '@/components/admin/StreamingManager';
+import WalletTransactionsManager from '@/components/admin/WalletTransactionsManager';
 
 type SystemStats = {
   totalUsers: number;
@@ -86,7 +87,7 @@ export default function AdminDashboard() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'quizzes' | 'evaluation' | 'claims' | 'streaming' | 'maintenance'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'quizzes' | 'evaluation' | 'claims' | 'wallet' | 'streaming' | 'maintenance'>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Quiz management state
@@ -835,6 +836,15 @@ export default function AdminDashboard() {
               Player Claims
             </button>
             <button
+              onClick={() => setActiveTab('wallet')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'wallet'
+                ? 'border-blue-400 text-blue-300'
+                : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
+                }`}
+            >
+              💰 Wallet
+            </button>
+            <button
               onClick={() => setActiveTab('streaming')}
               className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'streaming'
                 ? 'border-blue-400 text-blue-300'
@@ -862,13 +872,14 @@ export default function AdminDashboard() {
                 { key: 'quizzes', label: 'Quiz Management', icon: '📝' },
                 { key: 'evaluation', label: 'Quiz Evaluation', icon: '✅' },
                 { key: 'claims', label: 'Player Claims', icon: '🏆' },
+                { key: 'wallet', label: 'Wallet', icon: '💰' },
                 { key: 'streaming', label: 'Live Streaming', icon: '📺' },
                 { key: 'maintenance', label: 'Maintenance', icon: '🔧' }
               ].map((item) => (
                 <button
                   key={item.key}
                   onClick={() => {
-                    setActiveTab(item.key as 'overview' | 'quizzes' | 'evaluation' | 'claims' | 'streaming' | 'maintenance');
+                    setActiveTab(item.key as 'overview' | 'quizzes' | 'evaluation' | 'claims' | 'wallet' | 'streaming' | 'maintenance');
                     setIsMobileMenuOpen(false);
                   }}
                   className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-all duration-300 ${activeTab === item.key
@@ -1406,6 +1417,20 @@ export default function AdminDashboard() {
         {activeTab === 'claims' && (
           <div className="space-y-6">
             <PlayerClaimsManager />
+          </div>
+        )}
+
+        {activeTab === 'wallet' && (
+          <div className="space-y-6">
+            <div className="glass-card glass-transition glass-hover rounded-lg">
+              <div className="px-6 py-4 border-b border-blue-400">
+                <h3 className="text-lg font-medium text-white">1Think Wallet Management</h3>
+                <p className="text-sm text-gray-200 mt-1">Review and process user deposit requests</p>
+              </div>
+              <div className="p-6">
+                <WalletTransactionsManager />
+              </div>
+            </div>
           </div>
         )}
 

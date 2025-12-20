@@ -41,6 +41,7 @@ export type UserProfile = {
   profilePicture?: string | null;
   createdAt: string;
   points: number;
+  walletBalance: number;
   quizzesTaken: number;
   correctAnswers: number;
   totalScore: number;
@@ -111,6 +112,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           profilePicture: data.user.profilePicture,
           createdAt: data.user.createdAt,
           points: data.user.points || 0,
+          walletBalance: data.user.walletBalance || 0,
           quizzesTaken: data.user.totalQuizAttempts || 0,
           correctAnswers: correctAnswers,
           totalScore: totalScore,
@@ -138,6 +140,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           profilePicture: user.user_metadata?.avatar_url || null,
           createdAt: user.created_at || new Date().toISOString(),
           points: 0,
+          walletBalance: 0,
           quizzesTaken: 0,
           correctAnswers: 0,
           totalScore: 0,
@@ -159,6 +162,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           profilePicture: user.user_metadata?.avatar_url || null,
           createdAt: user.created_at || new Date().toISOString(),
           points: 0,
+          walletBalance: 0,
           quizzesTaken: 0,
           correctAnswers: 0,
           totalScore: 0,

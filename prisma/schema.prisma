@@ -20,6 +20,7 @@ model User {
   dateOfBirth   DateTime?
   profilePicture String?
   points        Int       @default(0)
+  walletBalance Float     @default(0) // 1Think Wallet balance in PKR
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   payments      Payment[]
@@ -28,6 +29,7 @@ model User {
   winnings      Winning[]
   prizeRedemptions PrizeRedemption[]
   dailyPayments DailyPayment[]
+  walletTransactions WalletTransaction[]
   
   @@index([points])
   @@index([createdAt])
@@ -305,4 +307,26 @@ model StreamMetrics {
   @@index([streamConfigurationId])
   @@index([metricType])
   @@index([timestamp])
+}
+
+// 1Think Wallet - Manual Deposit Transaction
+model WalletTransaction {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount          Float     // Deposit amount in PKR (Min: 5 PKR)
+  paymentMethod   String    // Easypaisa, Jazzcash, Bank
+  transactionId   String    @unique // User's bank/wallet reference number
+  status          String    @default("pending") // pending, approved, rejected
+  proofImage      String?   // Optional: URL to payment proof screenshot
+  adminNotes      String?   // Optional: Admin notes (e.g., rejection reason)
+  processedAt     DateTime? // When admin approved/rejected
+  processedBy     String?   // Admin email who processed the transaction
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([transactionId])
 }

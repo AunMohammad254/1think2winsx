@@ -38,6 +38,7 @@ export async function GET() {
         email: true,
         profilePicture: true,
         points: true,
+        walletBalance: true,
         createdAt: true,
         _count: {
           select: {
@@ -77,6 +78,7 @@ export async function GET() {
             email: true,
             profilePicture: true,
             points: true,
+            walletBalance: true,
             createdAt: true,
             _count: {
               select: {
@@ -250,6 +252,7 @@ export async function GET() {
         email: user.email, // Only expose to the user themselves
         profilePicture: user.profilePicture,
         points: user.points, // Include user points in response
+        walletBalance: user.walletBalance || 0,
         createdAt: user.createdAt,
         totalQuizAttempts: totalQuizAttempts,
         totalWinnings: totalWinnings + totalRedemptions, // Include both quiz wins and redemptions
