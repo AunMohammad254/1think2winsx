@@ -5,6 +5,7 @@ import prisma from '@/lib/prisma';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { ensureUserExists } from '@/lib/user-sync';
 
 // GET /api/quizzes/[id] - Get quiz details and start attempt
 export async function GET(
@@ -12,16 +13,16 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  
+
   try {
     const authResult = await requireAuth({
       context: 'quiz_access',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
     const userId = session.user.id;
     const quizId = id;
@@ -36,6 +37,10 @@ export async function GET(
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
+
+    // Ensure user exists in database
+    const userEmail = session.user.email;
+    await ensureUserExists(userId, userEmail);
 
     // Check payment access
     const paymentAccessResponse = await requirePaymentAccess(userId, request);
@@ -107,7 +112,7 @@ export async function GET(
     // If user has completed the quiz but there are new questions, allow reattempt
     if (existingAttempt && unattemptedQuestions.length === 0) {
       return NextResponse.json(
-        { 
+        {
           error: 'You have already completed this quiz',
           completed: true,
           attempt: {

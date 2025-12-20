@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { createClient } from '@/lib/supabase/client';
+import { User, Mail, Lock, Eye, EyeOff, Phone, Calendar, AlertCircle, CheckCircle2, ArrowRight, Loader2, LogIn } from 'lucide-react';
 
 const registerSchema = z.object({
   name: z.string()
@@ -21,9 +23,11 @@ const registerSchema = z.object({
   confirmPassword: z.string(),
   phone: z.string()
     .regex(/^(03\d{9}|\+92\d{10})$/, 'Please enter a valid phone number (e.g., 03123456789 or +923123456789)')
-    .optional(),
+    .optional()
+    .or(z.literal('')),
   dateOfBirth: z.string()
     .refine((date) => {
+      if (!date) return true;
       const birthDate = new Date(date);
       const today = new Date();
       const age = today.getFullYear() - birthDate.getFullYear();
@@ -46,8 +50,8 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const supabase = createClient();
 
-  // Detect mobile device
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
@@ -86,30 +90,53 @@ export default function Register() {
     setSuccess('');
 
     try {
-      const response = await fetch('/api/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      // Sign up with Supabase Auth
+      const { error: signUpError, data: authData } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          data: {
+            name: data.name,
+            phone: data.phone || null,
+            date_of_birth: data.dateOfBirth || null,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/quizzes`,
         },
-        body: JSON.stringify({
-          name: data.name,
-          email: data.email,
-          password: data.password,
-          phone: data.phone,
-          dateOfBirth: data.dateOfBirth,
-        }),
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Registration failed');
+      if (signUpError) {
+        if (signUpError.message.includes('already registered')) {
+          setError('This email is already registered. Please log in instead.');
+        } else {
+          setError(signUpError.message);
+        }
+        return;
       }
 
-      setSuccess('Account created successfully! Redirecting to login...');
+      // If user was created, sync to Prisma User table
+      if (authData.user) {
+        try {
+          await fetch('/api/auth/sync-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: authData.user.id,
+              email: data.email,
+              name: data.name,
+              phone: data.phone || null,
+              dateOfBirth: data.dateOfBirth || null,
+            }),
+          });
+        } catch (syncError) {
+          console.error('User sync error:', syncError);
+          // Don't fail registration if sync fails, it can be retried
+        }
+      }
+
+      setSuccess('Account created successfully! Please check your email to verify your account.');
       setTimeout(() => {
         router.push('/login?registered=true');
-      }, 2000);
+      }, 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred during registration');
     } finally {
@@ -119,7 +146,7 @@ export default function Register() {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Optimized Background - Static for mobile, animated for desktop */}
+      {/* Background */}
       <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%239C92AC%22%20fill-opacity%3D%220.1%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%224%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] opacity-20"></div>
         {!isMobile && (
@@ -129,7 +156,7 @@ export default function Register() {
 
       <div className="relative z-10 flex min-h-screen flex-col justify-center py-12 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-md">
-          {/* Logo and Header - Simplified for mobile */}
+          {/* Header */}
           <div className="text-center mb-8">
             <Link href="/" className="inline-block group touch-manipulation">
               <div className="relative">
@@ -154,15 +181,12 @@ export default function Register() {
         </div>
 
         <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-          {/* Registration Card - Optimized for mobile */}
           <div className={`${isMobile ? 'bg-slate-800/90 border border-slate-700/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-2xl shadow-2xl p-8`}>
             {/* Error Message */}
             {error && (
               <div className={`mb-6 ${isMobile ? 'bg-red-900/50 border border-red-700/50' : 'backdrop-blur-xl bg-red-500/20 border border-red-500/30'} text-red-100 px-4 py-3 rounded-xl shadow-lg`}>
                 <div className="flex items-center">
-                  <svg className="w-5 h-5 mr-3 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  <AlertCircle className="w-5 h-5 mr-3 text-red-300" />
                   <span className="block sm:inline">{error}</span>
                 </div>
               </div>
@@ -172,9 +196,7 @@ export default function Register() {
             {success && (
               <div className={`mb-6 ${isMobile ? 'bg-green-900/50 border border-green-700/50' : 'backdrop-blur-xl bg-green-500/20 border border-green-500/30'} text-green-100 px-4 py-3 rounded-xl shadow-lg`}>
                 <div className="flex items-center">
-                  <svg className="w-5 h-5 mr-3 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                  <CheckCircle2 className="w-5 h-5 mr-3 text-green-300" />
                   <span className="block sm:inline">{success}</span>
                 </div>
               </div>
@@ -190,20 +212,21 @@ export default function Register() {
                   {!isMobile && (
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300"></div>
                   )}
-                  <input
-                    id="name"
-                    type="text"
-                    autoComplete="name"
-                    {...register('name')}
-                    className={`relative w-full px-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
-                    placeholder="Enter your full name"
-                  />
+                  <div className="relative flex items-center">
+                    <User className="absolute left-4 w-5 h-5 text-slate-400" />
+                    <input
+                      id="name"
+                      type="text"
+                      autoComplete="name"
+                      {...register('name')}
+                      className={`w-full pl-12 pr-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
+                      placeholder="Enter your full name"
+                    />
+                  </div>
                 </div>
                 {errors.name && (
                   <p className="mt-2 text-sm text-red-300 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <AlertCircle className="w-4 h-4 mr-1" />
                     {errors.name.message}
                   </p>
                 )}
@@ -218,20 +241,21 @@ export default function Register() {
                   {!isMobile && (
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300"></div>
                   )}
-                  <input
-                    id="email"
-                    type="email"
-                    autoComplete="email"
-                    {...register('email')}
-                    className={`relative w-full px-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
-                    placeholder="Enter your email address"
-                  />
+                  <div className="relative flex items-center">
+                    <Mail className="absolute left-4 w-5 h-5 text-slate-400" />
+                    <input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      {...register('email')}
+                      className={`w-full pl-12 pr-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
+                      placeholder="Enter your email address"
+                    />
+                  </div>
                 </div>
                 {errors.email && (
                   <p className="mt-2 text-sm text-red-300 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <AlertCircle className="w-4 h-4 mr-1" />
                     {errors.email.message}
                   </p>
                 )}
@@ -246,20 +270,21 @@ export default function Register() {
                   {!isMobile && (
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300"></div>
                   )}
-                  <input
-                    id="phone"
-                    type="tel"
-                    autoComplete="tel"
-                    {...register('phone')}
-                    className={`relative w-full px-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
-                    placeholder="03123456789 or +923123456789"
-                  />
+                  <div className="relative flex items-center">
+                    <Phone className="absolute left-4 w-5 h-5 text-slate-400" />
+                    <input
+                      id="phone"
+                      type="tel"
+                      autoComplete="tel"
+                      {...register('phone')}
+                      className={`w-full pl-12 pr-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
+                      placeholder="03123456789 or +923123456789"
+                    />
+                  </div>
                 </div>
                 {errors.phone && (
                   <p className="mt-2 text-sm text-red-300 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <AlertCircle className="w-4 h-4 mr-1" />
                     {errors.phone.message}
                   </p>
                 )}
@@ -274,18 +299,19 @@ export default function Register() {
                   {!isMobile && (
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300"></div>
                   )}
-                  <input
-                    id="dateOfBirth"
-                    type="date"
-                    {...register('dateOfBirth')}
-                    className={`relative w-full px-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
-                  />
+                  <div className="relative flex items-center">
+                    <Calendar className="absolute left-4 w-5 h-5 text-slate-400" />
+                    <input
+                      id="dateOfBirth"
+                      type="date"
+                      {...register('dateOfBirth')}
+                      className={`w-full pl-12 pr-4 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
+                    />
+                  </div>
                 </div>
                 {errors.dateOfBirth && (
                   <p className="mt-2 text-sm text-red-300 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <AlertCircle className="w-4 h-4 mr-1" />
                     {errors.dateOfBirth.message}
                   </p>
                 )}
@@ -300,34 +326,27 @@ export default function Register() {
                   {!isMobile && (
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300"></div>
                   )}
-                  <input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    {...register('password')}
-                    className={`relative w-full px-4 py-3 pr-12 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
-                    placeholder="Create a strong password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className={`absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 ${!isMobile ? 'hover:text-white' : ''} transition-colors duration-200 touch-manipulation`}
-                  >
-                    {showPassword ? (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                      </svg>
-                    ) : (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    )}
-                  </button>
+                  <div className="relative flex items-center">
+                    <Lock className="absolute left-4 w-5 h-5 text-slate-400" />
+                    <input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      {...register('password')}
+                      className={`w-full pl-12 pr-12 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
+                      placeholder="Create a strong password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className={`absolute right-4 text-slate-400 ${!isMobile ? 'hover:text-white' : ''} transition-colors duration-200 touch-manipulation`}
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                 </div>
                 {password && (
                   <div className="mt-3 space-y-3">
-                    {/* Password Strength Bar */}
                     <div className="flex items-center space-x-3">
                       <div className="flex-1 bg-slate-700/50 rounded-full h-2 overflow-hidden">
                         <div
@@ -339,71 +358,33 @@ export default function Register() {
                         {strengthLabels[passwordStrength - 1] || 'Very Weak'}
                       </span>
                     </div>
-
-                    {/* Password Criteria Checklist */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       <div className={`flex items-center space-x-2 ${password.length >= 8 ? 'text-green-400' : 'text-slate-400'}`}>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {password.length >= 8 ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          ) : (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          )}
-                        </svg>
+                        <CheckCircle2 className="w-3 h-3" />
                         <span>At least 8 characters</span>
                       </div>
-
                       <div className={`flex items-center space-x-2 ${/[a-z]/.test(password) ? 'text-green-400' : 'text-slate-400'}`}>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {/[a-z]/.test(password) ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          ) : (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          )}
-                        </svg>
+                        <CheckCircle2 className="w-3 h-3" />
                         <span>One lowercase letter</span>
                       </div>
-
                       <div className={`flex items-center space-x-2 ${/[A-Z]/.test(password) ? 'text-green-400' : 'text-slate-400'}`}>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {/[A-Z]/.test(password) ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          ) : (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          )}
-                        </svg>
+                        <CheckCircle2 className="w-3 h-3" />
                         <span>One uppercase letter</span>
                       </div>
-
                       <div className={`flex items-center space-x-2 ${/\d/.test(password) ? 'text-green-400' : 'text-slate-400'}`}>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {/\d/.test(password) ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          ) : (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          )}
-                        </svg>
+                        <CheckCircle2 className="w-3 h-3" />
                         <span>One number</span>
                       </div>
-
                       <div className={`flex items-center space-x-2 col-span-1 sm:col-span-2 ${/[^\w\s]/.test(password) ? 'text-green-400' : 'text-slate-400'}`}>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {/[^\w\s]/.test(password) ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          ) : (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          )}
-                        </svg>
-                        <span>One special character (!@#$%^&*)</span>
+                        <CheckCircle2 className="w-3 h-3" />
+                        <span>One special character</span>
                       </div>
                     </div>
                   </div>
                 )}
                 {errors.password && (
                   <p className="mt-2 text-sm text-red-300 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <AlertCircle className="w-4 h-4 mr-1" />
                     {errors.password.message}
                   </p>
                 )}
@@ -418,36 +399,28 @@ export default function Register() {
                   {!isMobile && (
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300"></div>
                   )}
-                  <input
-                    id="confirmPassword"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    {...register('confirmPassword')}
-                    className={`relative w-full px-4 py-3 pr-12 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
-                    placeholder="Confirm your password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className={`absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 ${!isMobile ? 'hover:text-white' : ''} transition-colors duration-200 touch-manipulation`}
-                  >
-                    {showConfirmPassword ? (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                      </svg>
-                    ) : (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    )}
-                  </button>
+                  <div className="relative flex items-center">
+                    <Lock className="absolute left-4 w-5 h-5 text-slate-400" />
+                    <input
+                      id="confirmPassword"
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      {...register('confirmPassword')}
+                      className={`w-full pl-12 pr-12 py-3 ${isMobile ? 'bg-slate-700/50 border border-slate-600/50' : 'backdrop-blur-xl bg-white/10 border border-white/20'} rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 shadow-lg`}
+                      placeholder="Confirm your password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className={`absolute right-4 text-slate-400 ${!isMobile ? 'hover:text-white' : ''} transition-colors duration-200 touch-manipulation`}
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                 </div>
                 {errors.confirmPassword && (
                   <p className="mt-2 text-sm text-red-300 flex items-center">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <AlertCircle className="w-4 h-4 mr-1" />
                     {errors.confirmPassword.message}
                   </p>
                 )}
@@ -478,9 +451,7 @@ export default function Register() {
               </div>
               {errors.agreeToTerms && (
                 <p className="mt-2 text-sm text-red-300 flex items-center">
-                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  <AlertCircle className="w-4 h-4 mr-1" />
                   {errors.agreeToTerms.message}
                 </p>
               )}
@@ -498,18 +469,13 @@ export default function Register() {
                   <span className="relative flex items-center">
                     {isSubmitting ? (
                       <>
-                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
+                        <Loader2 className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" />
                         Creating Account...
                       </>
                     ) : (
                       <>
                         Create Account
-                        <svg className={`ml-2 w-5 h-5 ${!isMobile ? 'group-hover:translate-x-1' : ''} transition-transform`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                        </svg>
+                        <ArrowRight className={`ml-2 w-5 h-5 ${!isMobile ? 'group-hover:translate-x-1' : ''} transition-transform`} />
                       </>
                     )}
                   </span>
@@ -534,26 +500,9 @@ export default function Register() {
                   className={`group w-full flex justify-center py-3 px-6 border border-white/20 rounded-xl shadow-lg text-sm font-semibold text-white ${isMobile ? 'bg-slate-700/50 hover:bg-slate-600/50' : 'backdrop-blur-xl bg-white/5 hover:bg-white/10'} focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all duration-200 ${!isMobile ? 'transform hover:scale-[1.02]' : ''}`}
                 >
                   <span className="flex items-center">
-                    <svg className="mr-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                    </svg>
+                    <LogIn className="mr-2 w-4 h-4" />
                     Sign in to existing account
                   </span>
-                </Link>
-              </div>
-
-              <div className="text-center">
-                <Link
-                  href="/how-to-play"
-                  className={`inline-flex items-center text-sm text-blue-400 ${!isMobile ? 'hover:text-blue-300' : ''} transition-colors duration-200 group touch-manipulation`}
-                >
-                  <svg className="mr-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  New to Kheelo Or Jeeto Quiz? Learn how to play
-                  <svg className={`ml-1 w-4 h-4 ${!isMobile ? 'group-hover:translate-x-1' : ''} transition-transform`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
                 </Link>
               </div>
             </div>

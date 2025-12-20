@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useProfile } from '@/contexts/ProfileContext';
@@ -13,7 +13,7 @@ interface ProfileFormData {
 }
 
 export default function EditProfilePage() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const { profile, updateProfile, loading: _profileLoading, error: _profileError } = useProfile();
   const router = useRouter();
   const [formData, setFormData] = useState<ProfileFormData>({
@@ -25,9 +25,9 @@ export default function EditProfilePage() {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    if (status === 'loading') return;
-    
-    if (!session) {
+    if (isLoading) return;
+
+    if (!user) {
       router.push('/login');
       return;
     }
@@ -39,7 +39,7 @@ export default function EditProfilePage() {
         email: profile.email || ''
       });
     }
-  }, [session, status, router, profile]);
+  }, [user, isLoading, router, profile]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -73,7 +73,7 @@ export default function EditProfilePage() {
 
       // Use ProfileContext to update profile
       await updateProfile(sanitizedData);
-      
+
       setSuccess(true);
       setTimeout(() => {
         router.push('/profile');
@@ -85,7 +85,7 @@ export default function EditProfilePage() {
     }
   };
 
-  if (status === 'loading') {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
         <div className="relative">
@@ -97,7 +97,7 @@ export default function EditProfilePage() {
   }
 
   return (
-    <div 
+    <div
       className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
       style={{
         background: `
@@ -133,8 +133,8 @@ export default function EditProfilePage() {
             </div>
           </Link>
           <p className="text-gray-300 text-lg font-medium">Edit Your Profile</p>
-          <Link 
-            href="/profile" 
+          <Link
+            href="/profile"
             className="inline-flex items-center text-purple-400 md:hover:text-purple-300 md:transition-colors mt-2 text-sm touch-manipulation"
           >
             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -148,7 +148,7 @@ export default function EditProfilePage() {
         <div className="bg-white/5 md:backdrop-blur-xl md:bg-white/10 border border-white/20 rounded-2xl shadow-2xl p-8 relative overflow-hidden">
           {/* Card Glow Effect - Desktop Only */}
           <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 via-pink-500/10 to-blue-500/10 rounded-2xl hidden md:block"></div>
-          
+
           <div className="relative z-10">
             {/* Error Message */}
             {error && (
@@ -237,7 +237,7 @@ export default function EditProfilePage() {
                   </span>
                   <div className="absolute inset-0 bg-gradient-to-r from-purple-700 to-pink-700 opacity-0 md:group-hover:opacity-100 md:transition-opacity md:duration-300"></div>
                 </button>
-                
+
                 <Link
                   href="/profile"
                   className="flex-1 relative group overflow-hidden rounded-xl bg-white/10 border border-white/20 px-6 py-3 text-gray-200 font-semibold text-center transition-all duration-300 md:hover:bg-white/20 md:hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/50 md:backdrop-blur-sm touch-manipulation"

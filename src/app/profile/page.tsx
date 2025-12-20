@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -10,7 +10,7 @@ import ProfilePictureUpload from '@/components/ProfilePictureUpload';
 import PrizeRedemption from '@/components/PrizeRedemption';
 
 export default function ProfilePage() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const { profile, loading: profileLoading, error: profileError, refreshProfile } = useProfile();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -50,7 +50,7 @@ export default function ProfilePage() {
 
       // Refresh profile to get updated picture
       await refreshProfile();
-      
+
     } catch (error) {
       console.error('Upload error:', error);
       throw error;
@@ -60,18 +60,18 @@ export default function ProfilePage() {
   };
 
   useEffect(() => {
-    if (status === 'loading') return;
-    
-    if (!session) {
+    if (isLoading) return;
+
+    if (!user) {
       router.push('/login');
       return;
     }
 
     // Profile data is managed by ProfileContext
     setLoading(false);
-  }, [session, status, router]);
+  }, [user, isLoading, router]);
 
-  if (status === 'loading' || loading || profileLoading) {
+  if (isLoading || loading || profileLoading) {
     return (
       <div className="min-h-screen relative overflow-hidden">
         {/* Animated Background */}
@@ -128,7 +128,7 @@ export default function ProfilePage() {
             </div>
             <h2 className="text-xl font-bold text-white mb-2">Profile Error</h2>
             <p className="text-slate-300 mb-6">{profileError}</p>
-            <button 
+            <button
               onClick={() => refreshProfile()}
               className={`w-full px-6 py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold rounded-xl ${!isMobile ? 'hover:from-red-600 hover:to-pink-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-red-500/25' : ''}`}
             >
@@ -159,7 +159,7 @@ export default function ProfilePage() {
             </div>
             <h2 className="text-xl font-bold text-white mb-2">No Profile Data</h2>
             <p className="text-slate-300 mb-6">Unable to load your profile information</p>
-            <button 
+            <button
               onClick={() => refreshProfile()}
               className={`w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-xl ${!isMobile ? 'hover:from-blue-600 hover:to-purple-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-blue-500/25' : ''}`}
             >
@@ -189,7 +189,7 @@ export default function ProfilePage() {
 
       <div className="relative z-10 container mx-auto px-4 py-6 lg:py-12">
         <div className="max-w-7xl mx-auto space-y-6 lg:space-y-8">
-          
+
           {/* Profile Header Card */}
           <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl lg:rounded-3xl overflow-hidden shadow-2xl">
             <div className="relative">
@@ -197,7 +197,7 @@ export default function ProfilePage() {
               <div className="absolute inset-0 bg-gradient-to-r from-purple-600/20 via-blue-600/20 to-pink-600/20"></div>
               <div className="relative p-6 lg:p-10">
                 <div className="flex flex-col lg:flex-row items-center lg:items-start gap-6 lg:gap-8">
-                  
+
                   {/* Profile Picture Section */}
                   <div className="flex-shrink-0">
                     <ProfilePictureUpload
@@ -206,7 +206,7 @@ export default function ProfilePage() {
                       loading={uploadLoading}
                     />
                   </div>
-                  
+
                   {/* Profile Info */}
                   <div className="text-center lg:text-left flex-1">
                     <h1 className="text-2xl lg:text-4xl font-bold bg-gradient-to-r from-purple-400 via-blue-400 to-pink-400 bg-clip-text text-transparent mb-2">
@@ -214,23 +214,23 @@ export default function ProfilePage() {
                     </h1>
                     <p className="text-slate-300 text-lg mb-2">{profile?.email}</p>
                     <p className="text-slate-400 text-sm">
-                      Member since {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString('en-US', { 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
+                      Member since {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
                       }) : 'N/A'}
                     </p>
-                    
+
                     {/* Quick Actions */}
                     <div className="flex flex-col sm:flex-row gap-3 mt-6">
-                      <Link 
-                        href="/profile/edit" 
+                      <Link
+                        href="/profile/edit"
                         className={`px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white font-semibold rounded-xl text-center ${!isMobile ? 'hover:from-purple-600 hover:to-blue-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-purple-500/25' : ''}`}
                       >
                         Edit Profile
                       </Link>
-                      <Link 
-                        href="/profile/change-password" 
+                      <Link
+                        href="/profile/change-password"
                         className={`px-6 py-3 backdrop-blur-xl bg-white/10 border border-white/20 text-white font-semibold rounded-xl text-center ${!isMobile ? 'hover:bg-white/20 transform hover:scale-105 transition-all duration-200' : ''}`}
                       >
                         Change Password
@@ -314,7 +314,7 @@ export default function ProfilePage() {
                 </h2>
               </div>
             </div>
-            
+
             <div className="p-6 lg:p-8">
               {profile?.prizes && profile.prizes.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -322,9 +322,9 @@ export default function ProfilePage() {
                     <div key={prize.id} className="group">
                       <div className={`backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl overflow-hidden transition-all duration-300 shadow-lg ${!isMobile ? 'hover:bg-white/10 transform hover:scale-105 hover:shadow-xl' : ''}`}>
                         <div className="aspect-square bg-gradient-to-br from-purple-500/10 to-blue-500/10 flex items-center justify-center p-6">
-                          <Image 
-                            src={prize.image} 
-                            alt={prize.name} 
+                          <Image
+                            src={prize.image}
+                            alt={prize.name}
                             width={120}
                             height={120}
                             className={`w-full h-full object-contain transition-transform duration-300 ${!isMobile ? 'group-hover:scale-110' : ''}`}
@@ -397,8 +397,8 @@ export default function ProfilePage() {
                   <p className="text-slate-400 mb-6 max-w-md mx-auto">
                     You haven&apos;t won any prizes yet. Keep playing quizzes for a chance to win amazing rewards!
                   </p>
-                  <Link 
-                    href="/quizzes" 
+                  <Link
+                    href="/quizzes"
                     className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white font-semibold rounded-xl md:hover:from-purple-600 md:hover:to-blue-600 md:transform md:hover:scale-105 md:transition-all md:duration-200 shadow-lg md:hover:shadow-purple-500/25 touch-manipulation"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -430,7 +430,7 @@ export default function ProfilePage() {
                 </h2>
               </div>
             </div>
-            
+
             <div className="p-6 lg:p-8">
               {profile?.quizHistory && profile.quizHistory.length > 0 ? (
                 <div className="overflow-x-auto">
@@ -454,7 +454,7 @@ export default function ProfilePage() {
                               month: 'short',
                               day: 'numeric'
                             });
-                            
+
                             return (
                               <tr key={attempt.id} className="border-b border-white/5 hover:bg-white/5 transition-colors duration-200">
                                 <td className="py-4 px-6">
@@ -467,7 +467,7 @@ export default function ProfilePage() {
                                       {attempt.score}/{attempt.quiz._count.questions}
                                     </span>
                                     <div className="w-16 bg-slate-700 rounded-full h-2 overflow-hidden">
-                                      <div 
+                                      <div
                                         className="bg-gradient-to-r from-blue-400 to-purple-400 h-2 rounded-full transition-all duration-300"
                                         style={{ width: `${Math.min(100, Math.max(0, (attempt.score / Math.max(1, attempt.quiz._count.questions)) * 100))}%` }}
                                       ></div>
@@ -475,11 +475,10 @@ export default function ProfilePage() {
                                   </div>
                                 </td>
                                 <td className="py-4 px-6">
-                                  <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                                    hasWinnings 
-                                      ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30' 
+                                  <span className={`px-3 py-1 rounded-full text-sm font-semibold ${hasWinnings
+                                      ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30'
                                       : 'bg-gradient-to-r from-slate-500/20 to-gray-500/20 text-slate-300 border border-slate-500/30'
-                                  }`}>
+                                    }`}>
                                     {hasWinnings ? '🏆 Winner' : '👤 Participant'}
                                   </span>
                                 </td>
@@ -499,16 +498,15 @@ export default function ProfilePage() {
                           month: 'short',
                           day: 'numeric'
                         });
-                        
+
                         return (
                           <div key={attempt.id} className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-xl p-4">
                             <div className="flex justify-between items-start mb-3">
                               <h3 className="font-semibold text-white text-sm">{attempt.quiz.title}</h3>
-                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                hasWinnings 
-                                  ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30' 
+                              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${hasWinnings
+                                  ? 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30'
                                   : 'bg-gradient-to-r from-slate-500/20 to-gray-500/20 text-slate-300 border border-slate-500/30'
-                              }`}>
+                                }`}>
                                 {hasWinnings ? '🏆 Winner' : '👤 Participant'}
                               </span>
                             </div>
@@ -519,7 +517,7 @@ export default function ProfilePage() {
                                   {attempt.score}/{attempt.quiz._count.questions}
                                 </span>
                                 <div className="w-12 bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                                  <div 
+                                  <div
                                     className="bg-gradient-to-r from-blue-400 to-purple-400 h-1.5 rounded-full transition-all duration-300"
                                     style={{ width: `${Math.min(100, Math.max(0, (attempt.score / Math.max(1, attempt.quiz._count.questions)) * 100))}%` }}
                                   ></div>
@@ -543,8 +541,8 @@ export default function ProfilePage() {
                   <p className="text-slate-400 mb-6 max-w-md mx-auto">
                     You haven&apos;t taken any quizzes yet. Start your quiz journey today!
                   </p>
-                  <Link 
-                    href="/quizzes" 
+                  <Link
+                    href="/quizzes"
                     className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-600 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-blue-500/25"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

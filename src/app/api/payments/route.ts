@@ -6,6 +6,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { ensureUserExists } from '@/lib/user-sync';
 
 const paymentSchema = z.object({
   paymentMethod: z.string().optional(),
@@ -25,11 +26,11 @@ export async function POST(request: NextRequest) {
     const authResult = await requireAuth({
       context: 'payment_creation',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
     const userId = session.user.id;
 
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validationResult = paymentSchema.safeParse(body);
-    
+
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, userId, {
         endpoint: '/api/payments',
@@ -86,6 +87,16 @@ export async function POST(request: NextRequest) {
     }
 
     const { paymentMethod, transactionId } = validationResult.data;
+
+    // Ensure user exists in database before creating payment
+    const userEmail = session.user.email;
+    const userExists = await ensureUserExists(userId, userEmail);
+    if (!userExists) {
+      return NextResponse.json(
+        { error: 'Failed to verify user account. Please try logging out and back in.' },
+        { status: 500 }
+      );
+    }
 
     // Calculate expiry time (24 hours from now)
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -138,11 +149,11 @@ export async function GET(request: NextRequest) {
     const authResult = await requireAuth({
       context: 'payment_status',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
     const userId = session.user.id;
 
@@ -193,7 +204,7 @@ export async function GET(request: NextRequest) {
     });
 
     const hasAccess = !!currentPayment;
-    const timeRemaining = currentPayment 
+    const timeRemaining = currentPayment
       ? Math.max(0, currentPayment.expiresAt.getTime() - now.getTime())
       : 0;
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 
 interface SecurityEvent {
@@ -26,7 +26,7 @@ interface SecurityStats {
 }
 
 export default function SecurityPage() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
   const [securityStats, setSecurityStats] = useState<SecurityStats | null>(null);
@@ -38,7 +38,7 @@ export default function SecurityPage() {
   const fetchSecurityData = useCallback(async () => {
     try {
       setLoading(true);
-      
+
       const [statsResponse, eventsResponse] = await Promise.all([
         fetch(`/api/admin/security/stats?timeframe=${timeframe}`),
         fetch(`/api/admin/security/events?timeframe=${timeframe}&severity=${severityFilter}&limit=50`)
@@ -61,15 +61,15 @@ export default function SecurityPage() {
   }, [timeframe, severityFilter]);
 
   useEffect(() => {
-    if (status === 'loading') return;
-    
-    if (!(session?.user as { isAdmin?: boolean })?.isAdmin) {
+    if (isLoading) return;
+
+    if (!user) {
       router.push('/admin');
       return;
     }
 
     fetchSecurityData();
-  }, [session, status, router, timeframe, severityFilter, fetchSecurityData]);
+  }, [user, isLoading, router, timeframe, severityFilter, fetchSecurityData]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -92,7 +92,7 @@ export default function SecurityPage() {
     }
   };
 
-  if (status === 'loading' || loading) {
+  if (isLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -109,7 +109,7 @@ export default function SecurityPage() {
         <div className="text-center">
           <div className="text-red-600 text-xl mb-4">⚠️ Error</div>
           <p className="text-gray-600">{error}</p>
-          <button 
+          <button
             onClick={fetchSecurityData}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
@@ -131,7 +131,7 @@ export default function SecurityPage() {
               <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">Monitor security events and system health</p>
             </div>
             <div className="flex-shrink-0">
-              <a 
+              <a
                 href="/admin/dashboard"
                 className="text-blue-600 hover:text-blue-800 font-medium text-sm sm:text-base"
               >
@@ -274,7 +274,7 @@ export default function SecurityPage() {
           <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
             <h3 className="text-base sm:text-lg font-semibold text-gray-900">Recent Security Events</h3>
           </div>
-          
+
           {/* Mobile view - Card layout */}
           <div className="block sm:hidden">
             <div className="divide-y divide-gray-200">

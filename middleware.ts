@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { updateSession } from '@/lib/supabase/middleware';
 
 // Admin session cookie name (must match admin-session.ts)
 const ADMIN_SESSION_COOKIE = 'admin-session';
 
-export default function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Check if this is an admin route (except admin login page and API routes)
@@ -24,8 +25,16 @@ export default function middleware(request: NextRequest) {
     }
   }
 
-  // Create response
-  const response = NextResponse.next();
+  // Update Supabase session (refresh tokens, check auth for protected routes)
+  const supabaseResponse = await updateSession(request);
+
+  // If Supabase middleware returned a redirect, use that
+  if (supabaseResponse.headers.get('location')) {
+    return supabaseResponse;
+  }
+
+  // Add security headers to the response
+  const response = supabaseResponse;
 
   // Security Headers
   response.headers.set('X-Content-Type-Options', 'nosniff');
@@ -34,23 +43,22 @@ export default function middleware(request: NextRequest) {
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()');
   response.headers.set('X-DNS-Prefetch-Control', 'on');
-  // Note: COEP 'require-corp' is too restrictive for most apps with external resources
-  // Use 'credentialless' for better compatibility while maintaining security
   response.headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
   response.headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
   response.headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
 
   // Content Security Policy - More restrictive in production
   const isDev = process.env.NODE_ENV === 'development';
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const csp = [
     "default-src 'self'",
     isDev
-      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" // Dev mode needs these for hot reload
-      : "script-src 'self'", // Production should be strict
-    "style-src 'self' 'unsafe-inline'", // Needed for CSS-in-JS
+      ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+      : "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self'",
-    "connect-src 'self'",
+    `connect-src 'self' ${supabaseUrl} https://accounts.google.com`,
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

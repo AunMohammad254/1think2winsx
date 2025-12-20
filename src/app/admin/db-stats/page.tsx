@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -36,39 +36,37 @@ type DatabaseStats = {
 };
 
 export default function DatabaseStatsPage() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<DatabaseStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === 'loading') return;
+    if (isLoading) return;
 
-    if (status === 'unauthenticated') {
+    if (!user) {
       router.push('/login');
       return;
     }
 
-    if (status === 'authenticated' && session) {
-      fetchStats();
-    }
-  }, [status, session, router]);
+    fetchStats();
+  }, [isLoading, user, router]);
 
   const fetchStats = async () => {
     try {
       setLoading(true);
       const response = await fetch('/api/admin/db-stats');
-      
+
       if (response.status === 403) {
         setError('Access denied. Admin privileges required.');
         return;
       }
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch database statistics');
       }
-      
+
       const data = await response.json();
       setStats(data);
     } catch (err) {
@@ -97,7 +95,7 @@ export default function DatabaseStatsPage() {
             <p className="font-bold">Error</p>
             <p>{error}</p>
           </div>
-          <Link 
+          <Link
             href="/admin/dashboard"
             className="mt-4 inline-block glass-card-blue glass-border-blue glass-hover-blue glass-transition text-white px-4 py-2 rounded"
           >
@@ -113,7 +111,7 @@ export default function DatabaseStatsPage() {
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-200">No statistics available</p>
-          <Link 
+          <Link
             href="/admin/dashboard"
             className="mt-4 inline-block glass-card-blue glass-border-blue glass-hover-blue glass-transition text-white px-4 py-2 rounded"
           >
@@ -135,12 +133,12 @@ export default function DatabaseStatsPage() {
               <p className="text-gray-200 text-sm sm:text-base">Comprehensive database insights and metrics</p>
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
-              {session?.user?.email && (
+              {user?.email && (
                 <span className="text-xs sm:text-sm text-gray-300 truncate max-w-50">
-                  Logged in as: {session.user.email}
+                  Logged in as: {user.email}
                 </span>
               )}
-              <Link 
+              <Link
                 href="/admin/dashboard"
                 className="text-blue-300 hover:text-blue-200 font-medium glass-transition text-sm sm:text-base"
               >

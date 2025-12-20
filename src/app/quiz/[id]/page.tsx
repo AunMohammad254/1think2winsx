@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
 import QuizResults from '@/components/QuizResults';
@@ -45,7 +45,7 @@ interface SubmissionResult {
 }
 
 export default function QuizPage() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const _searchParams = useSearchParams();
@@ -81,7 +81,7 @@ export default function QuizPage() {
       }
       const data = await response.json();
       setQuiz(data.quiz);
-      
+
       // Initialize answers array for the questions being shown (new questions in reattempt)
       const initialAnswers: Answer[] = data.quiz.questions.map((q: Question) => ({
         questionId: q.id,
@@ -97,7 +97,7 @@ export default function QuizPage() {
 
   const handleSubmitQuiz = useCallback(async () => {
     if (isSubmitting) return;
-    
+
     setIsSubmitting(true);
     try {
       const response = await fetch(`/api/quizzes/${quizId}/submit`, {
@@ -113,7 +113,7 @@ export default function QuizPage() {
       }
 
       const result = await response.json();
-      
+
       // For prediction-based quizzes, show results component instead of redirecting
       // This is a prediction-based quiz system, so we show submission confirmation
       setSubmissionResult(result);
@@ -126,15 +126,15 @@ export default function QuizPage() {
   }, [quizId, answers, isSubmitting]);
 
   useEffect(() => {
-    if (status === 'loading') return;
-    
-    if (!session) {
+    if (isLoading) return;
+
+    if (!user) {
       router.push('/login');
       return;
     }
 
     fetchQuiz();
-  }, [session, status, router, fetchQuiz]);
+  }, [user, isLoading, router, fetchQuiz]);
 
   // Timer effect
   useEffect(() => {
@@ -154,9 +154,9 @@ export default function QuizPage() {
   }, [quizStarted, timeRemaining, handleSubmitQuiz]);
 
   const handleAnswerSelect = (questionId: string, optionIndex: number) => {
-    setAnswers(prev => 
-      prev.map(answer => 
-        answer.questionId === questionId 
+    setAnswers(prev =>
+      prev.map(answer =>
+        answer.questionId === questionId
           ? { ...answer, selectedOption: optionIndex }
           : answer
       )
@@ -185,7 +185,7 @@ export default function QuizPage() {
     return answers.filter(answer => answer.selectedOption !== -1).length;
   };
 
-  if (status === 'loading' || loading) {
+  if (isLoading || loading) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
         <div className="text-center">
@@ -230,7 +230,7 @@ export default function QuizPage() {
   if (showResults && submissionResult) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center p-4">
-        <QuizResults 
+        <QuizResults
           success={true}
           message={submissionResult.message || "Your predictions have been successfully submitted!"}
           totalQuestions={quiz?.questions.length || 0}
@@ -248,13 +248,13 @@ export default function QuizPage() {
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-white mb-4">{quiz.title}</h1>
             <p className="text-gray-300 text-lg">{quiz.description}</p>
-            
+
             {/* Reattempt notification */}
             {quiz.isReattempt && (
               <div className="mt-6 bg-green-500/20 border border-green-500/30 rounded-xl p-4">
                 <h3 className="text-green-200 font-semibold mb-2">🎉 New Questions Available!</h3>
                 <p className="text-green-100 text-sm">
-                  You&apos;ve already completed this quiz, but {quiz.newQuestionsCount} new questions have been added. 
+                  You&apos;ve already completed this quiz, but {quiz.newQuestionsCount} new questions have been added.
                   You can now attempt these new questions to improve your score!
                 </p>
                 {quiz.previousAttempt && (
@@ -370,154 +370,151 @@ export default function QuizPage() {
               </div>
             </div>
 
-        {/* Progress Bar */}
-        <div className="mb-6">
-          <div className="glass-card glass-border rounded-full p-2">
-            <div
-              className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${progressPercent}%` }}
-            >
-            </div>
-          </div>
-        </div>
-
-        {/* Question */}
-        <div className="glass-card glass-border rounded-2xl p-8 mb-6">
-          <h2 className="text-xl font-semibold text-white mb-6">
-            {currentQuestion.text}
-          </h2>
-
-          <div className="space-y-4">
-            {currentQuestion.options.map((option, index) => (
-              <button
-                key={index}
-                onClick={() => handleAnswerSelect(currentQuestion.id, index)}
-                className={`w-full p-4 text-left rounded-xl border-2 transition-all duration-200 ${
-                  currentAnswer?.selectedOption === index
-                    ? 'border-blue-500 bg-blue-500/20 text-white'
-                    : 'border-gray-600 bg-gray-800/50 text-gray-300 hover:border-gray-500 hover:bg-gray-700/50'
-                }`}
-              >
-                <div className="flex items-center">
-                  <div className={`w-6 h-6 rounded-full border-2 mr-4 flex items-center justify-center ${
-                    currentAnswer?.selectedOption === index
-                      ? 'border-blue-500 bg-blue-500'
-                      : 'border-gray-500'
-                  }`}>
-                    {currentAnswer?.selectedOption === index && (
-                      <div className="w-2 h-2 bg-white rounded-full"></div>
-                    )}
-                  </div>
-                  <span className="font-medium">{option}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <div className="flex justify-between items-center">
-          <button
-            onClick={handlePreviousQuestion}
-            disabled={currentQuestionIndex === 0}
-            className="py-3 px-6 glass-card glass-border text-gray-300 rounded-xl font-medium hover:bg-white/5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Previous
-          </button>
-
-          <div className="flex space-x-4">
-            {currentQuestionIndex === quiz.questions.length - 1 ? (
-              <button
-                onClick={handleSubmitQuiz}
-                disabled={isSubmitting}
-                className="py-3 px-8 bg-gradient-to-r from-green-500 to-blue-500 text-white rounded-xl font-medium hover:from-green-600 hover:to-blue-600 transition-all duration-200 disabled:opacity-50"
-              >
-                {isSubmitting ? 'Submitting...' : 'Submit Quiz'}
-              </button>
-            ) : (
-              <button
-                onClick={handleNextQuestion}
-                className="py-3 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-medium hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
-              >
-                Next
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Question Navigator */}
-        <div className="mt-8 glass-card glass-border rounded-2xl p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Question Navigator</h3>
-          <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
-            {quiz.questions.map((_, index) => {
-              const isAnswered = answers[index]?.selectedOption !== -1;
-              const isCurrent = index === currentQuestionIndex;
-              
-              return (
-                <button
-                  key={index}
-                  onClick={() => setCurrentQuestionIndex(index)}
-                  className={`w-10 h-10 rounded-lg font-medium transition-all duration-200 ${
-                    isCurrent
-                      ? 'bg-blue-500 text-white'
-                      : isAnswered
-                      ? 'bg-green-500/30 text-green-400 border border-green-500/50'
-                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                  }`}
+            {/* Progress Bar */}
+            <div className="mb-6">
+              <div className="glass-card glass-border rounded-full p-2">
+                <div
+                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
                 >
-                  {index + 1}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* Live Stream Sidebar - Desktop */}
-      <div className="hidden lg:block lg:w-96">
-        <div className="sticky top-8">
-          <div className="glass-card glass-border rounded-2xl p-4 mb-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                <span className="text-red-400 text-sm font-medium">LIVE</span>
+                </div>
               </div>
             </div>
-            <LazyStreamPlayer />
+
+            {/* Question */}
+            <div className="glass-card glass-border rounded-2xl p-8 mb-6">
+              <h2 className="text-xl font-semibold text-white mb-6">
+                {currentQuestion.text}
+              </h2>
+
+              <div className="space-y-4">
+                {currentQuestion.options.map((option, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleAnswerSelect(currentQuestion.id, index)}
+                    className={`w-full p-4 text-left rounded-xl border-2 transition-all duration-200 ${currentAnswer?.selectedOption === index
+                        ? 'border-blue-500 bg-blue-500/20 text-white'
+                        : 'border-gray-600 bg-gray-800/50 text-gray-300 hover:border-gray-500 hover:bg-gray-700/50'
+                      }`}
+                  >
+                    <div className="flex items-center">
+                      <div className={`w-6 h-6 rounded-full border-2 mr-4 flex items-center justify-center ${currentAnswer?.selectedOption === index
+                          ? 'border-blue-500 bg-blue-500'
+                          : 'border-gray-500'
+                        }`}>
+                        {currentAnswer?.selectedOption === index && (
+                          <div className="w-2 h-2 bg-white rounded-full"></div>
+                        )}
+                      </div>
+                      <span className="font-medium">{option}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Navigation */}
+            <div className="flex justify-between items-center">
+              <button
+                onClick={handlePreviousQuestion}
+                disabled={currentQuestionIndex === 0}
+                className="py-3 px-6 glass-card glass-border text-gray-300 rounded-xl font-medium hover:bg-white/5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+
+              <div className="flex space-x-4">
+                {currentQuestionIndex === quiz.questions.length - 1 ? (
+                  <button
+                    onClick={handleSubmitQuiz}
+                    disabled={isSubmitting}
+                    className="py-3 px-8 bg-gradient-to-r from-green-500 to-blue-500 text-white rounded-xl font-medium hover:from-green-600 hover:to-blue-600 transition-all duration-200 disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Submitting...' : 'Submit Quiz'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleNextQuestion}
+                    className="py-3 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-medium hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                  >
+                    Next
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Question Navigator */}
+            <div className="mt-8 glass-card glass-border rounded-2xl p-6">
+              <h3 className="text-lg font-semibold text-white mb-4">Question Navigator</h3>
+              <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
+                {quiz.questions.map((_, index) => {
+                  const isAnswered = answers[index]?.selectedOption !== -1;
+                  const isCurrent = index === currentQuestionIndex;
+
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => setCurrentQuestionIndex(index)}
+                      className={`w-10 h-10 rounded-lg font-medium transition-all duration-200 ${isCurrent
+                          ? 'bg-blue-500 text-white'
+                          : isAnswered
+                            ? 'bg-green-500/30 text-green-400 border border-green-500/50'
+                            : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                        }`}
+                    >
+                      {index + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-          <div className="glass-card glass-border rounded-xl p-4">
-            <p className="text-gray-300 text-sm">
-              💡 <strong>Tip:</strong> Watch the live stream for hints and explanations that might help you with the quiz!
-            </p>
+
+          {/* Live Stream Sidebar - Desktop */}
+          <div className="hidden lg:block lg:w-96">
+            <div className="sticky top-8">
+              <div className="glass-card glass-border rounded-2xl p-4 mb-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                    <span className="text-red-400 text-sm font-medium">LIVE</span>
+                  </div>
+                </div>
+                <LazyStreamPlayer />
+              </div>
+              <div className="glass-card glass-border rounded-xl p-4">
+                <p className="text-gray-300 text-sm">
+                  💡 <strong>Tip:</strong> Watch the live stream for hints and explanations that might help you with the quiz!
+                </p>
+              </div>
+            </div>
           </div>
+
+          {/* Live Stream Mobile Modal */}
+          {showStream && (
+            <div className="lg:hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="glass-card glass-border rounded-2xl p-4 w-full max-w-md max-h-[80vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
+                  <button
+                    onClick={() => setShowStream(false)}
+                    className="text-gray-400 hover:text-white transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <LazyStreamPlayer />
+                <div className="mt-4 p-3 bg-blue-500/20 border border-blue-500/30 rounded-xl">
+                  <p className="text-blue-100 text-sm">
+                    💡 Watch for hints and explanations that might help with your quiz!
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Live Stream Mobile Modal */}
-      {showStream && (
-        <div className="lg:hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-card glass-border rounded-2xl p-4 w-full max-w-md max-h-[80vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
-              <button
-                onClick={() => setShowStream(false)}
-                className="text-gray-400 hover:text-white transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-            <LazyStreamPlayer />
-            <div className="mt-4 p-3 bg-blue-500/20 border border-blue-500/30 rounded-xl">
-              <p className="text-blue-100 text-sm">
-                💡 Watch for hints and explanations that might help with your quiz!
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
-  </div>
-  </div>
   );
 }

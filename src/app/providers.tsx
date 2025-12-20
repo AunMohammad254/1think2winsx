@@ -1,6 +1,6 @@
 'use client';
 
-import { SessionProvider } from 'next-auth/react';
+import { AuthProvider } from '@/contexts/AuthContext';
 import { ProfileProvider } from '@/contexts/ProfileContext';
 
 interface ProvidersProps {
@@ -9,14 +9,10 @@ interface ProvidersProps {
 
 export function Providers({ children }: ProvidersProps) {
   return (
-    <SessionProvider
-      basePath="/api/auth"
-      refetchOnWindowFocus={false}
-      refetchWhenOffline={false}
-    >
+    <AuthProvider>
       <ProfileProvider>
         {children}
       </ProfileProvider>
-    </SessionProvider>
+    </AuthProvider>
   );
 }

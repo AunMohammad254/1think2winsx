@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import QuizEvaluationManager from '@/components/QuizEvaluationManager';
@@ -80,7 +80,7 @@ type QuizFormData = {
 };
 
 export default function AdminDashboard() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<SystemStats | null>(null);
 
@@ -136,17 +136,15 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    if (status === 'loading') return;
+    if (isLoading) return;
 
-    if (status === 'unauthenticated') {
+    if (!user) {
       router.push('/login');
       return;
     }
 
-    if (status === 'authenticated') {
-      fetchData();
-    }
-  }, [status, router, fetchData]);
+    fetchData();
+  }, [isLoading, user, router, fetchData]);
 
   const fetchQuizzes = async () => {
     try {
@@ -684,7 +682,40 @@ export default function AdminDashboard() {
     });
   };
 
-  if (status === 'loading') {
+  const addQuestionOption = (questionIndex: number) => {
+    const updatedQuestions = [...quizFormData.questions];
+    updatedQuestions[questionIndex] = {
+      ...updatedQuestions[questionIndex],
+      options: [...updatedQuestions[questionIndex].options, '']
+    };
+    setQuizFormData({
+      ...quizFormData,
+      questions: updatedQuestions
+    });
+  };
+
+  const removeQuestionOption = (questionIndex: number, optionIndex: number) => {
+    const updatedQuestions = [...quizFormData.questions];
+    const updatedOptions = updatedQuestions[questionIndex].options.filter((_, i) => i !== optionIndex);
+    // Adjust correctOption if needed
+    let newCorrectOption = updatedQuestions[questionIndex].correctOption;
+    if (optionIndex === newCorrectOption) {
+      newCorrectOption = 0; // Reset to first option if correct answer is removed
+    } else if (optionIndex < newCorrectOption) {
+      newCorrectOption = newCorrectOption - 1; // Shift correct option index down
+    }
+    updatedQuestions[questionIndex] = {
+      ...updatedQuestions[questionIndex],
+      options: updatedOptions,
+      correctOption: newCorrectOption
+    };
+    setQuizFormData({
+      ...quizFormData,
+      questions: updatedQuestions
+    });
+  };
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-400"></div>
@@ -692,7 +723,7 @@ export default function AdminDashboard() {
     );
   }
 
-  if (status === 'unauthenticated') {
+  if (!user) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-400"></div>
@@ -743,7 +774,7 @@ export default function AdminDashboard() {
                 <span className="sm:hidden">🔒</span>
               </Link>
               <span className="text-gray-200 text-xs sm:text-sm hidden md:block truncate max-w-37.5">
-                Welcome, {session?.user?.name}
+                Welcome, {user?.user_metadata?.name || user?.user_metadata?.full_name || user?.email?.split('@')[0]}
               </span>
 
               {/* Mobile Menu Button */}
@@ -770,8 +801,8 @@ export default function AdminDashboard() {
             <button
               onClick={() => setActiveTab('overview')}
               className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'overview'
-                  ? 'border-blue-400 text-blue-300'
-                  : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
+                ? 'border-blue-400 text-blue-300'
+                : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
                 }`}
             >
               Overview
@@ -779,8 +810,8 @@ export default function AdminDashboard() {
             <button
               onClick={() => setActiveTab('quizzes')}
               className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'quizzes'
-                  ? 'border-blue-400 text-blue-300'
-                  : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
+                ? 'border-blue-400 text-blue-300'
+                : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
                 }`}
             >
               Quiz Management
@@ -788,8 +819,8 @@ export default function AdminDashboard() {
             <button
               onClick={() => setActiveTab('evaluation')}
               className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'evaluation'
-                  ? 'border-blue-400 text-blue-300'
-                  : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
+                ? 'border-blue-400 text-blue-300'
+                : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
                 }`}
             >
               Quiz Evaluation
@@ -797,8 +828,8 @@ export default function AdminDashboard() {
             <button
               onClick={() => setActiveTab('claims')}
               className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'claims'
-                  ? 'border-blue-400 text-blue-300'
-                  : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
+                ? 'border-blue-400 text-blue-300'
+                : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
                 }`}
             >
               Player Claims
@@ -806,8 +837,8 @@ export default function AdminDashboard() {
             <button
               onClick={() => setActiveTab('streaming')}
               className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'streaming'
-                  ? 'border-blue-400 text-blue-300'
-                  : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
+                ? 'border-blue-400 text-blue-300'
+                : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
                 }`}
             >
               Live Streaming
@@ -815,8 +846,8 @@ export default function AdminDashboard() {
             <button
               onClick={() => setActiveTab('maintenance')}
               className={`py-2 px-1 border-b-2 font-medium text-sm glass-transition whitespace-nowrap ${activeTab === 'maintenance'
-                  ? 'border-blue-400 text-blue-300'
-                  : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
+                ? 'border-blue-400 text-blue-300'
+                : 'border-transparent text-gray-300 hover:text-white hover:border-blue-300'
                 }`}
             >
               Maintenance
@@ -841,8 +872,8 @@ export default function AdminDashboard() {
                     setIsMobileMenuOpen(false);
                   }}
                   className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-all duration-300 ${activeTab === item.key
-                      ? 'bg-blue-500/20 text-blue-300 border border-blue-400/30'
-                      : 'text-gray-300 hover:text-white hover:bg-white/10'
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-400/30'
+                    : 'text-gray-300 hover:text-white hover:bg-white/10'
                     }`}
                 >
                   <span className="text-lg">{item.icon}</span>
@@ -1011,74 +1042,175 @@ export default function AdminDashboard() {
                     </div>
                   </div>
 
+
                   {/* Questions Management Section */}
                   <div className="border-t border-blue-400 pt-6">
-                    <div className="flex justify-between items-center mb-4">
-                      <h4 className="text-lg font-medium text-white">Questions</h4>
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                      <div>
+                        <h4 className="text-xl font-semibold text-white flex items-center gap-2">
+                          <span className="text-2xl">📝</span>
+                          Questions
+                          <span className="ml-2 px-2 py-0.5 text-sm bg-blue-500/30 border border-blue-400/50 rounded-full text-blue-200">
+                            {quizFormData.questions.length}
+                          </span>
+                        </h4>
+                        <p className="text-sm text-gray-400 mt-1">Add questions and configure answer options</p>
+                      </div>
                       <button
                         onClick={addQuestion}
                         disabled={loading}
-                        className="glass-card-blue glass-border-blue glass-hover-blue glass-transition text-white px-4 py-2 rounded-md disabled:opacity-50"
+                        className="group flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white px-5 py-2.5 rounded-lg font-medium shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
+                        <svg
+                          className="w-5 h-5 transition-transform group-hover:rotate-90 duration-300"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
                         {loading ? 'Adding...' : 'Add Question'}
                       </button>
                     </div>
 
                     {quizFormData.questions.length === 0 ? (
-                      <p className="text-gray-300 text-center py-8">No questions added yet. Click &quot;Add Question&quot; to get started.</p>
+                      <div className="flex flex-col items-center justify-center py-12 px-4 glass-card glass-border-blue rounded-xl">
+                        <div className="text-6xl mb-4 opacity-50">📋</div>
+                        <p className="text-gray-300 text-lg font-medium">No questions added yet</p>
+                        <p className="text-gray-400 text-sm mt-1 mb-4">Click "Add Question" to get started</p>
+                        <button
+                          onClick={addQuestion}
+                          className="flex items-center gap-2 text-blue-400 hover:text-blue-300 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          Add your first question
+                        </button>
+                      </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-6">
                         {quizFormData.questions.map((question, questionIndex) => (
-                          <div key={`question-${questionIndex}`} className="glass-card glass-border-blue p-4 rounded-lg">
-                            <div className="flex justify-between items-start mb-4">
-                              <h5 className="text-white font-medium">Question {questionIndex + 1}</h5>
+                          <div
+                            key={`question-${questionIndex}`}
+                            className="glass-card border border-blue-400/30 hover:border-blue-400/60 p-5 rounded-xl transition-all duration-300"
+                          >
+                            {/* Question Header */}
+                            <div className="flex flex-col sm:flex-row justify-between items-start gap-3 mb-5">
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center justify-center w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg text-white font-bold text-lg shadow-lg">
+                                  {questionIndex + 1}
+                                </div>
+                                <div>
+                                  <h5 className="text-white font-semibold text-lg">Question {questionIndex + 1}</h5>
+                                  <p className="text-gray-400 text-xs">{question.options.length} options</p>
+                                </div>
+                              </div>
                               <button
                                 onClick={() => removeQuestion(questionIndex)}
-                                className="text-red-400 hover:text-red-300 glass-transition"
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-red-400 hover:text-white hover:bg-red-500/30 border border-red-400/30 hover:border-red-400/60 rounded-lg transition-all duration-200"
                               >
-                                Remove
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <span className="text-sm font-medium">Remove</span>
                               </button>
                             </div>
 
-                            <div className="space-y-4">
+                            <div className="space-y-5">
+                              {/* Question Text Input */}
                               <div>
-                                <label className="block text-sm font-medium text-gray-200 mb-2">
-                                  Question Text *
+                                <label className="block text-sm font-semibold text-gray-200 mb-2 flex items-center gap-2">
+                                  <span className="text-blue-400">❓</span>
+                                  Question Text
+                                  <span className="text-red-400">*</span>
                                 </label>
-                                <input
-                                  type="text"
+                                <textarea
                                   value={question.text}
                                   onChange={(e) => updateQuestion(questionIndex, 'text', e.target.value)}
-                                  className="w-full px-3 py-2 glass-card border border-blue-400 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                  placeholder="Enter question text"
+                                  className="w-full px-4 py-3 glass-card border border-blue-400/50 hover:border-blue-400 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 resize-none"
+                                  placeholder="Enter your question here..."
+                                  rows={2}
                                 />
                               </div>
 
+                              {/* Answer Options */}
                               <div>
-                                <label className="block text-sm font-medium text-gray-200 mb-2">
-                                  Answer Options *
-                                </label>
-                                <div className="space-y-2">
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
+                                  <label className="block text-sm font-semibold text-gray-200 flex items-center gap-2">
+                                    <span className="text-green-400">✓</span>
+                                    Answer Options
+                                    <span className="text-red-400">*</span>
+                                    <span className="text-xs text-gray-400 font-normal ml-1">(Select correct answer)</span>
+                                  </label>
+                                  <button
+                                    onClick={() => addQuestionOption(questionIndex)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-green-400 hover:text-white hover:bg-green-500/30 border border-green-400/30 hover:border-green-400/60 rounded-lg transition-all duration-200 text-sm"
+                                  >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Add Option
+                                  </button>
+                                </div>
+
+                                <div className="space-y-3">
                                   {question.options.map((option, optionIndex) => (
-                                    <div key={`option-${questionIndex}-${optionIndex}`} className="flex items-center space-x-3">
+                                    <div
+                                      key={`option-${questionIndex}-${optionIndex}`}
+                                      className={`flex items-center gap-3 p-3 rounded-lg border transition-all duration-200 ${question.correctOption === optionIndex
+                                        ? 'bg-green-500/10 border-green-400/50'
+                                        : 'bg-white/5 border-white/10 hover:border-white/20'
+                                        }`}
+                                    >
+                                      {/* Option Letter Badge */}
+                                      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm ${question.correctOption === optionIndex
+                                        ? 'bg-green-500 text-white'
+                                        : 'bg-gray-600 text-gray-300'
+                                        }`}>
+                                        {String.fromCharCode(65 + optionIndex)}
+                                      </div>
+
+                                      {/* Radio Button */}
                                       <input
                                         type="radio"
                                         name={`correct-${questionIndex}`}
                                         checked={question.correctOption === optionIndex}
                                         onChange={() => updateQuestion(questionIndex, 'correctOption', optionIndex)}
-                                        className="rounded border-blue-400 text-blue-500 focus:ring-blue-400"
+                                        className="w-5 h-5 text-green-500 bg-gray-700 border-gray-500 focus:ring-green-400 focus:ring-2 cursor-pointer"
                                       />
+
+                                      {/* Option Text Input */}
                                       <input
                                         type="text"
                                         value={option}
                                         onChange={(e) => updateQuestionOption(questionIndex, optionIndex, e.target.value)}
-                                        className="flex-1 px-3 py-2 glass-card border border-blue-400 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                        placeholder={`Option ${optionIndex + 1}`}
+                                        className="flex-1 px-3 py-2 bg-transparent border-0 border-b border-white/20 focus:border-blue-400 text-white placeholder-gray-500 focus:outline-none focus:ring-0 transition-colors"
+                                        placeholder={`Option ${String.fromCharCode(65 + optionIndex)}`}
                                       />
+
+                                      {/* Remove Option Button */}
+                                      {question.options.length > 2 && (
+                                        <button
+                                          onClick={() => removeQuestionOption(questionIndex, optionIndex)}
+                                          className="flex-shrink-0 p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-all duration-200"
+                                          title="Remove option"
+                                        >
+                                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                          </svg>
+                                        </button>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
-                                <p className="text-xs text-blue-300 mt-1">Select the radio button next to the correct answer</p>
+
+                                <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  Click the radio button to mark the correct answer. Minimum 2 options required.
+                                </p>
                               </div>
                             </div>
                           </div>
@@ -1214,8 +1346,8 @@ export default function AdminDashboard() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded ${(quiz.status === 'active' || quiz.isActive)
-                                ? 'bg-green-500 bg-opacity-20 text-green-300 border border-green-400'
-                                : 'bg-red-500 bg-opacity-20 text-red-300 border border-red-400'
+                              ? 'bg-green-500 bg-opacity-20 text-green-300 border border-green-400'
+                              : 'bg-red-500 bg-opacity-20 text-red-300 border border-red-400'
                               }`}>
                               {(quiz.status === 'active' || quiz.isActive) ? 'Active' : 'Inactive'}
                             </span>

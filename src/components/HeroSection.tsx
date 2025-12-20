@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { memo, useMemo } from 'react';
 
 // Floating cricket element component
@@ -101,9 +101,8 @@ CricketBall.displayName = 'CricketBall';
 
 // Main HeroSection component
 const HeroSection = memo(() => {
-    const { data: session, status } = useSession();
-    const isLoading = status === 'loading';
-    const isLoggedIn = !!session?.user;
+    const { user, isLoading } = useAuth();
+    const isLoggedIn = !!user;
 
     // Animation variants
     const containerVariants = useMemo(() => ({

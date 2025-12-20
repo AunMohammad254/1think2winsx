@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
 
 type LeaderboardEntry = {
@@ -23,13 +23,13 @@ type LeaderboardResponse = {
 };
 
 export default function LeaderboardPage() {
-  const { data: session } = useSession();
+  const { user } = useAuth();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<'weekly' | 'monthly' | 'allTime'>('weekly');
   const [lastUpdated, setLastUpdated] = useState<string>('');
-  
+
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
 
@@ -37,10 +37,10 @@ export default function LeaderboardPage() {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
     };
-    
+
     checkMobile();
     window.addEventListener('resize', checkMobile);
-    
+
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
@@ -49,14 +49,14 @@ export default function LeaderboardPage() {
     const fetchLeaderboard = async () => {
       setLoading(true);
       setError(null);
-      
+
       try {
         const response = await fetch(`/api/leaderboard?timeframe=${timeframe}&limit=50`);
-        
+
         if (!response.ok) {
           throw new Error(`Failed to fetch leaderboard: ${response.statusText}`);
         }
-        
+
         const data: LeaderboardResponse = await response.json();
         setLeaderboard(data.leaderboard);
         setLastUpdated(data.lastUpdated);
@@ -96,8 +96,9 @@ export default function LeaderboardPage() {
   }, [timeframe, loading]);
 
   // Find current user in leaderboard
-  const currentUserEntry = session?.user?.name 
-    ? leaderboard.find(entry => entry.userName === session.user?.name) 
+  const userName = user?.user_metadata?.name || user?.user_metadata?.full_name || user?.email?.split('@')[0];
+  const currentUserEntry = userName
+    ? leaderboard.find(entry => entry.userName === userName)
     : null;
 
 
@@ -161,11 +162,10 @@ export default function LeaderboardPage() {
                 <button
                   key={key}
                   type="button"
-                  className={`relative px-4 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-medium rounded-xl transition-all duration-300 touch-manipulation ${
-                    timeframe === key
-                      ? `bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg ${!isMobile ? 'transform scale-105' : ''}`
-                      : `text-gray-300 ${!isMobile ? 'hover:text-white hover:bg-white/10' : ''}`
-                  }`}
+                  className={`relative px-4 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-medium rounded-xl transition-all duration-300 touch-manipulation ${timeframe === key
+                    ? `bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg ${!isMobile ? 'transform scale-105' : ''}`
+                    : `text-gray-300 ${!isMobile ? 'hover:text-white hover:bg-white/10' : ''}`
+                    }`}
                   onClick={() => setTimeframe(key as 'weekly' | 'monthly' | 'allTime')}
                 >
                   <span className="mr-2">{icon}</span>
@@ -199,8 +199,8 @@ export default function LeaderboardPage() {
                   <span className="text-3xl">⚠️</span>
                 </div>
                 <p className="text-red-300 mb-6">{error}</p>
-                <button 
-                  onClick={() => window.location.reload()} 
+                <button
+                  onClick={() => window.location.reload()}
                   className={`px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 text-white rounded-xl ${!isMobile ? 'hover:from-red-600 hover:to-pink-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
                 >
                   🔄 Retry
@@ -218,8 +218,8 @@ export default function LeaderboardPage() {
                 <p className="text-gray-300 mb-6">
                   No leaderboard data available for the selected timeframe.
                 </p>
-                <Link 
-                  href="/quizzes" 
+                <Link
+                  href="/quizzes"
                   className={`inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl ${!isMobile ? 'hover:from-blue-600 hover:to-purple-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
                 >
                   🎯 Take a Quiz
@@ -308,13 +308,12 @@ export default function LeaderboardPage() {
                   </thead>
                   <tbody className="divide-y divide-white/10">
                     {leaderboard.map((entry, _index) => (
-                      <tr 
-                        key={entry.id} 
-                        className={`group ${!isMobile ? 'hover:bg-white/10' : ''} transition-all duration-300 touch-manipulation ${
-                          entry.userName === session?.user?.name 
-                            ? 'bg-gradient-to-r from-blue-500/20 to-purple-600/20 border-l-4 border-blue-400' 
-                            : ''
-                        }`}
+                      <tr
+                        key={entry.id}
+                        className={`group ${!isMobile ? 'hover:bg-white/10' : ''} transition-all duration-300 touch-manipulation ${entry.userName === userName
+                          ? 'bg-gradient-to-r from-blue-500/20 to-purple-600/20 border-l-4 border-blue-400'
+                          : ''
+                          }`}
                       >
                         <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
@@ -329,70 +328,70 @@ export default function LeaderboardPage() {
                             )}
                             <span className="ml-3 text-2xl">{getRankIcon(entry.rank)}</span>
                           </div>
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-purple-600 rounded-full flex items-center justify-center mr-3 shadow-lg">
-                                <span className="text-white font-bold text-sm">
-                                  {entry.userName.charAt(0).toUpperCase()}
-                                </span>
-                              </div>
-                              <div>
-                                <div className={`text-sm font-bold text-white ${!isMobile ? 'group-hover:text-blue-300 transition-colors duration-300' : ''}`}>
-                                  {entry.userName}
-                                </div>
-                                {entry.userName === session?.user?.name && (
-                                  <div className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-500/30 text-blue-300 border border-blue-500/50 mt-1">
-                                    ⭐ You
-                                  </div>
-                                )}
-                              </div>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-purple-600 rounded-full flex items-center justify-center mr-3 shadow-lg">
+                              <span className="text-white font-bold text-sm">
+                                {entry.userName.charAt(0).toUpperCase()}
+                              </span>
                             </div>
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="bg-blue-500/20 rounded-lg px-3 py-1 border border-blue-500/30">
-                                <span className="text-blue-300 font-medium">{entry.quizzesTaken}</span>
+                            <div>
+                              <div className={`text-sm font-bold text-white ${!isMobile ? 'group-hover:text-blue-300 transition-colors duration-300' : ''}`}>
+                                {entry.userName}
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="bg-green-500/20 rounded-lg px-3 py-1 border border-green-500/30">
-                                <span className="text-green-300 font-medium">{entry.correctAnswers}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg px-4 py-2 border border-purple-500/30">
-                                <span className="text-white font-bold text-lg">{entry.totalScore}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              {entry.winCount > 0 ? (
-                                <div className="bg-yellow-500/20 rounded-lg px-3 py-1 border border-yellow-500/30 flex items-center">
-                                  <span className="text-yellow-300 font-bold mr-1">{entry.winCount}</span>
-                                  <span className="text-yellow-400">🏆</span>
-                                </div>
-                              ) : (
-                                <div className="bg-gray-500/20 rounded-lg px-3 py-1 border border-gray-500/30">
-                                  <span className="text-gray-400">0</span>
+                              {entry.userName === userName && (
+                                <div className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-500/30 text-blue-300 border border-blue-500/50 mt-1">
+                                  ⭐ You
                                 </div>
                               )}
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
+                          </div>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="bg-blue-500/20 rounded-lg px-3 py-1 border border-blue-500/30">
+                              <span className="text-blue-300 font-medium">{entry.quizzesTaken}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="bg-green-500/20 rounded-lg px-3 py-1 border border-green-500/30">
+                              <span className="text-green-300 font-medium">{entry.correctAnswers}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg px-4 py-2 border border-purple-500/30">
+                              <span className="text-white font-bold text-lg">{entry.totalScore}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            {entry.winCount > 0 ? (
+                              <div className="bg-yellow-500/20 rounded-lg px-3 py-1 border border-yellow-500/30 flex items-center">
+                                <span className="text-yellow-300 font-bold mr-1">{entry.winCount}</span>
+                                <span className="text-yellow-400">🏆</span>
+                              </div>
+                            ) : (
+                              <div className="bg-gray-500/20 rounded-lg px-3 py-1 border border-gray-500/30">
+                                <span className="text-gray-400">0</span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
                 </table>
               </div>
             </div>
 
             {/* User's Position if not in visible leaderboard */}
-            {session?.user && !currentUserEntry && (
+            {user && !currentUserEntry && (
               <div className="mt-8">
                 <div className={`${!isMobile ? 'backdrop-blur-xl bg-white/5' : 'bg-slate-800/90'} border border-white/10 rounded-3xl p-6 shadow-2xl`}>
                   <div className="flex items-center mb-4">
@@ -404,8 +403,8 @@ export default function LeaderboardPage() {
                   <p className="text-gray-300 mb-4">
                     You haven&apos;t participated in any quizzes yet or don&apos;t appear in the top rankings for this timeframe.
                   </p>
-                  <Link 
-                    href="/quizzes" 
+                  <Link
+                    href="/quizzes"
                     className={`inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl ${!isMobile ? 'hover:from-blue-600 hover:to-purple-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
                   >
                     🚀 Start playing now
@@ -428,8 +427,8 @@ export default function LeaderboardPage() {
                 <p className="text-gray-300 mb-6">
                   Challenge yourself with our exciting quizzes and compete with players worldwide!
                 </p>
-                <Link 
-                  href="/quizzes" 
+                <Link
+                  href="/quizzes"
                   className={`inline-flex items-center px-8 py-4 bg-gradient-to-r from-green-500 to-blue-600 text-white text-lg font-bold rounded-2xl ${!isMobile ? 'hover:from-green-600 hover:to-blue-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-2xl touch-manipulation`}
                 >
                   <span className="mr-3">🎮</span>

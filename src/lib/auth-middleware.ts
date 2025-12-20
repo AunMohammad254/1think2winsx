@@ -1,22 +1,52 @@
 import { NextResponse } from 'next/server';
-import { auth } from './auth';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { securityLogger } from './security-logger';
-import type { Session } from 'next-auth';
+import type { User } from '@supabase/supabase-js';
 
 // Admin status cache to avoid repeated environment variable parsing
 const adminCache = new Map<string, { isAdmin: boolean; timestamp: number }>();
 const ADMIN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
 // Session cache to reduce auth() calls
-const sessionCache = new Map<string, { session: Session | null; timestamp: number }>();
+const sessionCache = new Map<string, { user: User | null; timestamp: number }>();
 const SESSION_CACHE_TTL = 30 * 1000; // 30 seconds cache
+
+/**
+ * Get Supabase server client
+ */
+async function getSupabaseServerClient() {
+  const cookieStore = await cookies();
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing sessions.
+          }
+        },
+      },
+    }
+  );
+}
 
 /**
  * Enhanced authentication middleware for API routes with session expiration handling
  * Optimized with caching and reduced retry attempts for better performance
  */
 export async function requireAuth(
-  options: { 
+  options: {
     adminOnly?: boolean;
     maxRetries?: number;
     context?: string;
@@ -29,8 +59,8 @@ export async function requireAuth(
   console.log(`Auth attempt for ${context}:`, {
     adminOnly,
     nodeEnv: process.env.NODE_ENV,
-    hasNextAuthUrl: !!process.env.NEXTAUTH_URL,
-    hasNextAuthSecret: !!process.env.NEXTAUTH_SECRET
+    hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    hasSupabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   });
 
   // Retry authentication in case of temporary session issues
@@ -39,14 +69,24 @@ export async function requireAuth(
       // Check session cache first
       const sessionCacheKey = `session_${Date.now().toString().slice(0, -4)}`; // Cache key changes every 10 seconds
       const cachedSession = sessionCache.get(sessionCacheKey);
-      
-      let session;
+
+      let user: User | null = null;
+
       if (cachedSession && (Date.now() - cachedSession.timestamp) < SESSION_CACHE_TTL) {
-        session = cachedSession.session;
+        user = cachedSession.user;
       } else {
-        session = await auth();
+        const supabase = await getSupabaseServerClient();
+        const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
+
+        if (error) {
+          console.error('Supabase auth error:', error);
+        }
+
+        user = supabaseUser;
+
         // Cache the session
-        sessionCache.set(sessionCacheKey, { session, timestamp: Date.now() });
+        sessionCache.set(sessionCacheKey, { user, timestamp: Date.now() });
+
         // Clean old cache entries
         const sessionEntries = Array.from(sessionCache.entries());
         for (const [key, value] of sessionEntries) {
@@ -55,92 +95,58 @@ export async function requireAuth(
           }
         }
       }
-      
-      if (!session || !session.user) {
+
+      if (!user) {
         const error = new Error('No valid session found');
         console.error(`Authentication failed (attempt ${attempt}/${maxRetries}):`, {
-          hasSession: !!session,
-          hasUser: session?.user ? true : false,
+          hasUser: false,
           context
         });
-        
+
         securityLogger.logAuthFailure(
           undefined,
           context,
           `Authentication failed (attempt ${attempt}/${maxRetries}): No session`
         );
-        
+
         if (attempt === maxRetries) {
           return NextResponse.json(
-            { 
+            {
               success: false,
               error: 'Unauthorized',
               message: 'Authentication required',
               code: 'SESSION_EXPIRED',
               debug: process.env.NODE_ENV === 'development' ? {
-                hasNextAuthUrl: !!process.env.NEXTAUTH_URL,
-                hasNextAuthSecret: !!process.env.NEXTAUTH_SECRET,
+                hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+                hasSupabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
                 nodeEnv: process.env.NODE_ENV
               } : undefined
             },
             { status: 401 }
           );
         }
-        
+
         lastError = error;
         continue;
       }
 
-      // Check session expiration
-      const sessionExpiry = new Date(session.expires);
-      const now = new Date();
-      const timeUntilExpiry = sessionExpiry.getTime() - now.getTime();
-      
-      // If session expires in less than 5 minutes, log a warning
-      if (timeUntilExpiry < 5 * 60 * 1000 && timeUntilExpiry > 0) {
-        securityLogger.logAuthFailure(
-          session.user.id,
-          context,
-          `Session expiring soon: ${Math.round(timeUntilExpiry / 1000)}s remaining`
-        );
-      }
-      
-      // If session has expired, reject
-      if (timeUntilExpiry <= 0) {
-        securityLogger.logAuthFailure(
-          session.user.id,
-          context,
-          'Session has expired'
-        );
-        
-        return NextResponse.json(
-          { 
-            success: false,
-            error: 'Unauthorized',
-            message: 'Session has expired. Please log in again.',
-            code: 'SESSION_EXPIRED'
-          },
-          { status: 401 }
-        );
-      }
-
       // Check admin access if required
       if (adminOnly) {
-        const userEmail = session.user.email || '';
-        
+        const userEmail = user.email || '';
+
         // Check admin cache first
         const cachedAdmin = adminCache.get(userEmail);
         let isAdmin: boolean;
-        
+
         if (cachedAdmin && (Date.now() - cachedAdmin.timestamp) < ADMIN_CACHE_TTL) {
           isAdmin = cachedAdmin.isAdmin;
         } else {
           const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
           isAdmin = adminEmails.includes(userEmail);
-          
+
           // Cache the admin status
           adminCache.set(userEmail, { isAdmin, timestamp: Date.now() });
-          
+
           // Clean old cache entries
           const adminEntries = Array.from(adminCache.entries());
           for (const [key, value] of adminEntries) {
@@ -152,12 +158,12 @@ export async function requireAuth(
 
         if (!isAdmin) {
           securityLogger.logUnauthorizedAccess(
-            session.user.id,
+            user.id,
             context
           );
-          
+
           return NextResponse.json(
-            { 
+            {
               success: false,
               error: 'Forbidden',
               message: 'Admin access required',
@@ -169,21 +175,29 @@ export async function requireAuth(
       }
 
       // Authentication successful
-      return { session, user: session.user };
-      
+      return {
+        session: { user, expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() },
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0],
+          image: user.user_metadata?.avatar_url
+        }
+      };
+
     } catch (error) {
       lastError = error as Error;
-      
+
       securityLogger.logAuthFailure(
         undefined,
         context,
         `Authentication error (attempt ${attempt}/${maxRetries}): ${error}`
       );
-      
+
       // If it's the last attempt, return error
       if (attempt === maxRetries) {
         return NextResponse.json(
-          { 
+          {
             success: false,
             error: 'Authentication Error',
             message: 'Unable to verify authentication. Please try again.',
@@ -192,7 +206,7 @@ export async function requireAuth(
           { status: 500 }
         );
       }
-      
+
       // Wait before retry (exponential backoff)
       await new Promise(resolve => setTimeout(resolve, 100 * attempt));
     }
@@ -206,34 +220,44 @@ export async function requireAuth(
  * Helper function to check if current user is admin (with caching)
  */
 export async function isCurrentUserAdmin(): Promise<boolean> {
-  const session = await auth();
-  
-  if (!session || !session.user) {
+  const supabase = await getSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
     return false;
   }
 
-  const userEmail = session.user.email || '';
-  
+  const userEmail = user.email || '';
+
   // Check admin cache first
   const cachedAdmin = adminCache.get(userEmail);
-  
+
   if (cachedAdmin && (Date.now() - cachedAdmin.timestamp) < ADMIN_CACHE_TTL) {
     return cachedAdmin.isAdmin;
   }
 
   const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
   const isAdmin = adminEmails.includes(userEmail);
-  
+
   // Cache the admin status
   adminCache.set(userEmail, { isAdmin, timestamp: Date.now() });
-  
+
   return isAdmin;
 }
 
 /**
- * Get current authenticated user session
+ * Get current authenticated user
  */
 export async function getCurrentUser() {
-  const session = await auth();
-  return session?.user || null;
+  const supabase = await getSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0],
+    image: user.user_metadata?.avatar_url
+  };
 }

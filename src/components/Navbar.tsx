@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useSession, signOut } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 // Type definitions for navigation items
 interface NavigationItem {
@@ -12,8 +13,9 @@ interface NavigationItem {
 }
 
 export default function Navbar() {
-  const { data: session } = useSession();
+  const { user, isLoading, signOut } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
+  const router = useRouter();
 
   // Navigation items with proper typing
   const baseNavItems: NavigationItem[] = [
@@ -24,13 +26,28 @@ export default function Navbar() {
     { href: '/leaderboard', label: 'Leaderboard', icon: '📊' },
   ];
 
-  const userNavItems: NavigationItem[] = session?.user 
-    ? [{ href: '/profile', label: 'Profile', icon: '👤' }] 
+  const userNavItems: NavigationItem[] = user
+    ? [{ href: '/profile', label: 'Profile', icon: '👤' }]
     : [];
 
-
-
   const allNavItems: NavigationItem[] = [...baseNavItems, ...userNavItems];
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/login');
+    router.refresh();
+  };
+
+  // Get user display name from metadata or email
+  const getUserDisplayName = () => {
+    if (!user) return '';
+    return user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+  };
+
+  const getUserInitial = () => {
+    const name = getUserDisplayName();
+    return name.charAt(0).toUpperCase();
+  };
 
   return (
     <>
@@ -45,7 +62,7 @@ export default function Navbar() {
       <header className="fixed top-0 left-0 w-full z-50 bg-gray-900/90 md:backdrop-blur-xl md:bg-gradient-to-r md:from-gray-900/80 md:via-blue-900/60 md:to-gray-900/80 border-b border-white/10 shadow-lg md:shadow-2xl">
         <div className="container mx-auto px-2 sm:px-4">
           <div className="flex justify-between items-center h-16 sm:h-18 py-2 min-w-0">
-            
+
             {/* Logo Section - Simplified for mobile */}
             <div className="flex items-center space-x-2 sm:space-x-6 flex-shrink-0 min-w-0">
               <Link href="/" className="group flex items-center space-x-1.5 sm:space-x-2.5 min-w-0">
@@ -63,7 +80,7 @@ export default function Navbar() {
                   <p className="text-xs text-gray-300 -mt-0.5 leading-none truncate">Cricket Excellence</p>
                 </div>
               </Link>
-              
+
               {/* Desktop Navigation - Simplified hover effects */}
               <nav className="hidden lg:flex space-x-1 flex-1 min-w-0">
                 {allNavItems.map((item: NavigationItem) => (
@@ -89,26 +106,30 @@ export default function Navbar() {
 
             {/* Auth Section - Simplified for mobile */}
             <div className="flex items-center space-x-1 sm:space-x-3 flex-shrink-0 min-w-0">
-              {session?.user ? (
+              {isLoading ? (
+                <div className="animate-pulse flex items-center space-x-2">
+                  <div className="h-8 w-20 bg-white/10 rounded-lg"></div>
+                </div>
+              ) : user ? (
                 <div className="flex items-center space-x-1 sm:space-x-3 min-w-0">
                   {/* User Welcome - Simplified background */}
                   <div className="hidden md:flex items-center space-x-2 lg:space-x-2.5 px-2 lg:px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 min-w-0 max-w-[200px] xl:max-w-none">
                     <div className="w-6 h-6 lg:w-7 lg:h-7 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-white text-xs font-bold">
-                        {session.user.name?.charAt(0).toUpperCase()}
+                        {getUserInitial()}
                       </span>
                     </div>
                     <div className="text-left min-w-0 flex-1">
                       <p className="text-white text-xs lg:text-sm font-medium leading-tight truncate">Welcome back!</p>
-                      <p className="text-gray-300 text-xs leading-none truncate" title={session.user.name || ''}>
-                        {session.user.name}
+                      <p className="text-gray-300 text-xs leading-none truncate" title={getUserDisplayName()}>
+                        {getUserDisplayName()}
                       </p>
                     </div>
                   </div>
-                  
+
                   {/* Sign Out Button - Simplified effects */}
                   <button
-                    onClick={() => signOut()}
+                    onClick={handleSignOut}
                     className="group relative px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg bg-red-500/20 border border-red-400/30 text-white font-medium text-xs sm:text-sm hover:bg-red-500/30 hover:border-red-400/50 transition-colors duration-200 flex-shrink-0"
                   >
                     <div className="flex items-center space-x-1 sm:space-x-2">
@@ -129,7 +150,7 @@ export default function Navbar() {
                       <span className="hidden sm:inline">Login</span>
                     </div>
                   </Link>
-                  
+
                   {/* Register Button - Simplified */}
                   <Link
                     href="/register"
@@ -166,7 +187,7 @@ export default function Navbar() {
                 { href: '/how-to-play', label: 'How to Play', icon: '❓' },
                 { href: '/prizes', label: 'Prizes', icon: '🏆' },
                 { href: '/leaderboard', label: 'Leaderboard', icon: '📊' },
-                ...(session?.user ? [{ href: '/profile', label: 'Profile', icon: '👤' }] : [])
+                ...(user ? [{ href: '/profile', label: 'Profile', icon: '👤' }] : [])
               ].map((item: NavigationItem) => (
                 <Link
                   key={item.href}
@@ -182,7 +203,7 @@ export default function Navbar() {
           </div>
         </div>
       </header>
-      
+
       {/* Spacer to prevent content from being hidden behind fixed navbar */}
       <div className="h-16 sm:h-18"></div>
     </>

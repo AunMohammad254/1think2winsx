@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
 
@@ -21,7 +21,7 @@ interface QuizResult {
 }
 
 export default function QuizResultsPage() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -36,94 +36,94 @@ export default function QuizResultsPage() {
   const urlTotal = searchParams.get('total');
 
   useEffect(() => {
-    if (status === 'loading') return;
-    
-    if (!session) {
+    if (isLoading) return;
+
+    if (!user) {
       router.push('/login');
       return;
     }
 
     const fetchResults = async () => {
-    try {
-      const response = await fetch(`/api/quizzes/${quizId}/results`);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        
-        // Handle 404 specifically - quiz results not found
-        if (response.status === 404) {
-          // If API returns 404 but we have URL params, use them as fallback
-          if (urlScore && urlTotal) {
-            const fallbackResult: QuizResult = {
-              id: 'temp',
-              score: parseInt(urlScore),
-              totalQuestions: parseInt(urlTotal),
-              percentage: Math.round((parseInt(urlScore) / parseInt(urlTotal)) * 100),
-              correctAnswers: parseInt(urlScore),
-              timeSpent: 0,
-              quiz: {
-                title: 'Quiz Results',
-                description: 'Your quiz has been completed'
-              },
-              createdAt: new Date().toISOString()
-            };
-            setResult(fallbackResult);
-            return;
-          } else {
-            throw new Error(errorData.error || 'Quiz results not found. You may not have completed this quiz yet.');
+      try {
+        const response = await fetch(`/api/quizzes/${quizId}/results`);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+
+          // Handle 404 specifically - quiz results not found
+          if (response.status === 404) {
+            // If API returns 404 but we have URL params, use them as fallback
+            if (urlScore && urlTotal) {
+              const fallbackResult: QuizResult = {
+                id: 'temp',
+                score: parseInt(urlScore),
+                totalQuestions: parseInt(urlTotal),
+                percentage: Math.round((parseInt(urlScore) / parseInt(urlTotal)) * 100),
+                correctAnswers: parseInt(urlScore),
+                timeSpent: 0,
+                quiz: {
+                  title: 'Quiz Results',
+                  description: 'Your quiz has been completed'
+                },
+                createdAt: new Date().toISOString()
+              };
+              setResult(fallbackResult);
+              return;
+            } else {
+              throw new Error(errorData.error || 'Quiz results not found. You may not have completed this quiz yet.');
+            }
           }
+
+          throw new Error(errorData.error || 'Failed to fetch results');
         }
-        
-        throw new Error(errorData.error || 'Failed to fetch results');
-      }
-      
-      const data = await response.json();
-      
-      // Transform API response to match our QuizResult interface
-      const apiResult = data.results;
-      const transformedResult: QuizResult = {
-        id: apiResult.attemptId,
-        score: apiResult.score,
-        totalQuestions: apiResult.totalQuestions,
-        percentage: Math.round((apiResult.correctAnswers / apiResult.totalQuestions) * 100),
-        correctAnswers: apiResult.correctAnswers,
-        timeSpent: 0, // API doesn't provide this, using default
-        isEvaluated: apiResult.isEvaluated,
-        quiz: {
-          title: data.quiz.title,
-          description: data.quiz.description
-        },
-        createdAt: apiResult.completedAt
-      };
-      
-      setResult(transformedResult);
-    } catch (err) {
-      // If API fails, use URL params as fallback
-      if (urlScore && urlTotal) {
-        const fallbackResult: QuizResult = {
-          id: 'temp',
-          score: parseInt(urlScore),
-          totalQuestions: parseInt(urlTotal),
-          percentage: Math.round((parseInt(urlScore) / parseInt(urlTotal)) * 100),
-          correctAnswers: parseInt(urlScore),
-          timeSpent: 0,
+
+        const data = await response.json();
+
+        // Transform API response to match our QuizResult interface
+        const apiResult = data.results;
+        const transformedResult: QuizResult = {
+          id: apiResult.attemptId,
+          score: apiResult.score,
+          totalQuestions: apiResult.totalQuestions,
+          percentage: Math.round((apiResult.correctAnswers / apiResult.totalQuestions) * 100),
+          correctAnswers: apiResult.correctAnswers,
+          timeSpent: 0, // API doesn't provide this, using default
+          isEvaluated: apiResult.isEvaluated,
           quiz: {
-            title: 'Quiz Results',
-            description: 'Your quiz has been completed'
+            title: data.quiz.title,
+            description: data.quiz.description
           },
-          createdAt: new Date().toISOString()
+          createdAt: apiResult.completedAt
         };
-        setResult(fallbackResult);
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to load results');
+
+        setResult(transformedResult);
+      } catch (err) {
+        // If API fails, use URL params as fallback
+        if (urlScore && urlTotal) {
+          const fallbackResult: QuizResult = {
+            id: 'temp',
+            score: parseInt(urlScore),
+            totalQuestions: parseInt(urlTotal),
+            percentage: Math.round((parseInt(urlScore) / parseInt(urlTotal)) * 100),
+            correctAnswers: parseInt(urlScore),
+            timeSpent: 0,
+            quiz: {
+              title: 'Quiz Results',
+              description: 'Your quiz has been completed'
+            },
+            createdAt: new Date().toISOString()
+          };
+          setResult(fallbackResult);
+        } else {
+          setError(err instanceof Error ? err.message : 'Failed to load results');
+        }
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
     fetchResults();
-  }, [session, status, router, quizId, urlScore, urlTotal]);
+  }, [user, isLoading, router, quizId, urlScore, urlTotal]);
 
   const getScoreColor = (percentage: number) => {
     if (percentage >= 80) return 'text-green-400';
@@ -147,7 +147,7 @@ export default function QuizResultsPage() {
     return 'Needs Improvement';
   };
 
-  if (status === 'loading' || loading) {
+  if (isLoading || loading) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
         <div className="text-center">
@@ -208,7 +208,7 @@ export default function QuizResultsPage() {
                 <h3 className="text-lg font-semibold text-yellow-400">Evaluation In Progress</h3>
               </div>
               <p className="text-center text-yellow-200 text-sm">
-                Your quiz is currently being reviewed by our admin team. 
+                Your quiz is currently being reviewed by our admin team.
                 The results shown below are preliminary and may change after evaluation.
               </p>
             </div>
@@ -222,8 +222,8 @@ export default function QuizResultsPage() {
               {result.isEvaluated === false ? 'Preliminary Score' : getPerformanceLevel(result.percentage)}
             </div>
             <p className="text-lg text-gray-300">
-              {result.isEvaluated === false 
-                ? 'This score may change after admin evaluation' 
+              {result.isEvaluated === false
+                ? 'This score may change after admin evaluation'
                 : getScoreMessage(result.percentage)
               }
             </p>
@@ -252,14 +252,13 @@ export default function QuizResultsPage() {
               <span>{result.correctAnswers}/{result.totalQuestions}</span>
             </div>
             <div className="glass-card glass-border rounded-full p-1">
-              <div 
-                className={`h-4 rounded-full transition-all duration-1000 ${
-                  result.percentage >= 80 
-                    ? 'bg-gradient-to-r from-green-500 to-emerald-500'
-                    : result.percentage >= 60
+              <div
+                className={`h-4 rounded-full transition-all duration-1000 ${result.percentage >= 80
+                  ? 'bg-gradient-to-r from-green-500 to-emerald-500'
+                  : result.percentage >= 60
                     ? 'bg-gradient-to-r from-yellow-500 to-orange-500'
                     : 'bg-gradient-to-r from-red-500 to-pink-500'
-                }`}
+                  }`}
                 style={{ width: `${result.percentage}%` }}
               ></div>
             </div>

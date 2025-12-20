@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
@@ -30,7 +30,7 @@ interface PaymentInfo {
 }
 
 export default function QuizzesPage() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,15 +42,15 @@ export default function QuizzesPage() {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
 
   useEffect(() => {
-    if (status === 'loading') return;
-    
-    if (!session) {
+    if (isLoading) return;
+
+    if (!user) {
       router.push('/login');
       return;
     }
 
     fetchQuizzes();
-  }, [session, status, router]);
+  }, [user, isLoading, router]);
 
   // Update time remaining every second
   useEffect(() => {
@@ -154,7 +154,7 @@ export default function QuizzesPage() {
           'X-CSRF-Token': csrfToken,
         },
         credentials: 'include',
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           paymentMethod: 'demo',
           transactionId: `demo_${Date.now()}`
         }),
@@ -170,7 +170,7 @@ export default function QuizzesPage() {
       setPaymentInfo(data.payment);
       setShowPaymentModal(false);
       setError(null);
-      
+
       // Refresh quizzes to update access status
       fetchQuizzes();
     } catch (err) {
@@ -180,7 +180,7 @@ export default function QuizzesPage() {
     }
   };
 
-  if (status === 'loading' || loading) {
+  if (isLoading || loading) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
         <div className="text-center">
@@ -198,8 +198,8 @@ export default function QuizzesPage() {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-white mb-4">Available Quizzes</h1>
           <p className="text-gray-300 text-lg">
-            {hasAccess 
-              ? "You have full access to all quizzes!" 
+            {hasAccess
+              ? "You have full access to all quizzes!"
               : "Choose a quiz to play or get 24-hour access for just 2 PKR"
             }
           </p>
@@ -244,8 +244,8 @@ export default function QuizzesPage() {
               <p className="text-gray-300 mb-6">
                 There are no active quizzes at the moment. Check back later for new quizzes!
               </p>
-              <Link 
-                href="/how-to-play" 
+              <Link
+                href="/how-to-play"
                 className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
               >
                 Learn How to Play
@@ -266,16 +266,15 @@ export default function QuizzesPage() {
                           +{quiz.newQuestionsCount} New
                         </div>
                       )}
-                      <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        quiz.status === 'active'
-                          ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
+                      <div className={`px-3 py-1 rounded-full text-xs font-medium ${quiz.status === 'active'
+                          ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                           : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                      }`}>
+                        }`}>
                         {quiz.status === 'active' ? 'Active' : 'Paused'}
                       </div>
                     </div>
                   </div>
-                  
+
                   {/* Reattempt notification */}
                   {quiz.hasNewQuestions && (
                     <div className="mb-4 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
@@ -289,9 +288,9 @@ export default function QuizzesPage() {
                       )}
                     </div>
                   )}
-                  
+
                   <p className="text-gray-300 mb-4 line-clamp-3">{quiz.description}</p>
-                  
+
                   <div className="space-y-2 mb-6">
                     <div className="flex items-center text-sm text-gray-400">
                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -314,7 +313,7 @@ export default function QuizzesPage() {
                   </div>
 
                   {quiz.status !== 'active' ? (
-                    <button 
+                    <button
                       disabled
                       className="w-full py-3 px-4 bg-gray-600 text-gray-400 rounded-xl font-medium cursor-not-allowed"
                     >
@@ -323,11 +322,10 @@ export default function QuizzesPage() {
                   ) : (
                     <button
                       onClick={() => handleQuizClick(quiz)}
-                      className={`w-full py-3 px-4 rounded-xl font-medium transition-all duration-200 ${
-                        hasAccess
+                      className={`w-full py-3 px-4 rounded-xl font-medium transition-all duration-200 ${hasAccess
                           ? 'bg-gradient-to-r from-green-500 to-blue-500 text-white hover:from-green-600 hover:to-blue-600'
                           : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
-                      }`}
+                        }`}
                     >
                       {hasAccess ? 'Play Now' : 'Pay 2 PKR & Play'}
                     </button>
@@ -346,7 +344,7 @@ export default function QuizzesPage() {
               <p className="text-gray-300 mb-6">
                 Pay just 2 PKR to get unlimited access to all quizzes for 24 hours!
               </p>
-              
+
               <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 rounded-xl p-4 mb-6">
                 <div className="flex items-center justify-between">
                   <span className="text-white font-medium">24-Hour Access</span>

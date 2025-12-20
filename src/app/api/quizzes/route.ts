@@ -9,6 +9,7 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { createHash } from 'crypto';
 import { securityLogger } from '@/lib/security-logger';
+import { ensureUserExists } from '@/lib/user-sync';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -62,14 +63,14 @@ export async function GET(request: NextRequest) {
     const authResult = await requireAuth({
       context: 'quiz_list',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
     const userId = session.user.id;
-    
+
     const rateLimitResponse = await applyRateLimit(
       rateLimiters.general,
       request,
@@ -79,6 +80,10 @@ export async function GET(request: NextRequest) {
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
+
+    // Ensure user exists in database before checking payment
+    const userEmail = session.user.email;
+    await ensureUserExists(userId, userEmail);
 
     const paymentAccess = await checkPaymentAccess(userId, request);
 
@@ -153,7 +158,7 @@ export async function GET(request: NextRequest) {
         : quiz._count.questions;
       const attemptedQuestionsCount = attemptedQuestionIds.length;
       const newQuestionsCount = totalQuestions - attemptedQuestionsCount;
-      
+
       const isCompleted = !!userAttempt;
       const hasNewQuestions = isCompleted && newQuestionsCount > 0;
 
@@ -175,10 +180,10 @@ export async function GET(request: NextRequest) {
         updatedAt: quiz.updatedAt,
         questions: paymentAccess.hasAccess
           ? (quiz as typeof quizzesWithQuestions[number]).questions.map(q => ({
-              id: q.id,
-              text: q.text,
-              options: JSON.parse(q.options),
-            }))
+            id: q.id,
+            text: q.text,
+            options: JSON.parse(q.options),
+          }))
           : []
       };
     });
@@ -224,7 +229,7 @@ export async function POST(request: NextRequest) {
       adminOnly: true,
       context: 'quiz_creation',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
@@ -248,7 +253,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validationResult = createQuizSchema.safeParse(body);
-    
+
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, session.user.id, {
         endpoint: '/api/quizzes',

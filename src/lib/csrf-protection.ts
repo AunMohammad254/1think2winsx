@@ -1,10 +1,9 @@
 import { NextRequest } from 'next/server';
-import { getToken } from 'next-auth/jwt';
 import crypto from 'crypto';
 
 /**
  * CSRF Protection Utility
- * Uses NextAuth's built-in CSRF protection mechanism
+ * Uses Supabase session cookies for authentication verification
  * Applies production-level security measures across all environments
  */
 
@@ -65,16 +64,16 @@ export interface SecurityEvent {
  */
 export class SecurityLogger {
   private static instance: SecurityLogger;
-  
-  private constructor() {}
-  
+
+  private constructor() { }
+
   static getInstance(): SecurityLogger {
     if (!SecurityLogger.instance) {
       SecurityLogger.instance = new SecurityLogger();
     }
     return SecurityLogger.instance;
   }
-  
+
   /**
    * Log security events with structured data
    */
@@ -84,7 +83,7 @@ export class SecurityLogger {
       severity: this.getSeverityLevel(event.type),
       source: 'csrf-protection'
     };
-    
+
     // Log to console with appropriate level
     switch (logEntry.severity) {
       case 'error':
@@ -99,13 +98,13 @@ export class SecurityLogger {
       default:
         console.log(`[SECURITY][${event.environment.toUpperCase()}]`, logEntry);
     }
-    
+
     // In production, you might want to send to external monitoring service
     if (process.env.NODE_ENV === 'production') {
       this.sendToMonitoringService(logEntry);
     }
   }
-  
+
   /**
    * Get severity level based on event type
    */
@@ -126,7 +125,7 @@ export class SecurityLogger {
         return 'info';
     }
   }
-  
+
   /**
    * Send security events to external monitoring service (placeholder)
    */
@@ -146,9 +145,9 @@ function extractRequestMetadata(request: NextRequest | { headers?: { [key: strin
     const nextRequest = request as NextRequest;
     return {
       userAgent: nextRequest.headers.get('user-agent') || undefined,
-      ip: nextRequest.headers.get('x-forwarded-for') || 
-          nextRequest.headers.get('x-real-ip') || 
-          undefined
+      ip: nextRequest.headers.get('x-forwarded-for') ||
+        nextRequest.headers.get('x-real-ip') ||
+        undefined
     };
   } else {
     // NextApiRequest object
@@ -156,11 +155,11 @@ function extractRequestMetadata(request: NextRequest | { headers?: { [key: strin
     const headers = apiRequest.headers as { [key: string]: string | string[] | undefined };
     return {
       userAgent: headers?.['user-agent'] as string || undefined,
-      ip: headers?.['x-forwarded-for'] as string || 
-          headers?.['x-real-ip'] as string || 
-          apiRequest.connection?.remoteAddress ||
-          apiRequest.ip ||
-          undefined
+      ip: headers?.['x-forwarded-for'] as string ||
+        headers?.['x-real-ip'] as string ||
+        apiRequest.connection?.remoteAddress ||
+        apiRequest.ip ||
+        undefined
     };
   }
 }
@@ -174,12 +173,12 @@ async function validateCSRFTokenForApiRoute(request: { method?: string; headers:
   const securityLogger = SecurityLogger.getInstance();
   const environment = process.env.NODE_ENV || 'development';
   const requestMetadata = extractRequestMetadata(request);
-  
+
   try {
     // Get the CSRF token from headers
-    const csrfToken = request.headers['x-csrf-token'] || 
-                     request.headers['X-CSRF-Token'] ||
-                     request.headers['csrf-token'];
+    const csrfToken = request.headers['x-csrf-token'] ||
+      request.headers['X-CSRF-Token'] ||
+      request.headers['csrf-token'];
 
     // CSRF token is required in all environments
     if (!csrfToken) {
@@ -190,7 +189,7 @@ async function validateCSRFTokenForApiRoute(request: { method?: string; headers:
         ...requestMetadata,
         details: { headers: request.headers }
       });
-      
+
       return {
         isValid: false,
         error: 'CSRF token missing from request headers'
@@ -206,7 +205,7 @@ async function validateCSRFTokenForApiRoute(request: { method?: string; headers:
         ...requestMetadata,
         details: { tokenLength: csrfToken?.length, expectedMinLength: SECURITY_CONFIG.MIN_TOKEN_LENGTH }
       });
-      
+
       return {
         isValid: false,
         error: 'Invalid CSRF token format'
@@ -222,7 +221,7 @@ async function validateCSRFTokenForApiRoute(request: { method?: string; headers:
         ...requestMetadata,
         details: { tokenPattern: SECURITY_CONFIG.TOKEN_PATTERN.toString() }
       });
-      
+
       return {
         isValid: false,
         error: 'CSRF token does not match expected pattern'
@@ -235,7 +234,7 @@ async function validateCSRFTokenForApiRoute(request: { method?: string; headers:
       timestamp: new Date().toISOString(),
       ...requestMetadata
     });
-    
+
     return {
       isValid: true
     };
@@ -248,7 +247,7 @@ async function validateCSRFTokenForApiRoute(request: { method?: string; headers:
       ...requestMetadata,
       details: { error: error instanceof Error ? error.message : String(error) }
     });
-    
+
     return {
       isValid: false,
       error: 'CSRF validation failed due to server error'
@@ -265,12 +264,12 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
   const securityLogger = SecurityLogger.getInstance();
   const environment = process.env.NODE_ENV || 'development';
   const requestMetadata = extractRequestMetadata(request);
-  
+
   try {
     // Get the CSRF token from headers
-    const csrfToken = request.headers.get('x-csrf-token') || 
-                     request.headers.get('X-CSRF-Token') ||
-                     request.headers.get('csrf-token');
+    const csrfToken = request.headers.get('x-csrf-token') ||
+      request.headers.get('X-CSRF-Token') ||
+      request.headers.get('csrf-token');
 
     // CSRF token is required in all environments
     if (!csrfToken) {
@@ -281,7 +280,7 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
         ...requestMetadata,
         details: { headers: Object.fromEntries(request.headers.entries()) }
       });
-      
+
       return {
         isValid: false,
         error: 'CSRF token missing from request headers'
@@ -297,7 +296,7 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
         ...requestMetadata,
         details: { tokenLength: csrfToken?.length, expectedMinLength: SECURITY_CONFIG.MIN_TOKEN_LENGTH }
       });
-      
+
       return {
         isValid: false,
         error: 'Invalid CSRF token format'
@@ -313,61 +312,45 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
         ...requestMetadata,
         details: { tokenPattern: SECURITY_CONFIG.TOKEN_PATTERN.toString() }
       });
-      
+
       return {
         isValid: false,
         error: 'CSRF token does not match expected pattern'
       };
     }
 
-    // Try multiple approaches to get the session token for cross-platform compatibility
-    let token = null;
-    
+    // Try to get the Supabase session cookie
+    let hasSession = false;
+
     try {
-      // Primary method: Use NextAuth's getToken
-      token = await getToken({ 
-        req: request,
-        secret: process.env.NEXTAUTH_SECRET,
-        secureCookie: process.env.NODE_ENV === 'production'
-      });
-    } catch (tokenError) {
+      // Check for Supabase session cookies
+      const supabaseAuthCookie = request.cookies.get('sb-access-token') ||
+        request.cookies.get('sb-refresh-token');
+
+      // Also check for the Supabase auth token pattern
+      const allCookies = request.cookies.getAll();
+      const hasSupabaseCookie = allCookies.some(cookie =>
+        cookie.name.includes('sb-') && cookie.name.includes('-auth-token')
+      );
+
+      if (supabaseAuthCookie || hasSupabaseCookie) {
+        console.info(`[${environment.toUpperCase()}] Session found via Supabase cookie`);
+        hasSession = true;
+      }
+    } catch (cookieError) {
       securityLogger.logSecurityEvent({
         type: SecurityEventType.SESSION_TOKEN_RETRIEVAL_FAILED,
         environment,
         timestamp: new Date().toISOString(),
         ...requestMetadata,
-        details: { error: tokenError instanceof Error ? tokenError.message : String(tokenError) }
+        details: {
+          error: cookieError instanceof Error ? cookieError.message : String(cookieError)
+        }
       });
     }
 
-    // Fallback method: Try to get session cookie directly
-    if (!token) {
-      try {
-        const sessionCookieName = process.env.NODE_ENV === 'production' 
-          ? '__Secure-next-auth.session-token' 
-          : 'next-auth.session-token';
-        
-        const sessionCookie = request.cookies.get(sessionCookieName);
-        if (sessionCookie) {
-          console.info(`[${environment.toUpperCase()}] Session found via cookie fallback`);
-          token = { valid: true }; // Minimal token object
-        }
-      } catch (cookieError) {
-        securityLogger.logSecurityEvent({
-          type: SecurityEventType.SESSION_TOKEN_RETRIEVAL_FAILED,
-          environment,
-          timestamp: new Date().toISOString(),
-          ...requestMetadata,
-          details: { 
-            fallbackMethod: 'cookie',
-            error: cookieError instanceof Error ? cookieError.message : String(cookieError)
-          }
-        });
-      }
-    }
-
-    // Session token is required in all environments for security
-    if (!token) {
+    // Session is required in all environments for security
+    if (!hasSession) {
       securityLogger.logSecurityEvent({
         type: SecurityEventType.SESSION_TOKEN_MISSING,
         environment,
@@ -375,12 +358,12 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
         ...requestMetadata,
         details: { csrfTokenPresent: !!csrfToken }
       });
-      
+
       // Enhanced validation: Check if CSRF token format is valid but session is missing
       // This indicates a potential security issue that should be blocked in all environments
       const isValidFormat = typeof csrfToken === 'string' && csrfToken.length >= SECURITY_CONFIG.MIN_TOKEN_LENGTH;
       const hasValidPattern = SECURITY_CONFIG.TOKEN_PATTERN.test(csrfToken);
-      
+
       if (isValidFormat && hasValidPattern) {
         // In production environments, this might be acceptable for certain deployment scenarios
         // but we should log it as a security concern
@@ -392,13 +375,13 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
             ...requestMetadata,
             details: { reason: 'Valid CSRF token but missing session in Vercel deployment' }
           });
-          
+
           return {
             isValid: true
           };
         }
       }
-      
+
       return {
         isValid: false,
         error: 'Invalid or missing session token'
@@ -411,7 +394,7 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
       timestamp: new Date().toISOString(),
       ...requestMetadata
     });
-    
+
     return {
       isValid: true
     };
@@ -424,7 +407,7 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
       ...requestMetadata,
       details: { error: error instanceof Error ? error.message : String(error) }
     });
-    
+
     return {
       isValid: false,
       error: 'CSRF validation failed due to server error'
@@ -441,22 +424,22 @@ export async function requireCSRFToken(request: NextRequest): Promise<Response |
   // Only validate CSRF for state-changing methods
   const method = request.method;
   const environment = process.env.NODE_ENV || 'development';
-  
+
   if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
     return null; // No CSRF validation needed for GET requests
   }
 
   try {
-    
+
     // Get the CSRF token from headers
-    const csrfToken = request.headers.get('x-csrf-token') || 
-                     request.headers.get('X-CSRF-Token') ||
-                     request.headers.get('csrf-token');
+    const csrfToken = request.headers.get('x-csrf-token') ||
+      request.headers.get('X-CSRF-Token') ||
+      request.headers.get('csrf-token');
 
     // CSRF token is required for all state-changing operations in all environments
     if (!csrfToken) {
       console.error(`[${environment.toUpperCase()}] CSRF token missing from ${method} request`);
-      
+
       return new Response(
         JSON.stringify({
           error: 'CSRF validation failed',
@@ -469,45 +452,36 @@ export async function requireCSRFToken(request: NextRequest): Promise<Response |
       );
     }
 
-    // Try multiple approaches to get the session token for cross-platform compatibility
-    let token = null;
-    
-    try {
-      // Primary method: Use NextAuth's getToken
-      token = await getToken({ 
-        req: request,
-        secret: process.env.NEXTAUTH_SECRET,
-        secureCookie: process.env.NODE_ENV === 'production'
-      });
-    } catch (tokenError) {
-      console.warn(`[${environment.toUpperCase()}] Primary token retrieval failed:`, tokenError);
-    }
+    // Try to get the Supabase session cookie
+    let hasSession = false;
 
-    // Fallback method: Try to get session cookie directly
-    if (!token) {
-      try {
-        const sessionCookieName = process.env.NODE_ENV === 'production' 
-          ? '__Secure-next-auth.session-token' 
-          : 'next-auth.session-token';
-        
-        const sessionCookie = request.cookies.get(sessionCookieName);
-        if (sessionCookie) {
-          console.info(`[${environment.toUpperCase()}] Session found via cookie fallback`);
-          token = { valid: true }; // Minimal token object
-        }
-      } catch (cookieError) {
-        console.warn(`[${environment.toUpperCase()}] Cookie fallback failed:`, cookieError);
+    try {
+      // Check for Supabase session cookies
+      const supabaseAuthCookie = request.cookies.get('sb-access-token') ||
+        request.cookies.get('sb-refresh-token');
+
+      // Also check for the Supabase auth token pattern
+      const allCookies = request.cookies.getAll();
+      const hasSupabaseCookie = allCookies.some(cookie =>
+        cookie.name.includes('sb-') && cookie.name.includes('-auth-token')
+      );
+
+      if (supabaseAuthCookie || hasSupabaseCookie) {
+        console.info(`[${environment.toUpperCase()}] Session found via Supabase cookie`);
+        hasSession = true;
       }
+    } catch (cookieError) {
+      console.warn(`[${environment.toUpperCase()}] Cookie check failed:`, cookieError);
     }
 
     // Session validation with enhanced security logging
-    if (!token) {
+    if (!hasSession) {
       console.error(`[${environment.toUpperCase()}] Invalid or missing session token for ${method} request`);
-      
+
       // Enhanced validation: Check if CSRF token format is valid but session is missing
       const isValidFormat = typeof csrfToken === 'string' && csrfToken.length >= SECURITY_CONFIG.MIN_TOKEN_LENGTH;
       const hasValidPattern = SECURITY_CONFIG.TOKEN_PATTERN.test(csrfToken);
-      
+
       if (isValidFormat && hasValidPattern) {
         console.warn(`[${environment.toUpperCase()}] Valid CSRF token but missing session - potential security issue`);
         // Only allow in specific production deployment scenarios with explicit environment variable
@@ -516,7 +490,7 @@ export async function requireCSRFToken(request: NextRequest): Promise<Response |
           return null; // Allow the request to continue
         }
       }
-      
+
       return new Response(
         JSON.stringify({
           error: 'CSRF validation failed',
@@ -586,12 +560,12 @@ export function requireCSRFTokenForPages(handler: (req: { method?: string; heade
     const securityLogger = SecurityLogger.getInstance();
     const environment = process.env.NODE_ENV || 'development';
     const requestMetadata = extractRequestMetadata(req);
-    
+
     // Apply CSRF protection to state-changing methods
     if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method || '')) {
-      const csrfToken = req.headers['x-csrf-token'] as string || 
-                       req.headers['csrf-token'] as string ||
-                       req.body?.csrfToken;
+      const csrfToken = req.headers['x-csrf-token'] as string ||
+        req.headers['csrf-token'] as string ||
+        req.body?.csrfToken;
 
       // CSRF token is required for all environments - no development bypasses
       if (!csrfToken) {
@@ -602,7 +576,7 @@ export function requireCSRFTokenForPages(handler: (req: { method?: string; heade
           ...requestMetadata,
           details: { method: req.method }
         });
-        
+
         return res.status(403).json({
           error: 'CSRF token required',
           ...SECURITY_CONFIG.SECURITY_HEADERS
@@ -611,20 +585,20 @@ export function requireCSRFTokenForPages(handler: (req: { method?: string; heade
 
       // Validate the CSRF token with consistent security across all environments
       const validation = await validateCSRFTokenForApiRoute(req);
-      
+
       if (!validation.isValid) {
         securityLogger.logSecurityEvent({
           type: SecurityEventType.CSRF_VALIDATION_ERROR,
           environment,
           timestamp: new Date().toISOString(),
           ...requestMetadata,
-          details: { 
+          details: {
             method: req.method,
             error: validation.error,
             tokenPresent: !!csrfToken
           }
         });
-        
+
         return res.status(403).json({
           error: validation.error || 'Invalid CSRF token',
           ...SECURITY_CONFIG.SECURITY_HEADERS
@@ -657,24 +631,24 @@ export function requireCSRFTokenForPages(handler: (req: { method?: string; heade
 export function generateCSRFToken(): string {
   const environment = process.env.NODE_ENV || 'development';
   const securityLogger = SecurityLogger.getInstance();
-  
+
   try {
     // Generate a cryptographically secure random token
     const tokenBytes = crypto.randomBytes(32);
     const token = tokenBytes.toString('base64url');
-    
+
     // Validate the generated token meets our security requirements
     if (token.length < SECURITY_CONFIG.MIN_TOKEN_LENGTH || !SECURITY_CONFIG.TOKEN_PATTERN.test(token)) {
       throw new Error('Generated token does not meet security requirements');
     }
-    
+
     securityLogger.logSecurityEvent({
       type: SecurityEventType.CSRF_TOKEN_GENERATED,
       environment,
       timestamp: new Date().toISOString(),
       details: { tokenLength: token.length }
     });
-    
+
     return token;
   } catch (error) {
     securityLogger.logSecurityEvent({
@@ -683,7 +657,7 @@ export function generateCSRFToken(): string {
       timestamp: new Date().toISOString(),
       details: { error: error instanceof Error ? error.message : String(error) }
     });
-    
+
     throw new Error('Failed to generate CSRF token');
   }
 }
@@ -738,12 +712,12 @@ export function getEnvironmentConfig() {
  */
 export function applyEnvironmentSecurityHeaders(res: { setHeader: (key: string, value: string) => void }) {
   const config = getEnvironmentConfig();
-  
+
   // Apply base security headers (consistent across all environments)
   Object.entries(SECURITY_CONFIG.SECURITY_HEADERS).forEach(([key, value]) => {
     res.setHeader(key, value);
   });
-  
+
   // Apply environment-specific additional headers
   Object.entries(config.additionalHeaders).forEach(([key, value]) => {
     res.setHeader(key, value);

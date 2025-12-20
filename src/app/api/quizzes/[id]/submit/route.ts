@@ -8,6 +8,7 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { executeCriticalTransaction } from '@/lib/transaction-manager';
+import { ensureUserExists } from '@/lib/user-sync';
 
 const submitQuizSchema = z.object({
   answers: z.array(z.object({
@@ -22,7 +23,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  
+
   try {
     // Apply CSRF protection
     const csrfResult = await requireCSRFToken(request);
@@ -33,7 +34,7 @@ export async function POST(
     const authResult = await requireAuth({
       context: 'quiz_submission',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
@@ -63,9 +64,19 @@ export async function POST(
       return paymentAccessResponse;
     }
 
+    // Ensure user exists in database before creating quiz attempt
+    const userEmail = session.user.email;
+    const userExists = await ensureUserExists(userId, userEmail);
+    if (!userExists) {
+      return NextResponse.json(
+        { error: 'Failed to verify user account. Please try logging out and back in.' },
+        { status: 500 }
+      );
+    }
+
     const body = await request.json();
     const validationResult = submitQuizSchema.safeParse(body);
-    
+
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, userId, {
         endpoint: '/api/quizzes/[id]/submit',
@@ -103,7 +114,7 @@ export async function POST(
 
     // Check if this is a reattempt with new questions
     const isReattempt = existingAttempt && attemptedQuestionIds.length > 0;
-    
+
     // If it's not a reattempt and user has already completed, block submission
     if (existingAttempt && !isReattempt) {
       return NextResponse.json(
@@ -137,12 +148,12 @@ export async function POST(
     // Validate that all questions are answered (only for new questions in reattempt)
     const questionIds = quiz.questions.map(q => q.id);
     const answeredQuestionIds = answers.map(a => a.questionId);
-    
+
     // For reattempts, only validate new questions
-    const questionsToValidate = isReattempt 
+    const questionsToValidate = isReattempt
       ? questionIds.filter(id => !attemptedQuestionIds.includes(id))
       : questionIds;
-    
+
     const missingQuestions = questionsToValidate.filter(id => !answeredQuestionIds.includes(id));
     if (missingQuestions.length > 0) {
       return NextResponse.json(
@@ -195,7 +206,7 @@ export async function POST(
     // Create quiz attempt and answers in transaction
     const result = await executeCriticalTransaction(async (tx) => {
       let quizAttempt;
-      
+
       if (isReattempt) {
         // Update existing attempt if it's a reattempt
         quizAttempt = await tx.quizAttempt.update({
@@ -267,8 +278,8 @@ export async function POST(
     });
 
     return createSecureJsonResponse({
-      message: isReattempt 
-        ? 'New quiz predictions submitted successfully' 
+      message: isReattempt
+        ? 'New quiz predictions submitted successfully'
         : 'Quiz predictions submitted successfully',
       results: {
         attemptId: result.quizAttempt.id,
@@ -278,7 +289,7 @@ export async function POST(
         submittedAnswers: answers.length,
         status: 'pending_evaluation',
         isReattempt,
-        note: isReattempt 
+        note: isReattempt
           ? 'Your predictions for the new questions have been submitted. The admin will review all submissions and add correct answers. Points will be allocated to top performers based on accuracy.'
           : 'Your predictions have been submitted. The admin will review all submissions and add correct answers. Points will be allocated to top performers based on accuracy.'
       }

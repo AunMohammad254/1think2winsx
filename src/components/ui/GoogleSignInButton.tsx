@@ -1,6 +1,6 @@
 'use client';
 
-import { signIn } from 'next-auth/react';
+import { createBrowserClient } from '@supabase/ssr';
 import { useState } from 'react';
 
 interface GoogleSignInButtonProps {
@@ -14,10 +14,22 @@ export default function GoogleSignInButton({ className = '', disabled = false }:
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
-      await signIn('google', { 
-        callbackUrl: '/quizzes',
-        redirect: true 
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=/quizzes`,
+        },
       });
+
+      if (error) {
+        console.error('Google sign-in error:', error);
+        setIsLoading(false);
+      }
     } catch (error) {
       console.error('Google sign-in error:', error);
       setIsLoading(false);
@@ -69,7 +81,7 @@ export default function GoogleSignInButton({ className = '', disabled = false }:
           </svg>
         )}
       </div>
-      
+
       {/* Button Text */}
       <span className="text-center flex-1">
         {isLoading ? 'Signing in...' : 'Continue with Google'}

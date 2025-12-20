@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Define specific data types for different message types
 interface QuizUpdateData {
@@ -37,12 +37,12 @@ interface ChannelData {
 }
 
 // Union type for all possible WebSocket message data
-type WebSocketMessageData = 
-  | QuizUpdateData 
-  | QuestionUpdateData 
-  | AdminActivityData 
-  | PingData 
-  | ChannelData 
+type WebSocketMessageData =
+  | QuizUpdateData
+  | QuestionUpdateData
+  | AdminActivityData
+  | PingData
+  | ChannelData
   | Record<string, unknown>
   | null
   | undefined;
@@ -69,7 +69,7 @@ interface WebSocketState {
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
-  const { data: session } = useSession();
+  const { user } = useAuth();
   const {
     url = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001',
     autoConnect = true,
@@ -100,7 +100,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
     reconnectTimer.current = setTimeout(() => {
       // Inline reconnection logic to avoid circular dependency
-      if (!session?.user) {
+      if (!user) {
         setState(prev => ({ ...prev, error: 'No authenticated session' }));
         return;
       }
@@ -112,7 +112,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       setState(prev => ({ ...prev, isConnecting: true, error: null }));
 
       try {
-        const wsUrl = `${url}?token=${session.user.id || 'demo-token'}`;
+        const wsUrl = `${url}?token=${user.id || 'demo-token'}`;
         ws.current = new WebSocket(wsUrl);
 
         ws.current.onopen = () => {
@@ -129,7 +129,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         ws.current.onmessage = (event) => {
           try {
             const message: WebSocketMessage = JSON.parse(event.data);
-            
+
             setState(prev => ({ ...prev, lastMessage: message }));
 
             // Call specific message handlers
@@ -180,11 +180,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         }));
       }
     }, reconnectInterval);
-  }, [session, url, reconnectAttempts, reconnectInterval]);
+  }, [user, url, reconnectAttempts, reconnectInterval]);
 
   // Connect to WebSocket
   const connect = useCallback(() => {
-    if (!session?.user) {
+    if (!user) {
       setState(prev => ({ ...prev, error: 'No authenticated session' }));
       return;
     }
@@ -197,9 +197,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
     try {
       // Create WebSocket connection with user ID as token
-      // Since NextAuth doesn't expose JWT tokens directly to the client,
-      // we'll use the user ID as a simple authentication mechanism
-      const wsUrl = `${url}?token=${session.user.id || 'demo-token'}`;
+      const wsUrl = `${url}?token=${user.id || 'demo-token'}`;
       ws.current = new WebSocket(wsUrl);
 
       ws.current.onopen = () => {
@@ -216,7 +214,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       ws.current.onmessage = (event) => {
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
-          
+
           setState(prev => ({ ...prev, lastMessage: message }));
 
           // Call specific message handlers
@@ -266,7 +264,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         isConnecting: false
       }));
     }
-  }, [session, url, reconnectAttempts, scheduleReconnect]);
+  }, [user, url, reconnectAttempts, scheduleReconnect]);
 
   // Disconnect WebSocket
   const disconnect = useCallback(() => {
@@ -332,14 +330,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   // Auto-connect on mount
   useEffect(() => {
-    if (autoConnect && session?.user) {
+    if (autoConnect && user) {
       connect();
     }
 
     return () => {
       disconnect();
     };
-  }, [autoConnect, session, connect, disconnect]);
+  }, [autoConnect, user, connect, disconnect]);
 
   // Ping interval to keep connection alive
   useEffect(() => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
@@ -22,11 +22,11 @@ interface Quiz {
 }
 
 export default function QuizManagementPage() {
-  const { data: _session, status } = useSession();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const quizId = params?.id as string;
-  
+
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,23 +35,23 @@ export default function QuizManagementPage() {
   // Fetch quiz details
   const fetchQuiz = useCallback(async () => {
     if (!quizId) return;
-    
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const response = await fetch(`/api/admin/quizzes/${quizId}`);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error('Failed to fetch quiz:', errorData);
-        
+
         if (response.status === 404) {
           throw new Error('Quiz not found');
         }
         throw new Error(errorData.message || 'Failed to fetch quiz');
       }
-      
+
       const data = await response.json();
       setQuiz(data.quiz);
     } catch (err) {
@@ -72,7 +72,7 @@ export default function QuizManagementPage() {
   };
 
   // Authentication check
-  if (status === 'loading') {
+  if (authLoading) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
         <div className="flex items-center space-x-2">
@@ -83,7 +83,7 @@ export default function QuizManagementPage() {
     );
   }
 
-  if (status === 'unauthenticated') {
+  if (!user) {
     router.push('/login');
     return null;
   }
@@ -95,7 +95,7 @@ export default function QuizManagementPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Header */}
           <div className="mb-8">
-            <Link 
+            <Link
               href="/admin/dashboard"
               className="inline-flex items-center text-blue-400 hover:text-blue-300 mb-4"
             >
@@ -139,7 +139,7 @@ export default function QuizManagementPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Header */}
           <div className="mb-8">
-            <Link 
+            <Link
               href="/admin/dashboard"
               className="inline-flex items-center text-blue-400 hover:text-blue-300 mb-4"
             >
@@ -166,14 +166,14 @@ export default function QuizManagementPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-8">
-          <Link 
+          <Link
             href="/admin/dashboard"
             className="inline-flex items-center text-blue-400 hover:text-blue-300 mb-4 glass-transition"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Admin Dashboard
           </Link>
-          
+
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white">
@@ -189,14 +189,14 @@ export default function QuizManagementPage() {
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="glass-card glass-border">
-            <TabsTrigger 
-              value="overview" 
+            <TabsTrigger
+              value="overview"
               className="data-[state=active]:glass-card-blue data-[state=active]:glass-border-blue"
             >
               Quiz Overview
             </TabsTrigger>
-            <TabsTrigger 
-              value="questions" 
+            <TabsTrigger
+              value="questions"
               className="data-[state=active]:glass-card-blue data-[state=active]:glass-border-blue"
             >
               Question Management
@@ -213,8 +213,8 @@ export default function QuizManagementPage() {
               </CardHeader>
               <CardContent>
                 {quiz && (
-                  <QuizManagement 
-                    quizId={quiz.id} 
+                  <QuizManagement
+                    quizId={quiz.id}
                     onQuizChange={handleQuizChange}
                   />
                 )}
@@ -232,7 +232,7 @@ export default function QuizManagementPage() {
               </CardHeader>
               <CardContent>
                 {quiz && (
-                  <QuestionManagement 
+                  <QuestionManagement
                     quizId={quiz.id}
                     onQuestionsChange={(questions) => {
                       // Optional: Handle questions change if needed

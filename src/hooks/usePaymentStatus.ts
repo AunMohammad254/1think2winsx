@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface PaymentInfo {
   id: string;
@@ -17,7 +17,7 @@ interface PaymentStatus {
 }
 
 export function usePaymentStatus() {
-  const { data: session, status } = useSession();
+  const { user, isLoading } = useAuth();
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>({
     hasAccess: false,
     payment: null,
@@ -29,7 +29,11 @@ export function usePaymentStatus() {
 
   useEffect(() => {
     const checkPaymentStatus = async () => {
-      if (status !== 'authenticated') {
+      if (isLoading) {
+        return;
+      }
+
+      if (!user) {
         setPaymentStatus({
           hasAccess: false,
           payment: null,
@@ -43,7 +47,7 @@ export function usePaymentStatus() {
 
       try {
         const response = await fetch('/api/daily-payment');
-        
+
         if (response.ok) {
           const data = await response.json();
           setPaymentStatus({
@@ -78,7 +82,7 @@ export function usePaymentStatus() {
     };
 
     checkPaymentStatus();
-  }, [status, session]);
+  }, [isLoading, user]);
 
   return paymentStatus;
 }

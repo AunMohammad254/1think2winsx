@@ -44,6 +44,11 @@ export function verifyAdminCredentials(email: string, password: string): boolean
     const isEmailValid = adminEmails.includes(normalizedEmail);
     const isPasswordValid = password === adminPassword;
 
+    console.log('Normalized email:', normalizedEmail);
+    console.log('Is email valid:', isEmailValid);
+    console.log('Is password valid:', isPasswordValid);
+    console.log('========================');
+
     return isEmailValid && isPasswordValid;
 }
 

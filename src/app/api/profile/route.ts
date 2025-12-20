@@ -30,7 +30,7 @@ export async function GET() {
     const userId = session.user.id;
 
     // Get user profile with statistics
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -48,11 +48,52 @@ export async function GET() {
       },
     });
 
+    // If user doesn't exist in Prisma, create them
     if (!user) {
-      return NextResponse.json(
-        { message: 'User not found' },
-        { status: 404 }
-      );
+      try {
+        const newUser = await prisma.user.create({
+          data: {
+            id: userId,
+            email: session.user.email || `user_${userId}@placeholder.local`,
+            name: session.user.name || null,
+          },
+        });
+
+        user = {
+          ...newUser,
+          _count: {
+            quizAttempts: 0,
+            winnings: 0,
+          },
+        };
+      } catch (createError) {
+        // User might have been created by another request, try to fetch again
+        console.error('Error creating user in profile:', createError);
+        user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profilePicture: true,
+            points: true,
+            createdAt: true,
+            _count: {
+              select: {
+                quizAttempts: true,
+                winnings: true,
+              },
+            },
+          },
+        });
+
+        if (!user) {
+          return NextResponse.json(
+            { message: 'User not found and could not be created' },
+            { status: 404 }
+          );
+        }
+      }
     }
 
     // Get user's quiz history with detailed information
