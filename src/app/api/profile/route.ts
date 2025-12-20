@@ -49,27 +49,55 @@ export async function GET() {
       },
     });
 
-    // If user doesn't exist in Prisma, create them
+    // If user doesn't exist in Prisma, try to create or find them
     if (!user) {
       try {
-        const newUser = await prisma.user.create({
-          data: {
-            id: userId,
-            email: session.user.email || `user_${userId}@placeholder.local`,
-            name: session.user.name || null,
+        // First check if user exists by email
+        const userByEmail = await prisma.user.findUnique({
+          where: { email: session.user.email || '' },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profilePicture: true,
+            points: true,
+            walletBalance: true,
+            createdAt: true,
+            _count: {
+              select: {
+                quizAttempts: true,
+                winnings: true,
+              },
+            },
           },
         });
 
-        user = {
-          ...newUser,
-          _count: {
-            quizAttempts: 0,
-            winnings: 0,
-          },
-        };
+        if (userByEmail) {
+          // User exists with this email but different ID - use existing user
+          user = userByEmail;
+        } else {
+          // User doesn't exist at all, create new
+          const newUser = await prisma.user.create({
+            data: {
+              id: userId,
+              email: session.user.email || `user_${userId}@placeholder.local`,
+              name: session.user.name || null,
+            },
+          });
+
+          user = {
+            ...newUser,
+            _count: {
+              quizAttempts: 0,
+              winnings: 0,
+            },
+          };
+        }
       } catch (createError) {
         // User might have been created by another request, try to fetch again
         console.error('Error creating user in profile:', createError);
+
+        // Try to find by ID first, then by email
         user = await prisma.user.findUnique({
           where: { id: userId },
           select: {
@@ -88,6 +116,27 @@ export async function GET() {
             },
           },
         });
+
+        if (!user && session.user.email) {
+          user = await prisma.user.findUnique({
+            where: { email: session.user.email },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              profilePicture: true,
+              points: true,
+              walletBalance: true,
+              createdAt: true,
+              _count: {
+                select: {
+                  quizAttempts: true,
+                  winnings: true,
+                },
+              },
+            },
+          });
+        }
 
         if (!user) {
           return NextResponse.json(

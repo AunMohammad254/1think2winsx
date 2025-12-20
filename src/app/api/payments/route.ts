@@ -6,7 +6,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
-import { ensureUserExists } from '@/lib/user-sync';
+// User creation is now handled by database trigger
 
 const paymentSchema = z.object({
   paymentMethod: z.string().optional(),
@@ -88,15 +88,7 @@ export async function POST(request: NextRequest) {
 
     const { paymentMethod, transactionId } = validationResult.data;
 
-    // Ensure user exists in database before creating payment
-    const userEmail = session.user.email;
-    const userExists = await ensureUserExists(userId, userEmail);
-    if (!userExists) {
-      return NextResponse.json(
-        { error: 'Failed to verify user account. Please try logging out and back in.' },
-        { status: 500 }
-      );
-    }
+    // User is auto-created via database trigger on signup
 
     // Calculate expiry time (24 hours from now)
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);

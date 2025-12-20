@@ -113,25 +113,8 @@ export default function Register() {
         return;
       }
 
-      // If user was created, sync to Prisma User table
-      if (authData.user) {
-        try {
-          await fetch('/api/auth/sync-user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: authData.user.id,
-              email: data.email,
-              name: data.name,
-              phone: data.phone || null,
-              dateOfBirth: data.dateOfBirth || null,
-            }),
-          });
-        } catch (syncError) {
-          console.error('User sync error:', syncError);
-          // Don't fail registration if sync fails, it can be retried
-        }
-      }
+      // User is now automatically created in public.User table via database trigger
+      // No need for manual sync
 
       setSuccess('Account created successfully! Please check your email to verify your account.');
       setTimeout(() => {

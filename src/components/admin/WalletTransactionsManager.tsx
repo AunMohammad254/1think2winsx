@@ -41,6 +41,10 @@ export default function WalletTransactionsManager() {
             const response = await fetch(`/api/admin/wallet-transactions?status=${filterStatus}`);
 
             if (!response.ok) {
+                if (response.status === 401) {
+                    window.location.href = '/admin/login';
+                    return;
+                }
                 throw new Error('Failed to fetch transactions');
             }
 
@@ -152,8 +156,8 @@ export default function WalletTransactionsManager() {
                         key={status}
                         onClick={() => setFilterStatus(status)}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${filterStatus === status
-                                ? 'bg-blue-500/30 border border-blue-500/50 text-white'
-                                : 'bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10'
+                            ? 'bg-blue-500/30 border border-blue-500/50 text-white'
+                            : 'bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10'
                             }`}
                     >
                         {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -277,8 +281,8 @@ export default function WalletTransactionsManager() {
                                                 onClick={() => handleApprove(tx.id)}
                                                 disabled={processingId === tx.id}
                                                 className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${processingId === tx.id
-                                                        ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
-                                                        : 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/30'
+                                                    ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
+                                                    : 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/30'
                                                     }`}
                                             >
                                                 {processingId === tx.id ? 'Processing...' : 'Approve'}
@@ -287,8 +291,8 @@ export default function WalletTransactionsManager() {
                                                 onClick={() => setShowRejectModal(tx.id)}
                                                 disabled={processingId === tx.id}
                                                 className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${processingId === tx.id
-                                                        ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
-                                                        : 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500/30'
+                                                    ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
+                                                    : 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500/30'
                                                     }`}
                                             >
                                                 Reject

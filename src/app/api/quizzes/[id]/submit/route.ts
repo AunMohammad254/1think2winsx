@@ -8,7 +8,7 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { executeCriticalTransaction } from '@/lib/transaction-manager';
-import { ensureUserExists } from '@/lib/user-sync';
+// User creation is now handled by database trigger
 
 const submitQuizSchema = z.object({
   answers: z.array(z.object({
@@ -64,15 +64,7 @@ export async function POST(
       return paymentAccessResponse;
     }
 
-    // Ensure user exists in database before creating quiz attempt
-    const userEmail = session.user.email;
-    const userExists = await ensureUserExists(userId, userEmail);
-    if (!userExists) {
-      return NextResponse.json(
-        { error: 'Failed to verify user account. Please try logging out and back in.' },
-        { status: 500 }
-      );
-    }
+    // User is auto-created via database trigger on signup
 
     const body = await request.json();
     const validationResult = submitQuizSchema.safeParse(body);
@@ -110,7 +102,7 @@ export async function POST(
       }
     });
 
-    const attemptedQuestionIds = attemptedQuestions.map(qa => qa.questionId);
+    const attemptedQuestionIds = attemptedQuestions.map((qa: { questionId: string }) => qa.questionId);
 
     // Check if this is a reattempt with new questions
     const isReattempt = existingAttempt && attemptedQuestionIds.length > 0;
@@ -146,15 +138,15 @@ export async function POST(
     }
 
     // Validate that all questions are answered (only for new questions in reattempt)
-    const questionIds = quiz.questions.map(q => q.id);
+    const questionIds = quiz.questions.map((q: { id: string }) => q.id);
     const answeredQuestionIds = answers.map(a => a.questionId);
 
     // For reattempts, only validate new questions
     const questionsToValidate = isReattempt
-      ? questionIds.filter(id => !attemptedQuestionIds.includes(id))
+      ? questionIds.filter((id: string) => !attemptedQuestionIds.includes(id))
       : questionIds;
 
-    const missingQuestions = questionsToValidate.filter(id => !answeredQuestionIds.includes(id));
+    const missingQuestions = questionsToValidate.filter((id: string) => !answeredQuestionIds.includes(id));
     if (missingQuestions.length > 0) {
       return NextResponse.json(
         { error: 'All questions must be answered', missingQuestions },
@@ -176,7 +168,7 @@ export async function POST(
     // For prediction-based quizzes, don't calculate scores immediately
     // Store answers for later evaluation by admin
     const answerResults = answers.map(answer => {
-      const question = quiz.questions.find(q => q.id === answer.questionId);
+      const question = quiz.questions.find((q: { id: string; text: string }) => q.id === answer.questionId);
       return {
         ...answer,
         questionText: question?.text || 'Unknown question'

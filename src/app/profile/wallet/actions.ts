@@ -1,7 +1,6 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import prisma from '@/lib/prisma';
 import { MIN_DEPOSIT_AMOUNT, DepositRequestResponse, WalletBalanceResponse, TransactionHistoryResponse, PaymentMethod } from '@/types/wallet';
 import { revalidatePath } from 'next/cache';
 
@@ -10,7 +9,6 @@ import { revalidatePath } from 'next/cache';
  */
 export async function submitDepositRequest(formData: FormData): Promise<DepositRequestResponse> {
     try {
-        // Get authenticated user
         const supabase = await createClient();
         const { data: { user }, error: authError } = await supabase.auth.getUser();
 
@@ -40,42 +38,40 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
             return { success: false, error: 'Transaction ID is required' };
         }
 
-        // Check if transaction ID already exists
-        const existingTransaction = await prisma.walletTransaction.findUnique({
-            where: { transactionId: transactionId.trim() },
+        // Call Supabase RPC function
+        const { data, error } = await supabase.rpc('submit_deposit_request', {
+            p_amount: amount,
+            p_payment_method: paymentMethod,
+            p_transaction_id: transactionId.trim()
         });
 
-        if (existingTransaction) {
-            return { success: false, error: 'This transaction ID has already been submitted' };
+        if (error) {
+            console.error('Supabase RPC Error:', error);
+            // Handle specific errors returned by the function
+            // The function returns JSON, but the RPC client might wrap it or return Postgres error
+            return { success: false, error: error.message || 'Failed to submit request' };
         }
 
-        // Ensure user exists in Prisma database
-        let dbUser = await prisma.user.findUnique({
-            where: { email: user.email! },
-        });
+        // The RPC returns { success: boolean, error?: string, id?: string }
+        // We need to cast it or check properties
+        const result = data as any;
 
-        if (!dbUser) {
-            // Create user if not exists (sync from Supabase)
-            dbUser = await prisma.user.create({
-                data: {
-                    id: user.id,
-                    email: user.email!,
-                    name: user.user_metadata?.name || user.user_metadata?.full_name || null,
-                    phone: user.user_metadata?.phone || null,
-                },
-            });
+        if (!result.success) {
+            return { success: false, error: result.error || 'Submission failed' };
         }
 
-        // Create deposit request
-        const transaction = await prisma.walletTransaction.create({
-            data: {
-                userId: dbUser.id,
-                amount,
-                paymentMethod,
-                transactionId: transactionId.trim(),
-                status: 'pending',
-            },
-        });
+        // If successful, fetch the created transaction to return it
+        const { data: transaction, error: fetchError } = await supabase
+            .from('WalletTransaction')
+            .select('*')
+            .eq('id', result.id)
+            .single();
+
+        if (fetchError || !transaction) {
+            // It succeeded but we couldn't fetch it back immediately (rare)
+            revalidatePath('/profile/wallet');
+            return { success: true, message: 'Deposit request submitted successfully' };
+        }
 
         // Revalidate the wallet page
         revalidatePath('/profile/wallet');
@@ -85,9 +81,11 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
             message: 'Deposit request submitted successfully',
             transaction: {
                 ...transaction,
-                createdAt: transaction.createdAt.toISOString(),
-                updatedAt: transaction.updatedAt.toISOString(),
-                processedAt: transaction.processedAt?.toISOString() || null,
+                createdAt: transaction.createdAt, // Supabase returns ISO string usually
+                updatedAt: transaction.updatedAt,
+                processedAt: transaction.processedAt,
+                paymentMethod: transaction.paymentMethod as PaymentMethod,
+                status: transaction.status as 'pending' | 'approved' | 'rejected',
             },
         };
     } catch (error) {
@@ -108,14 +106,20 @@ export async function getWalletBalance(): Promise<WalletBalanceResponse> {
             return { success: false, error: 'You must be logged in to view wallet balance' };
         }
 
-        const dbUser = await prisma.user.findUnique({
-            where: { email: user.email! },
-            select: { walletBalance: true },
-        });
+        const { data, error } = await supabase
+            .from('User')
+            .select('walletBalance')
+            .eq('id', user.id)
+            .single();
+
+        if (error) {
+            console.error('Error fetching balance from Supabase:', error);
+            return { success: false, error: 'Failed to fetch wallet balance' };
+        }
 
         return {
             success: true,
-            balance: dbUser?.walletBalance || 0,
+            balance: data?.walletBalance || 0,
         };
     } catch (error) {
         console.error('Error fetching wallet balance:', error);
@@ -135,27 +139,24 @@ export async function getTransactionHistory(): Promise<TransactionHistoryRespons
             return { success: false, error: 'You must be logged in to view transaction history' };
         }
 
-        const dbUser = await prisma.user.findUnique({
-            where: { email: user.email! },
-            select: { id: true },
-        });
+        const { data: transactions, error } = await supabase
+            .from('WalletTransaction')
+            .select('*')
+            .eq('userId', user.id)
+            .order('createdAt', { ascending: false });
 
-        if (!dbUser) {
-            return { success: true, transactions: [] };
+        if (error) {
+            console.error('Error fetching transactions from Supabase:', error);
+            return { success: false, error: 'Failed to fetch transaction history' };
         }
-
-        const transactions = await prisma.walletTransaction.findMany({
-            where: { userId: dbUser.id },
-            orderBy: { createdAt: 'desc' },
-        });
 
         return {
             success: true,
-            transactions: transactions.map((tx) => ({
+            transactions: (transactions || []).map((tx) => ({
                 ...tx,
-                createdAt: tx.createdAt.toISOString(),
-                updatedAt: tx.updatedAt.toISOString(),
-                processedAt: tx.processedAt?.toISOString() || null,
+                createdAt: tx.createdAt,
+                updatedAt: tx.updatedAt,
+                processedAt: tx.processedAt,
                 paymentMethod: tx.paymentMethod as PaymentMethod,
                 status: tx.status as 'pending' | 'approved' | 'rejected',
             })),

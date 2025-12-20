@@ -8,6 +8,7 @@ import QuizEvaluationManager from '@/components/QuizEvaluationManager';
 import PlayerClaimsManager from '@/components/admin/PlayerClaimsManager';
 import StreamingManager from '@/components/admin/StreamingManager';
 import WalletTransactionsManager from '@/components/admin/WalletTransactionsManager';
+import LoadingSpinner from '@/components/ui/LoadingSpinner';
 
 type SystemStats = {
   totalUsers: number;
@@ -1287,9 +1288,8 @@ export default function AdminDashboard() {
               </div>
 
               {loading ? (
-                <div className="p-8 text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-400 mx-auto"></div>
-                  <p className="text-gray-200 mt-2">Loading quizzes...</p>
+                <div className="p-8">
+                  <LoadingSpinner size="lg" text="Loading quizzes..." />
                 </div>
               ) : quizzes.length === 0 ? (
                 <div className="p-8 text-center">

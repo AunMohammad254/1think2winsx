@@ -9,7 +9,7 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { createHash } from 'crypto';
 import { securityLogger } from '@/lib/security-logger';
-import { ensureUserExists } from '@/lib/user-sync';
+// User creation is now handled by database trigger
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -81,9 +81,8 @@ export async function GET(request: NextRequest) {
       return rateLimitResponse;
     }
 
-    // Ensure user exists in database before checking payment
-    const userEmail = session.user.email;
-    await ensureUserExists(userId, userEmail);
+    // User is auto-created via database trigger on signup
+    // const userEmail = session.user.email;
 
     const paymentAccess = await checkPaymentAccess(userId, request);
 
@@ -150,9 +149,9 @@ export async function GET(request: NextRequest) {
     });
 
     // Format quizzes with access status and reattempt information
-    const formattedQuizzes = (paymentAccess.hasAccess ? quizzesWithQuestions : quizzesWithoutQuestions).map(quiz => {
+    const formattedQuizzes = (paymentAccess.hasAccess ? quizzesWithQuestions : quizzesWithoutQuestions).map((quiz: typeof quizzesWithoutQuestions[number]) => {
       const userAttempt = quiz.attempts[0]; // Most recent attempt
-      const attemptedQuestionIds = quiz.questionAttempts.map(qa => qa.questionId);
+      const attemptedQuestionIds = quiz.questionAttempts.map((qa: { questionId: string }) => qa.questionId);
       const totalQuestions = paymentAccess.hasAccess
         ? (quiz as typeof quizzesWithQuestions[number]).questions.length
         : quiz._count.questions;
@@ -179,7 +178,7 @@ export async function GET(request: NextRequest) {
         createdAt: quiz.createdAt,
         updatedAt: quiz.updatedAt,
         questions: paymentAccess.hasAccess
-          ? (quiz as typeof quizzesWithQuestions[number]).questions.map(q => ({
+          ? (quiz as typeof quizzesWithQuestions[number]).questions.map((q: { id: string; text: string; options: string }) => ({
             id: q.id,
             text: q.text,
             options: JSON.parse(q.options),

@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
-import { ensureUserExists } from '@/lib/user-sync';
+// User creation is now handled by database trigger
 
 // GET /api/quizzes/[id] - Get quiz details and start attempt
 export async function GET(
@@ -38,9 +38,7 @@ export async function GET(
       return rateLimitResponse;
     }
 
-    // Ensure user exists in database
-    const userEmail = session.user.email;
-    await ensureUserExists(userId, userEmail);
+    // User is auto-created via database trigger on signup
 
     // Check payment access
     const paymentAccessResponse = await requirePaymentAccess(userId, request);
@@ -102,11 +100,11 @@ export async function GET(
       }
     });
 
-    const attemptedQuestionIds = attemptedQuestions.map(qa => qa.questionId);
+    const attemptedQuestionIds = attemptedQuestions.map((qa: { questionId: string }) => qa.questionId);
 
     // Filter out questions that have already been attempted
     const unattemptedQuestions = quiz.questions.filter(
-      question => !attemptedQuestionIds.includes(question.id)
+      (question: { id: string; text: string; options: string }) => !attemptedQuestionIds.includes(question.id)
     );
 
     // If user has completed the quiz but there are new questions, allow reattempt
@@ -131,7 +129,7 @@ export async function GET(
     const isReattempt = existingAttempt && unattemptedQuestions.length > 0;
 
     // Format questions for frontend
-    const formattedQuestions = questionsToShow.map(question => ({
+    const formattedQuestions = questionsToShow.map((question: { id: string; text: string; options: string }) => ({
       id: question.id,
       text: question.text,
       options: JSON.parse(question.options),

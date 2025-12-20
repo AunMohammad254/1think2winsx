@@ -330,3 +330,15 @@ model WalletTransaction {
   @@index([createdAt])
   @@index([transactionId])
 }
+
+// Admin Session - Persistent admin authentication
+model AdminSession {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  email     String   // Admin email
+  expiresAt DateTime // Session expiration time
+  createdAt DateTime @default(now())
+  
+  @@index([token])
+  @@index([expiresAt])
+}

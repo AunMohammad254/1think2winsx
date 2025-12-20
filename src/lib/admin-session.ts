@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { securityLogger } from './security-logger';
+import prisma from './prisma';
 
 // Admin session configuration
 const ADMIN_SESSION_COOKIE = 'admin-session';
@@ -12,21 +13,22 @@ function generateToken(): string {
     return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-// In-memory store for admin sessions (in production, use Redis or database)
-const adminSessions = new Map<string, { email: string; expiresAt: number }>();
-
-// Clean expired sessions periodically
-function cleanExpiredSessions() {
-    const now = Date.now();
-    for (const [token, session] of adminSessions.entries()) {
-        if (session.expiresAt < now) {
-            adminSessions.delete(token);
-        }
+/**
+ * Clean expired sessions from database (run periodically)
+ */
+async function cleanExpiredSessions() {
+    try {
+        await prisma.adminSession.deleteMany({
+            where: {
+                expiresAt: {
+                    lt: new Date(),
+                },
+            },
+        });
+    } catch (error) {
+        console.error('Error cleaning expired admin sessions:', error);
     }
 }
-
-// Run cleanup every 5 minutes
-setInterval(cleanExpiredSessions, 5 * 60 * 1000);
 
 /**
  * Verify admin credentials against environment variables
@@ -44,25 +46,27 @@ export function verifyAdminCredentials(email: string, password: string): boolean
     const isEmailValid = adminEmails.includes(normalizedEmail);
     const isPasswordValid = password === adminPassword;
 
-    console.log('Normalized email:', normalizedEmail);
-    console.log('Is email valid:', isEmailValid);
-    console.log('Is password valid:', isPasswordValid);
-    console.log('========================');
-
     return isEmailValid && isPasswordValid;
 }
 
 /**
- * Create an admin session
+ * Create an admin session (stored in database for persistence)
  */
 export async function createAdminSession(email: string): Promise<string> {
     const token = generateToken();
-    const expiresAt = Date.now() + ADMIN_SESSION_DURATION;
+    const expiresAt = new Date(Date.now() + ADMIN_SESSION_DURATION);
 
-    adminSessions.set(token, {
-        email: email.toLowerCase(),
-        expiresAt,
+    // Store session in database
+    await prisma.adminSession.create({
+        data: {
+            token,
+            email: email.toLowerCase(),
+            expiresAt,
+        },
     });
+
+    // Clean up old expired sessions
+    cleanExpiredSessions();
 
     // Set the session cookie
     const cookieStore = await cookies();
@@ -85,42 +89,68 @@ export async function createAdminSession(email: string): Promise<string> {
 }
 
 /**
- * Validate admin session from cookie
+ * Validate admin session from cookie (reads from database)
  */
 export async function validateAdminSession(): Promise<{ valid: boolean; email?: string }> {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
+    try {
+        const cookieStore = await cookies();
+        const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
 
-    if (!token) {
+        if (!token) {
+            console.log('[Admin Session] No admin session cookie found');
+            return { valid: false };
+        }
+
+        console.log('[Admin Session] Cookie found, validating token...');
+
+        // Look up session in database
+        const session = await prisma.adminSession.findUnique({
+            where: { token },
+        });
+
+        if (!session) {
+            console.log('[Admin Session] Token not found in database');
+            return { valid: false };
+        }
+
+        if (session.expiresAt < new Date()) {
+            // Session expired, delete it
+            console.log('[Admin Session] Session expired, deleting...');
+            await prisma.adminSession.delete({
+                where: { token },
+            });
+            return { valid: false };
+        }
+
+        console.log('[Admin Session] Valid session for:', session.email);
+        return { valid: true, email: session.email };
+    } catch (error) {
+        console.error('Error validating admin session:', error);
         return { valid: false };
     }
-
-    const session = adminSessions.get(token);
-
-    if (!session) {
-        return { valid: false };
-    }
-
-    if (session.expiresAt < Date.now()) {
-        adminSessions.delete(token);
-        return { valid: false };
-    }
-
-    return { valid: true, email: session.email };
 }
 
 /**
  * Clear admin session
  */
 export async function clearAdminSession(): Promise<void> {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
+    try {
+        const cookieStore = await cookies();
+        const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
 
-    if (token) {
-        adminSessions.delete(token);
+        if (token) {
+            // Delete from database
+            await prisma.adminSession.delete({
+                where: { token },
+            }).catch(() => {
+                // Ignore if session doesn't exist in DB
+            });
+        }
+
+        cookieStore.delete(ADMIN_SESSION_COOKIE);
+    } catch (error) {
+        console.error('Error clearing admin session:', error);
     }
-
-    cookieStore.delete(ADMIN_SESSION_COOKIE);
 }
 
 /**
