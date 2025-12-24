@@ -107,6 +107,9 @@ export default function Register() {
       if (signUpError) {
         if (signUpError.message.includes('already registered')) {
           setError('This email is already registered. Please log in instead.');
+        } else if (signUpError.message.includes('email') || signUpError.status === 500) {
+          setError('Unable to send confirmation email. Please try again or contact support.');
+          console.error('Supabase signup error:', signUpError);
         } else {
           setError(signUpError.message);
         }

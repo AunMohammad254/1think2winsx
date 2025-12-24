@@ -176,8 +176,18 @@ function LoginForm() {
             {error && (
               <div className="mb-6 bg-red-500/10 md:backdrop-blur-xl md:bg-red-500/20 border border-red-500/20 md:border-red-500/30 text-red-100 px-4 py-3 rounded-xl shadow-lg">
                 <div className="flex items-center">
-                  <AlertCircle className="w-5 h-5 mr-3 text-red-300" />
-                  <span className="block sm:inline">{error}</span>
+                  <AlertCircle className="w-5 h-5 mr-3 text-red-300 flex-shrink-0" />
+                  <div className="flex-1">
+                    <span className="block">{error}</span>
+                    {(error.includes('Authentication failed') || error.includes('session') || error.includes('token')) && (
+                      <Link
+                        href="/auth/clear"
+                        className="inline-block mt-2 text-sm text-red-300 hover:text-red-200 underline"
+                      >
+                        Try clearing your session →
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -355,6 +365,14 @@ function LoginForm() {
                     className="text-sm text-slate-400 md:hover:text-slate-300 transition-colors duration-200 touch-manipulation"
                   >
                     Forgot your email? Recover via phone →
+                  </Link>
+                </div>
+                <div className="pt-2">
+                  <Link
+                    href="/auth/clear"
+                    className="text-sm text-slate-500 md:hover:text-slate-400 transition-colors duration-200 touch-manipulation"
+                  >
+                    Having login issues? Clear session →
                   </Link>
                 </div>
               </div>

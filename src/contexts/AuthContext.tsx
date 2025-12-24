@@ -40,11 +40,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Get initial session
         const getInitialSession = async () => {
             try {
-                const { data: { session: initialSession } } = await supabase.auth.getSession();
+                const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+
+                // Handle refresh token errors
+                if (error) {
+                    console.warn('[AuthContext] Session error:', error.message);
+                    // If there's an error (like invalid refresh token), clear the session
+                    if (error.message?.includes('Refresh Token') ||
+                        error.code === 'refresh_token_not_found') {
+                        // Sign out to clear invalid tokens
+                        await supabase.auth.signOut();
+                        setSession(null);
+                        setUser(null);
+                        return;
+                    }
+                }
+
                 setSession(initialSession);
                 setUser(initialSession?.user ?? null);
             } catch (error) {
                 console.error('Error getting initial session:', error);
+                // Clear session on unexpected errors
+                setSession(null);
+                setUser(null);
             } finally {
                 setIsLoading(false);
             }
@@ -54,9 +72,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         // Listen for auth state changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (_event, newSession) => {
-                setSession(newSession);
-                setUser(newSession?.user ?? null);
+            async (event, newSession) => {
+                // Handle token refresh errors
+                if (event === 'TOKEN_REFRESHED' && !newSession) {
+                    console.warn('[AuthContext] Token refresh failed, clearing session');
+                    setSession(null);
+                    setUser(null);
+                } else if (event === 'SIGNED_OUT') {
+                    setSession(null);
+                    setUser(null);
+                } else {
+                    setSession(newSession);
+                    setUser(newSession?.user ?? null);
+                }
                 setIsLoading(false);
             }
         );
@@ -67,7 +95,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }, []);
 
     const signOut = async () => {
-        await supabase.auth.signOut();
+        try {
+            await supabase.auth.signOut();
+        } catch (error) {
+            console.error('[AuthContext] Sign out error:', error);
+            // Force clear local state even if sign out fails
+            setSession(null);
+            setUser(null);
+        }
     };
 
     return (
@@ -76,3 +111,4 @@ export function AuthProvider({ children }: AuthProviderProps) {
         </AuthContext.Provider>
     );
 }
+

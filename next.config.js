@@ -90,6 +90,12 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: '*.pakwheels.com',
+        port: '',
+        pathname: '/**',
+      },
     ],
     unoptimized: false,
     // Image formats and sizes

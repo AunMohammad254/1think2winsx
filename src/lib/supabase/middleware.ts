@@ -31,9 +31,37 @@ export async function updateSession(request: NextRequest) {
     // supabase.auth.getUser(). A simple mistake could cause hard-to-debug
     // issues with users being randomly logged out.
 
-    const {
-        data: { user },
-    } = await supabase.auth.getUser()
+    // Wrap getUser in try-catch to handle refresh token errors gracefully
+    let user = null
+    try {
+        const { data, error } = await supabase.auth.getUser()
+        if (error) {
+            // Handle refresh token errors by clearing stale session
+            if (error.message?.includes('Refresh Token') ||
+                error.code === 'refresh_token_not_found' ||
+                error.name === 'AuthApiError') {
+                // Clear all auth-related cookies to force re-authentication
+                const authCookies = request.cookies.getAll().filter(c =>
+                    c.name.startsWith('sb-') || c.name.includes('supabase')
+                )
+                authCookies.forEach(cookie => {
+                    supabaseResponse.cookies.delete(cookie.name)
+                })
+                console.log('[Auth Middleware] Cleared stale auth cookies due to refresh token error')
+            }
+        } else {
+            user = data.user
+        }
+    } catch (error) {
+        console.error('[Auth Middleware] Error getting user:', error)
+        // Clear cookies on any auth error
+        const authCookies = request.cookies.getAll().filter(c =>
+            c.name.startsWith('sb-') || c.name.includes('supabase')
+        )
+        authCookies.forEach(cookie => {
+            supabaseResponse.cookies.delete(cookie.name)
+        })
+    }
 
     // Protected routes that require authentication
     const protectedPaths = [

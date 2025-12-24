@@ -159,6 +159,10 @@ model Prize {
   type        String     // bike, phone, earbuds, watch
   pointsRequired Int     // Points needed to redeem this prize
   isActive    Boolean    @default(true)
+  category    String     @default("general") // electronics, vehicles, accessories, general
+  stock       Int        @default(0) // Available stock count
+  status      String     @default("published") // draft, published
+  value       Float      @default(0) // Monetary value in PKR
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   winnings    Winning[]
@@ -167,6 +171,8 @@ model Prize {
   @@index([isActive])
   @@index([pointsRequired])
   @@index([type])
+  @@index([category])
+  @@index([status])
 }
 
 model Winning {

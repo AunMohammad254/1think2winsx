@@ -775,6 +775,13 @@ export default function AdminDashboard() {
                 <span className="hidden sm:inline">Security</span>
                 <span className="sm:hidden">🔒</span>
               </Link>
+              <Link
+                href="/admin/prizes"
+                className="glass-card glass-border-blue glass-hover glass-transition text-white px-2 sm:px-4 py-2 rounded-md text-xs sm:text-sm"
+              >
+                <span className="hidden sm:inline">🎁 Prizes</span>
+                <span className="sm:hidden">🎁</span>
+              </Link>
               <span className="text-gray-200 text-xs sm:text-sm hidden md:block truncate max-w-37.5">
                 Welcome, {user?.user_metadata?.name || user?.user_metadata?.full_name || user?.email?.split('@')[0]}
               </span>
