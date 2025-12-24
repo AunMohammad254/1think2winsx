@@ -1,6 +1,29 @@
 // Prize Types for the Prizes Module
 // These types ensure type safety across the entire data flow
 
+// ============================================
+// Type Definitions (must come before interfaces)
+// ============================================
+
+// Actual prize category values (for prize data and forms)
+export type PrizeCategoryValue = 'electronics' | 'vehicles' | 'accessories' | 'general';
+
+// Prize categories for filtering (includes 'all' option)
+export type PrizeCategory = 'all' | PrizeCategoryValue;
+
+// Prize status for admin management
+export type PrizeStatus = 'draft' | 'published';
+
+// Redemption status
+export type RedemptionStatus = 'pending' | 'approved' | 'rejected' | 'fulfilled';
+
+// Sort options for public view
+export type PrizeSortOption = 'points-asc' | 'points-desc' | 'newest' | 'oldest' | 'name-asc';
+
+// ============================================
+// Interfaces
+// ============================================
+
 export interface Prize {
     id: string;
     name: string;
@@ -10,7 +33,7 @@ export interface Prize {
     type: string;
     pointsRequired: number;
     isActive: boolean;
-    category: PrizeCategory;
+    category: PrizeCategoryValue;
     stock: number;
     status: PrizeStatus;
     value: number;
@@ -57,7 +80,7 @@ export interface PrizeFormData {
     modelUrl?: string;
     type: string;
     pointsRequired: number;
-    category: PrizeCategory;
+    category: PrizeCategoryValue;
     stock: number;
     status: PrizeStatus;
     value: number;
@@ -71,23 +94,11 @@ export interface PrizeInput {
     modelUrl?: string;
     type: string;
     pointsRequired: number;
-    category?: PrizeCategory;
+    category?: PrizeCategoryValue;
     stock?: number;
     status?: PrizeStatus;
     value?: number;
 }
-
-// Prize categories for filtering
-export type PrizeCategory = 'all' | 'electronics' | 'vehicles' | 'accessories' | 'general';
-
-// Prize status for admin management
-export type PrizeStatus = 'draft' | 'published';
-
-// Redemption status
-export type RedemptionStatus = 'pending' | 'approved' | 'rejected' | 'fulfilled';
-
-// Sort options for public view
-export type PrizeSortOption = 'points-asc' | 'points-desc' | 'newest' | 'oldest' | 'name-asc';
 
 // Filter state for public view
 export interface PrizeFilters {
@@ -130,6 +141,10 @@ export interface RedemptionFormData {
     whatsappNumber: string;
     address: string;
 }
+
+// ============================================
+// Constants
+// ============================================
 
 // Category metadata for UI
 export const PRIZE_CATEGORIES: { value: PrizeCategory; label: string; icon: string }[] = [

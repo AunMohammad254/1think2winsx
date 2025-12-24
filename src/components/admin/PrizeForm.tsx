@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
-import type { Prize, PrizeFormData, PrizeCategory, PrizeStatus } from '@/types/prize';
+import type { Prize, PrizeFormData, PrizeCategoryValue, PrizeStatus } from '@/types/prize';
 
 // Form validation schema
 const prizeFormSchema = z.object({
@@ -64,7 +64,7 @@ export default function PrizeForm({
             modelUrl: prize?.modelUrl || '',
             type: prize?.type || 'phone',
             pointsRequired: prize?.pointsRequired || 100,
-            category: (prize?.category as PrizeCategory) || 'general',
+            category: (prize?.category as PrizeCategoryValue) || 'general',
             stock: prize?.stock || 0,
             status: (prize?.status as PrizeStatus) || 'draft',
             value: prize?.value || 0,
