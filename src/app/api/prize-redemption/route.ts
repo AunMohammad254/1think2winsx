@@ -9,7 +9,8 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 
 const redeemPrizeSchema = z.object({
-  prizeId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid prize ID format'),
+  // CUID format: starts with 'c', followed by 24+ alphanumeric lowercase characters
+  prizeId: z.string().regex(/^c[a-z0-9]{20,}$/, 'Invalid prize ID format'),
   fullName: z.string().min(2, 'Full name must be at least 2 characters').max(100, 'Full name too long').optional(),
   whatsappNumber: z.string().regex(/^\+?[\d\s-()]{10,15}$/, 'Invalid WhatsApp number format').optional(),
   address: z.string().min(10, 'Address must be at least 10 characters').max(500, 'Address too long').optional(),
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     const session = await auth();
-    
+
     if (!session || !session.user) {
       securityLogger.logUnauthorizedAccess(undefined, '/api/prize-redemption', request);
       return NextResponse.json(
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    
+
     // Validate input with proper error handling
     const validationResult = redeemPrizeSchema.safeParse(body);
     if (!validationResult.success) {
@@ -63,15 +64,22 @@ export async function POST(request: NextRequest) {
 
     const { prizeId, fullName, whatsappNumber, address } = validationResult.data;
 
-    // Get user's current points
+    // Get user's current points by email (since session.user.id is Supabase UUID, not Prisma CUID)
+    if (!session.user.email) {
+      return NextResponse.json(
+        { message: 'User email not found in session' },
+        { status: 400 }
+      );
+    }
+
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { points: true },
+      where: { email: session.user.email },
+      select: { id: true, points: true },
     });
 
     if (!user) {
       return NextResponse.json(
-        { message: 'User not found' },
+        { message: 'User not found. Please ensure your account is synced.' },
         { status: 404 }
       );
     }
@@ -84,6 +92,7 @@ export async function POST(request: NextRequest) {
         name: true,
         pointsRequired: true,
         isActive: true,
+        stock: true,
       },
     });
 
@@ -94,10 +103,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if prize is in stock
+    if (prize.stock !== null && prize.stock <= 0) {
+      return NextResponse.json(
+        { message: 'This prize is currently out of stock' },
+        { status: 400 }
+      );
+    }
+
     // Check if user has enough points
     if (user.points < prize.pointsRequired) {
       return NextResponse.json(
-        { 
+        {
           message: 'Insufficient points',
           required: prize.pointsRequired,
           available: user.points,
@@ -108,10 +125,10 @@ export async function POST(request: NextRequest) {
 
     // Create redemption request and deduct points in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Create redemption record
+      // Create redemption record using the Prisma User.id (CUID), not Supabase UUID
       const redemption = await tx.prizeRedemption.create({
         data: {
-          userId: session.user.id,
+          userId: user.id, // Use Prisma CUID, not session.user.id (Supabase UUID)
           prizeId: prizeId,
           pointsUsed: prize.pointsRequired,
           status: 'pending',
@@ -130,9 +147,9 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Deduct points from user
+      // Deduct points from user using Prisma CUID
       await tx.user.update({
-        where: { id: session.user.id },
+        where: { id: user.id },
         data: {
           points: {
             decrement: prize.pointsRequired,
@@ -140,10 +157,22 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Decrement stock if applicable
+      if (prize.stock !== null && prize.stock > 0) {
+        await tx.prize.update({
+          where: { id: prizeId },
+          data: {
+            stock: {
+              decrement: 1,
+            },
+          },
+        });
+      }
+
       return redemption;
     });
 
- 
+
 
     // Log successful prize redemption
     securityLogger.logSecurityEvent({
@@ -173,7 +202,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error redeeming prize:', error);
-    
+
     // Log security event for errors
     securityLogger.logSecurityEvent({
       type: 'API_ERROR',
@@ -181,7 +210,7 @@ export async function POST(request: NextRequest) {
       ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
       userAgent: request.headers.get('user-agent') || undefined,
       endpoint: '/api/prize-redemption',
-      details: { 
+      details: {
         error: error instanceof Error ? error.message : 'Unknown error',
         action: 'REDEEM_PRIZE'
       },
@@ -221,8 +250,8 @@ export async function GET(request: NextRequest) {
     }
 
     const session = await auth();
-    
-    if (!session || !session.user) {
+
+    if (!session || !session.user || !session.user.email) {
       securityLogger.logUnauthorizedAccess(undefined, '/api/prize-redemption', request);
       return NextResponse.json(
         { message: 'Unauthorized' },
@@ -230,8 +259,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Look up user by email to get Prisma CUID
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        { message: 'User not found. Please ensure your account is synced.', redemptions: [] },
+        { status: 200 } // Return 200 with empty array instead of 404
+      );
+    }
+
     const redemptions = await prisma.prizeRedemption.findMany({
-      where: { userId: session.user.id },
+      where: { userId: user.id }, // Use Prisma CUID, not Supabase UUID
       include: {
         prize: {
           select: {
@@ -249,7 +291,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error fetching redemption history:', error);
-    
+
     // Log security event for errors
     securityLogger.logSecurityEvent({
       type: 'API_ERROR',
@@ -257,7 +299,7 @@ export async function GET(request: NextRequest) {
       ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
       userAgent: request.headers.get('user-agent') || undefined,
       endpoint: '/api/prize-redemption',
-      details: { 
+      details: {
         error: error instanceof Error ? error.message : 'Unknown error',
         action: 'GET_REDEMPTION_HISTORY'
       },
