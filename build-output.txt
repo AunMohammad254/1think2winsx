@@ -1,0 +1,212 @@
+﻿
+> quiz-games@0.1.0 build
+> prisma generate && next build --webpack
+
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+
+Ô£ö Generated Prisma Client (v5.22.0) to .\node_modules\@prisma\client in 252ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to react to database changes in your app as they happen? Discover how with Pulse: https://pris.ly/tip-1-pulse
+
+Ôû▓ Next.js 16.1.0 (webpack)
+- Environments: .env
+
+  Creating an optimized production build ...
+node.exe : ÔÜá 
+Compiled with 
+warnings in 13.0s
+At line:1 char:1
++ & "C:\Program Files
+\nodejs/node.exe" 
+"C:\Program 
+Files\nodejs/node_mo 
+...
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (ÔÜá Com   
+ piled with warni    
+ngs in 13.0s:Str    
+ing) [], RemoteE    
+xception
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+
+./node_modules/@opent
+elemetry/instrumentat
+ion/build/esm/platfor
+m/node/instrumentatio
+n.js
+Critical dependency: 
+the request of a 
+dependency is an 
+expression
+
+Import trace for 
+requested module:
+./node_modules/@opent
+elemetry/instrumentat
+ion/build/esm/platfor
+m/node/instrumentatio
+n.js
+./node_modules/@opent
+elemetry/instrumentat
+ion/build/esm/platfor
+m/node/index.js
+./node_modules/@opent
+elemetry/instrumentat
+ion/build/esm/platfor
+m/index.js
+./node_modules/@opent
+elemetry/instrumentat
+ion/build/esm/index.j
+s
+./node_modules/@prism
+a/extension-optimize/
+dist/index.js
+./src/lib/prisma.ts
+./src/app/api/leaderb
+oard/route.ts
+
+./node_modules/prisma
+-instrumentation-5-x/
+node_modules/@opentel
+emetry/instrumentatio
+n/build/esm/platform/
+node/instrumentation.
+js
+Critical dependency: 
+the request of a 
+dependency is an 
+expression
+
+Import trace for 
+requested module:
+./node_modules/prisma
+-instrumentation-5-x/
+node_modules/@opentel
+emetry/instrumentatio
+n/build/esm/platform/
+node/instrumentation.
+js
+./node_modules/prisma
+-instrumentation-5-x/
+node_modules/@opentel
+emetry/instrumentatio
+n/build/esm/platform/
+node/index.js
+./node_modules/prisma
+-instrumentation-5-x/
+node_modules/@opentel
+emetry/instrumentatio
+n/build/esm/platform/
+index.js
+./node_modules/prisma
+-instrumentation-5-x/
+node_modules/@opentel
+emetry/instrumentatio
+n/build/esm/index.js
+./node_modules/prisma
+-instrumentation-5-x/
+dist/chunk-6MQXHI6Y.j
+s
+./node_modules/prisma
+-instrumentation-5-x/
+dist/index.js
+./node_modules/@prism
+a/extension-optimize/
+dist/index.js
+./src/lib/prisma.ts
+./src/app/api/leaderb
+oard/route.ts
+
+Ô£ô Compiled successfully in 22.1s
+  Running TypeScript ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/59) ...
+  Generating static pages using 3 workers (14/59) 
+  Generating static pages using 3 workers (29/59) 
+  Generating static pages using 3 workers (44/59) 
+Ô£ô Generating static pages using 3 workers (59/59) in 2.6s
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+Ôöî Ôùï /
+Ôö£ Ôùï /_not-found
+Ôö£ ãÆ /admin/dashboard
+Ôö£ Ôùï /admin/db-stats
+Ôö£ Ôùï /admin/login
+Ôö£ Ôùï /admin/prizes
+Ôö£ Ôùï /admin/quiz
+Ôö£ ãÆ /admin/quiz/[id]
+Ôö£ ãÆ /admin/quizzes
+Ôö£ Ôùï /admin/security
+Ôö£ ãÆ /api/admin/auth
+Ôö£ ãÆ /api/admin/claims
+Ôö£ ãÆ /api/admin/db-stats
+Ôö£ ãÆ /api/admin/points-allocation
+Ôö£ ãÆ /api/admin/questions
+Ôö£ ãÆ /api/admin/questions/[id]
+Ôö£ ãÆ /api/admin/quiz-evaluation
+Ôö£ ãÆ /api/admin/quizzes
+Ôö£ ãÆ /api/admin/quizzes/[id]
+Ôö£ ãÆ /api/admin/security/events
+Ôö£ ãÆ /api/admin/security/stats
+Ôö£ ãÆ /api/admin/stats
+Ôö£ ãÆ /api/admin/stream-embed
+Ôö£ ãÆ /api/admin/wallet-transactions
+Ôö£ ãÆ /api/csrf-token
+Ôö£ ãÆ /api/daily-payment
+Ôö£ ãÆ /api/debug/auth
+Ôö£ ãÆ /api/health
+Ôö£ ãÆ /api/leaderboard
+Ôö£ ãÆ /api/payments
+Ôö£ ãÆ /api/prize-redemption
+Ôö£ ãÆ /api/prizes
+Ôö£ ãÆ /api/profile
+Ôö£ ãÆ /api/profile/change-password
+Ôö£ ãÆ /api/profile/update
+Ôö£ ãÆ /api/profile/upload-picture
+Ôö£ ãÆ /api/quizzes
+Ôö£ ãÆ /api/quizzes/[id]
+Ôö£ ãÆ /api/quizzes/[id]/results
+Ôö£ ãÆ /api/quizzes/[id]/submit
+Ôö£ ãÆ /api/register
+Ôö£ ãÆ /api/streaming/active
+Ôö£ ãÆ /api/user/redemptions
+Ôö£ ãÆ /auth/callback
+Ôö£ Ôùï /auth/clear
+Ôö£ Ôùï /contact
+Ôö£ Ôùï /disclaimer
+Ôö£ Ôùï /faq
+Ôö£ Ôùï /forgot-email
+Ôö£ Ôùï /forgot-password
+Ôö£ Ôùï /how-to-play
+Ôö£ Ôùï /leaderboard
+Ôö£ Ôùï /login
+Ôö£ Ôùï /privacy
+Ôö£ Ôùï /prizes
+Ôö£ Ôùï /profile
+Ôö£ Ôùï /profile/change-password
+Ôö£ Ôùï /profile/edit
+Ôö£ Ôùï /profile/wallet
+Ôö£ ãÆ /quiz/[id]
+Ôö£ ãÆ /quiz/[id]/results
+Ôö£ Ôùï /quizzes
+Ôö£ Ôùï /register
+Ôö£ Ôùï /terms
+Ôöö Ôùï /update-password
+
+
+Ôùï  (Static)   prerendered as static content
+ãÆ  (Dynamic)  server-rendered on demand
+

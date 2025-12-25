@@ -1,9 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { toast } from 'sonner';
+import { Search, Filter, Clock, CheckCircle, Sparkles } from 'lucide-react';
+import QuizCard from '@/components/quiz/QuizCard';
+import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
+import QuizDetailModal from '@/components/quiz/QuizDetailModal';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 
 interface Quiz {
@@ -12,7 +16,7 @@ interface Quiz {
   description: string;
   duration: number;
   passingScore: number;
-  status: string;
+  status: 'active' | 'paused';
   questionCount: number;
   hasAccess: boolean;
   createdAt: string;
@@ -21,6 +25,8 @@ interface Quiz {
   hasNewQuestions?: boolean;
   newQuestionsCount?: number;
   lastAttemptDate?: string;
+  score?: number;
+  attemptCount?: number;
 }
 
 interface PaymentInfo {
@@ -28,6 +34,8 @@ interface PaymentInfo {
   expiresAt: string;
   timeRemaining: number;
 }
+
+type FilterTab = 'all' | 'available' | 'completed' | 'new';
 
 export default function QuizzesPage() {
   const { user, isLoading } = useAuth();
@@ -40,7 +48,11 @@ export default function QuizzesPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
 
+  // Redirect to login if not authenticated
   useEffect(() => {
     if (isLoading) return;
 
@@ -65,6 +77,7 @@ export default function QuizzesPage() {
         setTimeRemaining('Expired');
         setHasAccess(false);
         setPaymentInfo(null);
+        toast.warning('Your 24-hour access has expired');
         return;
       }
 
@@ -110,17 +123,19 @@ export default function QuizzesPage() {
       setError(data.accessError || null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load quizzes');
+      toast.error('Failed to load quizzes');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleQuizClick = (quiz: Quiz) => {
+  const handleQuizClick = (quizId: string) => {
+    const quiz = quizzes.find(q => q.id === quizId);
+    if (!quiz) return;
+
     if (hasAccess) {
-      // User has access, redirect to quiz
-      router.push(`/quiz/${quiz.id}`);
+      setSelectedQuiz(quiz);
     } else {
-      // Show payment modal
       setShowPaymentModal(true);
     }
   };
@@ -170,204 +185,272 @@ export default function QuizzesPage() {
       setPaymentInfo(data.payment);
       setShowPaymentModal(false);
       setError(null);
-
-      // Refresh quizzes to update access status
+      toast.success('Payment successful! You now have 24-hour access.');
       fetchQuizzes();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Payment failed');
+      const errorMessage = err instanceof Error ? err.message : 'Payment failed';
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setPaymentLoading(false);
     }
   };
 
-  if (isLoading || loading) {
+  // Filter quizzes based on active filter and search query
+  const filteredQuizzes = quizzes.filter(quiz => {
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      if (!quiz.title.toLowerCase().includes(query) &&
+        !quiz.description?.toLowerCase().includes(query)) {
+        return false;
+      }
+    }
+
+    // Tab filter
+    switch (activeFilter) {
+      case 'available':
+        return quiz.status === 'active' && !quiz.isCompleted;
+      case 'completed':
+        return quiz.isCompleted;
+      case 'new':
+        return quiz.hasNewQuestions;
+      default:
+        return true;
+    }
+  });
+
+  const filterTabs: { key: FilterTab; label: string; icon: React.ReactNode; count?: number }[] = [
+    { key: 'all', label: 'All Quizzes', icon: <Filter className="w-4 h-4" />, count: quizzes.length },
+    { key: 'available', label: 'Available', icon: <Clock className="w-4 h-4" />, count: quizzes.filter(q => q.status === 'active' && !q.isCompleted).length },
+    { key: 'completed', label: 'Completed', icon: <CheckCircle className="w-4 h-4" />, count: quizzes.filter(q => q.isCompleted).length },
+    { key: 'new', label: 'New Questions', icon: <Sparkles className="w-4 h-4" />, count: quizzes.filter(q => q.hasNewQuestions).length },
+  ];
+
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400 mx-auto mb-4"></div>
-          <p className="text-white">Loading quizzes...</p>
+      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
+        <div className="max-w-7xl mx-auto">
+          <QuizCardSkeletonGrid count={6} />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-glass-dark py-8 px-4">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-4">Available Quizzes</h1>
-          <p className="text-gray-300 text-lg">
+        <div className="mb-10">
+          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-200 to-white">
+            Quiz Arena
+          </h1>
+          <p className="text-gray-400 text-lg max-w-2xl">
             {hasAccess
-              ? "You have full access to all quizzes!"
-              : "Choose a quiz to play or get 24-hour access for just 2 PKR"
-            }
+              ? 'You have full access to all quizzes! Choose one to test your knowledge.'
+              : 'Unlock 24-hour access for just 2 PKR and play unlimited quizzes.'}
           </p>
         </div>
 
-        {/* Live Stream (visible when admin embed is set) */}
+        {/* Live Stream Section */}
         <div className="mb-8">
-          <div className="glass-card glass-border rounded-2xl p-4">
-            <LazyStreamPlayer autoPlay={false} />
+          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-4">
+            <Suspense fallback={<div className="h-64 bg-gray-800 rounded-xl animate-pulse" />}>
+              <LazyStreamPlayer autoPlay={false} />
+            </Suspense>
           </div>
         </div>
 
-        {/* Access Status */}
+        {/* Access Status Banner */}
         {hasAccess && paymentInfo && (
-          <div className="mb-6 p-4 bg-green-500/20 border border-green-500/30 rounded-xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <svg className="w-6 h-6 text-green-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-green-200 font-medium">You have 24-hour access to all quizzes!</p>
+          <div className="mb-8 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                </div>
+                <div>
+                  <p className="text-green-200 font-semibold">Full Access Active</p>
+                  <p className="text-green-300/70 text-sm">Unlimited quizzes for 24 hours</p>
+                </div>
               </div>
-              <div className="text-green-200 font-mono text-sm">
-                {timeRemaining}
+              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/20">
+                <Clock className="w-4 h-4 text-green-400" />
+                <span className="font-mono text-green-300 font-medium">{timeRemaining}</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* Error Message */}
+        {/* Error Banner */}
         {error && (
-          <div className="mb-6 p-4 bg-red-500/20 border border-red-500/30 rounded-xl">
-            <p className="text-red-200">{error}</p>
+          <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl">
+            <p className="text-red-300">{error}</p>
           </div>
         )}
 
-        {/* Quizzes Grid */}
-        {quizzes.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="glass-card glass-border rounded-2xl p-8">
-              <h3 className="text-2xl font-bold text-white mb-4">No Active Quizzes</h3>
-              <p className="text-gray-300 mb-6">
-                There are no active quizzes at the moment. Check back later for new quizzes!
-              </p>
-              <Link
-                href="/how-to-play"
-                className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+        {/* Search and Filters */}
+        <div className="flex flex-col lg:flex-row gap-4 mb-8">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search quizzes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+            />
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {filterTabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveFilter(tab.key)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all ${activeFilter === tab.key
+                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
+                    : 'bg-gray-800/50 text-gray-400 border border-white/5 hover:bg-gray-700/50 hover:text-white'
+                  }`}
               >
-                Learn How to Play
-              </Link>
+                {tab.icon}
+                {tab.label}
+                {tab.count !== undefined && tab.count > 0 && (
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${activeFilter === tab.key
+                      ? 'bg-white/20 text-white'
+                      : 'bg-gray-700 text-gray-300'
+                    }`}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Quizzes Grid */}
+        {loading ? (
+          <QuizCardSkeletonGrid count={6} />
+        ) : filteredQuizzes.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-3xl border border-white/10 p-12 max-w-md mx-auto">
+              <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-purple-500/10 flex items-center justify-center">
+                <Search className="w-10 h-10 text-purple-400" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">No Quizzes Found</h3>
+              <p className="text-gray-400 mb-6">
+                {searchQuery
+                  ? 'Try adjusting your search or filters.'
+                  : 'There are no quizzes matching your criteria at the moment.'}
+              </p>
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setActiveFilter('all'); }}
+                  className="px-6 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-500 transition-colors"
+                >
+                  Clear Filters
+                </button>
+              )}
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {quizzes.map((quiz) => (
-              <div key={quiz.id} className="glass-card glass-border glass-transition glass-hover rounded-2xl overflow-hidden">
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <h3 className="text-xl font-bold text-white">{quiz.title}</h3>
-                    <div className="flex items-center space-x-2">
-                      {/* New questions notification */}
-                      {quiz.hasNewQuestions && (
-                        <div className="px-2 py-1 bg-green-500/20 text-green-400 border border-green-500/30 rounded-full text-xs font-medium">
-                          +{quiz.newQuestionsCount} New
-                        </div>
-                      )}
-                      <div className={`px-3 py-1 rounded-full text-xs font-medium ${quiz.status === 'active'
-                          ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                          : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                        }`}>
-                        {quiz.status === 'active' ? 'Active' : 'Paused'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Reattempt notification */}
-                  {quiz.hasNewQuestions && (
-                    <div className="mb-4 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
-                      <p className="text-green-300 text-sm">
-                        🎉 New questions added! You can reattempt this quiz to answer the new questions.
-                      </p>
-                      {quiz.lastAttemptDate && (
-                        <p className="text-green-400 text-xs mt-1">
-                          Last completed: {new Date(quiz.lastAttemptDate).toLocaleDateString()}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  <p className="text-gray-300 mb-4 line-clamp-3">{quiz.description}</p>
-
-                  <div className="space-y-2 mb-6">
-                    <div className="flex items-center text-sm text-gray-400">
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {quiz.questionCount} Questions
-                    </div>
-                    <div className="flex items-center text-sm text-gray-400">
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Duration: {quiz.duration} minutes
-                    </div>
-                    <div className="flex items-center text-sm text-gray-400">
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Passing Score: {quiz.passingScore}%
-                    </div>
-                  </div>
-
-                  {quiz.status !== 'active' ? (
-                    <button
-                      disabled
-                      className="w-full py-3 px-4 bg-gray-600 text-gray-400 rounded-xl font-medium cursor-not-allowed"
-                    >
-                      Quiz Paused
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleQuizClick(quiz)}
-                      className={`w-full py-3 px-4 rounded-xl font-medium transition-all duration-200 ${hasAccess
-                          ? 'bg-gradient-to-r from-green-500 to-blue-500 text-white hover:from-green-600 hover:to-blue-600'
-                          : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
-                        }`}
-                    >
-                      {hasAccess ? 'Play Now' : 'Pay 2 PKR & Play'}
-                    </button>
-                  )}
-                </div>
-              </div>
+            {filteredQuizzes.map((quiz) => (
+              <QuizCard
+                key={quiz.id}
+                id={quiz.id}
+                title={quiz.title}
+                description={quiz.description}
+                duration={quiz.duration}
+                questionCount={quiz.questionCount}
+                attemptCount={quiz.attemptCount}
+                difficulty="medium"
+                status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : quiz.status}
+                hasAccess={hasAccess}
+                isCompleted={quiz.isCompleted}
+                score={quiz.score}
+                onStartClick={handleQuizClick}
+              />
             ))}
           </div>
         )}
 
+        {/* Quiz Detail Modal */}
+        {selectedQuiz && (
+          <QuizDetailModal
+            quiz={{
+              ...selectedQuiz,
+              difficulty: 'medium',
+            }}
+            isOpen={!!selectedQuiz}
+            onClose={() => setSelectedQuiz(null)}
+          />
+        )}
+
         {/* Payment Modal */}
         {showPaymentModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="glass-card glass-border rounded-2xl p-6 max-w-md w-full">
-              <h3 className="text-2xl font-bold text-white mb-4">Get 24-Hour Access</h3>
-              <p className="text-gray-300 mb-6">
-                Pay just 2 PKR to get unlimited access to all quizzes for 24 hours!
-              </p>
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="relative w-full max-w-md bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl border border-white/10 p-8">
+              {/* Close button */}
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <span className="text-xl">×</span>
+              </button>
 
-              <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 rounded-xl p-4 mb-6">
-                <div className="flex items-center justify-between">
-                  <span className="text-white font-medium">24-Hour Access</span>
-                  <span className="text-2xl font-bold text-white">2 PKR</span>
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <Sparkles className="w-8 h-8 text-white" />
                 </div>
-                <p className="text-gray-300 text-sm mt-2">
-                  Access all available quizzes without additional charges
+                <h3 className="text-2xl font-bold text-white mb-2">Get 24-Hour Access</h3>
+                <p className="text-gray-400">
+                  Unlock unlimited access to all quizzes
                 </p>
               </div>
 
-              <div className="flex space-x-3">
+              <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 rounded-2xl p-6 mb-6">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-gray-300">24-Hour Full Access</span>
+                  <span className="text-3xl font-bold text-white">2 PKR</span>
+                </div>
+                <ul className="text-sm text-gray-400 space-y-2">
+                  <li className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-400" />
+                    Unlimited quiz attempts
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-400" />
+                    Access all active quizzes
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-400" />
+                    Compete for prizes
+                  </li>
+                </ul>
+              </div>
+
+              <div className="flex gap-3">
                 <button
                   onClick={() => setShowPaymentModal(false)}
-                  className="flex-1 py-3 px-4 glass-card glass-border text-gray-300 rounded-xl font-medium hover:bg-white/5 transition-all duration-200"
+                  className="flex-1 py-3 px-4 rounded-xl font-medium text-gray-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handlePayment}
                   disabled={paymentLoading}
-                  className="flex-1 py-3 px-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-medium hover:from-purple-600 hover:to-pink-600 transition-all duration-200 disabled:opacity-50"
+                  className="flex-1 py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {paymentLoading ? 'Processing...' : 'Pay Now'}
+                  {paymentLoading ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Processing...
+                    </div>
+                  ) : (
+                    'Pay Now'
+                  )}
                 </button>
               </div>
             </div>
