@@ -21,6 +21,7 @@ import {
     ArrowRight,
 } from 'lucide-react';
 import { registerAction, getGoogleOAuthUrl } from '@/actions/auth-actions';
+import DatePicker from '@/components/ui/DatePicker';
 
 const registerSchema = z
     .object({
@@ -80,6 +81,7 @@ export default function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
         handleSubmit,
         formState: { errors },
         watch,
+        setValue,
     } = useForm<RegisterFormData>({
         resolver: zodResolver(registerSchema),
     });
@@ -254,20 +256,25 @@ export default function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
                 </FormField>
 
                 {/* Date of Birth Field */}
-                <FormField
-                    id="register-dob"
-                    label="Date of Birth"
-                    icon={<Calendar className="w-5 h-5" />}
-                    error={errors.dateOfBirth?.message}
-                >
-                    <input
+                <div>
+                    <label htmlFor="register-dob" className="block text-sm font-medium text-slate-300 mb-2">
+                        Date of Birth
+                    </label>
+                    <DatePicker
                         id="register-dob"
-                        type="date"
-                        suppressHydrationWarning
-                        {...register('dateOfBirth')}
-                        className="w-full pl-12 pr-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all duration-200"
+                        value={watch('dateOfBirth') || ''}
+                        onChange={(date) => setValue('dateOfBirth', date, { shouldValidate: true })}
+                        placeholder="Select your date of birth"
+                        minYear={1924}
+                        maxYear={new Date().getFullYear() - 13}
                     />
-                </FormField>
+                    {errors.dateOfBirth && (
+                        <p className="mt-1 text-sm text-red-400 flex items-center">
+                            <AlertCircle className="w-4 h-4 mr-1" />
+                            {errors.dateOfBirth.message}
+                        </p>
+                    )}
+                </div>
 
                 {/* Password Field */}
                 <div>
