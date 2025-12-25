@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -69,8 +70,14 @@ export default function Navbar() {
                 <div className="relative flex-shrink-0">
                   {/* Simplified glow effect - only on hover for larger screens */}
                   <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full opacity-0 md:group-hover:opacity-50 transition-opacity duration-300 md:blur-lg"></div>
-                  <div className="relative bg-gradient-to-r from-blue-600 to-purple-700 p-1.5 sm:p-2.5 rounded-full border border-white/20 shadow-md md:shadow-lg">
-                    <span className="text-white text-sm sm:text-lg font-bold">🏏</span>
+                  <div className="relative bg-gradient-to-r from-blue-600 to-purple-700 p-1 sm:p-1.5 rounded-full border border-white/20 shadow-md md:shadow-lg overflow-hidden">
+                    <Image
+                      src="/auth-logo.png"
+                      alt="Logo"
+                      width={28}
+                      height={28}
+                      className="w-5 h-5 sm:w-7 sm:h-7 rounded-full"
+                    />
                   </div>
                 </div>
                 <div className="hidden xs:block min-w-0 flex-shrink">
