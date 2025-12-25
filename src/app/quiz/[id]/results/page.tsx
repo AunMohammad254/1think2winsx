@@ -230,18 +230,26 @@ export default function QuizResultsPage() {
           </div>
 
           {/* Score Breakdown */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="glass-card-blue glass-border-blue rounded-xl p-6 text-center">
-              <div className="text-3xl font-bold text-white mb-2">{result.correctAnswers}</div>
-              <div className="text-blue-200">Correct Answers</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="glass-card-blue glass-border-blue rounded-xl p-5 text-center">
+              <div className="text-3xl mb-2">✅</div>
+              <div className="text-2xl font-bold text-green-400 mb-1">{result.correctAnswers}</div>
+              <div className="text-gray-300 text-sm">Correct</div>
             </div>
-            <div className="glass-card-blue glass-border-blue rounded-xl p-6 text-center">
-              <div className="text-3xl font-bold text-white mb-2">{result.totalQuestions - result.correctAnswers}</div>
-              <div className="text-blue-200">Incorrect Answers</div>
+            <div className="glass-card-blue glass-border-blue rounded-xl p-5 text-center">
+              <div className="text-3xl mb-2">❌</div>
+              <div className="text-2xl font-bold text-red-400 mb-1">{result.totalQuestions - result.correctAnswers}</div>
+              <div className="text-gray-300 text-sm">Incorrect</div>
             </div>
-            <div className="glass-card-blue glass-border-blue rounded-xl p-6 text-center">
-              <div className="text-3xl font-bold text-white mb-2">{result.totalQuestions}</div>
-              <div className="text-blue-200">Total Questions</div>
+            <div className="glass-card-blue glass-border-blue rounded-xl p-5 text-center">
+              <div className="text-3xl mb-2">📊</div>
+              <div className="text-2xl font-bold text-blue-400 mb-1">{result.percentage}%</div>
+              <div className="text-gray-300 text-sm">Accuracy</div>
+            </div>
+            <div className="glass-card-blue glass-border-blue rounded-xl p-5 text-center">
+              <div className="text-3xl mb-2">🎯</div>
+              <div className="text-2xl font-bold text-purple-400 mb-1">{result.score || result.correctAnswers * 10}</div>
+              <div className="text-gray-300 text-sm">Points</div>
             </div>
           </div>
 

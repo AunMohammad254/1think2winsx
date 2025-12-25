@@ -18,6 +18,7 @@ interface Quiz {
   title: string;
   description: string;
   questions: Question[];
+  duration: number; // Duration in minutes from admin
   timeLimit: number;
   questionCount: number;
   totalQuestions: number;
@@ -56,12 +57,13 @@ export default function QuizPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Answer[]>([]);
-  const [timeRemaining, setTimeRemaining] = useState(600); // 10 minutes in seconds
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null); // Will be set from quiz.duration
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
   const [showStream, setShowStream] = useState(false);
+  const [showTimeExpired, setShowTimeExpired] = useState(false); // Time expired dialog
 
   const fetchQuiz = useCallback(async () => {
     try {
@@ -81,6 +83,10 @@ export default function QuizPage() {
       }
       const data = await response.json();
       setQuiz(data.quiz);
+
+      // Set timer from quiz duration (convert minutes to seconds)
+      const durationInSeconds = (data.quiz.duration || 30) * 60;
+      setTimeRemaining(durationInSeconds);
 
       // Initialize answers array for the questions being shown (new questions in reattempt)
       const initialAnswers: Answer[] = data.quiz.questions.map((q: Question) => ({
@@ -138,12 +144,14 @@ export default function QuizPage() {
 
   // Timer effect
   useEffect(() => {
-    if (!quizStarted || timeRemaining <= 0) return;
+    if (!quizStarted || timeRemaining === null || timeRemaining <= 0) return;
 
     const timer = setInterval(() => {
       setTimeRemaining(prev => {
+        if (prev === null) return null;
         if (prev <= 1) {
-          handleSubmitQuiz();
+          // Show time expired dialog instead of auto-submitting
+          setShowTimeExpired(true);
           return 0;
         }
         return prev - 1;
@@ -151,7 +159,7 @@ export default function QuizPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [quizStarted, timeRemaining, handleSubmitQuiz]);
+  }, [quizStarted, timeRemaining]);
 
   const handleAnswerSelect = (questionId: string, optionIndex: number) => {
     setAnswers(prev =>
@@ -175,10 +183,18 @@ export default function QuizPage() {
     }
   };
 
-  const formatTime = (seconds: number) => {
+  const formatTime = (seconds: number | null) => {
+    if (seconds === null) return '--:--';
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
+  // Handle time expired - submit and redirect to results
+  const handleTimeExpiredClose = async () => {
+    setShowTimeExpired(false);
+    await handleSubmitQuiz();
+    router.push(`/quiz/${quizId}/results`);
   };
 
   const getAnsweredCount = () => {
@@ -276,7 +292,7 @@ export default function QuizPage() {
               </div>
             </div>
             <div className="glass-card-blue glass-border-blue rounded-xl p-4 text-center">
-              <div className="text-2xl font-bold text-white">10</div>
+              <div className="text-2xl font-bold text-white">{quiz.duration || 30}</div>
               <div className="text-blue-200 text-sm">Minutes</div>
             </div>
             <div className="glass-card-blue glass-border-blue rounded-xl p-4 text-center">
@@ -292,7 +308,7 @@ export default function QuizPage() {
           <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-4 mb-8">
             <h3 className="text-yellow-200 font-semibold mb-2">Important Instructions:</h3>
             <ul className="text-yellow-100 text-sm space-y-1">
-              <li>• You have 10 minutes to complete all questions</li>
+              <li>• You have {quiz.duration || 30} minutes to complete all questions</li>
               <li>• You can navigate between questions and change answers</li>
               <li>• Make sure to submit before time runs out</li>
               {quiz.isReattempt ? (
@@ -337,105 +353,137 @@ export default function QuizPage() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Main Quiz Content */}
           <div className="flex-1 max-w-4xl">
-            {/* Header */}
-            <div className="glass-card glass-border rounded-2xl p-6 mb-6">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold text-white mb-2">{quiz.title}</h1>
-                  <p className="text-gray-300">
-                    Question {currentQuestionIndex + 1} of {quiz.questions.length}
+            {/* Sticky Header */}
+            <div className="sticky top-0 z-40 glass-card glass-border rounded-2xl p-4 md:p-6 mb-6 backdrop-blur-xl bg-gray-900/80">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-xl md:text-2xl font-bold text-white truncate mb-1">{quiz.title}</h1>
+                  <p className="text-gray-300 text-sm md:text-base">
+                    Question <span className="text-blue-400 font-semibold">{currentQuestionIndex + 1}</span> of <span className="text-blue-400 font-semibold">{quiz.questions.length}</span>
                   </p>
                 </div>
-                <div className="mt-4 md:mt-0 flex items-center space-x-6">
-                  <div className="text-center">
-                    <div className={`text-2xl font-bold ${timeRemaining <= 60 ? 'text-red-400' : 'text-white'}`}>
+                <div className="flex items-center gap-4 md:gap-6">
+                  {/* Timer */}
+                  <div className={`text-center px-4 py-2 rounded-xl ${(timeRemaining ?? 0) <= 60 ? 'bg-red-500/20 border border-red-500/50' : 'bg-blue-500/10 border border-blue-500/30'}`}>
+                    <div className={`text-xl md:text-2xl font-bold font-mono ${(timeRemaining ?? 0) <= 60 ? 'text-red-400 animate-pulse' : (timeRemaining ?? 0) <= 120 ? 'text-yellow-400' : 'text-white'}`}>
                       {formatTime(timeRemaining)}
                     </div>
-                    <div className="text-gray-400 text-sm">Time Left</div>
+                    <div className="text-gray-400 text-xs">Time Left</div>
                   </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-white">
-                      {getAnsweredCount()}/{quiz.questions.length}
+                  {/* Answered Count */}
+                  <div className="text-center px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/30">
+                    <div className="text-xl md:text-2xl font-bold text-white">
+                      <span className="text-green-400">{getAnsweredCount()}</span>/{quiz.questions.length}
                     </div>
-                    <div className="text-gray-400 text-sm">Answered</div>
+                    <div className="text-gray-400 text-xs">Answered</div>
                   </div>
                   {/* Stream Toggle Button */}
                   <button
                     onClick={() => setShowStream(!showStream)}
-                    className="lg:hidden py-2 px-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-medium hover:from-purple-600 hover:to-pink-600 transition-all duration-200"
+                    className="lg:hidden py-2 px-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-medium hover:from-purple-600 hover:to-pink-600 transition-all duration-200 text-sm"
                   >
-                    {showStream ? '📺 Hide Stream' : '📺 Live Stream'}
+                    📺
                   </button>
                 </div>
               </div>
-            </div>
 
-            {/* Progress Bar */}
-            <div className="mb-6">
-              <div className="glass-card glass-border rounded-full p-2">
-                <div
-                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${progressPercent}%` }}
-                >
+              {/* Progress Bar - Integrated in Header */}
+              <div className="mt-4">
+                <div className="h-2 bg-gray-700/50 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-green-400 via-blue-500 to-purple-500 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${progressPercent}%` }}
+                  />
                 </div>
               </div>
             </div>
 
-            {/* Question */}
-            <div className="glass-card glass-border rounded-2xl p-8 mb-6">
-              <h2 className="text-xl font-semibold text-white mb-6">
+            {/* Question Card */}
+            <div className="glass-card glass-border rounded-2xl p-6 md:p-8 mb-6 bg-gradient-to-br from-blue-900/20 to-purple-900/20">
+              {/* Question Number Badge */}
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300 text-sm mb-4">
+                <span>❓</span>
+                <span>Question {currentQuestionIndex + 1}</span>
+              </div>
+
+              <h2 className="text-lg md:text-xl font-semibold text-white mb-6 leading-relaxed">
                 {currentQuestion.text}
               </h2>
 
-              <div className="space-y-4">
-                {currentQuestion.options.map((option, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleAnswerSelect(currentQuestion.id, index)}
-                    className={`w-full p-4 text-left rounded-xl border-2 transition-all duration-200 ${currentAnswer?.selectedOption === index
-                        ? 'border-blue-500 bg-blue-500/20 text-white'
-                        : 'border-gray-600 bg-gray-800/50 text-gray-300 hover:border-gray-500 hover:bg-gray-700/50'
-                      }`}
-                  >
-                    <div className="flex items-center">
-                      <div className={`w-6 h-6 rounded-full border-2 mr-4 flex items-center justify-center ${currentAnswer?.selectedOption === index
-                          ? 'border-blue-500 bg-blue-500'
-                          : 'border-gray-500'
-                        }`}>
-                        {currentAnswer?.selectedOption === index && (
-                          <div className="w-2 h-2 bg-white rounded-full"></div>
+              {/* Options Grid */}
+              <div className="space-y-3">
+                {currentQuestion.options.map((option, index) => {
+                  const isSelected = currentAnswer?.selectedOption === index;
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => handleAnswerSelect(currentQuestion.id, index)}
+                      className={`w-full min-h-[60px] p-4 md:p-5 text-left rounded-xl border-2 transition-all duration-200 transform active:scale-[0.98] ${isSelected
+                        ? 'border-blue-400 bg-gradient-to-r from-blue-500/30 to-purple-500/30 text-white shadow-lg shadow-blue-500/20'
+                        : 'border-gray-600 bg-gray-800/50 text-gray-300 hover:border-gray-400 hover:bg-gray-700/50'
+                        }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        {/* Option Letter */}
+                        <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full border-2 flex items-center justify-center font-bold text-sm md:text-base flex-shrink-0 transition-all duration-200 ${isSelected
+                          ? 'border-blue-400 bg-blue-500 text-white'
+                          : 'border-gray-500 text-gray-400'
+                          }`}>
+                          {String.fromCharCode(65 + index)}
+                        </div>
+                        <span className="font-medium text-sm md:text-base">{option}</span>
+                        {/* Check mark for selected */}
+                        {isSelected && (
+                          <div className="ml-auto">
+                            <svg className="w-6 h-6 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          </div>
                         )}
                       </div>
-                      <span className="font-medium">{option}</span>
-                    </div>
-                  </button>
-                ))}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-
             {/* Navigation */}
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
               <button
                 onClick={handlePreviousQuestion}
                 disabled={currentQuestionIndex === 0}
-                className="py-3 px-6 glass-card glass-border text-gray-300 rounded-xl font-medium hover:bg-white/5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full sm:w-auto py-3 px-6 glass-card glass-border text-gray-300 rounded-xl font-medium hover:bg-white/10 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
                 Previous
               </button>
 
-              <div className="flex space-x-4">
+              <div className="flex gap-3 w-full sm:w-auto">
                 {currentQuestionIndex === quiz.questions.length - 1 ? (
                   <button
                     onClick={handleSubmitQuiz}
                     disabled={isSubmitting}
-                    className="py-3 px-8 bg-gradient-to-r from-green-500 to-blue-500 text-white rounded-xl font-medium hover:from-green-600 hover:to-blue-600 transition-all duration-200 disabled:opacity-50"
+                    className="flex-1 sm:flex-none py-3 px-8 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 shadow-lg shadow-green-500/25 flex items-center justify-center gap-2"
                   >
-                    {isSubmitting ? 'Submitting...' : 'Submit Quiz'}
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        Submit Quiz
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </>
+                    )}
                   </button>
                 ) : (
                   <button
                     onClick={handleNextQuestion}
-                    className="py-3 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-medium hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                    className="flex-1 sm:flex-none py-3 px-8 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-purple-600 transition-all duration-200 shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
                   >
                     Next
                   </button>
@@ -456,10 +504,10 @@ export default function QuizPage() {
                       key={index}
                       onClick={() => setCurrentQuestionIndex(index)}
                       className={`w-10 h-10 rounded-lg font-medium transition-all duration-200 ${isCurrent
-                          ? 'bg-blue-500 text-white'
-                          : isAnswered
-                            ? 'bg-green-500/30 text-green-400 border border-green-500/50'
-                            : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                        ? 'bg-blue-500 text-white'
+                        : isAnswered
+                          ? 'bg-green-500/30 text-green-400 border border-green-500/50'
+                          : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
                         }`}
                     >
                       {index + 1}
@@ -492,29 +540,52 @@ export default function QuizPage() {
           </div>
 
           {/* Live Stream Mobile Modal */}
-          {showStream && (
-            <div className="lg:hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="glass-card glass-border rounded-2xl p-4 w-full max-w-md max-h-[80vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
-                  <button
-                    onClick={() => setShowStream(false)}
-                    className="text-gray-400 hover:text-white transition-colors"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <LazyStreamPlayer />
-                <div className="mt-4 p-3 bg-blue-500/20 border border-blue-500/30 rounded-xl">
-                  <p className="text-blue-100 text-sm">
-                    💡 Watch for hints and explanations that might help with your quiz!
-                  </p>
+          {
+            showStream && (
+              <div className="lg:hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="glass-card glass-border rounded-2xl p-4 w-full max-w-md max-h-[80vh] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
+                    <button
+                      onClick={() => setShowStream(false)}
+                      className="text-gray-400 hover:text-white transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <LazyStreamPlayer />
+                  <div className="mt-4 p-3 bg-blue-500/20 border border-blue-500/30 rounded-xl">
+                    <p className="text-blue-100 text-sm">
+                      💡 Watch for hints and explanations that might help with your quiz!
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+            )
+          }
+
+          {/* Time Expired Dialog */}
+          {
+            showTimeExpired && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="glass-card glass-border rounded-2xl p-8 max-w-md w-full text-center animate-pulse">
+                  <div className="text-6xl mb-6">⏰</div>
+                  <h2 className="text-2xl font-bold text-white mb-4">Your Quiz Time is Over!</h2>
+                  <p className="text-gray-300 mb-6">
+                    Your time has expired. We&apos;ll submit your answers and take you to the results page.
+                  </p>
+                  <button
+                    onClick={handleTimeExpiredClose}
+                    className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg font-bold rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                  >
+                    View Results
+                  </button>
+                </div>
+              </div>
+            )
+          }
+        </div >
+      </div >
+    </div >
   );
 }
