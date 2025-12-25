@@ -43,6 +43,10 @@ export const QuizFormSchema = z.object({
     passingScore: z.number()
         .min(0, 'Passing score must be 0 or higher')
         .max(100, 'Passing score cannot exceed 100'),
+    accessPrice: z.number()
+        .min(0.5, 'Access price must be at least 0.5 PKR')
+        .max(1000, 'Access price cannot exceed 1000 PKR')
+        .default(2),
     difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
     status: z.enum(['draft', 'active', 'paused']).default('draft'),
     questions: z.array(QuestionSchema)
@@ -80,7 +84,7 @@ export type QuizSubmission = z.infer<typeof QuizSubmissionSchema>;
 // Validation Helpers
 // ============================================
 export function validateQuizForm(data: unknown): { success: true; data: QuizFormData } |
-    { success: false; errors: z.ZodError['errors'] } {
+{ success: false; errors: z.ZodError['errors'] } {
     const result = QuizFormSchema.safeParse(data);
     if (result.success) {
         return { success: true, data: result.data };
@@ -89,7 +93,7 @@ export function validateQuizForm(data: unknown): { success: true; data: QuizForm
 }
 
 export function validateQuizSubmission(data: unknown): { success: true; data: QuizSubmission } |
-    { success: false; errors: z.ZodError['errors'] } {
+{ success: false; errors: z.ZodError['errors'] } {
     const result = QuizSubmissionSchema.safeParse(data);
     if (result.success) {
         return { success: true, data: result.data };
@@ -121,6 +125,7 @@ export const defaultQuiz: QuizFormData = {
     description: '',
     duration: 30,
     passingScore: 70,
+    accessPrice: 2,
     difficulty: 'medium',
     status: 'draft',
     questions: [defaultQuestion],

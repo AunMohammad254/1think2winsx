@@ -232,6 +232,29 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                         )}
                     </div>
 
+                    {/* Access Price */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            Access Price (PKR) <span className="text-red-400">*</span>
+                        </label>
+                        <div className="relative">
+                            <input
+                                type="number"
+                                {...register('accessPrice', { valueAsNumber: true })}
+                                min={0.5}
+                                max={1000}
+                                step={0.5}
+                                className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+                                placeholder="2"
+                            />
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">PKR</span>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500">Price users pay for 24-hour quiz access</p>
+                        {errors.accessPrice && (
+                            <p className="mt-1 text-sm text-red-400">{errors.accessPrice.message}</p>
+                        )}
+                    </div>
+
                     {/* Difficulty */}
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -248,8 +271,8 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                                             type="button"
                                             onClick={() => field.onChange(option.value)}
                                             className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-all ${field.value === option.value
-                                                    ? option.color
-                                                    : 'bg-gray-800/50 text-gray-400 border-white/5 hover:border-white/10'
+                                                ? option.color
+                                                : 'bg-gray-800/50 text-gray-400 border-white/5 hover:border-white/10'
                                                 }`}
                                         >
                                             {option.label}
@@ -276,8 +299,8 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                                             type="button"
                                             onClick={() => field.onChange(option.value)}
                                             className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-all ${field.value === option.value
-                                                    ? option.color
-                                                    : 'bg-gray-800/50 text-gray-400 border-white/5 hover:border-white/10'
+                                                ? option.color
+                                                : 'bg-gray-800/50 text-gray-400 border-white/5 hover:border-white/10'
                                                 }`}
                                         >
                                             {option.label}
@@ -412,8 +435,8 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                                                         type="button"
                                                         onClick={() => setCorrectAnswer(questionIndex, optionIndex)}
                                                         className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all ${option.isCorrect
-                                                                ? 'bg-green-500 text-white'
-                                                                : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                                                            ? 'bg-green-500 text-white'
+                                                            : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
                                                             }`}
                                                     >
                                                         <Check className="w-4 h-4" />

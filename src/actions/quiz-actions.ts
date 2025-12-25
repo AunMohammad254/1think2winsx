@@ -46,6 +46,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
                     description: quizData.description || null,
                     duration: quizData.duration,
                     passingScore: quizData.passingScore,
+                    accessPrice: quizData.accessPrice ?? 2,
                     status: quizData.status,
                 },
             });
@@ -115,6 +116,7 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
                     description: quizData.description || null,
                     duration: quizData.duration,
                     passingScore: quizData.passingScore,
+                    accessPrice: quizData.accessPrice ?? 2,
                     status: quizData.status,
                 },
             });

@@ -41,6 +41,7 @@ model Quiz {
   description String?
   duration    Int         @default(30) // Duration in minutes
   passingScore Int        @default(70) // Passing score percentage
+  accessPrice Float       @default(2.0) // Price in PKR for 24-hour access
   status      String      @default("active") // active, paused
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt

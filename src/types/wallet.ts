@@ -1,7 +1,8 @@
 // 1Think Wallet - TypeScript Types
 
-export type PaymentMethod = 'Easypaisa' | 'Jazzcash' | 'Bank';
+export type PaymentMethod = 'Easypaisa' | 'Jazzcash' | 'Bank' | 'QuizAccess';
 export type TransactionStatus = 'pending' | 'approved' | 'rejected';
+export type TransactionType = 'deposit' | 'deduction';
 
 export interface WalletTransaction {
     id: string;
