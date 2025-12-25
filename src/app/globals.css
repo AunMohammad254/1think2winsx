@@ -1,5 +1,32 @@
 @import "tailwindcss";
 
+/* ============================================
+   NAVBAR GLASSMORPHISM UTILITIES
+   ============================================ */
+.navbar-glass {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.navbar-glass-scrolled {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Mobile nav slide animation support */
+@media (max-width: 1023px) {
+  .mobile-nav-panel {
+    background: rgba(17, 17, 27, 0.98);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+}
+
+
 :root {
   --background: linear-gradient(135deg, #1e3a8a 0%, #1f2937 50%, #000000 100%);
   --foreground: #ffffff;
