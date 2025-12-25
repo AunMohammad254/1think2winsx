@@ -99,6 +99,9 @@ const navItems = [
   { href: '/admin/quizzes', label: 'Quiz Management', icon: FileText },
   { href: '/admin/quiz', label: 'Create Quiz', icon: FileText },
   { href: '/admin/prizes', label: 'Prizes', icon: Gift },
+  { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet },
+  { href: '/admin/claims', label: 'Prize Claims', icon: Trophy },
+  { href: '/admin/streaming', label: 'Live Streaming', icon: Video },
   { href: '/admin/db-stats', label: 'Database', icon: Database },
   { href: '/admin/security', label: 'Security', icon: Shield },
 ];
@@ -107,6 +110,9 @@ const quickActions = [
   { href: '/admin/quiz', label: 'Create New Quiz', icon: FileText, color: 'purple' },
   { href: '/admin/quizzes', label: 'Manage Quizzes', icon: CheckSquare, color: 'blue' },
   { href: '/admin/prizes', label: 'Manage Prizes', icon: Trophy, color: 'green' },
+  { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet, color: 'emerald' },
+  { href: '/admin/claims', label: 'Prize Claims', icon: Gift, color: 'amber' },
+  { href: '/admin/streaming', label: 'Live Streaming', icon: Video, color: 'red' },
 ];
 
 // ============================================

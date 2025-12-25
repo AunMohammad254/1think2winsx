@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
+import { createClient } from '@supabase/supabase-js';
 import prisma from '@/lib/prisma';
 import { TransactionStatus, PaymentMethod } from '@/types/wallet';
+
+// Create Supabase admin client for RPC calls
+function getSupabaseAdmin() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    return createClient(supabaseUrl, supabaseServiceKey);
+}
 
 /**
  * GET /api/admin/wallet-transactions
@@ -15,14 +23,35 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Get status filter from query params
+        // Get query params
         const { searchParams } = new URL(request.url);
         const status = searchParams.get('status') as TransactionStatus | 'all' | null;
+        const page = parseInt(searchParams.get('page') || '1');
+        const limit = parseInt(searchParams.get('limit') || '50');
 
-        // Build where clause
+        // Try Supabase RPC first, fall back to Prisma
+        try {
+            const supabase = getSupabaseAdmin();
+            const { data, error } = await supabase.rpc('get_admin_wallet_transactions', {
+                p_status: status || 'all',
+                p_page: page,
+                p_limit: limit
+            });
+
+            if (!error && data?.success) {
+                return NextResponse.json({
+                    success: true,
+                    transactions: data.transactions || [],
+                    pagination: data.pagination
+                });
+            }
+        } catch (rpcError) {
+            console.warn('Supabase RPC fallback to Prisma:', rpcError);
+        }
+
+        // Fallback to Prisma queries
         const whereClause = status && status !== 'all' ? { status } : {};
 
-        // Fetch transactions with user info
         const transactions = await prisma.walletTransaction.findMany({
             where: whereClause,
             include: {
@@ -35,12 +64,11 @@ export async function GET(request: NextRequest) {
                 },
             },
             orderBy: [
-                { status: 'asc' }, // pending first
+                { status: 'asc' },
                 { createdAt: 'desc' },
             ],
         });
 
-        // Format response
         const formattedTransactions = transactions.map((tx) => ({
             id: tx.id,
             userId: tx.userId,
@@ -93,7 +121,35 @@ export async function PATCH(request: NextRequest) {
             return NextResponse.json({ error: 'Invalid action. Must be "approve" or "reject"' }, { status: 400 });
         }
 
-        // Get the transaction
+        // Try Supabase RPC first
+        try {
+            const supabase = getSupabaseAdmin();
+            const { data, error } = await supabase.rpc('process_wallet_transaction', {
+                p_transaction_id: transactionId,
+                p_action: action,
+                p_admin_email: adminSession.email || 'admin',
+                p_notes: notes || null
+            });
+
+            if (!error && data?.success) {
+                return NextResponse.json({
+                    success: true,
+                    message: action === 'approve'
+                        ? 'Transaction approved successfully'
+                        : 'Transaction rejected',
+                    status: data.status,
+                    newBalance: data.newBalance,
+                });
+            }
+
+            if (error || !data?.success) {
+                console.warn('Supabase RPC returned error, using Prisma fallback:', data?.error || error);
+            }
+        } catch (rpcError) {
+            console.warn('Supabase RPC fallback to Prisma:', rpcError);
+        }
+
+        // Fallback to Prisma
         const transaction = await prisma.walletTransaction.findUnique({
             where: { id: transactionId },
             include: { user: true },
@@ -111,9 +167,7 @@ export async function PATCH(request: NextRequest) {
         }
 
         if (action === 'approve') {
-            // Use a transaction to atomically update both records
             const result = await prisma.$transaction(async (tx) => {
-                // Update transaction status
                 const updatedTransaction = await tx.walletTransaction.update({
                     where: { id: transactionId },
                     data: {
@@ -123,7 +177,6 @@ export async function PATCH(request: NextRequest) {
                     },
                 });
 
-                // Update user's wallet balance
                 const updatedUser = await tx.user.update({
                     where: { id: transaction.userId },
                     data: {
@@ -148,7 +201,6 @@ export async function PATCH(request: NextRequest) {
                 newBalance: result.updatedUser.walletBalance,
             });
         } else {
-            // Reject transaction
             const updatedTransaction = await prisma.walletTransaction.update({
                 where: { id: transactionId },
                 data: {
