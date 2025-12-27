@@ -22,12 +22,41 @@ import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 // Preview Modes
 // ============================================
 type PreviewMode = 'desktop' | 'tablet' | 'mobile';
+type PreviewSource = 'draft' | 'saved';
 
 const previewModes: { mode: PreviewMode; icon: typeof Monitor; label: string; width: string }[] = [
   { mode: 'desktop', icon: Monitor, label: 'Desktop', width: 'w-full' },
   { mode: 'tablet', icon: Tablet, label: 'Tablet', width: 'max-w-2xl' },
   { mode: 'mobile', icon: Smartphone, label: 'Mobile', width: 'max-w-sm' },
 ];
+
+// ============================================
+// Draft Preview Component - Renders current unsaved embed HTML
+// ============================================
+function DraftPreview({ embedHtml }: { embedHtml: string }) {
+  // Build a sandboxed HTML document for the embed
+  const previewDoc = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body { height: 100%; margin: 0; padding: 0; background: #000; }
+      .wrapper { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+      iframe, video { width: 100% !important; height: 100% !important; border: 0; }
+      .wrapper > * { max-width: 100%; max-height: 100%; }
+    </style>
+  </head><body>
+    <div class="wrapper">${embedHtml}</div>
+  </body></html>`;
+
+  return (
+    <iframe
+      srcDoc={previewDoc}
+      className="w-full h-full border-0"
+      sandbox="allow-scripts allow-same-origin allow-presentation"
+      allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+      title="Draft embed preview"
+    />
+  );
+}
 
 // ============================================
 // Main Component
@@ -41,6 +70,7 @@ export default function StreamingManager() {
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [previewMode, setPreviewMode] = useState<PreviewMode>('desktop');
   const [showPreview, setShowPreview] = useState<boolean>(true);
+  const [previewSource, setPreviewSource] = useState<PreviewSource>('draft');
 
   // ============================================
   // Check if there are unsaved changes
@@ -266,6 +296,28 @@ export default function StreamingManager() {
               {showPreview ? 'Hide' : 'Show'} Preview
             </button>
 
+            {/* Draft/Saved Toggle */}
+            <div className="flex rounded-lg bg-white/5 border border-white/10 p-1">
+              <button
+                onClick={() => setPreviewSource('draft')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${previewSource === 'draft'
+                  ? 'bg-amber-500/20 text-amber-300'
+                  : 'text-gray-400 hover:text-white'
+                  }`}
+              >
+                Draft
+              </button>
+              <button
+                onClick={() => setPreviewSource('saved')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${previewSource === 'saved'
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'text-gray-400 hover:text-white'
+                  }`}
+              >
+                Saved
+              </button>
+            </div>
+
             {/* Refresh */}
             <button
               onClick={() => {
@@ -287,7 +339,11 @@ export default function StreamingManager() {
               }`}>
               {embedHtml ? (
                 <div className="aspect-video rounded-xl overflow-hidden border border-white/10 bg-black">
-                  <LazyStreamPlayer key={refreshKey} />
+                  {previewSource === 'draft' ? (
+                    <DraftPreview embedHtml={embedHtml} key={`draft-${embedHtml.length}`} />
+                  ) : (
+                    <LazyStreamPlayer key={refreshKey} autoPlay={true} />
+                  )}
                 </div>
               ) : (
                 <div className="aspect-video rounded-xl border border-white/10 bg-gray-900/50 flex flex-col items-center justify-center">
@@ -298,9 +354,14 @@ export default function StreamingManager() {
               )}
 
               {/* Device Frame Label */}
-              <div className="text-center mt-3">
+              <div className="text-center mt-3 flex items-center justify-center gap-2">
                 <span className="text-xs text-gray-500 uppercase tracking-wider">
                   {previewModes.find(p => p.mode === previewMode)?.label} View
+                </span>
+                <span className="text-xs text-gray-600">•</span>
+                <span className={`text-xs uppercase tracking-wider ${previewSource === 'draft' ? 'text-amber-400' : 'text-emerald-400'
+                  }`}>
+                  {previewSource === 'draft' ? 'Draft Preview' : 'Saved Preview'}
                 </span>
               </div>
             </div>

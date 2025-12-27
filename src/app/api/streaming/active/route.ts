@@ -2,10 +2,43 @@ import { NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 import { securityLogger } from '@/lib/security-logger';
+import { createClient } from '@supabase/supabase-js';
 
 let cachedHtml: string | null = null;
 let cachedAt = 0;
-const CACHE_TTL_MS = 30_000;
+const CACHE_TTL_MS = 5_000; // 5 seconds - short TTL for quick admin refresh
+
+// Create Supabase admin client for RPC calls
+function getSupabaseAdmin() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return null;
+  }
+
+  return createClient(supabaseUrl, supabaseServiceKey);
+}
+
+// Try to get embed HTML from Supabase RPC
+async function getEmbedFromSupabase(): Promise<string | null> {
+  try {
+    const supabase = getSupabaseAdmin();
+    if (!supabase) return null;
+
+    const { data, error } = await supabase.rpc('get_stream_embed');
+    if (!error && data?.success && data.embedHtml) {
+      return data.embedHtml;
+    }
+    if (error) {
+      console.warn('Supabase RPC error, will try file fallback:', error.message);
+    }
+    return null;
+  } catch (err) {
+    console.warn('Supabase RPC failed:', err);
+    return null;
+  }
+}
 
 async function readAdminEmbedHtml(): Promise<string | null> {
   try {
@@ -23,7 +56,13 @@ async function getCachedEmbedHtml(): Promise<string | null> {
   if (cachedHtml && now - cachedAt < CACHE_TTL_MS) {
     return cachedHtml;
   }
-  const html = await readAdminEmbedHtml();
+
+  // Try Supabase first, then fall back to file
+  let html = await getEmbedFromSupabase();
+  if (!html) {
+    html = await readAdminEmbedHtml();
+  }
+
   cachedHtml = html;
   cachedAt = now;
   return html;
