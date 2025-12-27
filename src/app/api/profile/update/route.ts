@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import prisma from '@/lib/prisma';
+import { userDb } from '@/lib/supabase/db';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -30,7 +29,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const session = await auth();
-    
+
     if (!session || !session.user) {
       securityLogger.logUnauthorizedAccess(undefined, '/api/profile/update', request);
       return NextResponse.json(
@@ -53,7 +52,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    
+
     // Validate request body
     const validationResult = updateProfileSchema.safeParse(body);
     if (!validationResult.success) {
@@ -67,9 +66,7 @@ export async function PUT(request: NextRequest) {
     const { name, email } = validationResult.data;
 
     // Get current user data
-    const currentUser = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const currentUser = await userDb.findById(userId);
 
     if (!currentUser) {
       return NextResponse.json(
@@ -80,14 +77,9 @@ export async function PUT(request: NextRequest) {
 
     // Check if email is already taken by another user
     if (email !== currentUser.email) {
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          email,
-          NOT: { id: userId },
-        },
-      });
+      const existingUser = await userDb.findByEmail(email);
 
-      if (existingUser) {
+      if (existingUser && existingUser.id !== userId) {
         return NextResponse.json(
           { message: 'Email already in use' },
           { status: 400 }
@@ -96,63 +88,49 @@ export async function PUT(request: NextRequest) {
     }
 
     // Update user profile
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        name,
-        email,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        createdAt: true,
-      },
-    });
+    const updatedUser = await userDb.update(userId, { name, email });
 
     // Log successful profile update
     securityLogger.logSecurityEvent({
       type: 'PROFILE_UPDATE',
       userId: userId,
       endpoint: '/api/profile/update',
-      details: { 
+      details: {
         action: 'User updated profile information',
         fieldsUpdated: ['name', 'email'],
-        timestamp: new Date().toISOString() 
+        timestamp: new Date().toISOString()
       }
     });
 
     return createSecureJsonResponse({
       message: 'Profile updated successfully',
-      user: updatedUser,
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        createdAt: updatedUser.createdAt,
+      },
     }, { status: 200 });
 
   } catch (error) {
     console.error('Error updating profile:', error);
-    
-    // Handle specific Prisma errors
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') {
-        return NextResponse.json(
-          { message: 'Email already in use' },
-          { status: 409 }
-        );
-      }
-      if (error.code === 'P2025') {
-        return NextResponse.json(
-          { message: 'User not found' },
-          { status: 404 }
-        );
-      }
+
+    // Handle Supabase unique constraint errors
+    if (error instanceof Error && error.message.includes('duplicate key')) {
+      return NextResponse.json(
+        { message: 'Email already in use' },
+        { status: 409 }
+      );
     }
-    
-    if (error instanceof Prisma.PrismaClientInitializationError) {
+
+    // Handle connection errors
+    if (error instanceof Error && error.message.includes('connection')) {
       return NextResponse.json(
         { message: 'Database connection error' },
         { status: 503 }
       );
     }
-    
+
     return NextResponse.json(
       { message: 'Internal server error' },
       { status: 500 }

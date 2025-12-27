@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import prisma from '@/lib/prisma';
+import { userDb, walletTransactionDb, dailyPaymentDb, quizDb, generateId } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 
 export interface WalletDeductionResponse {
@@ -31,11 +31,8 @@ export async function getWalletBalanceForDeduction(): Promise<{
             return { success: false, error: 'You must be logged in' };
         }
 
-        // Get user by email since Prisma uses CUID and Supabase uses UUID
-        const dbUser = await prisma.user.findUnique({
-            where: { email: user.email! },
-            select: { walletBalance: true }
-        });
+        // Get user by email
+        const dbUser = await userDb.findByEmail(user.email!);
 
         if (!dbUser) {
             return { success: true, balance: 0 };
@@ -57,12 +54,16 @@ export async function deductWalletForQuizAccess(
     quizId?: string
 ): Promise<WalletDeductionResponse> {
     try {
+        console.log('[deductWallet] Starting payment for amount:', amount);
         const supabase = await createClient();
         const { data: { user }, error: authError } = await supabase.auth.getUser();
 
         if (authError || !user) {
+            console.log('[deductWallet] Auth error:', authError?.message);
             return { success: false, error: 'You must be logged in' };
         }
+
+        console.log('[deductWallet] User email:', user.email);
 
         // Validate amount
         if (amount <= 0) {
@@ -70,10 +71,9 @@ export async function deductWalletForQuizAccess(
         }
 
         // Get user with current balance
-        const dbUser = await prisma.user.findUnique({
-            where: { email: user.email! },
-            select: { id: true, walletBalance: true }
-        });
+        const dbUser = await userDb.findByEmail(user.email!);
+
+        console.log('[deductWallet] DB User found:', !!dbUser, dbUser?.id, dbUser?.walletBalance);
 
         if (!dbUser) {
             return {
@@ -96,61 +96,54 @@ export async function deductWalletForQuizAccess(
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
 
-        // Use Prisma transaction to atomically:
-        // 1. Deduct wallet balance
-        // 2. Create wallet transaction record
-        // 3. Create daily payment for quiz access
-        const result = await prisma.$transaction(async (tx) => {
-            // Deduct balance
-            const updatedUser = await tx.user.update({
-                where: { id: dbUser.id },
-                data: {
-                    walletBalance: { decrement: amount }
-                },
-                select: { walletBalance: true }
+        // Note: Supabase doesn't have native transactions like Prisma
+        // We'll perform operations sequentially and handle errors
+        try {
+            // 1. Deduct balance
+            const newBalance = dbUser.walletBalance - amount;
+            await userDb.update(dbUser.id, { walletBalance: newBalance });
+
+            // 2. Create wallet transaction record for history
+            await walletTransactionDb.create({
+                userId: dbUser.id,
+                amount: -amount, // Negative for deduction
+                paymentMethod: 'QuizAccess',
+                transactionId: `quiz_access_${Date.now()}_${dbUser.id}`,
+                status: 'approved', // Auto-approved since it's a deduction
+                adminNotes: quizId ? `Quiz access payment for quiz: ${quizId}` : '24-hour quiz access payment',
+                processedAt: now.toISOString(),
             });
 
-            // Create wallet transaction record for history
-            await tx.walletTransaction.create({
-                data: {
-                    userId: dbUser.id,
-                    amount: -amount, // Negative for deduction
-                    paymentMethod: 'QuizAccess',
-                    transactionId: `quiz_access_${Date.now()}_${dbUser.id}`,
-                    status: 'approved', // Auto-approved since it's a deduction
-                    adminNotes: quizId ? `Quiz access payment for quiz: ${quizId}` : '24-hour quiz access payment',
-                    processedAt: now,
-                }
+            // 3. Create daily payment record for quiz access
+            const dailyPayment = await dailyPaymentDb.create({
+                userId: dbUser.id,
+                amount: amount,
+                status: 'completed',
+                paymentMethod: 'wallet',
+                transactionId: `wallet_${Date.now()}_${dbUser.id}`,
+                expiresAt: expiresAt.toISOString(),
             });
 
-            // Create daily payment record for quiz access
-            const dailyPayment = await tx.dailyPayment.create({
-                data: {
-                    userId: dbUser.id,
-                    amount: amount,
-                    status: 'completed',
-                    paymentMethod: 'wallet',
-                    transactionId: `wallet_${Date.now()}_${dbUser.id}`,
-                    expiresAt: expiresAt,
-                }
-            });
+            // Revalidate wallet page to show new balance and transaction
+            revalidatePath('/profile/wallet');
+            revalidatePath('/quizzes');
 
             return {
-                newBalance: updatedUser.walletBalance,
+                success: true,
+                message: 'Payment successful! You now have 24-hour quiz access.',
+                newBalance: newBalance,
                 paymentId: dailyPayment.id,
             };
-        });
-
-        // Revalidate wallet page to show new balance and transaction
-        revalidatePath('/profile/wallet');
-        revalidatePath('/quizzes');
-
-        return {
-            success: true,
-            message: 'Payment successful! You now have 24-hour quiz access.',
-            newBalance: result.newBalance,
-            paymentId: result.paymentId,
-        };
+        } catch (innerError) {
+            // If any operation fails, try to rollback the balance
+            console.error('Transaction error, attempting rollback:', innerError);
+            try {
+                await userDb.update(dbUser.id, { walletBalance: dbUser.walletBalance });
+            } catch (rollbackError) {
+                console.error('Rollback failed:', rollbackError);
+            }
+            throw innerError;
+        }
     } catch (error) {
         console.error('Error processing wallet deduction:', error);
         return {
@@ -170,13 +163,14 @@ export async function getQuizAccessPrice(): Promise<{
     error?: string;
 }> {
     try {
-        // Get the minimum access price across all active quizzes
-        // or return the default if no quizzes exist
-        const quiz = await prisma.quiz.findFirst({
-            where: { status: 'active' },
-            select: { accessPrice: true },
-            orderBy: { accessPrice: 'asc' }
+        // Get the first active quiz to get the access price
+        const quizzes = await quizDb.findMany({
+            status: 'active',
+            limit: 1,
+            orderBy: 'createdAt'
         });
+
+        const quiz = quizzes[0];
 
         return {
             success: true,

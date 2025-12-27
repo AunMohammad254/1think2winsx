@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import prisma from '@/lib/prisma';
+import { dailyPaymentDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -26,11 +26,11 @@ export async function POST(request: NextRequest) {
     const authResult = await requireAuth({
       context: 'daily_payment_creation',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
     const userId = session.user.id;
 
@@ -50,19 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already has valid access (within 24 hours)
-    const now = new Date();
-    const existingPayment = await prisma.dailyPayment.findFirst({
-      where: {
-        userId,
-        status: 'completed',
-        expiresAt: {
-          gt: now
-        }
-      },
-      orderBy: {
-        expiresAt: 'desc'
-      }
-    });
+    const existingPayment = await dailyPaymentDb.findFirstActive(userId);
 
     if (existingPayment) {
       return createSecureJsonResponse({
@@ -79,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validationResult = dailyPaymentSchema.safeParse(body);
-    
+
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, userId, {
         endpoint: '/api/daily-payment',
@@ -94,18 +82,17 @@ export async function POST(request: NextRequest) {
     const { amount, paymentMethod, transactionId } = validationResult.data;
 
     // Calculate expiry time (24 hours from now)
+    const now = new Date();
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     // Create payment record
-    const payment = await prisma.dailyPayment.create({
-      data: {
-        userId,
-        amount,
-        status: 'completed', // For demo purposes, marking as completed immediately
-        paymentMethod: paymentMethod || 'demo',
-        transactionId: transactionId || `daily_txn_${Date.now()}_${userId}`,
-        expiresAt,
-      },
+    const payment = await dailyPaymentDb.create({
+      userId,
+      amount,
+      status: 'completed',
+      paymentMethod: paymentMethod || 'demo',
+      transactionId: transactionId || `daily_txn_${Date.now()}_${userId}`,
+      expiresAt: expiresAt.toISOString(),
     });
 
     recordSecurityEvent('PAYMENT_CREATED', request, userId, {

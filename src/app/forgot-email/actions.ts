@@ -1,6 +1,6 @@
 'use server';
 
-import prisma from '@/lib/prisma';
+import { userDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 
 const phoneSchema = z.object({
@@ -33,19 +33,8 @@ export async function lookupEmailByPhone(formData: FormData) {
             normalizedPhone = '0' + phone.slice(3);
         }
 
-        // Search for user with this phone number
-        const user = await prisma.user.findFirst({
-            where: {
-                OR: [
-                    { phone: phone },
-                    { phone: normalizedPhone },
-                    { phone: phone.startsWith('0') ? '+92' + phone.slice(1) : phone },
-                ],
-            },
-            select: {
-                email: true,
-            },
-        });
+        // Search for user with this phone number using Supabase
+        const user = await userDb.findByPhone(phone, normalizedPhone);
 
         if (!user) {
             // Don't reveal if phone doesn't exist for security

@@ -1,6 +1,6 @@
 'use server';
 
-import prisma from '@/lib/prisma';
+import { prizeDb, prizeRedemptionDb, userDb, getDb, generateId } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import type {
@@ -42,55 +42,40 @@ export async function getPublicPrizes(
     sortBy: PrizeSortOption = 'points-asc'
 ): Promise<{ success: boolean; data?: Prize[]; error?: string }> {
     try {
-        // Build where clause
-        const where: Record<string, unknown> = {
-            isActive: true,
-            status: 'published',
-        };
+        const supabase = await getDb();
+
+        // Build the query
+        let query = supabase
+            .from('Prize')
+            .select('*')
+            .eq('isActive', true)
+            .eq('status', 'published');
 
         if (category !== 'all') {
-            where.category = category;
+            query = query.eq('category', category);
         }
 
-        // Build orderBy clause
-        let orderBy: Record<string, 'asc' | 'desc'> = { pointsRequired: 'asc' };
+        // Apply ordering
         switch (sortBy) {
             case 'points-desc':
-                orderBy = { pointsRequired: 'desc' };
+                query = query.order('pointsRequired', { ascending: false });
                 break;
             case 'newest':
-                orderBy = { createdAt: 'desc' };
+                query = query.order('createdAt', { ascending: false });
                 break;
             case 'oldest':
-                orderBy = { createdAt: 'asc' };
+                query = query.order('createdAt', { ascending: true });
                 break;
             case 'name-asc':
-                orderBy = { name: 'asc' };
+                query = query.order('name', { ascending: true });
                 break;
             default:
-                orderBy = { pointsRequired: 'asc' };
+                query = query.order('pointsRequired', { ascending: true });
         }
 
-        const prizes = await prisma.prize.findMany({
-            where,
-            orderBy,
-            select: {
-                id: true,
-                name: true,
-                description: true,
-                imageUrl: true,
-                modelUrl: true,
-                type: true,
-                pointsRequired: true,
-                isActive: true,
-                category: true,
-                stock: true,
-                status: true,
-                value: true,
-                createdAt: true,
-                updatedAt: true,
-            },
-        });
+        const { data: prizes, error } = await query;
+
+        if (error) throw error;
 
         return { success: true, data: prizes as Prize[] };
     } catch (error) {
@@ -122,24 +107,12 @@ export async function redeemPrize(
         }
 
         const { prizeId, fullName, whatsappNumber, address } = validation.data;
+        const supabase = await getDb();
 
         // Get user and prize in parallel
         const [user, prize] = await Promise.all([
-            prisma.user.findUnique({
-                where: { id: userId },
-                select: { id: true, points: true, email: true },
-            }),
-            prisma.prize.findUnique({
-                where: { id: prizeId },
-                select: {
-                    id: true,
-                    name: true,
-                    pointsRequired: true,
-                    isActive: true,
-                    status: true,
-                    stock: true,
-                },
-            }),
+            userDb.findById(userId),
+            prizeDb.findById(prizeId),
         ]);
 
         if (!user) {
@@ -166,13 +139,13 @@ export async function redeemPrize(
         }
 
         // Check for existing pending redemption
-        const existingRedemption = await prisma.prizeRedemption.findFirst({
-            where: {
-                userId,
-                prizeId,
-                status: 'pending',
-            },
-        });
+        const { data: existingRedemption } = await supabase
+            .from('PrizeRedemption')
+            .select('id')
+            .eq('userId', userId)
+            .eq('prizeId', prizeId)
+            .eq('status', 'pending')
+            .single();
 
         if (existingRedemption) {
             return {
@@ -181,46 +154,28 @@ export async function redeemPrize(
             };
         }
 
-        // Create redemption and deduct points in a transaction
-        const redemption = await prisma.$transaction(async (tx) => {
-            // Deduct points
-            await tx.user.update({
-                where: { id: userId },
-                data: {
-                    points: { decrement: prize.pointsRequired },
-                },
-            });
+        // Perform operations (no native transaction in Supabase, so do sequentially)
+        // 1. Deduct points
+        await userDb.update(userId, {
+            points: user.points - prize.pointsRequired
+        });
 
-            // Decrease stock if applicable
-            if (prize.stock !== null && prize.stock > 0) {
-                await tx.prize.update({
-                    where: { id: prizeId },
-                    data: {
-                        stock: { decrement: 1 },
-                    },
-                });
-            }
-
-            // Create redemption record
-            return await tx.prizeRedemption.create({
-                data: {
-                    userId,
-                    prizeId,
-                    pointsUsed: prize.pointsRequired,
-                    status: 'pending',
-                    fullName,
-                    whatsappNumber,
-                    address,
-                },
-                include: {
-                    prize: {
-                        select: {
-                            name: true,
-                            imageUrl: true,
-                        },
-                    },
-                },
+        // 2. Decrease stock if applicable
+        if (prize.stock !== null && prize.stock > 0) {
+            await prizeDb.update(prizeId, {
+                stock: prize.stock - 1
             });
+        }
+
+        // 3. Create redemption record
+        const redemption = await prizeRedemptionDb.create({
+            userId,
+            prizeId,
+            pointsUsed: prize.pointsRequired,
+            status: 'pending',
+            fullName,
+            whatsappNumber,
+            address,
         });
 
         revalidatePath('/prizes');
@@ -228,7 +183,7 @@ export async function redeemPrize(
 
         return {
             success: true,
-            data: redemption,
+            data: { ...redemption, prize: { name: prize.name, imageUrl: prize.imageUrl } },
         };
     } catch (error) {
         console.error('Error redeeming prize:', error);
@@ -250,41 +205,47 @@ export async function getAllPrizesAdmin(
     }
 ): Promise<{ success: boolean; data?: Prize[]; error?: string }> {
     try {
-        const where: Record<string, unknown> = {};
+        const supabase = await getDb();
+
+        let query = supabase.from('Prize').select('*');
 
         if (filters?.category && filters.category !== 'all') {
-            where.category = filters.category;
+            query = query.eq('category', filters.category);
         }
 
         if (filters?.status && filters.status !== 'all') {
-            where.status = filters.status;
-        }
-
-        if (!filters?.showInactive) {
-            // Don't filter by isActive by default in admin
+            query = query.eq('status', filters.status);
         }
 
         if (filters?.search) {
-            where.OR = [
-                { name: { contains: filters.search, mode: 'insensitive' } },
-                { description: { contains: filters.search, mode: 'insensitive' } },
-            ];
+            query = query.or(`name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
         }
 
-        const prizes = await prisma.prize.findMany({
-            where,
-            orderBy: { createdAt: 'desc' },
-            include: {
-                _count: {
-                    select: {
-                        redemptions: true,
-                        winnings: true,
-                    },
-                },
-            },
-        });
+        query = query.order('createdAt', { ascending: false });
 
-        return { success: true, data: prizes as unknown as Prize[] };
+        const { data: prizes, error } = await query;
+
+        if (error) throw error;
+
+        // Get counts for each prize
+        const prizesWithCounts = await Promise.all(
+            (prizes || []).map(async (prize) => {
+                const [redemptionsResult, winningsResult] = await Promise.all([
+                    supabase.from('PrizeRedemption').select('*', { count: 'exact', head: true }).eq('prizeId', prize.id),
+                    supabase.from('Winning').select('*', { count: 'exact', head: true }).eq('prizeId', prize.id),
+                ]);
+
+                return {
+                    ...prize,
+                    _count: {
+                        redemptions: redemptionsResult.count || 0,
+                        winnings: winningsResult.count || 0,
+                    },
+                };
+            })
+        );
+
+        return { success: true, data: prizesWithCounts as unknown as Prize[] };
     } catch (error) {
         console.error('Error fetching admin prizes:', error);
         return { success: false, error: 'Failed to fetch prizes' };
@@ -298,23 +259,28 @@ export async function getPrizeById(
     id: string
 ): Promise<{ success: boolean; data?: Prize; error?: string }> {
     try {
-        const prize = await prisma.prize.findUnique({
-            where: { id },
-            include: {
-                _count: {
-                    select: {
-                        redemptions: true,
-                        winnings: true,
-                    },
-                },
-            },
-        });
+        const supabase = await getDb();
+        const prize = await prizeDb.findById(id);
 
         if (!prize) {
             return { success: false, error: 'Prize not found' };
         }
 
-        return { success: true, data: prize as unknown as Prize };
+        // Get counts
+        const [redemptionsResult, winningsResult] = await Promise.all([
+            supabase.from('PrizeRedemption').select('*', { count: 'exact', head: true }).eq('prizeId', id),
+            supabase.from('Winning').select('*', { count: 'exact', head: true }).eq('prizeId', id),
+        ]);
+
+        const prizeWithCounts = {
+            ...prize,
+            _count: {
+                redemptions: redemptionsResult.count || 0,
+                winnings: winningsResult.count || 0,
+            },
+        };
+
+        return { success: true, data: prizeWithCounts as unknown as Prize };
     } catch (error) {
         console.error('Error fetching prize:', error);
         return { success: false, error: 'Failed to fetch prize' };
@@ -337,20 +303,18 @@ export async function createPrize(
             };
         }
 
-        const prize = await prisma.prize.create({
-            data: {
-                name: validation.data.name,
-                description: validation.data.description || null,
-                imageUrl: validation.data.imageUrl || null,
-                modelUrl: validation.data.modelUrl || null,
-                type: validation.data.type,
-                pointsRequired: validation.data.pointsRequired,
-                category: validation.data.category,
-                stock: validation.data.stock,
-                status: validation.data.status,
-                value: validation.data.value,
-                isActive: true,
-            },
+        const prize = await prizeDb.create({
+            name: validation.data.name,
+            description: validation.data.description || null,
+            imageUrl: validation.data.imageUrl || null,
+            modelUrl: validation.data.modelUrl || null,
+            type: validation.data.type,
+            pointsRequired: validation.data.pointsRequired,
+            category: validation.data.category,
+            stock: validation.data.stock,
+            status: validation.data.status,
+            value: validation.data.value,
+            isActive: true,
         });
 
         revalidatePath('/prizes');
@@ -372,7 +336,7 @@ export async function updatePrize(
 ): Promise<{ success: boolean; data?: Prize; error?: string }> {
     try {
         // Check if prize exists
-        const existing = await prisma.prize.findUnique({ where: { id } });
+        const existing = await prizeDb.findById(id);
         if (!existing) {
             return { success: false, error: 'Prize not found' };
         }
@@ -387,21 +351,20 @@ export async function updatePrize(
             };
         }
 
-        const prize = await prisma.prize.update({
-            where: { id },
-            data: {
-                ...(validation.data.name && { name: validation.data.name }),
-                ...(validation.data.description !== undefined && { description: validation.data.description || null }),
-                ...(validation.data.imageUrl !== undefined && { imageUrl: validation.data.imageUrl || null }),
-                ...(validation.data.modelUrl !== undefined && { modelUrl: validation.data.modelUrl || null }),
-                ...(validation.data.type && { type: validation.data.type }),
-                ...(validation.data.pointsRequired !== undefined && { pointsRequired: validation.data.pointsRequired }),
-                ...(validation.data.category && { category: validation.data.category }),
-                ...(validation.data.stock !== undefined && { stock: validation.data.stock }),
-                ...(validation.data.status && { status: validation.data.status }),
-                ...(validation.data.value !== undefined && { value: validation.data.value }),
-            },
-        });
+        const updateData: Record<string, unknown> = {};
+
+        if (validation.data.name) updateData.name = validation.data.name;
+        if (validation.data.description !== undefined) updateData.description = validation.data.description || null;
+        if (validation.data.imageUrl !== undefined) updateData.imageUrl = validation.data.imageUrl || null;
+        if (validation.data.modelUrl !== undefined) updateData.modelUrl = validation.data.modelUrl || null;
+        if (validation.data.type) updateData.type = validation.data.type;
+        if (validation.data.pointsRequired !== undefined) updateData.pointsRequired = validation.data.pointsRequired;
+        if (validation.data.category) updateData.category = validation.data.category;
+        if (validation.data.stock !== undefined) updateData.stock = validation.data.stock;
+        if (validation.data.status) updateData.status = validation.data.status;
+        if (validation.data.value !== undefined) updateData.value = validation.data.value;
+
+        const prize = await prizeDb.update(id, updateData);
 
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');
@@ -420,30 +383,22 @@ export async function deletePrize(
     id: string
 ): Promise<{ success: boolean; error?: string }> {
     try {
+        const supabase = await getDb();
+
         // Check if prize has redemptions
-        const prize = await prisma.prize.findUnique({
-            where: { id },
-            include: {
-                _count: {
-                    select: {
-                        redemptions: true,
-                    },
-                },
-            },
-        });
+        const { count: redemptionCount } = await supabase
+            .from('PrizeRedemption')
+            .select('*', { count: 'exact', head: true })
+            .eq('prizeId', id);
 
-        if (!prize) {
-            return { success: false, error: 'Prize not found' };
-        }
-
-        if (prize._count.redemptions > 0) {
+        if (redemptionCount && redemptionCount > 0) {
             return {
                 success: false,
-                error: `Cannot delete prize with ${prize._count.redemptions} redemptions. Deactivate instead.`
+                error: `Cannot delete prize with ${redemptionCount} redemptions. Deactivate instead.`
             };
         }
 
-        await prisma.prize.delete({ where: { id } });
+        await supabase.from('Prize').delete().eq('id', id);
 
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');
@@ -462,17 +417,14 @@ export async function togglePrizeStatus(
     id: string
 ): Promise<{ success: boolean; data?: Prize; error?: string }> {
     try {
-        const prize = await prisma.prize.findUnique({ where: { id } });
+        const prize = await prizeDb.findById(id);
         if (!prize) {
             return { success: false, error: 'Prize not found' };
         }
 
         const newStatus = prize.status === 'published' ? 'draft' : 'published';
 
-        const updated = await prisma.prize.update({
-            where: { id },
-            data: { status: newStatus },
-        });
+        const updated = await prizeDb.update(id, { status: newStatus });
 
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');
@@ -491,15 +443,12 @@ export async function togglePrizeActive(
     id: string
 ): Promise<{ success: boolean; data?: Prize; error?: string }> {
     try {
-        const prize = await prisma.prize.findUnique({ where: { id } });
+        const prize = await prizeDb.findById(id);
         if (!prize) {
             return { success: false, error: 'Prize not found' };
         }
 
-        const updated = await prisma.prize.update({
-            where: { id },
-            data: { isActive: !prize.isActive },
-        });
+        const updated = await prizeDb.update(id, { isActive: !prize.isActive });
 
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import prisma from '@/lib/prisma';
-import sharp from 'sharp';
+import { userDb } from '@/lib/supabase/db';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -9,6 +8,16 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { securityLogger } from '@/lib/security-logger';
 import { createSecureFileUploadResponse } from '@/lib/security-headers';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
+
+// Dynamic import for sharp to avoid build issues
+let sharp: typeof import('sharp') | null = null;
+
+async function getSharp() {
+  if (!sharp) {
+    sharp = (await import('sharp')).default;
+  }
+  return sharp;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,7 +57,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Enhanced MIME type validation - check both file.type and magic bytes
+    // Enhanced MIME type validation
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
     if (!allowedTypes.includes(file.type)) {
       recordSecurityEvent('INVALID_FILE_TYPE', request, userId, {
@@ -73,7 +82,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file size (5MB limit)
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
       recordSecurityEvent('FILE_SIZE_EXCEEDED', request, userId, {
         fileName: file.name,
@@ -99,10 +108,6 @@ export async function POST(request: NextRequest) {
     // Convert file to buffer
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // We will let Sharp validate the image integrity during processing
-    // Manual magic byte checks can be brittle with some valid image variants
-
-
     // Create uploads directory if it doesn't exist
     const uploadsDir = join(process.cwd(), 'public', 'uploads', 'profile-pictures');
     if (!existsSync(uploadsDir)) {
@@ -115,8 +120,9 @@ export async function POST(request: NextRequest) {
     const filepath = join(uploadsDir, filename);
 
     try {
+      const sharpInstance = await getSharp();
       // Process image with Sharp - convert to AVIF format
-      const processedBuffer = await sharp(buffer)
+      const processedBuffer = await sharpInstance(buffer)
         .resize(400, 400, {
           fit: 'cover',
           position: 'center'
@@ -133,12 +139,8 @@ export async function POST(request: NextRequest) {
       // Update user profile in database
       const imageUrl = `/uploads/profile-pictures/${filename}`;
 
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          profilePicture: imageUrl,
-          updatedAt: new Date()
-        }
+      await userDb.update(userId, {
+        profilePicture: imageUrl,
       });
 
       return createSecureFileUploadResponse({
@@ -177,12 +179,8 @@ export async function DELETE(_request: NextRequest) {
     const userId = session.user.id;
 
     // Remove profile picture from database
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        profilePicture: null,
-        updatedAt: new Date()
-      }
+    await userDb.update(userId, {
+      profilePicture: null,
     });
 
     return NextResponse.json({
@@ -196,32 +194,4 @@ export async function DELETE(_request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-// Magic byte validation function for enhanced security
-function validateImageMagicBytes(buffer: Buffer, declaredType: string): boolean {
-  // JPEG magic bytes: FF D8 FF
-  if (declaredType === 'image/jpeg' || declaredType === 'image/jpg') {
-    return buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
-  }
-
-  // PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
-  if (declaredType === 'image/png') {
-    return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47 &&
-      buffer[4] === 0x0D && buffer[5] === 0x0A && buffer[6] === 0x1A && buffer[7] === 0x0A;
-  }
-
-  // WebP magic bytes: RIFF....WEBP
-  if (declaredType === 'image/webp') {
-    return buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
-  }
-
-  // GIF magic bytes: GIF87a or GIF89a
-  if (declaredType === 'image/gif') {
-    return (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38 &&
-      (buffer[4] === 0x37 || buffer[4] === 0x39) && buffer[5] === 0x61);
-  }
-
-  return false;
 }

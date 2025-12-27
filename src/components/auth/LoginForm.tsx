@@ -50,8 +50,8 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
             if (!result.success) {
                 setError(result.error || 'Login failed');
             } else if (result.redirectTo) {
-                router.push(result.redirectTo);
-                router.refresh();
+                // Use full page navigation to ensure cookies are properly read
+                window.location.href = result.redirectTo;
             }
         } catch {
             setError('An error occurred during login');

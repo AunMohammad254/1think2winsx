@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { requirePaymentAccess } from '@/lib/payment-middleware';
-import prisma from '@/lib/prisma';
+import { quizDb, quizAttemptDb, questionAttemptDb } from '@/lib/supabase/db';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
-// User creation is now handled by database trigger
 
 // GET /api/quizzes/[id] - Get quiz details and start attempt
 export async function GET(
@@ -38,8 +37,6 @@ export async function GET(
       return rateLimitResponse;
     }
 
-    // User is auto-created via database trigger on signup
-
     // Check payment access
     const paymentAccessResponse = await requirePaymentAccess(userId, request);
     if (paymentAccessResponse) {
@@ -47,30 +44,9 @@ export async function GET(
     }
 
     // Get quiz with active questions
-    const quiz = await prisma.quiz.findFirst({
-      where: {
-        id: quizId,
-        status: 'active'
-      },
-      include: {
-        questions: {
-          where: {
-            status: 'active'
-          },
-          select: {
-            id: true,
-            text: true,
-            options: true,
-            // Don't include correctOption for users
-          },
-          orderBy: {
-            createdAt: 'asc'
-          }
-        }
-      }
-    });
+    const quiz = await quizDb.findByIdWithQuestions(quizId);
 
-    if (!quiz) {
+    if (!quiz || quiz.status !== 'active') {
       recordSecurityEvent('QUIZ_NOT_FOUND', request, userId, {
         quizId,
       });
@@ -80,53 +56,44 @@ export async function GET(
       );
     }
 
+    // Filter active questions
+    const activeQuestions = (quiz.questions || []).filter(
+      (q: { status: string }) => q.status === 'active'
+    );
+
     // Check if user has already completed this quiz
-    const existingAttempt = await prisma.quizAttempt.findFirst({
-      where: {
-        userId,
-        quizId,
-        isCompleted: true
-      }
-    });
+    const existingAttempt = await quizAttemptDb.findByUserAndQuiz(userId, quizId);
+    const hasCompleted = existingAttempt?.isCompleted === true;
 
     // Get questions that the user has already attempted
-    const attemptedQuestions = await prisma.questionAttempt.findMany({
-      where: {
-        userId,
-        quizId
-      },
-      select: {
-        questionId: true
-      }
-    });
-
+    const attemptedQuestions = await questionAttemptDb.findByUserAndQuiz(userId, quizId);
     const attemptedQuestionIds = attemptedQuestions.map((qa: { questionId: string }) => qa.questionId);
 
     // Filter out questions that have already been attempted
-    const unattemptedQuestions = quiz.questions.filter(
-      (question: { id: string; text: string; options: string }) => !attemptedQuestionIds.includes(question.id)
+    const unattemptedQuestions = activeQuestions.filter(
+      (question: { id: string }) => !attemptedQuestionIds.includes(question.id)
     );
 
     // If user has completed the quiz but there are new questions, allow reattempt
-    if (existingAttempt && unattemptedQuestions.length === 0) {
+    if (hasCompleted && unattemptedQuestions.length === 0) {
       return NextResponse.json(
         {
           error: 'You have already completed this quiz',
           completed: true,
-          attempt: {
+          attempt: existingAttempt ? {
             id: existingAttempt.id,
             score: existingAttempt.score,
             points: existingAttempt.points,
             completedAt: existingAttempt.completedAt
-          }
+          } : null
         },
         { status: 403 }
       );
     }
 
     // Determine which questions to show
-    const questionsToShow = unattemptedQuestions.length > 0 ? unattemptedQuestions : quiz.questions;
-    const isReattempt = existingAttempt && unattemptedQuestions.length > 0;
+    const questionsToShow = unattemptedQuestions.length > 0 ? unattemptedQuestions : activeQuestions;
+    const isReattempt = hasCompleted && unattemptedQuestions.length > 0;
 
     // Format questions for frontend
     const formattedQuestions = questionsToShow.map((question: { id: string; text: string; options: string }) => ({
@@ -148,7 +115,7 @@ export async function GET(
         duration: quiz.duration,
         passingScore: quiz.passingScore,
         questionCount: formattedQuestions.length,
-        totalQuestions: quiz.questions.length,
+        totalQuestions: activeQuestions.length,
         questions: formattedQuestions,
         isReattempt,
         newQuestionsCount: isReattempt ? unattemptedQuestions.length : 0,

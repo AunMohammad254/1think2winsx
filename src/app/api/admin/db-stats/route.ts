@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/supabase/db';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   try {
     // Use auth middleware with admin check
     const authResult = await requireAuth({ adminOnly: true });
-    
+
     // If auth failed, return the error response
     if (authResult instanceof NextResponse) {
       securityLogger.logUnauthorizedAccess(
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
       );
       return authResult;
     }
-    
+
     const { session } = authResult;
 
     // Apply rate limiting for admin operations
@@ -39,142 +39,125 @@ export async function GET(request: NextRequest) {
       return rateLimitResponse;
     }
 
+    const supabase = await getDb();
+
     // Get database statistics
-    const [userCount, quizCount, questionCount, attemptCount, paymentCount, winningCount] = await Promise.all([
-      prisma.user.count(),
-      prisma.quiz.count(),
-      prisma.question.count(),
-      prisma.quizAttempt.count(),
-      prisma.payment.count(),
-      prisma.winning.count(),
+    const [
+      { count: userCount },
+      { count: quizCount },
+      { count: questionCount },
+      { count: attemptCount },
+      { count: paymentCount },
+      { count: winningCount }
+    ] = await Promise.all([
+      supabase.from('User').select('*', { count: 'exact', head: true }),
+      supabase.from('Quiz').select('*', { count: 'exact', head: true }),
+      supabase.from('Question').select('*', { count: 'exact', head: true }),
+      supabase.from('QuizAttempt').select('*', { count: 'exact', head: true }),
+      supabase.from('DailyPayment').select('*', { count: 'exact', head: true }),
+      supabase.from('Winning').select('*', { count: 'exact', head: true }),
     ]);
 
     // Get recent activity (last 7 days)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoStr = sevenDaysAgo.toISOString();
 
-    const [recentUsers, recentAttempts, recentPayments, recentWinnings] = await Promise.all([
-      prisma.user.count({
-        where: {
-          createdAt: {
-            gte: sevenDaysAgo,
-          },
-        },
-      }),
-      prisma.quizAttempt.count({
-        where: {
-          createdAt: {
-            gte: sevenDaysAgo,
-          },
-        },
-      }),
-      prisma.payment.count({
-        where: {
-          createdAt: {
-            gte: sevenDaysAgo,
-          },
-        },
-      }),
-      prisma.winning.count({
-        where: {
-          createdAt: {
-            gte: sevenDaysAgo,
-          },
-        },
-      }),
+    const [
+      { count: recentUsers },
+      { count: recentAttempts },
+      { count: recentPayments },
+      { count: recentWinnings }
+    ] = await Promise.all([
+      supabase.from('User').select('*', { count: 'exact', head: true }).gte('createdAt', sevenDaysAgoStr),
+      supabase.from('QuizAttempt').select('*', { count: 'exact', head: true }).gte('createdAt', sevenDaysAgoStr),
+      supabase.from('DailyPayment').select('*', { count: 'exact', head: true }).gte('createdAt', sevenDaysAgoStr),
+      supabase.from('Winning').select('*', { count: 'exact', head: true }).gte('createdAt', sevenDaysAgoStr),
     ]);
 
-    // Top performing quizzes - using manual aggregation since _count doesn't work with MongoDB
-    const quizzesWithAttempts = await prisma.quiz.findMany({
-      include: {
-        attempts: {
-          select: {
-            id: true
-          }
-        }
-      }
-    });
-    
-    const topQuizzes = quizzesWithAttempts
-      .map(quiz => ({
-        id: quiz.id,
-        title: quiz.title,
-        _count: {
-          attempts: quiz.attempts.length
-        }
-      }))
-      .sort((a, b) => b._count.attempts - a._count.attempts)
+    // Top performing quizzes
+    const { data: quizzes } = await supabase
+      .from('Quiz')
+      .select('id, title');
+
+    const topQuizzesData = await Promise.all(
+      (quizzes || []).slice(0, 10).map(async (quiz: any) => {
+        const { count } = await supabase
+          .from('QuizAttempt')
+          .select('*', { count: 'exact', head: true })
+          .eq('quizId', quiz.id);
+        return { ...quiz, attemptCount: count || 0 };
+      })
+    );
+
+    const topQuizzes = topQuizzesData
+      .sort((a, b) => b.attemptCount - a.attemptCount)
       .slice(0, 5);
 
     // Get average scores
-    const averageScoreResult = await prisma.quizAttempt.aggregate({
-      _avg: {
-        score: true,
-      },
-    });
+    const { data: attemptScores } = await supabase
+      .from('QuizAttempt')
+      .select('score');
 
-    // Get completion rate (completed vs total attempts)
-    const completedAttempts = await prisma.quizAttempt.count({
-      where: {
-        isCompleted: true,
-      },
-    });
+    const avgScore = attemptScores && attemptScores.length > 0
+      ? attemptScores.reduce((sum, a) => sum + a.score, 0) / attemptScores.length
+      : 0;
 
-    const completionRate = attemptCount > 0 ? (completedAttempts / attemptCount) * 100 : 0;
+    // Get completion rate
+    const { count: completedAttempts } = await supabase
+      .from('QuizAttempt')
+      .select('*', { count: 'exact', head: true })
+      .eq('isCompleted', true);
+
+    const completionRate = attemptCount && attemptCount > 0
+      ? ((completedAttempts || 0) / attemptCount) * 100
+      : 0;
 
     // Get prize distribution
-    const prizeDistribution = await prisma.winning.groupBy({
-      by: ['prizeId'],
-      _count: {
-        prizeId: true,
-      },
-      orderBy: {
-        _count: {
-          prizeId: 'desc',
-        },
-      },
+    const { data: winnings } = await supabase
+      .from('Winning')
+      .select('prizeId');
+
+    const prizeDistribution: Record<string, number> = {};
+    (winnings || []).forEach((w: any) => {
+      prizeDistribution[w.prizeId] = (prizeDistribution[w.prizeId] || 0) + 1;
     });
 
-    // Get prize details for distribution
-    const prizeDetails = await prisma.prize.findMany({
-      where: {
-        id: {
-          in: prizeDistribution.map(p => p.prizeId),
-        },
-      },
-    });
+    const { data: prizes } = await supabase
+      .from('Prize')
+      .select('id, name, type');
 
-    const prizeDistributionWithDetails = prizeDistribution.map(dist => {
-      const prize = prizeDetails.find(p => p.id === dist.prizeId);
+    const prizeDistributionWithDetails = Object.entries(prizeDistribution).map(([prizeId, count]) => {
+      const prize = (prizes || []).find((p: any) => p.id === prizeId);
       return {
-        prizeId: dist.prizeId,
+        prizeId,
         prizeName: prize?.name || 'Unknown',
         prizeType: prize?.type || 'Unknown',
-        count: dist._count.prizeId,
+        count,
       };
-    });
+    }).sort((a, b) => b.count - a.count);
 
     return createSecureJsonResponse({
       overview: {
-        totalUsers: userCount,
-        totalQuizzes: quizCount,
-        totalQuestions: questionCount,
-        totalAttempts: attemptCount,
-        totalPayments: paymentCount,
-        totalWinnings: winningCount,
-        averageScore: averageScoreResult._avg.score || 0,
+        totalUsers: userCount || 0,
+        totalQuizzes: quizCount || 0,
+        totalQuestions: questionCount || 0,
+        totalAttempts: attemptCount || 0,
+        totalPayments: paymentCount || 0,
+        totalWinnings: winningCount || 0,
+        averageScore: Math.round(avgScore * 100) / 100,
         completionRate: Math.round(completionRate * 100) / 100,
       },
       recentActivity: {
-        newUsers: recentUsers,
-        newAttempts: recentAttempts,
-        newPayments: recentPayments,
-        newWinnings: recentWinnings,
+        newUsers: recentUsers || 0,
+        newAttempts: recentAttempts || 0,
+        newPayments: recentPayments || 0,
+        newWinnings: recentWinnings || 0,
       },
       topQuizzes: topQuizzes.map(quiz => ({
         id: quiz.id,
         title: quiz.title,
-        attemptCount: quiz._count.attempts,
+        attemptCount: quiz.attemptCount,
       })),
       prizeDistribution: prizeDistributionWithDetails,
     }, { status: 200 });

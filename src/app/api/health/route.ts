@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { TransactionManager } from '@/lib/transaction-manager';
 import { securityLogger } from '@/lib/security-logger';
-import { enhancedPrisma } from '@/lib/db-load-balancer';
+import { getDb } from '@/lib/supabase/db';
 import { securityMonitor } from '@/lib/security-monitoring';
 
 /**
@@ -11,7 +11,7 @@ import { securityMonitor } from '@/lib/security-monitoring';
  */
 export async function GET() {
   const startTime = Date.now();
-  
+
   try {
     // Perform comprehensive health checks
     const [transactionHealth, dbHealth] = await Promise.allSettled([
@@ -20,32 +20,32 @@ export async function GET() {
     ]);
 
     const responseTime = Date.now() - startTime;
-    
+
     // Process transaction health results
-    const txHealth = transactionHealth.status === 'fulfilled' 
-      ? transactionHealth.value 
+    const txHealth = transactionHealth.status === 'fulfilled'
+      ? transactionHealth.value
       : {
-          status: 'unhealthy' as const,
-          details: {
-            canConnect: false,
-            canExecuteTransaction: false,
-            averageLatency: 0,
-            lastError: transactionHealth.reason?.message || 'Unknown error'
-          }
-        };
+        status: 'unhealthy' as const,
+        details: {
+          canConnect: false,
+          canExecuteQuery: false,
+          averageLatency: 0,
+          lastError: transactionHealth.reason?.message || 'Unknown error'
+        }
+      };
 
     // Process database health results
     const databaseHealth = dbHealth.status === 'fulfilled'
       ? dbHealth.value
       : {
-          status: 'unhealthy' as const,
-          connectionPool: { active: 0, idle: 0, total: 0 },
-          lastError: dbHealth.reason?.message || 'Unknown error'
-        };
+        status: 'unhealthy' as const,
+        connectionPool: { active: 0, idle: 0, total: 0 },
+        lastError: dbHealth.reason?.message || 'Unknown error'
+      };
 
     // Determine overall system health
     const overallStatus = determineOverallHealth(txHealth.status, databaseHealth.status);
-    
+
     // Log health check results
     securityLogger.logSecurityEvent({
       type: 'SUSPICIOUS_ACTIVITY',
@@ -76,14 +76,14 @@ export async function GET() {
     };
 
     // Return appropriate HTTP status based on health
-    const httpStatus = overallStatus === 'healthy' ? 200 : 
-                      overallStatus === 'degraded' ? 200 : 503;
+    const httpStatus = overallStatus === 'healthy' ? 200 :
+      overallStatus === 'degraded' ? 200 : 503;
 
     return createSecureJsonResponse(healthReport, { status: httpStatus });
 
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    
+
     securityLogger.logSecurityEvent({
       type: 'SUSPICIOUS_ACTIVITY',
       userId: 'system',
@@ -109,34 +109,42 @@ export async function GET() {
 }
 
 /**
- * Check database connection health
+ * Check database connection health using Supabase
  */
 async function checkDatabaseHealth() {
   const startTime = Date.now();
-  
+
   try {
+    const supabase = await getDb();
+
     // Test basic connectivity
-    const client = await enhancedPrisma.getClient();
-    await client.user.findFirst({ take: 1 });
-    
-    // Test read capability
-    await client.user.count();
-    
+    const { error: readError } = await supabase
+      .from('User')
+      .select('id')
+      .limit(1);
+
+    if (readError) throw readError;
+
+    // Test count capability
+    const { count, error: countError } = await supabase
+      .from('User')
+      .select('*', { count: 'exact', head: true });
+
+    if (countError) throw countError;
+
     const latency = Date.now() - startTime;
-    
+
     return {
-      status: latency < 1000 ? 'healthy' as const : 
-              latency < 3000 ? 'degraded' as const : 'unhealthy' as const,
+      status: latency < 1000 ? 'healthy' as const :
+        latency < 3000 ? 'degraded' as const : 'unhealthy' as const,
       latency,
       connectionPool: {
-        // Note: Prisma doesn't expose connection pool stats directly
-        // This is a placeholder for monitoring purposes
-        active: 'unknown',
-        idle: 'unknown',
-        total: 'unknown'
+        active: 'supabase',
+        idle: 'managed',
+        total: 'serverless'
       }
     };
-    
+
   } catch (error) {
     return {
       status: 'unhealthy' as const,
@@ -158,17 +166,17 @@ async function checkAuthHealth() {
       nextAuthSecret: process.env.NEXTAUTH_SECRET ? '[SET]' : '[NOT SET]',
       adminEmails: process.env.ADMIN_EMAILS ? '[SET]' : '[NOT SET]'
     };
-    
+
     const missingConfig = Object.entries(authConfig)
       .filter(([_key, value]) => value === '[NOT SET]')
-      .map(([_key]) => _key);
-    
+      .map(([key]) => key);
+
     return {
       status: missingConfig.length === 0 ? 'healthy' as const : 'degraded' as const,
       configuration: authConfig,
       missingConfig: missingConfig.length > 0 ? missingConfig : undefined
     };
-    
+
   } catch (error) {
     return {
       status: 'unhealthy' as const,
@@ -188,12 +196,12 @@ function determineOverallHealth(
   if (transactionStatus === 'unhealthy' || databaseStatus === 'unhealthy') {
     return 'unhealthy';
   }
-  
+
   // If any component is degraded, system is degraded
   if (transactionStatus === 'degraded' || databaseStatus === 'degraded') {
     return 'degraded';
   }
-  
+
   // All components healthy
   return 'healthy';
 }

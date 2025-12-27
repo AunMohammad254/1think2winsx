@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import prisma from '@/lib/prisma';
-import { PrismaClientKnownRequestError, PrismaClientInitializationError } from '@prisma/client/runtime/library';
+import { userDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
@@ -12,14 +11,14 @@ const registerSchema = z.object({
     .min(2, 'Name must be at least 2 characters')
     .max(50, 'Name must be less than 50 characters')
     .regex(/^[a-zA-Z\s]+$/, 'Name can only contain letters and spaces')
-    .transform(name => name.trim()), // Sanitize whitespace
+    .transform(name => name.trim()),
   email: z.string()
     .email('Invalid email address')
     .toLowerCase()
-    .max(254, 'Email address too long'), // RFC 5321 limit
+    .max(254, 'Email address too long'),
   password: z.string()
     .min(8, 'Password must be at least 8 characters')
-    .max(128, 'Password too long') // Prevent DoS attacks
+    .max(128, 'Password too long')
     .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s])/, 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
   phone: z.string()
     .regex(/^(03\d{9}|\+92\d{10})$/, 'Please enter a valid phone number (e.g., 03123456789 or +923123456789)')
@@ -67,9 +66,7 @@ export async function POST(request: NextRequest) {
     const { name, email, password, phone, dateOfBirth } = validatedData;
 
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
+    const existingUser = await userDb.findByEmail(email);
 
     if (existingUser) {
       recordSecurityEvent('DUPLICATE_REGISTRATION_ATTEMPT', request, undefined, {
@@ -91,7 +88,7 @@ export async function POST(request: NextRequest) {
       email: string;
       password: string;
       phone?: string;
-      dateOfBirth?: Date;
+      dateOfBirth?: string;
     } = {
       name,
       email,
@@ -100,12 +97,10 @@ export async function POST(request: NextRequest) {
 
     // Add optional fields if provided
     if (phone) userData.phone = phone;
-    if (dateOfBirth) userData.dateOfBirth = new Date(dateOfBirth);
+    if (dateOfBirth) userData.dateOfBirth = new Date(dateOfBirth).toISOString();
 
     // Create user
-    const user = await prisma.user.create({
-      data: userData,
-    });
+    const user = await userDb.create(userData);
 
     // Return success with redirect information
     return NextResponse.json(
@@ -116,7 +111,7 @@ export async function POST(request: NextRequest) {
           name: user.name,
           email: user.email,
         },
-        redirectTo: '/quizzes' // Redirect to quiz page after registration
+        redirectTo: '/quizzes'
       },
       { status: 201 }
     );
@@ -124,18 +119,17 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Registration error:', error);
 
-    // Handle specific Prisma errors
-    if (error instanceof PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') {
-        securityLogger.logSuspiciousActivity(undefined, '/api/register', 'Duplicate email registration attempt', request);
-        return NextResponse.json(
-          { message: 'User with this email already exists' },
-          { status: 409 }
-        );
-      }
+    // Handle Supabase unique constraint errors
+    if (error instanceof Error && error.message.includes('duplicate key')) {
+      securityLogger.logSuspiciousActivity(undefined, '/api/register', 'Duplicate email registration attempt', request);
+      return NextResponse.json(
+        { message: 'User with this email already exists' },
+        { status: 409 }
+      );
     }
 
-    if (error instanceof PrismaClientInitializationError) {
+    // Handle database connection errors
+    if (error instanceof Error && error.message.includes('connection')) {
       return NextResponse.json(
         { message: 'Database connection error' },
         { status: 503 }

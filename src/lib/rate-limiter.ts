@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import prisma from './prisma';
+import { rateLimitDb } from './supabase/db';
 import { securityLogger } from './security-logger';
 
 interface RateLimitConfig {
@@ -54,14 +54,13 @@ export class RateLimiter {
    * Check if request should be rate limited
    */
   async checkLimit(
-    request: NextRequest, 
+    request: NextRequest,
     userId?: string,
     endpoint?: string
   ): Promise<RateLimitResult> {
     try {
       const key = this.config.keyGenerator!(request, userId);
       const now = new Date();
-      const windowStart = new Date(now.getTime() - this.config.windowMs);
 
       if (this.upstashUrl && this.upstashToken) {
         const redisResult = await this.checkWithRedis(key);
@@ -86,19 +85,12 @@ export class RateLimiter {
       }
 
       if (Date.now() - this.lastCleanup > this.config.windowMs) {
-        await this.cleanupOldEntries(key, windowStart);
+        await rateLimitDb.cleanup(key, this.config.windowMs);
         this.lastCleanup = Date.now();
       }
 
-      // Count requests in current window
-      const requestCount = await prisma.rateLimitEntry.count({
-        where: {
-          key,
-          createdAt: {
-            gte: windowStart
-          }
-        }
-      });
+      // Count requests in current window using Supabase
+      const requestCount = await rateLimitDb.count(key, this.config.windowMs);
 
       const remaining = Math.max(0, this.config.maxRequests - requestCount);
       const resetTime = now.getTime() + this.config.windowMs;
@@ -118,13 +110,8 @@ export class RateLimiter {
         };
       }
 
-      // Record this request
-      await prisma.rateLimitEntry.create({
-        data: {
-          key,
-          createdAt: now
-        }
-      });
+      // Record this request using Supabase
+      await rateLimitDb.add(key);
 
       return {
         success: true,
@@ -196,24 +183,6 @@ export class RateLimiter {
   get windowMs(): number {
     return this.config.windowMs;
   }
-
-  /**
-   * Clean up old rate limit entries
-   */
-  private async cleanupOldEntries(key: string, windowStart: Date): Promise<void> {
-    try {
-      await prisma.rateLimitEntry.deleteMany({
-        where: {
-          key,
-          createdAt: {
-            lt: windowStart
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Error cleaning up rate limit entries:', error);
-    }
-  }
 }
 
 /**
@@ -267,7 +236,7 @@ export async function applyRateLimit(
   endpoint?: string
 ): Promise<Response | null> {
   const result = await limiter.checkLimit(request, userId, endpoint);
-  
+
   if (!result.success) {
     return new Response(
       JSON.stringify({

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
-import { createClient } from '@supabase/supabase-js';
+import { getDb, prizeRedemptionDb, userDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -8,13 +7,6 @@ import { requireAuth } from '@/lib/auth-middleware';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { securityLogger } from '@/lib/security-logger';
 import { requireCSRFToken } from '@/lib/csrf-protection';
-
-// Create Supabase admin client for RPC calls
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(supabaseUrl, supabaseServiceKey);
-}
 
 const updateClaimSchema = z.object({
   claimId: z.string().min(1, 'Claim ID is required'),
@@ -52,10 +44,12 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
+    const offset = (page - 1) * limit;
 
-    // Try Supabase RPC first for optimized performance
+    const supabase = await getDb();
+
+    // Try RPC first
     try {
-      const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.rpc('get_admin_claims', {
         p_status: status || 'all',
         p_page: page,
@@ -63,7 +57,6 @@ export async function GET(request: NextRequest) {
       });
 
       if (!error && data?.success) {
-        // Log admin access
         await securityLogger.logSecurityEvent({
           type: 'ADMIN_ACCESS',
           userId: session.user.id,
@@ -85,48 +78,35 @@ export async function GET(request: NextRequest) {
         });
       }
     } catch (rpcError) {
-      console.warn('Supabase RPC fallback to Prisma:', rpcError);
+      console.warn('RPC fallback to direct query:', rpcError);
     }
 
-    // Fallback to Prisma queries
-    const offset = (page - 1) * limit;
-    const whereClause: { status?: string } = {};
+    // Fallback to direct Supabase queries
+    let query = supabase
+      .from('PrizeRedemption')
+      .select(`
+        *,
+        User:userId (id, name, email, phone, points),
+        Prize:prizeId (id, name, description, imageUrl, type, pointsRequired)
+      `, { count: 'exact' })
+      .order('requestedAt', { ascending: false })
+      .range(offset, offset + limit - 1);
+
     if (status && ['pending', 'approved', 'rejected', 'fulfilled'].includes(status)) {
-      whereClause.status = status;
+      query = query.eq('status', status);
     }
 
-    const [claims, totalCount] = await Promise.all([
-      prisma.prizeRedemption.findMany({
-        where: whereClause,
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-              points: true,
-            },
-          },
-          prize: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              imageUrl: true,
-              type: true,
-              pointsRequired: true,
-            },
-          },
-        },
-        orderBy: { requestedAt: 'desc' },
-        skip: offset,
-        take: limit,
-      }),
-      prisma.prizeRedemption.count({ where: whereClause }),
-    ]);
+    const { data: claims, count, error } = await query;
 
-    // Log admin access
+    if (error) throw error;
+
+    // Transform claims to handle Supabase FK join format
+    const formattedClaims = (claims || []).map((claim: any) => ({
+      ...claim,
+      user: Array.isArray(claim.User) ? claim.User[0] : claim.User,
+      prize: Array.isArray(claim.Prize) ? claim.Prize[0] : claim.Prize,
+    }));
+
     await securityLogger.logSecurityEvent({
       type: 'ADMIN_ACCESS',
       userId: session.user.id,
@@ -135,20 +115,20 @@ export async function GET(request: NextRequest) {
       endpoint: '/api/admin/claims',
       details: {
         action: 'VIEW_CLAIMS',
-        method: 'prisma',
+        method: 'supabase',
         filters: { status, page, limit },
-        resultCount: claims.length
+        resultCount: formattedClaims.length
       },
       severity: 'LOW'
     });
 
     return createSecureJsonResponse({
-      claims,
+      claims: formattedClaims,
       pagination: {
         page,
         limit,
-        total: totalCount,
-        totalPages: Math.ceil(totalCount / limit),
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / limit),
       },
     });
 
@@ -220,76 +200,56 @@ export async function PUT(request: NextRequest) {
     }
 
     const { claimId, status, notes } = validationResult.data;
+    const supabase = await getDb();
 
-    // Try Supabase RPC first
-    try {
-      const supabase = getSupabaseAdmin();
-      const { data, error } = await supabase.rpc('update_claim_status', {
-        p_claim_id: claimId,
-        p_status: status,
-        p_notes: notes || null,
-        p_admin_email: authResult.user?.email || session.user.email || 'admin'
-      });
-
-      if (!error && data?.success) {
-        // Log admin action
-        await securityLogger.logSecurityEvent({
-          type: 'ADMIN_ACCESS',
-          userId: session.user.id,
-          ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
-          userAgent: request.headers.get('user-agent') || undefined,
-          endpoint: '/api/admin/claims',
-          details: {
-            action: 'UPDATE_CLAIM_STATUS',
-            method: 'supabase_rpc',
-            claimId,
-            newStatus: status,
-            notes: notes || ''
-          },
-          severity: 'MEDIUM'
+    // Try RPC first for rejection with refund
+    if (status === 'rejected') {
+      try {
+        const { data: rpcResult, error: rpcError } = await supabase.rpc('reject_claim_with_refund', {
+          p_claim_id: claimId,
+          p_notes: notes || null
         });
 
-        return createSecureJsonResponse({
-          message: data.message || 'Claim status updated successfully',
-          claim: {
-            id: claimId,
-            status: data.status,
-          },
-        });
-      }
+        if (!rpcError && rpcResult?.success) {
+          await securityLogger.logSecurityEvent({
+            type: 'ADMIN_ACCESS',
+            userId: session.user.id,
+            ip: request.headers.get('x-forwarded-for') || 'unknown',
+            userAgent: request.headers.get('user-agent') || undefined,
+            endpoint: '/api/admin/claims',
+            details: {
+              action: 'UPDATE_CLAIM_STATUS',
+              method: 'supabase_rpc',
+              claimId,
+              newStatus: status,
+              pointsRefunded: rpcResult.points_refunded
+            },
+            severity: 'MEDIUM'
+          });
 
-      // If RPC returned an error message, return it
-      if (data && !data.success) {
-        return NextResponse.json(
-          { message: data.error || 'Failed to update claim' },
-          { status: 400 }
-        );
+          return createSecureJsonResponse({
+            message: 'Claim rejected and points refunded',
+            claim: { id: claimId, status },
+          });
+        }
+      } catch (rpcError) {
+        console.warn('RPC fallback for claim rejection:', rpcError);
       }
-    } catch (rpcError) {
-      console.warn('Supabase RPC fallback to Prisma:', rpcError);
     }
 
-    // Fallback to Prisma
-    const existingClaim = await prisma.prizeRedemption.findUnique({
-      where: { id: claimId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        prize: {
-          select: {
-            name: true,
-            pointsRequired: true,
-          },
-        },
-      },
-    });
+    // Fallback to direct queries
+    // Get existing claim
+    const { data: existingClaim, error: fetchError } = await supabase
+      .from('PrizeRedemption')
+      .select(`
+        *,
+        User:userId (id, name, email),
+        Prize:prizeId (name, pointsRequired)
+      `)
+      .eq('id', claimId)
+      .single();
 
-    if (!existingClaim) {
+    if (fetchError || !existingClaim) {
       return NextResponse.json(
         { message: 'Claim not found' },
         { status: 404 }
@@ -298,54 +258,43 @@ export async function PUT(request: NextRequest) {
 
     // Handle rejection - refund points
     if (status === 'rejected' && existingClaim.status !== 'rejected') {
-      await prisma.user.update({
-        where: { id: existingClaim.userId },
-        data: {
-          points: { increment: existingClaim.pointsUsed }
-        }
-      });
+      await supabase
+        .from('User')
+        .update({
+          points: (existingClaim.User as any)?.points + existingClaim.pointsUsed,
+          updatedAt: new Date().toISOString()
+        })
+        .eq('id', existingClaim.userId);
     }
 
     // Update claim status
-    const updatedClaim = await prisma.prizeRedemption.update({
-      where: { id: claimId },
-      data: {
+    const { data: updatedClaim, error: updateError } = await supabase
+      .from('PrizeRedemption')
+      .update({
         status,
         notes: notes || existingClaim.notes,
-        processedAt: new Date(),
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        prize: {
-          select: {
-            name: true,
-            pointsRequired: true,
-          },
-        },
-      },
-    });
+        processedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .eq('id', claimId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
 
     // Log admin action
     await securityLogger.logSecurityEvent({
       type: 'ADMIN_ACCESS',
       userId: session.user.id,
-      ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+      ip: request.headers.get('x-forwarded-for') || 'unknown',
       userAgent: request.headers.get('user-agent') || undefined,
       endpoint: '/api/admin/claims',
       details: {
         action: 'UPDATE_CLAIM_STATUS',
-        method: 'prisma',
+        method: 'supabase',
         claimId,
         oldStatus: existingClaim.status,
         newStatus: status,
-        userId: existingClaim.user.id,
-        prizeName: existingClaim.prize.name,
         notes: notes || ''
       },
       severity: 'MEDIUM'
@@ -370,19 +319,6 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    await securityLogger.logSecurityEvent({
-      type: 'API_ERROR',
-      userId: undefined,
-      ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
-      userAgent: request.headers.get('user-agent') || undefined,
-      endpoint: '/api/admin/claims',
-      details: {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        action: 'UPDATE_CLAIM'
-      },
-      severity: 'MEDIUM'
-    });
 
     return NextResponse.json(
       { message: 'Internal server error' },

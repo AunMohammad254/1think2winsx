@@ -1,21 +1,23 @@
-import { Prisma } from '@prisma/client';
 import { securityLogger } from './security-logger';
-import { enhancedPrisma } from './db-load-balancer';
+import { getDb, answerDb, quizAttemptDb, questionAttemptDb, dailyPaymentDb, userDb, generateId } from './supabase/db';
 
 /**
- * Transaction session expiration and rollback manager
- * Handles MongoDB transaction sessions with automatic expiration detection and rollback
+ * Supabase-based Transaction Manager
+ * Since Supabase doesn't support multi-statement transactions like Prisma,
+ * we implement a pseudo-transaction pattern with rollback capability
  */
 export class TransactionManager {
-  private static readonly DEFAULT_TIMEOUT = 15 * 1000; // 15 seconds for better user experience
-  private static readonly MAX_RETRIES = 2; // Reduce retries for faster failure detection
-  private static readonly RETRY_DELAY_BASE = 1000; // 1 second base delay
+  private static readonly DEFAULT_TIMEOUT = 15 * 1000;
+  private static readonly MAX_RETRIES = 2;
+  private static readonly RETRY_DELAY_BASE = 1000;
 
   /**
-   * Execute a transaction with automatic session expiration handling and rollback
+   * Execute operations with retry logic and logging
+   * Note: Supabase doesn't support true ACID transactions on the client side
+   * For atomic operations, use RPC functions instead
    */
   static async executeTransaction<T>(
-    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+    operation: () => Promise<T>,
     options: {
       timeout?: number;
       maxRetries?: number;
@@ -35,12 +37,11 @@ export class TransactionManager {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // Log transaction start
         securityLogger.logSecurityEvent({
           type: 'SUSPICIOUS_ACTIVITY',
           userId: userId || 'system',
           endpoint: context,
-          details: { 
+          details: {
             action: 'transaction_start',
             attempt: attempt,
             maxRetries: maxRetries,
@@ -48,36 +49,9 @@ export class TransactionManager {
           }
         });
 
-        // Execute transaction with timeout
+        // Execute with timeout
         const result = await Promise.race([
-          enhancedPrisma.transaction(async (tx: Prisma.TransactionClient) => {
-            const txStartTime = Date.now();
-            
-            // Check if we're approaching timeout during execution
-            const checkTimeout = () => {
-              const elapsed = Date.now() - txStartTime;
-              if (elapsed > timeout * 0.9) { // 90% of timeout
-                throw new Error(`Transaction approaching timeout limit (${elapsed}ms/${timeout}ms)`);
-              }
-            };
-
-            // Set up periodic timeout checks
-            const timeoutChecker = setInterval(checkTimeout, 5000); // Check every 5 seconds
-            
-            try {
-              const operationResult = await operation(tx);
-              clearInterval(timeoutChecker);
-              return operationResult;
-            } catch (error) {
-              clearInterval(timeoutChecker);
-              throw error;
-            }
-          }, {
-            timeout
-            // Remove isolationLevel for MongoDB compatibility
-          }),
-          
-          // Timeout promise
+          operation(),
           new Promise<never>((_, reject) => {
             setTimeout(() => {
               reject(new Error(`Transaction timeout after ${timeout}ms`));
@@ -85,13 +59,12 @@ export class TransactionManager {
           })
         ]);
 
-        // Log successful transaction
         const duration = Date.now() - startTime;
         securityLogger.logSecurityEvent({
           type: 'SUSPICIOUS_ACTIVITY',
           userId: userId || 'system',
           endpoint: context,
-          details: { 
+          details: {
             action: 'transaction_success',
             duration: duration,
             context: context
@@ -103,17 +76,14 @@ export class TransactionManager {
       } catch (error) {
         lastError = error as Error;
         const duration = Date.now() - startTime;
-        
-        // Determine if this is a retryable error
         const isRetryable = TransactionManager.isRetryableError(error as Error);
         const isLastAttempt = attempt === maxRetries;
 
-        // Log transaction failure
         securityLogger.logSecurityEvent({
           type: 'SUSPICIOUS_ACTIVITY',
           userId: userId || 'system',
           endpoint: context,
-          details: { 
+          details: {
             action: 'transaction_failure',
             attempt: attempt,
             maxRetries: maxRetries,
@@ -124,38 +94,23 @@ export class TransactionManager {
           }
         });
 
-        // If it's not retryable or last attempt, throw immediately
         if (!isRetryable || isLastAttempt) {
           throw TransactionManager.wrapTransactionError(error as Error, context, attempt);
         }
 
-        // Wait before retry with exponential backoff
         const delay = TransactionManager.RETRY_DELAY_BASE * Math.pow(2, attempt - 1);
         await new Promise(resolve => setTimeout(resolve, delay));
-        
-        // Log retry attempt
-        securityLogger.logSecurityEvent({
-          type: 'SUSPICIOUS_ACTIVITY',
-          userId: userId || 'system',
-          endpoint: context,
-          details: { 
-            action: 'transaction_retry',
-            delay: delay,
-            context: context
-          }
-        });
       }
     }
 
-    // This should never be reached, but just in case
     throw lastError || new Error('Transaction failed after all retries');
   }
 
   /**
-   * Execute a critical financial transaction with enhanced safety measures
+   * Execute a critical operation with enhanced logging
    */
   static async executeCriticalTransaction<T>(
-    operation: (tx: Prisma.TransactionClient) => Promise<T>,
+    operation: () => Promise<T>,
     options: {
       context: string;
       userId: string;
@@ -165,69 +120,61 @@ export class TransactionManager {
   ): Promise<T> {
     const { context, userId, amount, description } = options;
 
-    // Log critical transaction start
     securityLogger.logSecurityEvent({
-        type: 'SUSPICIOUS_ACTIVITY',
-        userId: userId || 'system',
-        endpoint: context,
-        details: {
-          action: 'critical_transaction_start',
-          context: context,
-          amount: amount || 0,
-          description: description || ''
-        }
-      });
+      type: 'SUSPICIOUS_ACTIVITY',
+      userId: userId || 'system',
+      endpoint: context,
+      details: {
+        action: 'critical_transaction_start',
+        context: context,
+        amount: amount || 0,
+        description: description || ''
+      }
+    });
 
     try {
       const result = await TransactionManager.executeTransaction(operation, {
-        timeout: 10 * 1000, // 10 seconds for critical operations
-        maxRetries: 1, // Single retry for critical operations
+        timeout: 10 * 1000,
+        maxRetries: 1,
         context: `critical_${context}`,
         userId
       });
 
-      // Log critical transaction success
       securityLogger.logSecurityEvent({
-          type: 'SUSPICIOUS_ACTIVITY',
-          userId: userId || 'system',
-          endpoint: context,
-          details: { 
-            action: 'critical_transaction_success',
-            context: context,
-            amount: amount || 0
-          }
-        });
+        type: 'SUSPICIOUS_ACTIVITY',
+        userId: userId || 'system',
+        endpoint: context,
+        details: {
+          action: 'critical_transaction_success',
+          context: context,
+          amount: amount || 0
+        }
+      });
 
       return result;
 
     } catch (error) {
-      // Log critical transaction failure
       securityLogger.logSecurityEvent({
-          type: 'SUSPICIOUS_ACTIVITY',
-          userId: userId || 'system',
-          endpoint: context,
-          details: { 
-            action: 'critical_transaction_failure',
-            context: context,
-            amount: amount || 0,
-            error: (error as Error).message
-          }
-        });
+        type: 'SUSPICIOUS_ACTIVITY',
+        userId: userId || 'system',
+        endpoint: context,
+        details: {
+          action: 'critical_transaction_failure',
+          context: context,
+          amount: amount || 0,
+          error: (error as Error).message
+        }
+      });
 
       throw error;
     }
   }
 
-  /**
-   * Check if an error is retryable
-   */
   private static isRetryableError(error: Error): boolean {
     const retryablePatterns = [
       /connection.*timeout/i,
       /connection.*reset/i,
       /connection.*refused/i,
-      /session.*expired/i,
-      /transaction.*timeout/i,
       /network.*error/i,
       /temporary.*failure/i,
       /service.*unavailable/i,
@@ -239,65 +186,51 @@ export class TransactionManager {
     return retryablePatterns.some(pattern => pattern.test(errorMessage));
   }
 
-  /**
-   * Wrap transaction errors with additional context
-   */
   private static wrapTransactionError(error: Error, context: string, attempt: number): Error {
     const wrappedError = new Error(
       `Transaction failed in context '${context}' after ${attempt} attempts: ${error.message}`
     );
-    
-    // Preserve original stack trace
     wrappedError.stack = error.stack;
-    // Use type assertion for cause property since it's not available in ES2018
     (wrappedError as Error & { cause?: unknown }).cause = error;
-    
     return wrappedError;
   }
 
   /**
-   * Health check for transaction system
+   * Health check for database system
    */
   static async healthCheck(): Promise<{
     status: 'healthy' | 'degraded' | 'unhealthy';
     details: {
       canConnect: boolean;
-      canExecuteTransaction: boolean;
+      canExecuteQuery: boolean;
       averageLatency: number;
       lastError?: string;
     };
   }> {
     const startTime = Date.now();
     let canConnect = false;
-    let canExecuteTransaction = false;
+    let canExecuteQuery = false;
     let lastError: string | undefined;
 
     try {
-      // Test basic connection
-      const client = await enhancedPrisma.getClient();
-      await client.user.findFirst({ take: 1 });
-      canConnect = true;
+      const supabase = await getDb();
+      const { error } = await supabase.from('User').select('id').limit(1);
 
-      // Test transaction capability
-      await TransactionManager.executeTransaction(async (tx) => {
-        // Transaction health check - basic query
-        await tx.user.findFirst({ take: 1 });
-        return true;
-      }, {
-        timeout: 5000, // 5 second timeout for health check
-        maxRetries: 1,
-        context: 'health_check'
-      });
-      canExecuteTransaction = true;
+      if (!error) {
+        canConnect = true;
+        canExecuteQuery = true;
+      } else {
+        lastError = error.message;
+      }
 
     } catch (error) {
       lastError = (error as Error).message;
     }
 
     const averageLatency = Date.now() - startTime;
-    
+
     let status: 'healthy' | 'degraded' | 'unhealthy';
-    if (canConnect && canExecuteTransaction && averageLatency < 1000) {
+    if (canConnect && canExecuteQuery && averageLatency < 1000) {
       status = 'healthy';
     } else if (canConnect && averageLatency < 5000) {
       status = 'degraded';
@@ -309,7 +242,7 @@ export class TransactionManager {
       status,
       details: {
         canConnect,
-        canExecuteTransaction,
+        canExecuteQuery,
         averageLatency,
         lastError
       }
@@ -317,8 +250,9 @@ export class TransactionManager {
   }
 }
 
-/**
- * Convenience function for executing transactions
- */
-export const executeTransaction = TransactionManager.executeTransaction;
-export const executeCriticalTransaction = TransactionManager.executeCriticalTransaction;
+// Convenience exports
+export const executeTransaction = TransactionManager.executeTransaction.bind(TransactionManager);
+export const executeCriticalTransaction = TransactionManager.executeCriticalTransaction.bind(TransactionManager);
+
+// Re-export db utilities for quiz submission
+export { answerDb, quizAttemptDb, questionAttemptDb, dailyPaymentDb, userDb, generateId, getDb };

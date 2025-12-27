@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import prisma from '@/lib/prisma';
+import { dailyPaymentDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
-// User creation is now handled by database trigger
 
 const paymentSchema = z.object({
   paymentMethod: z.string().optional(),
@@ -50,19 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already has valid access (within 24 hours)
-    const now = new Date();
-    const existingPayment = await prisma.dailyPayment.findFirst({
-      where: {
-        userId,
-        status: 'completed',
-        expiresAt: {
-          gt: now
-        }
-      },
-      orderBy: {
-        expiresAt: 'desc'
-      }
-    });
+    const existingPayment = await dailyPaymentDb.findFirstActive(userId);
 
     if (existingPayment) {
       return createSecureJsonResponse({
@@ -88,21 +75,18 @@ export async function POST(request: NextRequest) {
 
     const { paymentMethod, transactionId } = validationResult.data;
 
-    // User is auto-created via database trigger on signup
-
     // Calculate expiry time (24 hours from now)
+    const now = new Date();
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     // Create payment record
-    const payment = await prisma.dailyPayment.create({
-      data: {
-        userId,
-        amount: 2.0, // 2 PKR
-        status: 'completed', // For demo purposes, marking as completed immediately
-        paymentMethod: paymentMethod || 'demo',
-        transactionId: transactionId || `txn_${Date.now()}_${userId}`,
-        expiresAt,
-      },
+    const payment = await dailyPaymentDb.create({
+      userId,
+      amount: 2.0, // 2 PKR
+      status: 'completed',
+      paymentMethod: paymentMethod || 'demo',
+      transactionId: transactionId || `txn_${Date.now()}_${userId}`,
+      expiresAt: expiresAt.toISOString(),
     });
 
     recordSecurityEvent('PAYMENT_CREATED', request, userId, {
@@ -163,41 +147,14 @@ export async function GET(request: NextRequest) {
     const now = new Date();
 
     // Get current valid payment
-    const currentPayment = await prisma.dailyPayment.findFirst({
-      where: {
-        userId,
-        status: 'completed',
-        expiresAt: {
-          gt: now
-        }
-      },
-      orderBy: {
-        expiresAt: 'desc'
-      }
-    });
+    const currentPayment = await dailyPaymentDb.findFirstActive(userId);
 
     // Get payment history (last 10 payments)
-    const paymentHistory = await prisma.dailyPayment.findMany({
-      where: {
-        userId,
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
-      take: 10,
-      select: {
-        id: true,
-        amount: true,
-        status: true,
-        paymentMethod: true,
-        expiresAt: true,
-        createdAt: true,
-      }
-    });
+    const paymentHistory = await dailyPaymentDb.findMany(userId, 10);
 
     const hasAccess = !!currentPayment;
     const timeRemaining = currentPayment
-      ? Math.max(0, currentPayment.expiresAt.getTime() - now.getTime())
+      ? Math.max(0, new Date(currentPayment.expiresAt).getTime() - now.getTime())
       : 0;
 
     return createSecureJsonResponse({
@@ -206,7 +163,7 @@ export async function GET(request: NextRequest) {
         id: currentPayment.id,
         amount: currentPayment.amount,
         expiresAt: currentPayment.expiresAt,
-        timeRemaining: Math.floor(timeRemaining / 1000), // in seconds
+        timeRemaining: Math.floor(timeRemaining / 1000),
       } : null,
       paymentHistory
     }, { status: 200 });

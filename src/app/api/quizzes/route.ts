@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { checkPaymentAccess } from '@/lib/payment-middleware';
-import prisma from '@/lib/prisma';
+import { getDb, quizDb, questionDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -81,9 +81,6 @@ export async function GET(request: NextRequest) {
       return rateLimitResponse;
     }
 
-    // User is auto-created via database trigger on signup
-    // const userEmail = session.user.email;
-
     const paymentAccess = await checkPaymentAccess(userId, request);
 
     const cacheKey = `quizzes_${userId}_${paymentAccess.hasAccess ? 'access' : 'noaccess'}`;
@@ -98,94 +95,85 @@ export async function GET(request: NextRequest) {
       return createSecureJsonResponse(cached.data, { status: 200, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
     }
 
-    const quizzesWithQuestions = await prisma.quiz.findMany({
-      where: { status: 'active' },
-      include: {
-        questions: {
-          where: { status: 'active' },
-          select: { id: true, text: true, options: true }
-        },
-        attempts: {
-          where: { userId, isCompleted: true },
-          select: { id: true, score: true, completedAt: true },
-          orderBy: { completedAt: 'desc' },
-          take: 1
-        },
-        questionAttempts: {
-          where: { userId },
-          select: { questionId: true }
-        },
-        _count: {
-          select: {
-            questions: { where: { status: 'active' } },
-            attempts: true
-          }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const supabase = await getDb();
 
-    const quizzesWithoutQuestions = await prisma.quiz.findMany({
-      where: { status: 'active' },
-      include: {
-        attempts: {
-          where: { userId, isCompleted: true },
-          select: { id: true, score: true, completedAt: true },
-          orderBy: { completedAt: 'desc' },
-          take: 1
-        },
-        questionAttempts: {
-          where: { userId },
-          select: { questionId: true }
-        },
-        _count: {
-          select: {
-            questions: { where: { status: 'active' } },
-            attempts: true
-          }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    // Get all active quizzes
+    const { data: quizzes, error: quizzesError } = await supabase
+      .from('Quiz')
+      .select('*')
+      .eq('status', 'active')
+      .order('createdAt', { ascending: false });
+
+    if (quizzesError) throw quizzesError;
 
     // Format quizzes with access status and reattempt information
-    const formattedQuizzes = (paymentAccess.hasAccess ? quizzesWithQuestions : quizzesWithoutQuestions).map((quiz: typeof quizzesWithoutQuestions[number]) => {
-      const userAttempt = quiz.attempts[0]; // Most recent attempt
-      const attemptedQuestionIds = quiz.questionAttempts.map((qa: { questionId: string }) => qa.questionId);
-      const totalQuestions = paymentAccess.hasAccess
-        ? (quiz as typeof quizzesWithQuestions[number]).questions.length
-        : quiz._count.questions;
-      const attemptedQuestionsCount = attemptedQuestionIds.length;
-      const newQuestionsCount = totalQuestions - attemptedQuestionsCount;
+    const formattedQuizzes = await Promise.all(
+      (quizzes || []).map(async (quiz) => {
+        // Get questions for this quiz
+        const { data: questions } = await supabase
+          .from('Question')
+          .select('id, text, options')
+          .eq('quizId', quiz.id)
+          .eq('status', 'active');
 
-      const isCompleted = !!userAttempt;
-      const hasNewQuestions = isCompleted && newQuestionsCount > 0;
+        // Get user's most recent completed attempt
+        const { data: attempts } = await supabase
+          .from('QuizAttempt')
+          .select('id, score, completedAt')
+          .eq('quizId', quiz.id)
+          .eq('userId', userId)
+          .eq('isCompleted', true)
+          .order('completedAt', { ascending: false })
+          .limit(1);
 
-      return {
-        id: quiz.id,
-        title: quiz.title,
-        description: quiz.description || '',
-        duration: quiz.duration,
-        passingScore: quiz.passingScore,
-        status: quiz.status,
-        questionCount: totalQuestions,
-        totalAttempts: quiz._count.attempts,
-        hasAccess: paymentAccess.hasAccess,
-        isCompleted,
-        hasNewQuestions,
-        newQuestionsCount: hasNewQuestions ? newQuestionsCount : 0,
-        lastAttemptDate: userAttempt?.completedAt || null,
-        createdAt: quiz.createdAt,
-        updatedAt: quiz.updatedAt,
-        questions: paymentAccess.hasAccess
-          ? (quiz as typeof quizzesWithQuestions[number]).questions.map((q: { id: string; text: string; options: string }) => ({
-            id: q.id,
-            text: q.text,
-            options: JSON.parse(q.options),
-          }))
-          : []
-      };
-    });
+        // Get user's question attempts for this quiz
+        const { data: questionAttempts } = await supabase
+          .from('QuestionAttempt')
+          .select('questionId')
+          .eq('quizId', quiz.id)
+          .eq('userId', userId);
+
+        // Get counts
+        const [questionsCount, attemptsCount] = await Promise.all([
+          supabase.from('Question').select('*', { count: 'exact', head: true }).eq('quizId', quiz.id).eq('status', 'active'),
+          supabase.from('QuizAttempt').select('*', { count: 'exact', head: true }).eq('quizId', quiz.id),
+        ]);
+
+        const userAttempt = attempts?.[0];
+        const attemptedQuestionIds = (questionAttempts || []).map((qa) => qa.questionId);
+        const totalQuestions = questionsCount.count || 0;
+        const attemptedQuestionsCount = attemptedQuestionIds.length;
+        const newQuestionsCount = totalQuestions - attemptedQuestionsCount;
+
+        const isCompleted = !!userAttempt;
+        const hasNewQuestions = isCompleted && newQuestionsCount > 0;
+
+        return {
+          id: quiz.id,
+          title: quiz.title,
+          description: quiz.description || '',
+          duration: quiz.duration,
+          passingScore: quiz.passingScore,
+          status: quiz.status,
+          questionCount: totalQuestions,
+          totalAttempts: attemptsCount.count || 0,
+          hasAccess: paymentAccess.hasAccess,
+          isCompleted,
+          hasNewQuestions,
+          newQuestionsCount: hasNewQuestions ? newQuestionsCount : 0,
+          lastAttemptDate: userAttempt?.completedAt ? new Date(userAttempt.completedAt) : null,
+          createdAt: new Date(quiz.createdAt),
+          updatedAt: new Date(quiz.updatedAt),
+          questions: paymentAccess.hasAccess
+            ? (questions || []).map((q) => ({
+              id: q.id,
+              text: q.text,
+              options: JSON.parse(q.options),
+            }))
+            : []
+        };
+      })
+    );
 
     const responseData = {
       quizzes: formattedQuizzes,
@@ -266,24 +254,22 @@ export async function POST(request: NextRequest) {
 
     const { title, description, duration, passingScore } = validationResult.data;
 
-    const quiz = await prisma.quiz.create({
-      data: {
-        title,
-        description,
-        duration,
-        passingScore,
-        status: 'active',
-      },
-      include: {
-        questions: true,
-        _count: {
-          select: {
-            questions: true,
-            attempts: true
-          }
-        }
-      }
+    const supabase = await getDb();
+
+    // Create the quiz
+    const quiz = await quizDb.create({
+      title,
+      description: description || null,
+      duration,
+      passingScore,
+      status: 'active',
     });
+
+    // Get counts for response
+    const [questionsCount, attemptsCount] = await Promise.all([
+      supabase.from('Question').select('*', { count: 'exact', head: true }).eq('quizId', quiz.id),
+      supabase.from('QuizAttempt').select('*', { count: 'exact', head: true }).eq('quizId', quiz.id),
+    ]);
 
     // Clear cache
     quizListCache.clear();
@@ -302,8 +288,8 @@ export async function POST(request: NextRequest) {
         duration: quiz.duration,
         passingScore: quiz.passingScore,
         status: quiz.status,
-        questionCount: quiz._count.questions,
-        totalAttempts: quiz._count.attempts,
+        questionCount: questionsCount.count || 0,
+        totalAttempts: attemptsCount.count || 0,
         createdAt: quiz.createdAt,
         updatedAt: quiz.updatedAt,
       }

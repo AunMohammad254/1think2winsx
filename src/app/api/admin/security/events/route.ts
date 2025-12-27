@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/supabase/db';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -14,10 +14,10 @@ export async function GET(request: NextRequest) {
         type: 'RATE_LIMIT_EXCEEDED',
         userId: 'unknown',
         endpoint: '/api/admin/security/events',
-        details: { 
+        details: {
           rateLimiter: 'admin',
           limit: rateLimiters.admin.maxRequests,
-          window: rateLimiters.admin.windowMs 
+          window: rateLimiters.admin.windowMs
         },
         severity: 'MEDIUM'
       });
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
         type: 'UNAUTHORIZED_ACCESS',
         userId: session?.user?.id || 'anonymous',
         endpoint: '/api/admin/security/events',
-        details: { 
+        details: {
           reason: 'Non-admin user attempted to access security events',
           userRole: session?.user?.isAdmin ? 'admin' : 'user'
         },
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     // Calculate time range
     const now = new Date();
     let startTime: Date;
-    
+
     switch (timeframe) {
       case '1h':
         startTime = new Date(now.getTime() - 60 * 60 * 1000);
@@ -72,46 +72,32 @@ export async function GET(request: NextRequest) {
         startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     }
 
-    // Build where clause
-    const whereClause: {
-      timestamp: {
-        gte: Date;
-        lte: Date;
-      };
-      severity?: string;
-    } = {
-      timestamp: {
-        gte: startTime,
-        lte: now
-      }
-    };
+    const supabase = await getDb();
+
+    // Build query
+    let query = supabase
+      .from('SecurityEvent')
+      .select('*', { count: 'exact' })
+      .gte('timestamp', startTime.toISOString())
+      .lte('timestamp', now.toISOString())
+      .order('timestamp', { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (severity !== 'ALL') {
-      whereClause.severity = severity;
+      query = query.eq('severity', severity);
     }
 
-    // Get security events from the database
-    const [events, totalCount] = await Promise.all([
-      prisma.securityEvent.findMany({
-        where: whereClause,
-        orderBy: {
-          timestamp: 'desc'
-        },
-        take: limit,
-        skip: offset
-      }),
-      prisma.securityEvent.count({
-        where: whereClause
-      })
-    ]);
+    const { data: events, count: totalCount, error } = await query;
+
+    if (error) throw error;
 
     const response = {
-      events,
+      events: events || [],
       pagination: {
-        total: totalCount,
+        total: totalCount || 0,
         limit,
         offset,
-        hasMore: offset + limit < totalCount
+        hasMore: offset + limit < (totalCount || 0)
       },
       filters: {
         timeframe,
@@ -124,12 +110,12 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error fetching security events:', error);
-    
+
     await securityLogger.logSecurityEvent({
       type: 'SUSPICIOUS_ACTIVITY',
       userId: 'system',
       endpoint: '/api/admin/security/events',
-      details: { 
+      details: {
         error: error instanceof Error ? error.message : 'Unknown error',
         ...(error instanceof Error && error.stack && { stack: error.stack })
       },

@@ -59,7 +59,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 setSession(initialSession);
                 setUser(initialSession?.user ?? null);
             } catch (error) {
-                console.error('Error getting initial session:', error);
+                console.error('[AuthContext] Error getting initial session:', error);
                 // Clear session on unexpected errors
                 setSession(null);
                 setUser(null);

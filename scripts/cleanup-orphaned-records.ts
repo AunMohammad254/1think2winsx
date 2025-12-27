@@ -2,160 +2,137 @@
  * Script to clean up orphaned records in the database
  * These are records that reference deleted entities (quizzes, questions, etc.)
  * Run this script periodically to maintain database integrity
+ * 
+ * Usage: npx tsx scripts/cleanup-orphaned-records.ts
  */
 
-import { PrismaClient } from '@prisma/client';
+import { createClient } from '@supabase/supabase-js';
+import * as dotenv from 'dotenv';
 
-const prisma = new PrismaClient();
+// Load environment variables
+dotenv.config({ path: '.env.local' });
+dotenv.config({ path: '.env' });
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('Missing Supabase environment variables');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function cleanupOrphanedRecords() {
   console.log('Starting cleanup of orphaned records...');
-  
+
   try {
     // 1. Clean up QuizAttempts that reference non-existent quizzes
     console.log('\n1. Checking for orphaned QuizAttempts...');
-    
-    // Get all quiz IDs
-    const allQuizzes = await prisma.quiz.findMany({
-      select: { id: true }
-    });
-    const validQuizIds = new Set(allQuizzes.map(q => q.id));
-    
-    // Find quiz attempts with invalid quiz IDs
-    const allQuizAttempts = await prisma.quizAttempt.findMany({
-      select: { id: true, quizId: true }
-    });
-    
-    const orphanedAttemptIds = allQuizAttempts
+
+    const { data: allQuizzes } = await supabase
+      .from('Quiz')
+      .select('id');
+    const validQuizIds = new Set((allQuizzes || []).map(q => q.id));
+
+    const { data: allQuizAttempts } = await supabase
+      .from('QuizAttempt')
+      .select('id, quizId');
+
+    const orphanedAttemptIds = (allQuizAttempts || [])
       .filter(attempt => !validQuizIds.has(attempt.quizId))
       .map(attempt => attempt.id);
-    
+
     if (orphanedAttemptIds.length > 0) {
       console.log(`Found ${orphanedAttemptIds.length} orphaned quiz attempts. Deleting...`);
-      const result = await prisma.quizAttempt.deleteMany({
-        where: {
-          id: { in: orphanedAttemptIds }
-        }
-      });
-      console.log(`Deleted ${result.count} orphaned quiz attempts`);
+      const { error } = await supabase
+        .from('QuizAttempt')
+        .delete()
+        .in('id', orphanedAttemptIds);
+      if (error) throw error;
+      console.log(`Deleted ${orphanedAttemptIds.length} orphaned quiz attempts`);
     } else {
       console.log('No orphaned quiz attempts found');
     }
-    
+
     // 2. Clean up Answers that reference non-existent questions
     console.log('\n2. Checking for orphaned Answers...');
-    
-    const allQuestions = await prisma.question.findMany({
-      select: { id: true }
-    });
-    const validQuestionIds = new Set(allQuestions.map(q => q.id));
-    
-    const allAnswers = await prisma.answer.findMany({
-      select: { id: true, questionId: true }
-    });
-    
-    const orphanedAnswerIds = allAnswers
+
+    const { data: allQuestions } = await supabase
+      .from('Question')
+      .select('id');
+    const validQuestionIds = new Set((allQuestions || []).map(q => q.id));
+
+    const { data: allAnswers } = await supabase
+      .from('Answer')
+      .select('id, questionId');
+
+    const orphanedAnswerIds = (allAnswers || [])
       .filter(answer => !validQuestionIds.has(answer.questionId))
       .map(answer => answer.id);
-    
+
     if (orphanedAnswerIds.length > 0) {
       console.log(`Found ${orphanedAnswerIds.length} orphaned answers. Deleting...`);
-      const result = await prisma.answer.deleteMany({
-        where: {
-          id: { in: orphanedAnswerIds }
-        }
-      });
-      console.log(`Deleted ${result.count} orphaned answers`);
+      const { error } = await supabase
+        .from('Answer')
+        .delete()
+        .in('id', orphanedAnswerIds);
+      if (error) throw error;
+      console.log(`Deleted ${orphanedAnswerIds.length} orphaned answers`);
     } else {
       console.log('No orphaned answers found');
     }
-    
+
     // 3. Clean up Winnings that reference non-existent quizzes
     console.log('\n3. Checking for orphaned Winnings...');
-    
-    const allWinnings = await prisma.winning.findMany({
-      select: { id: true, quizId: true }
-    });
-    
-    const orphanedWinningIds = allWinnings
+
+    const { data: allWinnings } = await supabase
+      .from('Winning')
+      .select('id, quizId');
+
+    const orphanedWinningIds = (allWinnings || [])
       .filter(winning => !validQuizIds.has(winning.quizId))
       .map(winning => winning.id);
-    
+
     if (orphanedWinningIds.length > 0) {
       console.log(`Found ${orphanedWinningIds.length} orphaned winnings. Deleting...`);
-      const result = await prisma.winning.deleteMany({
-        where: {
-          id: { in: orphanedWinningIds }
-        }
-      });
-      console.log(`Deleted ${result.count} orphaned winnings`);
+      const { error } = await supabase
+        .from('Winning')
+        .delete()
+        .in('id', orphanedWinningIds);
+      if (error) throw error;
+      console.log(`Deleted ${orphanedWinningIds.length} orphaned winnings`);
     } else {
       console.log('No orphaned winnings found');
     }
-    
-    // 4. Clean up Payments that are not referenced by any quiz attempts
-    console.log('\n4. Checking for orphaned Payments...');
-    
-    // Get all payment IDs that are referenced by quiz attempts
-    const referencedPayments = await prisma.quizAttempt.findMany({
-      select: { paymentId: true },
-      where: { paymentId: { not: null } }
-    });
-    const referencedPaymentIds = new Set(
-      referencedPayments
-        .map(attempt => attempt.paymentId)
-        .filter(id => id !== null) as string[]
-    );
-    
-    const allPayments = await prisma.payment.findMany({
-      select: { id: true }
-    });
-    
-    const orphanedPaymentIds = allPayments
-      .filter(payment => !referencedPaymentIds.has(payment.id))
-      .map(payment => payment.id);
-    
-    if (orphanedPaymentIds.length > 0) {
-      console.log(`Found ${orphanedPaymentIds.length} orphaned payments. Deleting...`);
-      const result = await prisma.payment.deleteMany({
-        where: {
-          id: { in: orphanedPaymentIds }
-        }
-      });
-      console.log(`Deleted ${result.count} orphaned payments`);
-    } else {
-      console.log('No orphaned payments found');
-    }
-    
-    // 5. Clean up Questions without quizzes
-    console.log('\n5. Checking for orphaned Questions...');
-    
-    const allQuestionsWithQuiz = await prisma.question.findMany({
-      select: { id: true, quizId: true }
-    });
-    
-    const orphanedQuestionIds = allQuestionsWithQuiz
+
+    // 4. Clean up Questions without quizzes
+    console.log('\n4. Checking for orphaned Questions...');
+
+    const { data: allQuestionsWithQuiz } = await supabase
+      .from('Question')
+      .select('id, quizId');
+
+    const orphanedQuestionIds = (allQuestionsWithQuiz || [])
       .filter(question => !validQuizIds.has(question.quizId))
       .map(question => question.id);
-    
+
     if (orphanedQuestionIds.length > 0) {
       console.log(`Found ${orphanedQuestionIds.length} orphaned questions. Deleting...`);
-      const result = await prisma.question.deleteMany({
-        where: {
-          id: { in: orphanedQuestionIds }
-        }
-      });
-      console.log(`Deleted ${result.count} orphaned questions`);
+      const { error } = await supabase
+        .from('Question')
+        .delete()
+        .in('id', orphanedQuestionIds);
+      if (error) throw error;
+      console.log(`Deleted ${orphanedQuestionIds.length} orphaned questions`);
     } else {
       console.log('No orphaned questions found');
     }
-    
+
     console.log('\n✅ Cleanup completed successfully!');
-    
+
   } catch (error) {
     console.error('Error during cleanup:', error);
-  } finally {
-    await prisma.$disconnect();
   }
 }
 

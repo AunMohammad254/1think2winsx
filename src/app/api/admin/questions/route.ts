@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import prisma from '@/lib/prisma';
+import { getDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
-import { Prisma } from '@prisma/client';
 
 const createQuestionSchema = z.object({
   quizId: z.string(),
@@ -28,7 +27,7 @@ export async function POST(request: NextRequest) {
       adminOnly: true,
       context: 'admin_question_creation',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
@@ -52,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validationResult = createQuestionSchema.safeParse(body);
-    
+
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, session.user.id, {
         endpoint: '/api/admin/questions',
@@ -65,14 +64,16 @@ export async function POST(request: NextRequest) {
     }
 
     const { quizId, text, options, correctOption } = validationResult.data;
+    const supabase = await getDb();
 
     // Verify quiz exists
-    const quiz = await prisma.quiz.findUnique({
-      where: { id: quizId },
-      select: { id: true, title: true }
-    });
+    const { data: quiz, error: quizError } = await supabase
+      .from('Quiz')
+      .select('id, title')
+      .eq('id', quizId)
+      .single();
 
-    if (!quiz) {
+    if (quizError || !quiz) {
       return NextResponse.json(
         { error: 'Quiz not found' },
         { status: 404 }
@@ -87,16 +88,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const question = await prisma.question.create({
-      data: {
+    // Create question
+    const questionId = generateId();
+    const { data: question, error: createError } = await supabase
+      .from('Question')
+      .insert({
+        id: questionId,
         quizId,
         text,
         options: JSON.stringify(options),
         correctOption: correctOption !== null ? correctOption : null,
         hasCorrectAnswer: correctOption !== undefined && correctOption !== null,
         status: 'active',
-      },
-    });
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (createError) throw createError;
 
     recordSecurityEvent('ADMIN_QUESTION_CREATED', request, session.user.id, {
       questionId: question.id,
@@ -138,11 +148,11 @@ export async function GET(request: NextRequest) {
       adminOnly: true,
       context: 'admin_question_list',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
 
     // Apply rate limiting for admin operations
@@ -163,66 +173,62 @@ export async function GET(request: NextRequest) {
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
 
-    const skip = (page - 1) * limit;
+    const offset = (page - 1) * limit;
+    const supabase = await getDb();
 
-    // Build where clause with proper typing
-    const where: Prisma.QuestionWhereInput = {};
+    // Build query
+    let query = supabase
+      .from('Question')
+      .select(`
+        *,
+        Quiz:quizId (id, title, status)
+      `, { count: 'exact' })
+      .order('createdAt', { ascending: false })
+      .range(offset, offset + limit - 1);
+
     if (quizId) {
-      where.quizId = quizId;
+      query = query.eq('quizId', quizId);
     }
     if (status) {
-      where.status = status;
+      query = query.eq('status', status);
     }
 
-    // Get total count for pagination
-    const totalCount = await prisma.question.count({ where });
+    const { data: questions, count: totalCount, error } = await query;
 
-    // Fetch questions
-    const questions = await prisma.question.findMany({
-      where,
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-          }
-        },
-        _count: {
-          select: {
-            answers: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
-      skip,
-      take: limit,
-    });
+    if (error) throw error;
 
-    const formattedQuestions = questions.map(question => ({
-      id: question.id,
-      quizId: question.quizId,
-      quiz: question.quiz,
-      text: question.text,
-      options: JSON.parse(question.options),
-      correctOption: question.correctOption,
-      hasCorrectAnswer: question.hasCorrectAnswer,
-      status: question.status,
-      answerCount: question._count.answers,
-      createdAt: question.createdAt,
-      updatedAt: question.updatedAt,
-    }));
+    // Get answer counts for each question
+    const formattedQuestions = await Promise.all(
+      (questions || []).map(async (question: any) => {
+        const { count: answerCount } = await supabase
+          .from('Answer')
+          .select('*', { count: 'exact', head: true })
+          .eq('questionId', question.id);
+
+        return {
+          id: question.id,
+          quizId: question.quizId,
+          quiz: Array.isArray(question.Quiz) ? question.Quiz[0] : question.Quiz,
+          text: question.text,
+          options: JSON.parse(question.options),
+          correctOption: question.correctOption,
+          hasCorrectAnswer: question.hasCorrectAnswer,
+          status: question.status,
+          answerCount: answerCount || 0,
+          createdAt: question.createdAt,
+          updatedAt: question.updatedAt,
+        };
+      })
+    );
 
     return createSecureJsonResponse({
       questions: formattedQuestions,
       pagination: {
         page,
         limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNext: page * limit < totalCount,
+        totalCount: totalCount || 0,
+        totalPages: Math.ceil((totalCount || 0) / limit),
+        hasNext: page * limit < (totalCount || 0),
         hasPrev: page > 1,
       }
     }, { status: 200 });

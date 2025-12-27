@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import prisma from '@/lib/prisma';
+import { getDb, quizDb, questionDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -22,15 +22,6 @@ const createQuizSchema = z.object({
   })).default([]),
 });
 
-
-interface QuizWhereClause {
-  status?: string;
-  OR?: Array<{
-    title?: { contains: string; mode: 'insensitive' };
-    description?: { contains: string; mode: 'insensitive' };
-  }>;
-}
-
 // GET /api/admin/quizzes - Get all quizzes with admin details
 export async function GET(request: NextRequest) {
   try {
@@ -38,11 +29,11 @@ export async function GET(request: NextRequest) {
       adminOnly: true,
       context: 'admin_quiz_list',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
 
     // Apply rate limiting for admin operations
@@ -64,81 +55,64 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '10'), 50);
-    const status = url.searchParams.get('status'); // 'active', 'paused', or null for all
+    const status = url.searchParams.get('status');
     const search = url.searchParams.get('search');
 
-    const skip = (page - 1) * limit;
+    const offset = (page - 1) * limit;
+    const supabase = await getDb();
 
-    // Build where clause
-    const where: QuizWhereClause = {};
+    // Build base query
+    let query = supabase
+      .from('Quiz')
+      .select('*', { count: 'exact' })
+      .order('createdAt', { ascending: false })
+      .range(offset, offset + limit - 1);
+
     if (status) {
-      where.status = status;
+      query = query.eq('status', status);
     }
     if (search) {
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-      ];
+      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
     }
 
-    // Get total count for pagination
-    const totalCount = await prisma.quiz.count({ where });
+    const { data: quizzes, count: totalCount, error } = await query;
 
-    // Fetch quizzes with detailed stats
-    const quizzes = await prisma.quiz.findMany({
-      where,
-      include: {
-        questions: {
-          select: {
-            id: true,
-            text: true,
-            options: true,
-            correctOption: true,
-            hasCorrectAnswer: true,
-            status: true,
-            createdAt: true,
-            updatedAt: true,
-          }
-        },
-        _count: {
-          select: {
-            questions: true,
-            attempts: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
-      skip,
-      take: limit,
-    });
+    if (error) throw error;
 
-    // Calculate additional stats for each quiz
+    // Get questions and stats for each quiz
     const quizzesWithStats = await Promise.all(
-      quizzes.map(async (quiz) => {
-        const activeQuestions = quiz.questions.filter(q => q.status === 'active').length;
-        const questionsWithAnswers = quiz.questions.filter(q => q.hasCorrectAnswer).length;
-        
-        // Get average score for this quiz
-        const avgScoreResult = await prisma.quizAttempt.aggregate({
-          where: {
-            quizId: quiz.id,
-            isCompleted: true
-          },
-          _avg: {
-            score: true
-          }
-        });
+      (quizzes || []).map(async (quiz: any) => {
+        // Get questions for this quiz
+        const { data: questions } = await supabase
+          .from('Question')
+          .select('id, text, options, correctOption, hasCorrectAnswer, status, createdAt, updatedAt')
+          .eq('quizId', quiz.id);
 
-        // Get completion rate
-        const totalAttempts = quiz._count.attempts;
-        const completedAttempts = await prisma.quizAttempt.count({
-          where: {
-            quizId: quiz.id,
-            isCompleted: true
-          }
-        });
+        // Get attempt counts
+        const { count: totalAttempts } = await supabase
+          .from('QuizAttempt')
+          .select('*', { count: 'exact', head: true })
+          .eq('quizId', quiz.id);
+
+        const { count: completedAttempts } = await supabase
+          .from('QuizAttempt')
+          .select('*', { count: 'exact', head: true })
+          .eq('quizId', quiz.id)
+          .eq('isCompleted', true);
+
+        // Calculate average score
+        const { data: avgResult } = await supabase
+          .from('QuizAttempt')
+          .select('score')
+          .eq('quizId', quiz.id)
+          .eq('isCompleted', true);
+
+        const avgScore = avgResult && avgResult.length > 0
+          ? avgResult.reduce((sum: number, a: any) => sum + a.score, 0) / avgResult.length
+          : 0;
+
+        const activeQuestions = (questions || []).filter((q: any) => q.status === 'active').length;
+        const questionsWithAnswers = (questions || []).filter((q: any) => q.hasCorrectAnswer).length;
 
         return {
           id: quiz.id,
@@ -149,19 +123,21 @@ export async function GET(request: NextRequest) {
           status: quiz.status,
           createdAt: quiz.createdAt,
           updatedAt: quiz.updatedAt,
-          questions: quiz.questions,
+          questions: questions || [],
           _count: {
-            questions: quiz._count.questions,
-            attempts: quiz._count.attempts
+            questions: (questions || []).length,
+            attempts: totalAttempts || 0
           },
           stats: {
-            totalQuestions: quiz.questions.length,
+            totalQuestions: (questions || []).length,
             activeQuestions,
             questionsWithAnswers,
-            totalAttempts,
-            completedAttempts,
-            completionRate: totalAttempts > 0 ? Math.round((completedAttempts / totalAttempts) * 100) : 0,
-            averageScore: avgScoreResult._avg.score || 0,
+            totalAttempts: totalAttempts || 0,
+            completedAttempts: completedAttempts || 0,
+            completionRate: totalAttempts && totalAttempts > 0
+              ? Math.round(((completedAttempts || 0) / totalAttempts) * 100)
+              : 0,
+            averageScore: Math.round(avgScore),
           },
         };
       })
@@ -172,9 +148,9 @@ export async function GET(request: NextRequest) {
       pagination: {
         page,
         limit,
-        totalCount,
-        totalPages: Math.ceil(totalCount / limit),
-        hasNext: page * limit < totalCount,
+        totalCount: totalCount || 0,
+        totalPages: Math.ceil((totalCount || 0) / limit),
+        hasNext: page * limit < (totalCount || 0),
         hasPrev: page > 1,
       }
     }, { status: 200 });
@@ -204,7 +180,7 @@ export async function POST(request: NextRequest) {
       adminOnly: true,
       context: 'admin_quiz_creation',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
@@ -228,7 +204,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validationResult = createQuizSchema.safeParse(body);
-    
+
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, session.user.id, {
         endpoint: '/api/admin/quizzes',
@@ -240,83 +216,74 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, description, duration, passingScore, timeLimit: _timeLimit, isActive, questions } = validationResult.data;
+    const { title, description, duration, passingScore, isActive, questions } = validationResult.data;
+    const supabase = await getDb();
 
-    // Create quiz with questions in a transaction
-    const quiz = await prisma.$transaction(async (tx) => {
-      // Create the quiz first
-      const createdQuiz = await tx.quiz.create({
-        data: {
-          title,
-          description,
-          duration,
-          passingScore,
-          status: isActive ? 'active' : 'paused',
-        },
-      });
+    // Create quiz
+    const quizId = generateId();
+    const { data: createdQuiz, error: quizError } = await supabase
+      .from('Quiz')
+      .insert({
+        id: quizId,
+        title,
+        description,
+        duration,
+        passingScore,
+        status: isActive ? 'active' : 'paused',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .select()
+      .single();
 
-      // Create questions if provided
-      if (questions && questions.length > 0) {
-        await tx.question.createMany({
-          data: questions.map((q, _index) => ({
-            quizId: createdQuiz.id,
-            text: q.text,
-            options: JSON.stringify(q.options),
-            correctOption: q.correctAnswer,
-            hasCorrectAnswer: true,
-            status: q.isActive ? 'active' : 'paused',
-          })),
-        });
-      }
+    if (quizError) throw quizError;
 
-      // Return quiz with questions
-      return await tx.quiz.findUnique({
-        where: { id: createdQuiz.id },
-        include: {
-          questions: true,
-          _count: {
-            select: {
-              questions: true,
-              attempts: true
-            }
-          }
-        }
-      });
-    });
+    // Create questions if provided
+    let createdQuestions: any[] = [];
+    if (questions && questions.length > 0) {
+      const questionData = questions.map((q) => ({
+        id: generateId(),
+        quizId: quizId,
+        text: q.text,
+        options: JSON.stringify(q.options),
+        correctOption: q.correctAnswer,
+        hasCorrectAnswer: true,
+        status: q.isActive ? 'active' : 'paused',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
 
-    // Check if quiz creation was successful
-    if (!quiz) {
-      recordSecurityEvent('ADMIN_QUIZ_CREATION_ERROR', request, session.user.id, {
-        error: 'Quiz creation failed - quiz not found after creation',
-      });
-      return NextResponse.json(
-        { error: 'Failed to create quiz - quiz not found after creation' },
-        { status: 500 }
-      );
+      const { data: insertedQuestions, error: questionError } = await supabase
+        .from('Question')
+        .insert(questionData)
+        .select();
+
+      if (questionError) throw questionError;
+      createdQuestions = insertedQuestions || [];
     }
 
     recordSecurityEvent('ADMIN_QUIZ_CREATED', request, session.user.id, {
-      quizId: quiz.id,
-      title: quiz.title,
+      quizId: createdQuiz.id,
+      title: createdQuiz.title,
     });
 
     return createSecureJsonResponse({
       message: 'Quiz created successfully',
       quiz: {
-        id: quiz.id,
-        title: quiz.title,
-        description: quiz.description,
-        duration: quiz.duration,
-        passingScore: quiz.passingScore,
-        status: quiz.status,
-        createdAt: quiz.createdAt,
-        updatedAt: quiz.updatedAt,
-        questions: quiz.questions,
+        id: createdQuiz.id,
+        title: createdQuiz.title,
+        description: createdQuiz.description,
+        duration: createdQuiz.duration,
+        passingScore: createdQuiz.passingScore,
+        status: createdQuiz.status,
+        createdAt: createdQuiz.createdAt,
+        updatedAt: createdQuiz.updatedAt,
+        questions: createdQuestions,
         stats: {
-          totalQuestions: quiz._count.questions || 0,
-          activeQuestions: quiz.questions?.filter(q => q.status === 'active').length || 0,
-          questionsWithAnswers: quiz.questions?.filter(q => q.hasCorrectAnswer).length || 0,
-          totalAttempts: quiz._count.attempts || 0,
+          totalQuestions: createdQuestions.length,
+          activeQuestions: createdQuestions.filter((q: any) => q.status === 'active').length,
+          questionsWithAnswers: createdQuestions.filter((q: any) => q.hasCorrectAnswer).length,
+          totalAttempts: 0,
           completedAttempts: 0,
           completionRate: 0,
           averageScore: 0,

@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { securityLogger } from './security-logger';
-import prisma from './prisma';
+import { adminSessionDb } from './supabase/db';
 
 // Admin session configuration
 const ADMIN_SESSION_COOKIE = 'admin-session';
@@ -18,13 +18,7 @@ function generateToken(): string {
  */
 async function cleanExpiredSessions() {
     try {
-        await prisma.adminSession.deleteMany({
-            where: {
-                expiresAt: {
-                    lt: new Date(),
-                },
-            },
-        });
+        await adminSessionDb.deleteExpired();
     } catch (error) {
         console.error('Error cleaning expired admin sessions:', error);
     }
@@ -57,12 +51,10 @@ export async function createAdminSession(email: string): Promise<string> {
     const expiresAt = new Date(Date.now() + ADMIN_SESSION_DURATION);
 
     // Store session in database
-    await prisma.adminSession.create({
-        data: {
-            token,
-            email: email.toLowerCase(),
-            expiresAt,
-        },
+    await adminSessionDb.create({
+        token,
+        email: email.toLowerCase(),
+        expiresAt: expiresAt.toISOString(),
     });
 
     // Clean up old expired sessions
@@ -103,22 +95,11 @@ export async function validateAdminSession(): Promise<{ valid: boolean; email?: 
 
         console.log('[Admin Session] Cookie found, validating token...');
 
-        // Look up session in database
-        const session = await prisma.adminSession.findUnique({
-            where: { token },
-        });
+        // Look up session in database (findByToken already filters expired)
+        const session = await adminSessionDb.findByToken(token);
 
         if (!session) {
-            console.log('[Admin Session] Token not found in database');
-            return { valid: false };
-        }
-
-        if (session.expiresAt < new Date()) {
-            // Session expired, delete it
-            console.log('[Admin Session] Session expired, deleting...');
-            await prisma.adminSession.delete({
-                where: { token },
-            });
+            console.log('[Admin Session] Token not found or expired in database');
             return { valid: false };
         }
 
@@ -140,11 +121,11 @@ export async function clearAdminSession(): Promise<void> {
 
         if (token) {
             // Delete from database
-            await prisma.adminSession.delete({
-                where: { token },
-            }).catch(() => {
+            try {
+                await adminSessionDb.delete(token);
+            } catch {
                 // Ignore if session doesn't exist in DB
-            });
+            }
         }
 
         cookieStore.delete(ADMIN_SESSION_COOKIE);

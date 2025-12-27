@@ -1,8 +1,7 @@
 'use server';
 
-import prisma from '@/lib/prisma';
+import { quizDb, questionDb, quizAttemptDb, answerDb, getDb, generateId } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
-import { Prisma } from '@prisma/client';
 import {
     QuizFormSchema,
     CreateQuizInput,
@@ -37,39 +36,30 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
 
         const { questions, ...quizData } = validationResult.data;
 
-        // Create quiz with questions in a transaction
-        const quiz = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-            // Create the quiz
-            const newQuiz = await tx.quiz.create({
-                data: {
-                    title: quizData.title,
-                    description: quizData.description || null,
-                    duration: quizData.duration,
-                    passingScore: quizData.passingScore,
-                    accessPrice: quizData.accessPrice ?? 2,
-                    status: quizData.status,
-                },
-            });
-
-            // Create questions for the quiz
-            for (const question of questions) {
-                const hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
-                const correctOption = question.options.findIndex(opt => opt.isCorrect);
-
-                await tx.question.create({
-                    data: {
-                        quiz: { connect: { id: newQuiz.id } },
-                        text: question.text,
-                        options: JSON.stringify(question.options.map(opt => opt.text)),
-                        correctOption: hasCorrectAnswer ? correctOption : null,
-                        hasCorrectAnswer,
-                        status: question.status,
-                    },
-                });
-            }
-
-            return newQuiz;
+        // Create the quiz
+        const quiz = await quizDb.create({
+            title: quizData.title,
+            description: quizData.description || null,
+            duration: quizData.duration,
+            passingScore: quizData.passingScore,
+            accessPrice: quizData.accessPrice ?? 2,
+            status: quizData.status,
         });
+
+        // Create questions for the quiz
+        for (const question of questions) {
+            const hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
+            const correctOption = question.options.findIndex(opt => opt.isCorrect);
+
+            await questionDb.create({
+                quizId: quiz.id,
+                text: question.text,
+                options: JSON.stringify(question.options.map(opt => opt.text)),
+                correctOption: hasCorrectAnswer ? correctOption : null,
+                hasCorrectAnswer,
+                status: question.status,
+            });
+        }
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
@@ -105,66 +95,58 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             };
         }
 
-        const { questions, id, ...quizData } = validationResult.data;
+        const { questions, id: quizId, ...quizData } = validationResult.data;
+        const supabase = await getDb();
 
-        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-            // Update quiz basic info
-            await tx.quiz.update({
-                where: { id },
-                data: {
-                    title: quizData.title,
-                    description: quizData.description || null,
-                    duration: quizData.duration,
-                    passingScore: quizData.passingScore,
-                    accessPrice: quizData.accessPrice ?? 2,
-                    status: quizData.status,
-                },
-            });
-
-            // Delete existing questions that are not in the update
-            const existingQuestionIds = questions
-                .filter(q => q.id)
-                .map(q => q.id as string);
-
-            await tx.question.deleteMany({
-                where: {
-                    quizId: id,
-                    NOT: { id: { in: existingQuestionIds } },
-                },
-            });
-
-            // Upsert questions
-            for (const question of questions) {
-                const hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
-                const correctOption = question.options.findIndex(opt => opt.isCorrect);
-
-                if (question.id) {
-                    // Update existing question
-                    await tx.question.update({
-                        where: { id: question.id },
-                        data: {
-                            text: question.text,
-                            options: JSON.stringify(question.options.map(opt => opt.text)),
-                            correctOption: hasCorrectAnswer ? correctOption : null,
-                            hasCorrectAnswer,
-                            status: question.status,
-                        },
-                    });
-                } else {
-                    // Create new question
-                    await tx.question.create({
-                        data: {
-                            quiz: { connect: { id } },
-                            text: question.text,
-                            options: JSON.stringify(question.options.map(opt => opt.text)),
-                            correctOption: hasCorrectAnswer ? correctOption : null,
-                            hasCorrectAnswer,
-                            status: question.status,
-                        },
-                    });
-                }
-            }
+        // Update quiz basic info
+        await quizDb.update(quizId!, {
+            title: quizData.title,
+            description: quizData.description || null,
+            duration: quizData.duration,
+            passingScore: quizData.passingScore,
+            accessPrice: quizData.accessPrice ?? 2,
+            status: quizData.status,
         });
+
+        // Get existing question IDs to update
+        const existingQuestionIds = questions
+            .filter(q => q.id)
+            .map(q => q.id as string);
+
+        // Delete questions not in the update list
+        const currentQuestions = await questionDb.findByQuizId(quizId!);
+        for (const question of currentQuestions) {
+            if (!existingQuestionIds.includes(question.id)) {
+                await questionDb.delete(question.id);
+            }
+        }
+
+        // Upsert questions
+        for (const question of questions) {
+            const hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
+            const correctOption = question.options.findIndex(opt => opt.isCorrect);
+
+            if (question.id) {
+                // Update existing question
+                await questionDb.update(question.id, {
+                    text: question.text,
+                    options: JSON.stringify(question.options.map(opt => opt.text)),
+                    correctOption: hasCorrectAnswer ? correctOption : null,
+                    hasCorrectAnswer,
+                    status: question.status,
+                });
+            } else {
+                // Create new question
+                await questionDb.create({
+                    quizId: quizId!,
+                    text: question.text,
+                    options: JSON.stringify(question.options.map(opt => opt.text)),
+                    correctOption: hasCorrectAnswer ? correctOption : null,
+                    hasCorrectAnswer,
+                    status: question.status,
+                });
+            }
+        }
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
@@ -182,9 +164,7 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
  */
 export async function deleteQuiz(id: string): Promise<ActionResult> {
     try {
-        await prisma.quiz.delete({
-            where: { id },
-        });
+        await quizDb.delete(id);
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
@@ -202,23 +182,13 @@ export async function deleteQuiz(id: string): Promise<ActionResult> {
 export async function publishQuiz(id: string): Promise<ActionResult> {
     try {
         // Check if quiz has at least one question
-        const quiz = await prisma.quiz.findUnique({
-            where: { id },
-            include: { questions: { select: { id: true } } },
-        });
+        const questions = await questionDb.findByQuizId(id);
 
-        if (!quiz) {
-            return { success: false, error: 'Quiz not found' };
-        }
-
-        if (quiz.questions.length === 0) {
+        if (questions.length === 0) {
             return { success: false, error: 'Cannot publish quiz without questions' };
         }
 
-        await prisma.quiz.update({
-            where: { id },
-            data: { status: 'active' },
-        });
+        await quizDb.update(id, { status: 'active' });
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
@@ -235,10 +205,7 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
  */
 export async function pauseQuiz(id: string): Promise<ActionResult> {
     try {
-        await prisma.quiz.update({
-            where: { id },
-            data: { status: 'paused' },
-        });
+        await quizDb.update(id, { status: 'paused' });
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
@@ -263,53 +230,56 @@ export async function submitQuizAttempt(
 ): Promise<ActionResult<{ attemptId: string; answersSubmitted: number }>> {
     try {
         const { quizId, answers } = submission;
+        const supabase = await getDb();
 
-        // Create quiz attempt
-        const attempt = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-            // Create the attempt
-            const newAttempt = await tx.quizAttempt.create({
-                data: {
-                    user: { connect: { id: userId } },
-                    quiz: { connect: { id: quizId } },
-                    isCompleted: true,
-                    completedAt: new Date(),
-                },
+        // Create the attempt
+        const attempt = await quizAttemptDb.create({
+            userId,
+            quizId,
+            isCompleted: true,
+            completedAt: new Date().toISOString(),
+        });
+
+        // Create answers
+        for (const answer of answers) {
+            await answerDb.create({
+                userId,
+                questionId: answer.questionId,
+                quizAttemptId: attempt.id,
+                selectedOption: answer.selectedOption,
             });
 
-            // Create answers
-            for (const answer of answers) {
-                await tx.answer.create({
-                    data: {
+            // Also create/update question attempt
+            // Check if question attempt exists
+            const { data: existingAttempt } = await supabase
+                .from('QuestionAttempt')
+                .select('id')
+                .eq('userId', userId)
+                .eq('questionId', answer.questionId)
+                .single();
+
+            if (existingAttempt) {
+                // Update existing
+                await supabase
+                    .from('QuestionAttempt')
+                    .update({
+                        selectedOption: answer.selectedOption,
+                        attemptedAt: new Date().toISOString(),
+                    })
+                    .eq('id', existingAttempt.id);
+            } else {
+                // Create new
+                await supabase
+                    .from('QuestionAttempt')
+                    .insert({
+                        id: generateId(),
                         userId,
-                        question: { connect: { id: answer.questionId } },
-                        quizAttempt: { connect: { id: newAttempt.id } },
+                        questionId: answer.questionId,
+                        quizId,
                         selectedOption: answer.selectedOption,
-                    },
-                });
-
-                // Also create question attempt
-                await tx.questionAttempt.upsert({
-                    where: {
-                        userId_questionId: {
-                            userId,
-                            questionId: answer.questionId,
-                        },
-                    },
-                    update: {
-                        selectedOption: answer.selectedOption,
-                        attemptedAt: new Date(),
-                    },
-                    create: {
-                        user: { connect: { id: userId } },
-                        question: { connect: { id: answer.questionId } },
-                        quiz: { connect: { id: quizId } },
-                        selectedOption: answer.selectedOption,
-                    },
-                });
+                    });
             }
-
-            return newAttempt;
-        });
+        }
 
         revalidatePath(`/quiz/${quizId}`);
 

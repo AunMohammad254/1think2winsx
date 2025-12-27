@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from './prisma';
+import { dailyPaymentDb, getDb } from '@/lib/supabase/db';
 import { recordSecurityEvent } from './security-monitoring';
 
 export interface PaymentAccessResult {
@@ -22,19 +22,8 @@ export async function checkPaymentAccess(
   try {
     const now = new Date();
 
-    // Find active payment within 24 hours
-    const activePayment = await prisma.dailyPayment.findFirst({
-      where: {
-        userId,
-        status: 'completed',
-        expiresAt: {
-          gt: now
-        }
-      },
-      orderBy: {
-        expiresAt: 'desc'
-      }
-    });
+    // Find active payment within 24 hours using Supabase
+    const activePayment = await dailyPaymentDb.findFirstActive(userId);
 
     if (!activePayment) {
       if (request) {
@@ -48,7 +37,8 @@ export async function checkPaymentAccess(
       };
     }
 
-    const timeRemaining = activePayment.expiresAt.getTime() - now.getTime();
+    const expiresAt = new Date(activePayment.expiresAt);
+    const timeRemaining = expiresAt.getTime() - now.getTime();
 
     if (timeRemaining <= 0) {
       if (request) {
@@ -67,7 +57,7 @@ export async function checkPaymentAccess(
       hasAccess: true,
       payment: {
         id: activePayment.id,
-        expiresAt: activePayment.expiresAt,
+        expiresAt: expiresAt,
         timeRemaining: Math.floor(timeRemaining / 1000) // in seconds
       }
     };
@@ -97,9 +87,9 @@ export async function requirePaymentAccess(
 
   if (!accessResult.hasAccess) {
     return NextResponse.json(
-      { 
+      {
         error: accessResult.error || 'Payment required',
-        requiresPayment: true 
+        requiresPayment: true
       },
       { status: 402 } // Payment Required
     );
@@ -114,24 +104,14 @@ export async function requirePaymentAccess(
 export async function getRemainingAccessTime(userId: string): Promise<number> {
   try {
     const now = new Date();
-    const activePayment = await prisma.dailyPayment.findFirst({
-      where: {
-        userId,
-        status: 'completed',
-        expiresAt: {
-          gt: now
-        }
-      },
-      orderBy: {
-        expiresAt: 'desc'
-      }
-    });
+    const activePayment = await dailyPaymentDb.findFirstActive(userId);
 
     if (!activePayment) {
       return 0;
     }
 
-    const timeRemaining = activePayment.expiresAt.getTime() - now.getTime();
+    const expiresAt = new Date(activePayment.expiresAt);
+    const timeRemaining = expiresAt.getTime() - now.getTime();
     return Math.max(0, Math.floor(timeRemaining / 1000)); // in seconds
   } catch (error) {
     console.error('Error getting remaining access time:', error);
@@ -144,20 +124,18 @@ export async function getRemainingAccessTime(userId: string): Promise<number> {
  */
 export async function cleanupExpiredPayments(): Promise<number> {
   try {
-    const now = new Date();
-    const result = await prisma.dailyPayment.updateMany({
-      where: {
-        status: 'completed',
-        expiresAt: {
-          lt: now
-        }
-      },
-      data: {
-        status: 'expired'
-      }
-    });
+    const now = new Date().toISOString();
+    const supabase = await getDb();
 
-    return result.count;
+    const { data, error } = await supabase
+      .from('DailyPayment')
+      .update({ status: 'expired', updatedAt: now })
+      .eq('status', 'completed')
+      .lt('expiresAt', now)
+      .select('id');
+
+    if (error) throw error;
+    return data?.length || 0;
   } catch (error) {
     console.error('Error cleaning up expired payments:', error);
     return 0;

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import prisma from '@/lib/prisma';
+import { userDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-import { Prisma } from '@prisma/client';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -68,9 +67,7 @@ export async function PUT(request: NextRequest) {
     const { currentPassword, newPassword } = validationResult.data;
 
     // Get current user data
-    const currentUser = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const currentUser = await userDb.findById(userId);
 
     if (!currentUser) {
       return NextResponse.json(
@@ -107,7 +104,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if new password is different from current
-    const isSamePassword = await bcrypt.compare(newPassword, currentUser.password!);
+    const isSamePassword = await bcrypt.compare(newPassword, currentUser.password);
     if (isSamePassword) {
       return NextResponse.json(
         { message: 'New password must be different from current password' },
@@ -119,12 +116,7 @@ export async function PUT(request: NextRequest) {
     const hashedNewPassword = await bcrypt.hash(newPassword, 12);
 
     // Update user password
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        password: hashedNewPassword,
-      },
-    });
+    await userDb.update(userId, { password: hashedNewPassword });
 
     // Log successful password change
     securityLogger.logSecurityEvent({
@@ -144,17 +136,8 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('Error changing password:', error);
 
-    // Handle specific Prisma errors
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2025') {
-        return NextResponse.json(
-          { message: 'User not found' },
-          { status: 404 }
-        );
-      }
-    }
-
-    if (error instanceof Prisma.PrismaClientInitializationError) {
+    // Handle connection errors
+    if (error instanceof Error && error.message.includes('connection')) {
       return NextResponse.json(
         { message: 'Database connection error' },
         { status: 503 }

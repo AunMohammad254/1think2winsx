@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import prisma from '@/lib/prisma';
+import { quizDb, userDb, quizAttemptDb, getDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -16,7 +16,7 @@ const pointsAllocationCache = new Map<string, {
       quizId: string;
       score: number;
       pointsAwarded: number;
-      completedAt: Date;
+      completedAt: string;
       user: {
         id: string;
         username: string;
@@ -33,7 +33,7 @@ const pointsAllocationCache = new Map<string, {
   };
   timestamp: number;
 }>();
-const CACHE_DURATION = 3 * 60 * 1000; // 3 minutes cache for admin data
+const CACHE_DURATION = 3 * 60 * 1000;
 
 const pointsAllocationSchema = z.object({
   quizId: z.string().min(1, 'Quiz ID is required'),
@@ -41,7 +41,7 @@ const pointsAllocationSchema = z.object({
   percentageThreshold: z.number().min(0.01).max(100).default(10)
 });
 
-// POST /api/admin/points-allocation - Allocate points to top 10% performers
+// POST /api/admin/points-allocation - Allocate points to top performers
 export async function POST(request: NextRequest) {
   try {
     // Apply CSRF protection
@@ -87,31 +87,35 @@ export async function POST(request: NextRequest) {
 
     const { quizId, pointsPerWinner, percentageThreshold } = validationResult.data;
 
-    // Check if quiz exists and is evaluated
-    const quiz = await prisma.quiz.findUnique({
-      where: { id: quizId },
-      include: {
-        attempts: {
-          where: {
-            isEvaluated: true
-          },
-          include: { user: true },
-          orderBy: [
-            { score: 'desc' },
-            { createdAt: 'asc' } // Earlier submissions get priority in case of ties
-          ]
-        }
-      }
-    });
+    const supabase = await getDb();
 
-    if (!quiz) {
+    // Get quiz
+    const { data: quiz, error: quizError } = await supabase
+      .from('Quiz')
+      .select('id, title')
+      .eq('id', quizId)
+      .single();
+
+    if (quizError || !quiz) {
       return NextResponse.json(
         { message: 'Quiz not found' },
         { status: 404 }
       );
     }
 
-    if (quiz.attempts.length === 0) {
+    // Get evaluated attempts with user info, ordered by score
+    const { data: attempts } = await supabase
+      .from('QuizAttempt')
+      .select(`
+        id, userId, score, createdAt,
+        User:userId (id, email, name)
+      `)
+      .eq('quizId', quizId)
+      .eq('isEvaluated', true)
+      .order('score', { ascending: false })
+      .order('createdAt', { ascending: true });
+
+    if (!attempts || attempts.length === 0) {
       return NextResponse.json(
         { message: 'No evaluated quiz attempts found for this quiz' },
         { status: 400 }
@@ -119,14 +123,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Calculate top percentage threshold with minimum 1 user
-    const totalAttempts = quiz.attempts.length;
+    const totalAttempts = attempts.length;
     const topPercentageCount = Math.max(1, Math.ceil(totalAttempts * (percentageThreshold / 100)));
 
     // Get top performers (those with highest scores)
-    const topPerformers = quiz.attempts.slice(0, topPercentageCount);
+    const topPerformers = attempts.slice(0, topPercentageCount);
 
     // Filter out attempts with score 0 (no correct answers)
-    const eligibleWinners = topPerformers.filter(attempt => attempt.score > 0);
+    const eligibleWinners = topPerformers.filter((attempt: { score: number }) => attempt.score > 0);
 
     if (eligibleWinners.length === 0) {
       return NextResponse.json(
@@ -135,51 +139,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Allocate points in a transaction using batch operations
-    const allocationResult = await executeCriticalTransaction(async (tx) => {
-      // Use batch operations for better performance
-      const userIds = eligibleWinners.map(attempt => attempt.userId);
-      const attemptIds = eligibleWinners.map(attempt => attempt.id);
+    // Allocate points
+    const allocationResult = await executeCriticalTransaction(async () => {
+      const pointsAllocations = [];
 
-      // Batch update user points
-      await tx.user.updateMany({
-        where: {
-          id: { in: userIds }
-        },
-        data: {
-          points: {
-            increment: pointsPerWinner
-          }
-        }
-      });
+      for (const attempt of eligibleWinners) {
+        // Handle Supabase join - can return array or single object
+        const userRaw = attempt.User;
+        const user = Array.isArray(userRaw) ? userRaw[0] : userRaw;
+        const userId = attempt.userId;
 
-      // Batch update quiz attempts with allocated points
-      await tx.quizAttempt.updateMany({
-        where: {
-          id: { in: attemptIds }
-        },
-        data: {
-          points: pointsPerWinner
-        }
-      });
+        // Update user points
+        const { data: currentUser } = await supabase
+          .from('User')
+          .select('points')
+          .eq('id', userId)
+          .single();
 
-      // Get updated user data for response
-      const updatedUsers = await tx.user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, points: true }
-      });
+        const newPoints = (currentUser?.points || 0) + pointsPerWinner;
 
-      const pointsAllocations = eligibleWinners.map(attempt => {
-        const updatedUser = updatedUsers.find(u => u.id === attempt.userId);
-        return {
-          userId: attempt.userId,
-          userEmail: attempt.user.email,
-          userName: attempt.user.name,
+        await supabase
+          .from('User')
+          .update({ points: newPoints, updatedAt: new Date().toISOString() })
+          .eq('id', userId);
+
+        // Update quiz attempt with allocated points
+        await supabase
+          .from('QuizAttempt')
+          .update({ points: pointsPerWinner, updatedAt: new Date().toISOString() })
+          .eq('id', attempt.id);
+
+        pointsAllocations.push({
+          userId: userId,
+          userEmail: user?.email || '',
+          userName: user?.name || null,
           score: attempt.score,
           pointsAwarded: pointsPerWinner,
-          newTotalPoints: updatedUser?.points || 0
-        };
-      });
+          newTotalPoints: newPoints
+        });
+      }
 
       return pointsAllocations;
     }, {
@@ -248,7 +246,7 @@ export async function GET(request: NextRequest) {
     const quizId = url.searchParams.get('quizId');
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
-    const skip = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
     // Create cache key based on query parameters
     const cacheKey = `points_allocation_${quizId || 'all'}_${page}_${limit}`;
@@ -259,70 +257,56 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(cached.data);
     }
 
-    // Build where clause
-    const where: {
-      type: string;
-      quizId?: string;
-    } = {
-      type: 'EARNED'
-    };
+    const supabase = await getDb();
+
+    // Build query
+    let query = supabase
+      .from('QuizAttempt')
+      .select(`
+        id, userId, quizId, score, points, updatedAt,
+        User:userId (id, email, name),
+        Quiz:quizId (id, title)
+      `, { count: 'exact' })
+      .gt('points', 0)
+      .order('updatedAt', { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (quizId) {
-      where.quizId = quizId;
+      query = query.eq('quizId', quizId);
     }
 
-    // Get quiz attempts with points awarded instead of pointsTransaction
-    const [attempts, totalCount] = await Promise.all([
-      prisma.quizAttempt.findMany({
-        where: {
-          ...where,
-          points: { gt: 0 } // Only attempts that have been awarded points
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              email: true,
-              name: true
-            }
-          },
-          quiz: {
-            select: {
-              id: true,
-              title: true
-            }
-          }
-        },
-        orderBy: { updatedAt: 'desc' },
-        skip,
-        take: limit
-      }),
-      prisma.quizAttempt.count({
-        where: {
-          ...where,
-          points: { gt: 0 }
-        }
-      })
-    ]);
+    const { data: attempts, count, error } = await query;
+
+    if (error) throw error;
+
+    const totalCount = count || 0;
 
     const responseData = {
-      attempts: attempts.map(attempt => ({
-        id: attempt.id,
-        userId: attempt.userId,
-        quizId: attempt.quizId,
-        score: attempt.score,
-        pointsAwarded: attempt.points,
-        completedAt: attempt.updatedAt,
-        user: {
-          id: attempt.user.id,
-          username: attempt.user.name || '',
-          email: attempt.user.email
-        },
-        quiz: {
-          id: attempt.quiz.id,
-          title: attempt.quiz.title
-        }
-      })),
+      attempts: (attempts || []).map((attempt: any) => {
+        // Handle Supabase join - can return array or single object
+        const userRaw = attempt.User;
+        const user = Array.isArray(userRaw) ? userRaw[0] : userRaw;
+        const quizRaw = attempt.Quiz;
+        const quiz = Array.isArray(quizRaw) ? quizRaw[0] : quizRaw;
+
+        return {
+          id: attempt.id,
+          userId: attempt.userId,
+          quizId: attempt.quizId,
+          score: attempt.score,
+          pointsAwarded: attempt.points,
+          completedAt: attempt.updatedAt,
+          user: {
+            id: user?.id || '',
+            username: user?.name || '',
+            email: user?.email || ''
+          },
+          quiz: {
+            id: quiz?.id || '',
+            title: quiz?.title || ''
+          }
+        };
+      }),
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
       currentPage: page,
@@ -331,7 +315,7 @@ export async function GET(request: NextRequest) {
         limit,
         totalCount,
         totalPages: Math.ceil(totalCount / limit),
-        hasNext: skip + limit < totalCount,
+        hasNext: offset + limit < totalCount,
         hasPrev: page > 1
       }
     };

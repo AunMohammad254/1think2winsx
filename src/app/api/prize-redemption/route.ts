@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import prisma from '@/lib/prisma';
+import { getDb, userDb, prizeDb, prizeRedemptionDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
@@ -9,8 +9,7 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 
 const redeemPrizeSchema = z.object({
-  // CUID format: starts with 'c', followed by 24+ alphanumeric lowercase characters
-  prizeId: z.string().regex(/^c[a-z0-9]{20,}$/, 'Invalid prize ID format'),
+  prizeId: z.string().min(1, 'Prize ID is required'),
   fullName: z.string().min(2, 'Full name must be at least 2 characters').max(100, 'Full name too long').optional(),
   whatsappNumber: z.string().regex(/^\+?[\d\s-()]{10,15}$/, 'Invalid WhatsApp number format').optional(),
   address: z.string().min(10, 'Address must be at least 10 characters').max(500, 'Address too long').optional(),
@@ -63,8 +62,9 @@ export async function POST(request: NextRequest) {
     }
 
     const { prizeId, fullName, whatsappNumber, address } = validationResult.data;
+    const supabase = await getDb();
 
-    // Get user's current points by email (since session.user.id is Supabase UUID, not Prisma CUID)
+    // Get user's current points by email
     if (!session.user.email) {
       return NextResponse.json(
         { message: 'User email not found in session' },
@@ -72,12 +72,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true, points: true },
-    });
+    const { data: user, error: userError } = await supabase
+      .from('User')
+      .select('id, points')
+      .eq('email', session.user.email)
+      .single();
 
-    if (!user) {
+    if (userError || !user) {
       return NextResponse.json(
         { message: 'User not found. Please ensure your account is synced.' },
         { status: 404 }
@@ -85,18 +86,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Get prize details
-    const prize = await prisma.prize.findUnique({
-      where: { id: prizeId },
-      select: {
-        id: true,
-        name: true,
-        pointsRequired: true,
-        isActive: true,
-        stock: true,
-      },
-    });
+    const { data: prize, error: prizeError } = await supabase
+      .from('Prize')
+      .select('id, name, description, imageUrl, pointsRequired, isActive, stock')
+      .eq('id', prizeId)
+      .single();
 
-    if (!prize || !prize.isActive) {
+    if (prizeError || !prize || !prize.isActive) {
       return NextResponse.json(
         { message: 'Prize not found or not available' },
         { status: 404 }
@@ -123,68 +119,113 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create redemption request and deduct points in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create redemption record using the Prisma User.id (CUID), not Supabase UUID
-      const redemption = await tx.prizeRedemption.create({
-        data: {
-          userId: user.id, // Use Prisma CUID, not session.user.id (Supabase UUID)
-          prizeId: prizeId,
-          pointsUsed: prize.pointsRequired,
-          status: 'pending',
-          fullName: fullName || null,
-          whatsappNumber: whatsappNumber || null,
-          address: address || null,
-        },
-        include: {
-          prize: {
-            select: {
-              name: true,
-              description: true,
-              imageUrl: true,
-            },
-          },
-        },
-      });
-
-      // Deduct points from user using Prisma CUID
-      await tx.user.update({
-        where: { id: user.id },
-        data: {
-          points: {
-            decrement: prize.pointsRequired,
-          },
-        },
-      });
-
-      // Decrement stock if applicable
-      if (prize.stock !== null && prize.stock > 0) {
-        await tx.prize.update({
-          where: { id: prizeId },
-          data: {
-            stock: {
-              decrement: 1,
-            },
-          },
-        });
-      }
-
-      return redemption;
+    // Use RPC function for atomic redemption
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('redeem_prize', {
+      p_user_id: user.id,
+      p_prize_id: prizeId,
+      p_full_name: fullName || null,
+      p_whatsapp_number: whatsappNumber || null,
+      p_address: address || null,
     });
 
+    if (rpcError) {
+      // Fallback to manual operations if RPC doesn't exist
+      if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+        const redemptionId = generateId();
 
+        // Deduct points from user
+        await supabase
+          .from('User')
+          .update({
+            points: user.points - prize.pointsRequired,
+            updatedAt: new Date().toISOString()
+          })
+          .eq('id', user.id);
+
+        // Decrement stock if applicable
+        if (prize.stock !== null && prize.stock > 0) {
+          await supabase
+            .from('Prize')
+            .update({
+              stock: prize.stock - 1,
+              updatedAt: new Date().toISOString()
+            })
+            .eq('id', prizeId);
+        }
+
+        // Create redemption request
+        const { data: redemption, error: redemptionError } = await supabase
+          .from('PrizeRedemption')
+          .insert({
+            id: redemptionId,
+            userId: user.id,
+            prizeId: prizeId,
+            pointsUsed: prize.pointsRequired,
+            status: 'pending',
+            fullName: fullName || null,
+            whatsappNumber: whatsappNumber || null,
+            address: address || null,
+            requestedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (redemptionError) throw redemptionError;
+
+        // Log successful prize redemption
+        securityLogger.logSecurityEvent({
+          type: 'PRIZE_REDEMPTION',
+          userId: session.user.id,
+          ip: request.headers.get('x-forwarded-for') || 'unknown',
+          userAgent: request.headers.get('user-agent') || undefined,
+          endpoint: '/api/prize-redemption',
+          details: {
+            prizeId,
+            prizeName: prize.name,
+            pointsUsed: prize.pointsRequired
+          },
+          severity: 'LOW'
+        });
+
+        return createSecureJsonResponse({
+          message: 'Prize redeemed successfully',
+          redemption: {
+            id: redemption.id,
+            prizeName: prize.name,
+            pointsUsed: prize.pointsRequired,
+            status: 'pending',
+            requestedAt: redemption.requestedAt,
+          },
+        }, { status: 201 });
+      }
+      throw rpcError;
+    }
+
+    if (rpcResult && !rpcResult.success) {
+      return NextResponse.json(
+        {
+          message: rpcResult.error || 'Redemption failed',
+          required: rpcResult.required,
+          available: rpcResult.available,
+        },
+        { status: 400 }
+      );
+    }
 
     // Log successful prize redemption
     securityLogger.logSecurityEvent({
       type: 'PRIZE_REDEMPTION',
       userId: session.user.id,
-      ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+      ip: request.headers.get('x-forwarded-for') || 'unknown',
       userAgent: request.headers.get('user-agent') || undefined,
       endpoint: '/api/prize-redemption',
       details: {
         prizeId,
-        prizeName: result.prize.name,
-        pointsUsed: result.pointsUsed
+        prizeName: prize.name,
+        pointsUsed: rpcResult?.points_used || prize.pointsRequired,
+        redemptionId: rpcResult?.redemption_id
       },
       severity: 'LOW'
     });
@@ -192,22 +233,21 @@ export async function POST(request: NextRequest) {
     return createSecureJsonResponse({
       message: 'Prize redeemed successfully',
       redemption: {
-        id: result.id,
-        prizeName: result.prize.name,
-        pointsUsed: result.pointsUsed,
-        status: result.status,
-        requestedAt: result.requestedAt,
+        id: rpcResult?.redemption_id,
+        prizeName: prize.name,
+        pointsUsed: rpcResult?.points_used || prize.pointsRequired,
+        status: 'pending',
+        newBalance: rpcResult?.new_balance,
       },
     }, { status: 201 });
 
   } catch (error) {
     console.error('Error redeeming prize:', error);
 
-    // Log security event for errors
     securityLogger.logSecurityEvent({
       type: 'API_ERROR',
       userId: undefined,
-      ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+      ip: request.headers.get('x-forwarded-for') || 'unknown',
       userAgent: request.headers.get('user-agent') || undefined,
       endpoint: '/api/prize-redemption',
       details: {
@@ -259,44 +299,48 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Look up user by email to get Prisma CUID
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
+    const supabase = await getDb();
+
+    // Look up user by email
+    const { data: user } = await supabase
+      .from('User')
+      .select('id')
+      .eq('email', session.user.email)
+      .single();
 
     if (!user) {
       return NextResponse.json(
         { message: 'User not found. Please ensure your account is synced.', redemptions: [] },
-        { status: 200 } // Return 200 with empty array instead of 404
+        { status: 200 }
       );
     }
 
-    const redemptions = await prisma.prizeRedemption.findMany({
-      where: { userId: user.id }, // Use Prisma CUID, not Supabase UUID
-      include: {
-        prize: {
-          select: {
-            name: true,
-            description: true,
-            imageUrl: true,
-            type: true,
-          },
-        },
-      },
-      orderBy: { requestedAt: 'desc' },
-    });
+    const { data: redemptions, error } = await supabase
+      .from('PrizeRedemption')
+      .select(`
+        *,
+        Prize:prizeId (name, description, imageUrl, type)
+      `)
+      .eq('userId', user.id)
+      .order('requestedAt', { ascending: false });
 
-    return createSecureJsonResponse({ redemptions });
+    if (error) throw error;
+
+    // Format redemptions
+    const formattedRedemptions = (redemptions || []).map((r: any) => ({
+      ...r,
+      prize: Array.isArray(r.Prize) ? r.Prize[0] : r.Prize
+    }));
+
+    return createSecureJsonResponse({ redemptions: formattedRedemptions });
 
   } catch (error) {
     console.error('Error fetching redemption history:', error);
 
-    // Log security event for errors
     securityLogger.logSecurityEvent({
       type: 'API_ERROR',
       userId: undefined,
-      ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+      ip: request.headers.get('x-forwarded-for') || 'unknown',
       userAgent: request.headers.get('user-agent') || undefined,
       endpoint: '/api/prize-redemption',
       details: {

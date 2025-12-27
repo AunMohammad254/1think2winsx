@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import prisma from '@/lib/prisma';
+import { getDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -20,6 +20,7 @@ interface QuestionUpdateData {
   status?: string;
   correctOption?: number;
   hasCorrectAnswer?: boolean;
+  updatedAt?: string;
 }
 
 // GET /api/admin/questions/[id] - Get specific question details
@@ -33,11 +34,11 @@ export async function GET(
       adminOnly: true,
       context: 'admin_question_details',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
     const questionId = id;
 
@@ -52,56 +53,49 @@ export async function GET(
       return rateLimitResponse;
     }
 
-    // Get question with details
-    const question = await prisma.question.findUnique({
-      where: { id: questionId },
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-          }
-        },
-        answers: {
-          include: {
-            quizAttempt: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                  }
-                }
-              }
-            }
-          },
-          orderBy: {
-            createdAt: 'desc'
-          },
-          take: 20 // Latest 20 answers
-        },
-        _count: {
-          select: {
-            answers: true
-          }
-        }
-      }
-    });
+    const supabase = await getDb();
 
-    if (!question) {
+    // Get question with quiz details
+    const { data: question, error: questionError } = await supabase
+      .from('Question')
+      .select(`
+        *,
+        Quiz:quizId (id, title, status)
+      `)
+      .eq('id', questionId)
+      .single();
+
+    if (questionError || !question) {
       return NextResponse.json(
         { error: 'Question not found' },
         { status: 404 }
       );
     }
 
+    // Get answers for this question (last 20)
+    const { data: answers } = await supabase
+      .from('Answer')
+      .select(`
+        id, selectedOption, isCorrect, createdAt,
+        QuizAttempt:quizAttemptId (
+          User:userId (id, name, email)
+        )
+      `)
+      .eq('questionId', questionId)
+      .order('createdAt', { ascending: false })
+      .limit(20);
+
+    // Get total answer count
+    const { count: totalAnswers } = await supabase
+      .from('Answer')
+      .select('*', { count: 'exact', head: true })
+      .eq('questionId', questionId);
+
     // Calculate answer statistics
     const options = JSON.parse(question.options);
     const answerStats = options.map((option: string, index: number) => {
-      const count = question.answers.filter(answer => answer.selectedOption === index).length;
-      const percentage = question._count.answers > 0 ? Math.round((count / question._count.answers) * 100) : 0;
+      const count = (answers || []).filter((answer: any) => answer.selectedOption === index).length;
+      const percentage = totalAnswers && totalAnswers > 0 ? Math.round((count / totalAnswers) * 100) : 0;
       return {
         option: index,
         text: option,
@@ -111,8 +105,16 @@ export async function GET(
       };
     });
 
-    const correctAnswerCount = question.answers.filter(answer => answer.isCorrect).length;
-    const correctAnswerRate = question._count.answers > 0 ? Math.round((correctAnswerCount / question._count.answers) * 100) : 0;
+    // Count correct answers
+    const { count: correctAnswerCount } = await supabase
+      .from('Answer')
+      .select('*', { count: 'exact', head: true })
+      .eq('questionId', questionId)
+      .eq('isCorrect', true);
+
+    const correctAnswerRate = totalAnswers && totalAnswers > 0
+      ? Math.round(((correctAnswerCount || 0) / totalAnswers) * 100)
+      : 0;
 
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: question.id,
@@ -123,7 +125,7 @@ export async function GET(
       question: {
         id: question.id,
         quizId: question.quizId,
-        quiz: question.quiz,
+        quiz: Array.isArray(question.Quiz) ? question.Quiz[0] : question.Quiz,
         text: question.text,
         options: JSON.parse(question.options),
         correctOption: question.correctOption,
@@ -131,16 +133,20 @@ export async function GET(
         status: question.status,
         createdAt: question.createdAt,
         updatedAt: question.updatedAt,
-        recentAnswers: question.answers.map(answer => ({
-          id: answer.id,
-          selectedOption: answer.selectedOption,
-          isCorrect: answer.isCorrect,
-          createdAt: answer.createdAt,
-          user: answer.quizAttempt.user,
-        })),
+        recentAnswers: (answers || []).map((answer: any) => {
+          const attempt = Array.isArray(answer.QuizAttempt) ? answer.QuizAttempt[0] : answer.QuizAttempt;
+          const user = attempt ? (Array.isArray(attempt.User) ? attempt.User[0] : attempt.User) : null;
+          return {
+            id: answer.id,
+            selectedOption: answer.selectedOption,
+            isCorrect: answer.isCorrect,
+            createdAt: answer.createdAt,
+            user,
+          };
+        }),
         stats: {
-          totalAnswers: question._count.answers,
-          correctAnswerCount,
+          totalAnswers: totalAnswers || 0,
+          correctAnswerCount: correctAnswerCount || 0,
           correctAnswerRate,
           answerDistribution: answerStats,
         },
@@ -159,6 +165,7 @@ export async function GET(
     );
   }
 }
+
 // PATCH /api/admin/questions/[id] - Update question
 export async function PATCH(
   request: NextRequest,
@@ -176,11 +183,11 @@ export async function PATCH(
       adminOnly: true,
       context: 'admin_question_update',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
     const questionId = id;
 
@@ -201,7 +208,7 @@ export async function PATCH(
 
     const body = await request.json();
     const validationResult = updateQuestionSchema.safeParse(body);
-    
+
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, session.user.id, {
         endpoint: '/api/admin/questions/[id]',
@@ -214,21 +221,16 @@ export async function PATCH(
     }
 
     const updateData = validationResult.data;
+    const supabase = await getDb();
 
     // Check if question exists
-    const existingQuestion = await prisma.question.findUnique({
-      where: { id: questionId },
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-          }
-        }
-      }
-    });
+    const { data: existingQuestion, error: fetchError } = await supabase
+      .from('Question')
+      .select(`*, Quiz:quizId (id, title)`)
+      .eq('id', questionId)
+      .single();
 
-    if (!existingQuestion) {
+    if (fetchError || !existingQuestion) {
       return NextResponse.json(
         { error: 'Question not found' },
         { status: 404 }
@@ -254,7 +256,9 @@ export async function PATCH(
     }
 
     // Prepare update data
-    const finalUpdateData: QuestionUpdateData = {};
+    const finalUpdateData: QuestionUpdateData = {
+      updatedAt: new Date().toISOString()
+    };
     if (updateData.text) finalUpdateData.text = updateData.text;
     if (updateData.options) finalUpdateData.options = JSON.stringify(updateData.options);
     if (updateData.status) finalUpdateData.status = updateData.status;
@@ -264,19 +268,14 @@ export async function PATCH(
     }
 
     // Update question
-    const updatedQuestion = await prisma.question.update({
-      where: { id: questionId },
-      data: finalUpdateData,
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-          }
-        }
-      }
-    });
+    const { data: updatedQuestion, error: updateError } = await supabase
+      .from('Question')
+      .update(finalUpdateData)
+      .eq('id', questionId)
+      .select(`*, Quiz:quizId (id, title, status)`)
+      .single();
+
+    if (updateError) throw updateError;
 
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: updatedQuestion.id,
@@ -289,7 +288,7 @@ export async function PATCH(
       question: {
         id: updatedQuestion.id,
         quizId: updatedQuestion.quizId,
-        quiz: updatedQuestion.quiz,
+        quiz: Array.isArray(updatedQuestion.Quiz) ? updatedQuestion.Quiz[0] : updatedQuestion.Quiz,
         text: updatedQuestion.text,
         options: JSON.parse(updatedQuestion.options),
         correctOption: updatedQuestion.correctOption,
@@ -330,11 +329,11 @@ export async function DELETE(
       adminOnly: true,
       context: 'admin_question_delete',
     });
-    
+
     if (authResult instanceof NextResponse) {
       return authResult;
     }
-    
+
     const { session } = authResult;
     const questionId = id;
 
@@ -349,41 +348,47 @@ export async function DELETE(
       return rateLimitResponse;
     }
 
-    // Check if question exists
-    const existingQuestion = await prisma.question.findUnique({
-      where: { id: questionId },
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-          }
-        },
-        _count: {
-          select: {
-            answers: true
-          }
-        }
-      }
-    });
+    const supabase = await getDb();
 
-    if (!existingQuestion) {
+    // Check if question exists
+    const { data: existingQuestion, error: fetchError } = await supabase
+      .from('Question')
+      .select(`*, Quiz:quizId (id, title)`)
+      .eq('id', questionId)
+      .single();
+
+    if (fetchError || !existingQuestion) {
       return NextResponse.json(
         { error: 'Question not found' },
         { status: 404 }
       );
     }
 
-    // Delete question (cascade will handle related answers)
-    await prisma.question.delete({
-      where: { id: questionId }
-    });
+    // Get answer count
+    const { count: answerCount } = await supabase
+      .from('Answer')
+      .select('*', { count: 'exact', head: true })
+      .eq('questionId', questionId);
+
+    // Delete answers first (cascade)
+    await supabase
+      .from('Answer')
+      .delete()
+      .eq('questionId', questionId);
+
+    // Delete question
+    const { error: deleteError } = await supabase
+      .from('Question')
+      .delete()
+      .eq('id', questionId);
+
+    if (deleteError) throw deleteError;
 
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: existingQuestion.id,
       quizId: existingQuestion.quizId,
-      quizTitle: existingQuestion.quiz.title,
-      answerCount: existingQuestion._count.answers,
+      quizTitle: (Array.isArray(existingQuestion.Quiz) ? existingQuestion.Quiz[0] : existingQuestion.Quiz)?.title,
+      answerCount: answerCount || 0,
     });
 
     return createSecureJsonResponse({
@@ -391,7 +396,7 @@ export async function DELETE(
       deletedQuestion: {
         id: existingQuestion.id,
         text: existingQuestion.text,
-        quiz: existingQuestion.quiz,
+        quiz: Array.isArray(existingQuestion.Quiz) ? existingQuestion.Quiz[0] : existingQuestion.Quiz,
       }
     }, { status: 200 });
 

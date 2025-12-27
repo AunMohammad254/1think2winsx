@@ -1,43 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import prisma from '@/lib/prisma';
+import { prizeDb, userDb, prizeRedemptionDb, getDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { securityLogger } from '@/lib/security-logger';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 
 // Input validation schema for prize redemption
 const redeemPrizeSchema = z.object({
-  prizeId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid prize ID format'),
+  prizeId: z.string().min(1, 'Prize ID is required'),
 });
 
 export async function GET() {
   try {
-    // Get all prizes with their 3D model data and points requirement
-    const prizes = await prisma.prize.findMany({
-      where: {
-        isActive: true,
-      },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        imageUrl: true,
-        modelUrl: true,
-        type: true,
-        pointsRequired: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: {
-        pointsRequired: 'asc',
-      },
-    });
+    const supabase = await getDb();
+
+    // Get all active prizes
+    const { data: prizes, error } = await supabase
+      .from('Prize')
+      .select('id, name, description, imageUrl, modelUrl, type, pointsRequired, isActive, createdAt, updatedAt')
+      .eq('isActive', true)
+      .order('pointsRequired', { ascending: true });
+
+    if (error) throw error;
 
     // If no prizes exist, create some default ones with points
-    if (prizes.length === 0) {
+    if (!prizes || prizes.length === 0) {
       const defaultPrizes = [
         {
+          id: generateId(),
           name: 'Wireless Earbuds',
           description: 'Premium wireless earbuds with noise cancellation!',
           imageUrl: '/earbuds.svg',
@@ -45,8 +35,11 @@ export async function GET() {
           type: 'earbuds',
           pointsRequired: 100,
           isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
         {
+          id: generateId(),
           name: 'Smart Watch',
           description: 'Advanced smartwatch with health tracking!',
           imageUrl: '/smartwatch.svg',
@@ -54,8 +47,11 @@ export async function GET() {
           type: 'watch',
           pointsRequired: 250,
           isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
         {
+          id: generateId(),
           name: 'Android Phone',
           description: 'Latest smartphone with amazing features!',
           imageUrl: '/phone.svg',
@@ -63,8 +59,11 @@ export async function GET() {
           type: 'phone',
           pointsRequired: 500,
           isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
         {
+          id: generateId(),
           name: 'CD 70 Bike',
           description: 'Win a brand new motorcycle!',
           imageUrl: '/bike.svg',
@@ -72,35 +71,24 @@ export async function GET() {
           type: 'bike',
           pointsRequired: 1000,
           isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         },
       ];
 
       // Create default prizes
-      await prisma.prize.createMany({
-        data: defaultPrizes,
-      });
+      const { error: insertError } = await supabase
+        .from('Prize')
+        .insert(defaultPrizes);
+
+      if (insertError) throw insertError;
 
       // Fetch the newly created prizes
-      const newPrizes = await prisma.prize.findMany({
-        where: {
-          isActive: true,
-        },
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          imageUrl: true,
-          modelUrl: true,
-          type: true,
-          pointsRequired: true,
-          isActive: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-        orderBy: {
-          pointsRequired: 'asc',
-        },
-      });
+      const { data: newPrizes } = await supabase
+        .from('Prize')
+        .select('id, name, description, imageUrl, modelUrl, type, pointsRequired, isActive, createdAt, updatedAt')
+        .eq('isActive', true)
+        .order('pointsRequired', { ascending: true });
 
       return createSecureJsonResponse({
         success: true,
@@ -131,7 +119,7 @@ export async function POST(request: NextRequest) {
   try {
     // Check authentication
     const session = await auth();
-    
+
     if (!session || !session.user) {
       securityLogger.logUnauthorizedAccess(undefined, '/api/prizes', request);
       return NextResponse.json(
@@ -150,7 +138,7 @@ export async function POST(request: NextRequest) {
     // Handle prize redemption
     if (action === 'redeem') {
       const userId = session.user.id;
-      
+
       // Validate input
       const validationResult = redeemPrizeSchema.safeParse(body);
       if (!validationResult.success) {
@@ -160,38 +148,37 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      
+
       const { prizeId } = validationResult.data;
-      
+      const supabase = await getDb();
+
       // Get user and prize information
-      const [user, prize] = await Promise.all([
-        prisma.user.findUnique({
-          where: { id: userId },
-          select: { points: true },
-        }),
-        prisma.prize.findUnique({
-          where: { id: prizeId },
-        }),
+      const [userResult, prizeResult] = await Promise.all([
+        supabase.from('User').select('points').eq('id', userId).single(),
+        supabase.from('Prize').select('*').eq('id', prizeId).single(),
       ]);
-      
+
+      const user = userResult.data;
+      const prize = prizeResult.data;
+
       if (!user) {
         return NextResponse.json(
           { message: 'User not found' },
           { status: 404 }
         );
       }
-      
+
       if (!prize || !prize.isActive) {
         return NextResponse.json(
           { message: 'Prize not found or not available' },
           { status: 404 }
         );
       }
-      
+
       // Check if user has enough points
       if (user.points < prize.pointsRequired) {
         return NextResponse.json(
-          { 
+          {
             message: 'Insufficient points',
             required: prize.pointsRequired,
             available: user.points,
@@ -199,49 +186,91 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      
+
       // Check for existing pending redemption
-      const existingRedemption = await prisma.prizeRedemption.findFirst({
-        where: {
-          userId,
-          prizeId,
-          status: 'pending',
-        },
-      });
-      
+      const { data: existingRedemption } = await supabase
+        .from('PrizeRedemption')
+        .select('id')
+        .eq('userId', userId)
+        .eq('prizeId', prizeId)
+        .eq('status', 'pending')
+        .single();
+
       if (existingRedemption) {
         return NextResponse.json(
           { message: 'You already have a pending redemption request for this prize' },
           { status: 400 }
         );
       }
-      
-      // Create redemption request and deduct points in a transaction
-      const redemption = await prisma.$transaction(async (tx) => {
-        // Deduct points from user
-        await tx.user.update({
-          where: { id: userId },
-          data: {
-            points: {
-              decrement: prize.pointsRequired,
-            },
-          },
-        });
-        
-        // Create redemption request
-        return await tx.prizeRedemption.create({
-          data: {
-            userId,
-            prizeId,
-            pointsUsed: prize.pointsRequired,
-            status: 'pending',
-          },
-          include: {
-            prize: true,
-          },
-        });
+
+      // Use RPC function for atomic redemption (if exists), otherwise manual transaction
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('redeem_prize', {
+        p_user_id: userId,
+        p_prize_id: prizeId,
       });
-      
+
+      if (rpcError) {
+        // Fallback to manual operations if RPC doesn't exist
+        if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+          // Deduct points from user
+          await supabase
+            .from('User')
+            .update({
+              points: user.points - prize.pointsRequired,
+              updatedAt: new Date().toISOString()
+            })
+            .eq('id', userId);
+
+          // Create redemption request
+          const redemptionId = generateId();
+          const { data: redemption, error: redemptionError } = await supabase
+            .from('PrizeRedemption')
+            .insert({
+              id: redemptionId,
+              userId,
+              prizeId,
+              pointsUsed: prize.pointsRequired,
+              status: 'pending',
+              requestedAt: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            })
+            .select(`*, Prize:prizeId (*)`)
+            .single();
+
+          if (redemptionError) throw redemptionError;
+
+          // Log the redemption request
+          securityLogger.logSecurityEvent({
+            type: 'SUSPICIOUS_ACTIVITY',
+            userId,
+            endpoint: '/api/prizes',
+            details: {
+              action: 'prize_redemption_request',
+              prizeId,
+              pointsUsed: prize.pointsRequired,
+            },
+          });
+
+          return createSecureJsonResponse({
+            success: true,
+            redemption: {
+              ...redemption,
+              prize: Array.isArray(redemption.Prize) ? redemption.Prize[0] : redemption.Prize
+            },
+            message: 'Prize redemption request submitted successfully',
+          }, { status: 201 });
+        }
+        throw rpcError;
+      }
+
+      if (rpcResult && !rpcResult.success) {
+        return NextResponse.json(
+          { message: rpcResult.error || 'Redemption failed' },
+          { status: 400 }
+        );
+      }
+
       // Log the redemption request
       securityLogger.logSecurityEvent({
         type: 'SUSPICIOUS_ACTIVITY',
@@ -251,12 +280,18 @@ export async function POST(request: NextRequest) {
           action: 'prize_redemption_request',
           prizeId,
           pointsUsed: prize.pointsRequired,
+          redemptionId: rpcResult?.redemption_id,
         },
       });
-      
+
       return createSecureJsonResponse({
         success: true,
-        redemption,
+        redemption: {
+          id: rpcResult?.redemption_id,
+          pointsUsed: rpcResult?.points_used,
+          newBalance: rpcResult?.new_balance,
+          prize,
+        },
         message: 'Prize redemption request submitted successfully',
       }, { status: 201 });
     }
@@ -292,8 +327,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Create new prize
-    const prize = await prisma.prize.create({
-      data: {
+    const supabase = await getDb();
+    const { data: prize, error: createError } = await supabase
+      .from('Prize')
+      .insert({
+        id: generateId(),
         name,
         description,
         imageUrl,
@@ -301,8 +339,13 @@ export async function POST(request: NextRequest) {
         type,
         pointsRequired: parseInt(pointsRequired),
         isActive: true,
-      },
-    });
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (createError) throw createError;
 
     return NextResponse.json(
       {

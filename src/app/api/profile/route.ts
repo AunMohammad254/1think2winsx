@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import prisma from '@/lib/prisma';
+import { userDb, quizAttemptDb, prizeRedemptionDb, getDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-import { Prisma } from '@prisma/client';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -28,298 +27,206 @@ export async function GET() {
     }
 
     const userId = session.user.id;
+    const supabase = await getDb();
 
-    // Get user profile with statistics
-    let user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        profilePicture: true,
-        points: true,
-        walletBalance: true,
-        createdAt: true,
-        _count: {
-          select: {
-            quizAttempts: true,
-            winnings: true,
-          },
-        },
-      },
-    });
+    // Get user profile
+    let { data: user, error } = await supabase
+      .from('User')
+      .select('id, name, email, profilePicture, points, walletBalance, createdAt')
+      .eq('id', userId)
+      .single();
 
-    // If user doesn't exist in Prisma, try to create or find them
-    if (!user) {
-      try {
-        // First check if user exists by email
-        const userByEmail = await prisma.user.findUnique({
-          where: { email: session.user.email || '' },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            profilePicture: true,
-            points: true,
-            walletBalance: true,
-            createdAt: true,
-            _count: {
-              select: {
-                quizAttempts: true,
-                winnings: true,
-              },
-            },
-          },
-        });
+    // If user doesn't exist, try to find by email or create
+    if (error && error.code === 'PGRST116') {
+      // Try find by email
+      if (session.user.email) {
+        const { data: userByEmail } = await supabase
+          .from('User')
+          .select('id, name, email, profilePicture, points, walletBalance, createdAt')
+          .eq('email', session.user.email)
+          .single();
 
         if (userByEmail) {
-          // User exists with this email but different ID - use existing user
           user = userByEmail;
-        } else {
-          // User doesn't exist at all, create new
-          const newUser = await prisma.user.create({
-            data: {
-              id: userId,
-              email: session.user.email || `user_${userId}@placeholder.local`,
-              name: session.user.name || null,
-            },
-          });
-
-          user = {
-            ...newUser,
-            _count: {
-              quizAttempts: 0,
-              winnings: 0,
-            },
-          };
         }
-      } catch (createError) {
-        // User might have been created by another request, try to fetch again
-        console.error('Error creating user in profile:', createError);
+      }
 
-        // Try to find by ID first, then by email
-        user = await prisma.user.findUnique({
-          where: { id: userId },
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            profilePicture: true,
-            points: true,
-            walletBalance: true,
-            createdAt: true,
-            _count: {
-              select: {
-                quizAttempts: true,
-                winnings: true,
-              },
-            },
-          },
-        });
-
-        if (!user && session.user.email) {
-          user = await prisma.user.findUnique({
-            where: { email: session.user.email },
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              profilePicture: true,
-              points: true,
-              walletBalance: true,
-              createdAt: true,
-              _count: {
-                select: {
-                  quizAttempts: true,
-                  winnings: true,
-                },
-              },
-            },
+      // Create new user if not found
+      if (!user) {
+        try {
+          const newUser = await userDb.create({
+            id: userId,
+            email: session.user.email || `user_${userId}@placeholder.local`,
+            name: session.user.name || null,
+            password: null,
           });
-        }
-
-        if (!user) {
+          user = newUser;
+        } catch (createError) {
+          console.error('Error creating user in profile:', createError);
           return NextResponse.json(
             { message: 'User not found and could not be created' },
             { status: 404 }
           );
         }
       }
+    } else if (error) {
+      throw error;
     }
 
-    // Get user's quiz history with detailed information
-    // Filter out attempts where the quiz has been deleted
-    const rawQuizHistory = await prisma.quizAttempt.findMany({
-      where: { userId },
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            questions: {
-              select: {
-                id: true,
-              },
-            },
-          },
-        },
-        answers: {
-          select: {
-            id: true,
-            isCorrect: true,
-            question: {
-              select: {
-                id: true,
-                text: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    if (!user) {
+      return NextResponse.json(
+        { message: 'User not found' },
+        { status: 404 }
+      );
+    }
 
-    // Filter out attempts where quiz is null (deleted quizzes) and add question count
-    const quizHistory = rawQuizHistory
-      .filter(attempt => attempt.quiz !== null)
-      .map(attempt => ({
+    // Get quiz attempts count
+    const { count: totalQuizAttempts } = await supabase
+      .from('QuizAttempt')
+      .select('*', { count: 'exact', head: true })
+      .eq('userId', userId);
+
+    // Get quiz history with quiz info
+    const { data: rawQuizHistory } = await supabase
+      .from('QuizAttempt')
+      .select(`
+        id, score, points, isCompleted, isEvaluated, completedAt, createdAt,
+        Quiz:quizId (id, title, description)
+      `)
+      .eq('userId', userId)
+      .order('createdAt', { ascending: false })
+      .limit(20);
+
+    // Get answers for each attempt
+    const quizHistory = [];
+    for (const attempt of rawQuizHistory || []) {
+      if (!attempt.Quiz) continue;
+
+      const { data: answers } = await supabase
+        .from('Answer')
+        .select('id, isCorrect, questionId')
+        .eq('quizAttemptId', attempt.id);
+
+      // Get question count for quiz
+      const quizRaw = attempt.Quiz;
+      const quiz = Array.isArray(quizRaw) ? quizRaw[0] : quizRaw;
+
+      const { count: questionCount } = await supabase
+        .from('Question')
+        .select('*', { count: 'exact', head: true })
+        .eq('quizId', quiz?.id);
+
+      quizHistory.push({
         ...attempt,
         quiz: {
-          ...attempt.quiz,
-          _count: {
-            questions: attempt.quiz?.questions?.length || 0,
-          },
+          ...quiz,
+          _count: { questions: questionCount || 0 }
         },
+        answers: answers || []
+      });
+    }
+
+    // Get best scores (top 5)
+    const { data: rawBestScores } = await supabase
+      .from('QuizAttempt')
+      .select(`
+        id, score, points, createdAt,
+        Quiz:quizId (id, title)
+      `)
+      .eq('userId', userId)
+      .order('score', { ascending: false })
+      .limit(10);
+
+    const bestScores = (rawBestScores || [])
+      .filter((a: any) => a.Quiz)
+      .slice(0, 5)
+      .map((a: any) => ({
+        ...a,
+        quiz: Array.isArray(a.Quiz) ? a.Quiz[0] : a.Quiz
       }));
 
-    // Get user's best scores (top 5)
-    const rawBestScores = await prisma.quizAttempt.findMany({
-      where: { userId },
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-          },
-        },
-      },
-      orderBy: { score: 'desc' },
-      take: 10, // Get more initially to account for null quizzes
-    });
+    // Get winnings count
+    const { count: totalWinnings } = await supabase
+      .from('Winning')
+      .select('*', { count: 'exact', head: true })
+      .eq('userId', userId);
 
-    // Filter out attempts where quiz is null and take top 5
-    const bestScores = rawBestScores.filter(attempt => attempt.quiz !== null).slice(0, 5);
+    // Get recent winnings
+    const { data: rawRecentWinnings } = await supabase
+      .from('Winning')
+      .select(`
+        id, claimed, createdAt,
+        Prize:prizeId (id, name, type),
+        Quiz:quizId (id, title)
+      `)
+      .eq('userId', userId)
+      .order('createdAt', { ascending: false })
+      .limit(10);
 
-    // Get user's recent winnings from quizzes
-    const rawRecentWinnings = await prisma.winning.findMany({
-      where: { userId },
-      include: {
-        prize: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-          },
-        },
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10, // Get more initially to account for null quizzes
-    });
-
-    // Filter out winnings where quiz or prize is null
-    const recentWinnings = rawRecentWinnings.filter(winning => winning.quiz !== null && winning.prize !== null).slice(0, 5);
-
-    // Get user's prize redemptions (prizes bought with points)
-    const prizeRedemptions = await prisma.prizeRedemption.findMany({
-      where: {
-        userId,
-        status: { in: ['pending', 'approved', 'fulfilled'] } // Include all successful redemptions
-      },
-      include: {
-        prize: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-          },
-        },
-      },
-      orderBy: { requestedAt: 'desc' },
-      take: 5,
-    });
-
-    // Combine winnings and redemptions into a unified format
-    const allPrizes = [
-      ...recentWinnings.map(winning => ({
-        id: winning.id,
+    const recentWinnings = (rawRecentWinnings || [])
+      .filter((w: any) => w.Quiz && w.Prize)
+      .slice(0, 5)
+      .map((w: any) => ({
+        id: w.id,
         type: 'quiz_win',
-        prize: winning.prize,
-        quiz: winning.quiz,
-        dateWon: winning.createdAt,
-        status: winning.claimed ? 'claimed' : 'unclaimed'
-      })),
-      ...prizeRedemptions.map(redemption => ({
-        id: redemption.id,
-        type: 'redemption',
-        prize: redemption.prize,
-        quiz: null,
-        dateWon: redemption.requestedAt,
-        status: redemption.status,
-        pointsUsed: redemption.pointsUsed
-      }))
-    ].sort((a, b) => new Date(b.dateWon).getTime() - new Date(a.dateWon).getTime()).slice(0, 10);
+        prize: Array.isArray(w.Prize) ? w.Prize[0] : w.Prize,
+        quiz: Array.isArray(w.Quiz) ? w.Quiz[0] : w.Quiz,
+        dateWon: w.createdAt,
+        status: w.claimed ? 'claimed' : 'unclaimed'
+      }));
 
-    // Get direct count of quiz attempts to fix the _count issue
-    const totalQuizAttempts = await prisma.quizAttempt.count({
-      where: { userId },
-    });
+    // Get prize redemptions
+    const { data: prizeRedemptions } = await supabase
+      .from('PrizeRedemption')
+      .select(`
+        id, pointsUsed, status, requestedAt,
+        Prize:prizeId (id, name, type)
+      `)
+      .eq('userId', userId)
+      .in('status', ['pending', 'approved', 'fulfilled'])
+      .order('requestedAt', { ascending: false })
+      .limit(5);
 
-    // Get direct count of winnings to fix the _count issue
-    const totalWinnings = await prisma.winning.count({
-      where: { userId },
-    });
+    const redemptionsList = (prizeRedemptions || []).map((r: any) => ({
+      id: r.id,
+      type: 'redemption',
+      prize: Array.isArray(r.Prize) ? r.Prize[0] : r.Prize,
+      quiz: null,
+      dateWon: r.requestedAt,
+      status: r.status,
+      pointsUsed: r.pointsUsed
+    }));
 
-    // Get count of successful prize redemptions
-    const totalRedemptions = await prisma.prizeRedemption.count({
-      where: {
-        userId,
-        status: { in: ['pending', 'approved', 'fulfilled'] }
-      },
-    });
+    // Combine winnings and redemptions
+    const allPrizes = [...recentWinnings, ...redemptionsList]
+      .sort((a, b) => new Date(b.dateWon).getTime() - new Date(a.dateWon).getTime())
+      .slice(0, 10);
+
+    // Get redemptions count
+    const { count: totalRedemptions } = await supabase
+      .from('PrizeRedemption')
+      .select('*', { count: 'exact', head: true })
+      .eq('userId', userId)
+      .in('status', ['pending', 'approved', 'fulfilled']);
 
     return createSecureJsonResponse({
       user: {
         id: user.id,
         name: user.name,
-        email: user.email, // Only expose to the user themselves
+        email: user.email,
         profilePicture: user.profilePicture,
-        points: user.points, // Include user points in response
+        points: user.points,
         walletBalance: user.walletBalance || 0,
         createdAt: user.createdAt,
-        totalQuizAttempts: totalQuizAttempts,
-        totalWinnings: totalWinnings + totalRedemptions, // Include both quiz wins and redemptions
+        totalQuizAttempts: totalQuizAttempts || 0,
+        totalWinnings: (totalWinnings || 0) + (totalRedemptions || 0),
       },
       quizHistory,
       bestScores,
-      recentWinnings: allPrizes, // Return combined prizes instead of just quiz winnings
+      recentWinnings: allPrizes,
     }, { status: 200 });
   } catch (error) {
     console.error('Error fetching profile:', error);
-
-    if (error instanceof Prisma.PrismaClientInitializationError) {
-      return NextResponse.json(
-        { message: 'Database connection error' },
-        { status: 503 }
-      );
-    }
-
     return NextResponse.json(
       { message: 'Internal server error' },
       { status: 500 }
@@ -372,9 +279,7 @@ export async function PUT(request: NextRequest) {
     const { name, email, currentPassword, newPassword } = validationResult.data;
 
     // Get current user data
-    const currentUser = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const currentUser = await userDb.findById(userId);
 
     if (!currentUser) {
       return NextResponse.json(
@@ -384,7 +289,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Prepare update data
-    const updateData: Prisma.UserUpdateInput = {};
+    const updateData: Record<string, any> = {};
 
     if (name) {
       updateData.name = name;
@@ -392,12 +297,13 @@ export async function PUT(request: NextRequest) {
 
     if (email) {
       // Check if email is already taken by another user
-      const existingUser = await prisma.user.findFirst({
-        where: {
-          email,
-          NOT: { id: userId },
-        },
-      });
+      const supabase = await getDb();
+      const { data: existingUser } = await supabase
+        .from('User')
+        .select('id')
+        .eq('email', email)
+        .neq('id', userId)
+        .single();
 
       if (existingUser) {
         return NextResponse.json(
@@ -441,44 +347,25 @@ export async function PUT(request: NextRequest) {
     }
 
     // Update user
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: updateData,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        createdAt: true,
-      },
-    });
+    const updatedUser = await userDb.update(userId, updateData);
 
     return createSecureJsonResponse({
       message: 'Profile updated successfully',
-      user: updatedUser,
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        createdAt: updatedUser.createdAt,
+      },
     }, { status: 200 });
   } catch (error) {
     console.error('Error updating profile:', error);
 
-    // Handle specific Prisma errors
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') {
-        return NextResponse.json(
-          { message: 'Email already in use' },
-          { status: 409 }
-        );
-      }
-      if (error.code === 'P2025') {
-        return NextResponse.json(
-          { message: 'User not found' },
-          { status: 404 }
-        );
-      }
-    }
-
-    if (error instanceof Prisma.PrismaClientInitializationError) {
+    // Handle Supabase unique constraint violation
+    if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
       return NextResponse.json(
-        { message: 'Database connection error' },
-        { status: 503 }
+        { message: 'Email already in use' },
+        { status: 409 }
       );
     }
 
