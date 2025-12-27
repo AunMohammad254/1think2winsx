@@ -12,7 +12,7 @@ const statusConfig: Record<TransactionStatus, { label: string; bgClass: string; 
         label: 'Pending',
         bgClass: 'bg-yellow-500/20',
         textClass: 'text-yellow-300',
-        dotClass: 'bg-yellow-400 animate-pulse',
+        dotClass: 'bg-yellow-400',
     },
     approved: {
         label: 'Approved',
@@ -31,150 +31,113 @@ const statusConfig: Record<TransactionStatus, { label: string; bgClass: string; 
 export default function TransactionHistory({ transactions, isLoading = false }: TransactionHistoryProps) {
     if (isLoading) {
         return (
-            <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-                <div className="p-6 border-b border-white/10">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full flex items-center justify-center">
-                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                            </svg>
-                        </div>
-                        <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                            Transaction History
-                        </h2>
-                    </div>
-                </div>
-                <div className="p-6">
-                    <div className="space-y-4">
-                        {[1, 2, 3].map((i) => (
-                            <div key={i} className="p-4 bg-white/5 rounded-xl animate-pulse">
-                                <div className="h-4 bg-white/10 rounded w-1/3 mb-2"></div>
-                                <div className="h-3 bg-white/10 rounded w-1/2"></div>
+            <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                    <div key={i} className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-4 animate-pulse">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-white/10 rounded-full"></div>
+                            <div className="flex-1">
+                                <div className="h-4 w-24 bg-white/10 rounded mb-2"></div>
+                                <div className="h-3 w-16 bg-white/10 rounded"></div>
                             </div>
-                        ))}
+                            <div className="h-5 w-16 bg-white/10 rounded"></div>
+                        </div>
                     </div>
+                ))}
+            </div>
+        );
+    }
+
+    if (transactions.length === 0) {
+        return (
+            <div className="text-center py-8">
+                <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
                 </div>
+                <h3 className="text-white font-semibold mb-2">No Transactions</h3>
+                <p className="text-slate-400 text-sm">Your deposit history will appear here</p>
             </div>
         );
     }
 
     return (
-        <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-            <div className="p-6 border-b border-white/10">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                        </svg>
-                    </div>
-                    <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                        Transaction History
-                    </h2>
-                </div>
-            </div>
+        <div className="space-y-3">
+            {transactions.map((tx) => {
+                const config = statusConfig[tx.status];
+                const isApproved = tx.status === 'approved';
 
-            <div className="p-6">
-                {transactions.length === 0 ? (
-                    <div className="text-center py-12">
-                        <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-full flex items-center justify-center">
-                            <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                            </svg>
-                        </div>
-                        <h3 className="text-lg font-semibold text-white mb-2">No Transactions Yet</h3>
-                        <p className="text-slate-400 text-sm">
-                            Your deposit requests will appear here once you make them.
-                        </p>
-                    </div>
-                ) : (
-                    <>
-                        {/* Desktop Table */}
-                        <div className="hidden lg:block overflow-x-auto">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b border-white/10">
-                                        <th className="text-left py-3 px-4 text-slate-300 font-semibold text-sm">Date</th>
-                                        <th className="text-left py-3 px-4 text-slate-300 font-semibold text-sm">Amount</th>
-                                        <th className="text-left py-3 px-4 text-slate-300 font-semibold text-sm">Method</th>
-                                        <th className="text-left py-3 px-4 text-slate-300 font-semibold text-sm">Transaction ID</th>
-                                        <th className="text-left py-3 px-4 text-slate-300 font-semibold text-sm">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {transactions.map((tx) => {
-                                        const status = statusConfig[tx.status as TransactionStatus];
-                                        return (
-                                            <tr key={tx.id} className="border-b border-white/5 hover:bg-white/5 transition-colors duration-200">
-                                                <td className="py-4 px-4 text-slate-300 text-sm">
-                                                    {new Date(tx.createdAt).toLocaleDateString('en-US', {
-                                                        year: 'numeric',
-                                                        month: 'short',
-                                                        day: 'numeric',
-                                                    })}
-                                                </td>
-                                                <td className="py-4 px-4">
-                                                    <span className="text-white font-semibold">{tx.amount.toFixed(2)} PKR</span>
-                                                </td>
-                                                <td className="py-4 px-4 text-slate-300 text-sm">{tx.paymentMethod}</td>
-                                                <td className="py-4 px-4">
-                                                    <code className="text-xs bg-white/10 px-2 py-1 rounded text-slate-300">
-                                                        {tx.transactionId}
-                                                    </code>
-                                                </td>
-                                                <td className="py-4 px-4">
-                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${status.bgClass} ${status.textClass}`}>
-                                                        <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`}></span>
-                                                        {status.label}
-                                                    </span>
-                                                    {tx.adminNotes && tx.status === 'rejected' && (
-                                                        <p className="text-red-300/70 text-xs mt-1">{tx.adminNotes}</p>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
+                return (
+                    <div key={tx.id} className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-4 hover:bg-white/[0.08] transition-colors">
+                        <div className="flex items-center gap-3">
+                            {/* Icon */}
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isApproved
+                                    ? 'bg-gradient-to-br from-emerald-400 to-green-500'
+                                    : tx.status === 'rejected'
+                                        ? 'bg-gradient-to-br from-red-400 to-pink-500'
+                                        : 'bg-gradient-to-br from-yellow-400 to-orange-500'
+                                }`}>
+                                {isApproved ? (
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                ) : tx.status === 'rejected' ? (
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                ) : (
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                )}
+                            </div>
+
+                            {/* Details */}
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-white font-medium text-sm">Deposit</span>
+                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.bgClass} ${config.textClass}`}>
+                                        <div className={`w-1.5 h-1.5 rounded-full ${config.dotClass}`}></div>
+                                        {config.label}
+                                    </span>
+                                </div>
+                                <p className="text-slate-400 text-xs truncate">
+                                    {new Date(tx.createdAt).toLocaleDateString('en-US', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
                                     })}
-                                </tbody>
-                            </table>
+                                </p>
+                            </div>
+
+                            {/* Amount */}
+                            <div className="text-right">
+                                <span className={`text-lg font-bold ${isApproved
+                                        ? 'text-emerald-400'
+                                        : tx.status === 'rejected'
+                                            ? 'text-red-400 line-through opacity-50'
+                                            : 'text-white'
+                                    }`}>
+                                    {isApproved ? '+' : ''}{tx.amount.toFixed(0)}
+                                </span>
+                                <span className="text-slate-400 text-xs ml-1">PKR</span>
+                            </div>
                         </div>
 
-                        {/* Mobile Cards */}
-                        <div className="lg:hidden space-y-4">
-                            {transactions.map((tx) => {
-                                const status = statusConfig[tx.status as TransactionStatus];
-                                return (
-                                    <div key={tx.id} className="bg-white/5 border border-white/10 rounded-xl p-4">
-                                        <div className="flex justify-between items-start mb-3">
-                                            <div>
-                                                <span className="text-white font-semibold text-lg">{tx.amount.toFixed(2)} PKR</span>
-                                                <p className="text-slate-400 text-xs mt-0.5">{tx.paymentMethod}</p>
-                                            </div>
-                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${status.bgClass} ${status.textClass}`}>
-                                                <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`}></span>
-                                                {status.label}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-sm">
-                                            <span className="text-slate-400">
-                                                {new Date(tx.createdAt).toLocaleDateString('en-US', {
-                                                    month: 'short',
-                                                    day: 'numeric',
-                                                    year: 'numeric',
-                                                })}
-                                            </span>
-                                            <code className="text-xs bg-white/10 px-2 py-1 rounded text-slate-300">
-                                                {tx.transactionId}
-                                            </code>
-                                        </div>
-                                        {tx.adminNotes && tx.status === 'rejected' && (
-                                            <p className="text-red-300/70 text-xs mt-2 p-2 bg-red-500/10 rounded">{tx.adminNotes}</p>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </>
-                )}
-            </div>
+                        {/* Transaction ID */}
+                        {tx.transactionId && (
+                            <div className="mt-3 pt-3 border-t border-white/5">
+                                <p className="text-xs text-slate-500">
+                                    ID: <span className="text-slate-400 font-mono">{tx.transactionId}</span>
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 }

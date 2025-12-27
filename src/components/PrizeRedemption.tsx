@@ -44,7 +44,7 @@ export default function PrizeRedemption() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'prizes' | 'history'>('prizes');
-  
+
   // Form popup state
   const [showRedemptionForm, setShowRedemptionForm] = useState(false);
   const [selectedPrize, setSelectedPrize] = useState<Prize | null>(null);
@@ -54,6 +54,11 @@ export default function PrizeRedemption() {
     address: ''
   });
   const [formErrors, setFormErrors] = useState<Partial<RedemptionFormData>>({});
+
+  // Preview modal state
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewPrize, setPreviewPrize] = useState<Prize | null>(null);
+  const [previewRedemption, setPreviewRedemption] = useState<RedemptionHistory | null>(null);
 
   useEffect(() => {
     fetchPrizes();
@@ -119,21 +124,21 @@ export default function PrizeRedemption() {
 
   const validateForm = (): boolean => {
     const errors: Partial<RedemptionFormData> = {};
-    
+
     if (!formData.name.trim()) {
       errors.name = 'Name is required';
     }
-    
+
     if (!formData.whatsappNumber.trim()) {
       errors.whatsappNumber = 'WhatsApp number is required';
     } else if (!/^\+?[\d\s-()]+$/.test(formData.whatsappNumber)) {
       errors.whatsappNumber = 'Please enter a valid WhatsApp number';
     }
-    
+
     if (!formData.address.trim()) {
       errors.address = 'Address is required';
     }
-    
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -161,7 +166,7 @@ export default function PrizeRedemption() {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           prizeId: selectedPrize.id,
           fullName: formData.name,
           whatsappNumber: formData.whatsappNumber,
@@ -175,7 +180,7 @@ export default function PrizeRedemption() {
         setSuccess(`Successfully redeemed ${selectedPrize.name}! Your redemption request is being processed.`);
         await refreshProfile(); // Refresh to update points
         await fetchRedemptionHistory(); // Refresh redemption history
-        
+
         // Reset form and close popup
         setShowRedemptionForm(false);
         setSelectedPrize(null);
@@ -241,21 +246,19 @@ export default function PrizeRedemption() {
         <nav className="flex space-x-8 px-4 sm:px-6">
           <button
             onClick={() => setActiveTab('prizes')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm glass-transition ${
-              activeTab === 'prizes'
-                ? 'border-blue-400 text-blue-300'
-                : 'border-transparent text-gray-400 hover:text-white hover:border-blue-500/50'
-            }`}
+            className={`py-4 px-1 border-b-2 font-medium text-sm glass-transition ${activeTab === 'prizes'
+              ? 'border-blue-400 text-blue-300'
+              : 'border-transparent text-gray-400 hover:text-white hover:border-blue-500/50'
+              }`}
           >
             Available Prizes
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`py-4 px-1 border-b-2 font-medium text-sm glass-transition ${
-              activeTab === 'history'
-                ? 'border-blue-400 text-blue-300'
-                : 'border-transparent text-gray-400 hover:text-white hover:border-blue-500/50'
-            }`}
+            className={`py-4 px-1 border-b-2 font-medium text-sm glass-transition ${activeTab === 'history'
+              ? 'border-blue-400 text-blue-300'
+              : 'border-transparent text-gray-400 hover:text-white hover:border-blue-500/50'
+              }`}
           >
             Redemption History
           </button>
@@ -299,19 +302,24 @@ export default function PrizeRedemption() {
                   const isRedeeming = redeeming === prize.id;
 
                   return (
-                    <div key={prize.id} className="glass-card-blue glass-border glass-hover glass-transition overflow-hidden">
-                      <div className="h-48 bg-gradient-glass-dark flex items-center justify-center">
-                        <Image
-                          src={prize.imageUrl || `/prizes/${prize.type}.svg`}
-                          alt={prize.name}
-                          width={128}
-                          height={128}
-                          className="h-32 w-32 object-contain"
-                        />
+                    <div key={prize.id} className="glass-card-blue glass-border glass-hover glass-transition overflow-hidden rounded-2xl">
+                      <div
+                        className="h-48 bg-gradient-glass-dark flex items-center justify-center cursor-pointer hover:bg-white/5 transition-colors p-4"
+                        onClick={() => { setPreviewPrize(prize); setShowPreviewModal(true); }}
+                      >
+                        <div className="h-32 w-32 rounded-2xl overflow-hidden">
+                          <Image
+                            src={prize.imageUrl || `/prizes/${prize.type}.svg`}
+                            alt={prize.name}
+                            width={128}
+                            height={128}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
                       </div>
                       <div className="p-4">
-                        <h3 className="text-lg font-semibold text-white mb-2">{prize.name}</h3>
-                        <p className="text-sm text-gray-300 mb-3">{prize.description}</p>
+                        <h3 className="text-lg font-semibold text-white mb-2 truncate" title={prize.name}>{prize.name}</h3>
+                        <p className="text-sm text-gray-300 mb-3 line-clamp-2" title={prize.description}>{prize.description}</p>
                         <div className="flex items-center justify-between">
                           <span className="text-lg font-bold text-blue-400">
                             {prize.pointsRequired} points
@@ -319,11 +327,10 @@ export default function PrizeRedemption() {
                           <button
                             onClick={() => handleRedeem(prize.id, prize.name, prize.pointsRequired)}
                             disabled={!canAfford || isRedeeming}
-                            className={`px-4 py-2 rounded-md text-sm font-medium glass-transition ${
-                              canAfford && !isRedeeming
-                                ? 'bg-blue-600 text-white hover:bg-blue-500 glass-hover-blue'
-                                : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-                            }`}
+                            className={`px-4 py-2 rounded-md text-sm font-medium glass-transition ${canAfford && !isRedeeming
+                              ? 'bg-blue-600 text-white hover:bg-blue-500 glass-hover-blue'
+                              : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
+                              }`}
                           >
                             {isRedeeming ? 'Redeeming...' : canAfford ? 'Redeem' : 'Not enough points'}
                           </button>
@@ -347,21 +354,24 @@ export default function PrizeRedemption() {
             {redemptionHistory.length > 0 ? (
               <div className="space-y-4">
                 {redemptionHistory.map((redemption) => (
-                  <div key={redemption.id} className="glass-card glass-border p-4 glass-hover glass-transition">
+                  <div key={redemption.id} className="glass-card glass-border p-4 glass-hover glass-transition rounded-2xl">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-4">
-                        <div className="h-16 w-16 bg-gradient-glass-dark rounded-lg flex items-center justify-center glass-border">
+                        <div
+                          className="h-16 w-16 bg-gradient-glass-dark rounded-xl overflow-hidden glass-border cursor-pointer hover:bg-white/5 transition-colors"
+                          onClick={() => { setPreviewRedemption(redemption); setShowPreviewModal(true); }}
+                        >
                           <Image
                             src={redemption.prize.imageUrl || `/prizes/${redemption.prize.type}.svg`}
                             alt={redemption.prize.name}
                             width={48}
                             height={48}
-                            className="h-12 w-12 object-contain"
+                            className="h-full w-full object-cover"
                           />
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-white">{redemption.prize.name}</h3>
-                          <p className="text-sm text-gray-300">{redemption.prize.description}</p>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-white truncate" title={redemption.prize.name}>{redemption.prize.name}</h3>
+                          <p className="text-sm text-gray-300 line-clamp-2" title={redemption.prize.description}>{redemption.prize.description}</p>
                           <p className="text-sm text-gray-400 mt-1">
                             Requested on {new Date(redemption.requestedAt).toLocaleDateString()}
                           </p>
@@ -453,9 +463,8 @@ export default function PrizeRedemption() {
                     id="name"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className={`w-full px-3 py-2 bg-gradient-glass-dark glass-border rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-transition ${
-                      formErrors.name ? 'border-red-500' : ''
-                    }`}
+                    className={`w-full px-3 py-2 bg-gradient-glass-dark glass-border rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-transition ${formErrors.name ? 'border-red-500' : ''
+                      }`}
                     placeholder="Enter your full name"
                   />
                   {formErrors.name && (
@@ -473,9 +482,8 @@ export default function PrizeRedemption() {
                     id="whatsapp"
                     value={formData.whatsappNumber}
                     onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
-                    className={`w-full px-3 py-2 bg-gradient-glass-dark glass-border rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-transition ${
-                      formErrors.whatsappNumber ? 'border-red-500' : ''
-                    }`}
+                    className={`w-full px-3 py-2 bg-gradient-glass-dark glass-border rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-transition ${formErrors.whatsappNumber ? 'border-red-500' : ''
+                      }`}
                     placeholder="Enter your WhatsApp number"
                   />
                   {formErrors.whatsappNumber && (
@@ -493,9 +501,8 @@ export default function PrizeRedemption() {
                     rows={3}
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                    className={`w-full px-3 py-2 bg-gradient-glass-dark glass-border rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-transition resize-none ${
-                      formErrors.address ? 'border-red-500' : ''
-                    }`}
+                    className={`w-full px-3 py-2 bg-gradient-glass-dark glass-border rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-transition resize-none ${formErrors.address ? 'border-red-500' : ''
+                      }`}
                     placeholder="Enter your complete delivery address"
                   />
                   {formErrors.address && (
@@ -521,6 +528,132 @@ export default function PrizeRedemption() {
                   {redeeming === selectedPrize.id ? 'Processing...' : 'Confirm Redemption'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal for Prizes/Redemptions */}
+      {showPreviewModal && (previewPrize || previewRedemption) && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-blue-dark glass-card glass-border max-w-lg w-full max-h-[90vh] overflow-y-auto rounded-3xl">
+            {/* Header */}
+            <div className="bg-gradient-glass-blue px-6 py-4 glass-border-bottom flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">
+                {previewPrize ? 'Prize Details' : 'Redemption Details'}
+              </h3>
+              <button
+                onClick={() => { setShowPreviewModal(false); setPreviewPrize(null); setPreviewRedemption(null); }}
+                className="text-gray-400 hover:text-white glass-transition w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {/* Image */}
+              <div className="flex justify-center mb-6">
+                <div className="h-48 w-48 bg-gradient-glass-dark rounded-2xl overflow-hidden glass-border">
+                  <Image
+                    src={previewPrize?.imageUrl || previewRedemption?.prize.imageUrl || `/prizes/default.svg`}
+                    alt={previewPrize?.name || previewRedemption?.prize.name || 'Prize'}
+                    width={160}
+                    height={160}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              </div>
+
+              {/* Details */}
+              <div className="text-center mb-6">
+                <h4 className="text-xl font-bold text-white mb-2">
+                  {previewPrize?.name || previewRedemption?.prize.name}
+                </h4>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  {previewPrize?.description || previewRedemption?.prize.description}
+                </p>
+              </div>
+
+              {/* Prize-specific info */}
+              {previewPrize && (
+                <div className="bg-gradient-glass-dark rounded-xl p-4 glass-border">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400 text-sm">Points Required</span>
+                    <span className="text-lg font-bold text-blue-400">{previewPrize.pointsRequired} points</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-gray-400 text-sm">Your Points</span>
+                    <span className={`text-lg font-bold ${(profile?.points || 0) >= previewPrize.pointsRequired ? 'text-green-400' : 'text-red-400'}`}>
+                      {profile?.points || 0} points
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Redemption-specific info */}
+              {previewRedemption && (
+                <div className="bg-gradient-glass-dark rounded-xl p-4 glass-border space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400 text-sm">Status</span>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(previewRedemption.status)}`}>
+                      {previewRedemption.status.charAt(0).toUpperCase() + previewRedemption.status.slice(1)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400 text-sm">Points Used</span>
+                    <span className="text-lg font-bold text-blue-400">{previewRedemption.pointsUsed} points</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-400 text-sm">Requested On</span>
+                    <span className="text-white text-sm">{new Date(previewRedemption.requestedAt).toLocaleDateString()}</span>
+                  </div>
+                  {previewRedemption.processedAt && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400 text-sm">Processed On</span>
+                      <span className="text-white text-sm">{new Date(previewRedemption.processedAt).toLocaleDateString()}</span>
+                    </div>
+                  )}
+                  {previewRedemption.notes && (
+                    <div className="pt-3 border-t border-white/10">
+                      <span className="text-gray-400 text-sm block mb-1">Admin Notes</span>
+                      <p className="text-gray-300 text-sm">{previewRedemption.notes}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Button for Prize Preview */}
+              {previewPrize && (
+                <button
+                  onClick={() => {
+                    setShowPreviewModal(false);
+                    handleRedeem(previewPrize.id, previewPrize.name, previewPrize.pointsRequired);
+                    setPreviewPrize(null);
+                  }}
+                  disabled={(profile?.points || 0) < previewPrize.pointsRequired}
+                  className={`w-full mt-6 px-6 py-3 rounded-xl font-semibold glass-transition ${(profile?.points || 0) >= previewPrize.pointsRequired
+                    ? 'bg-blue-600 text-white hover:bg-blue-500'
+                    : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
+                    }`}
+                >
+                  {(profile?.points || 0) >= previewPrize.pointsRequired
+                    ? 'Redeem This Prize'
+                    : `Need ${previewPrize.pointsRequired - (profile?.points || 0)} more points`}
+                </button>
+              )}
+
+              {/* Close Button for Redemption Preview */}
+              {previewRedemption && (
+                <button
+                  onClick={() => { setShowPreviewModal(false); setPreviewRedemption(null); }}
+                  className="w-full mt-6 px-6 py-3 rounded-xl font-semibold bg-gray-600/50 text-white hover:bg-gray-600/70 glass-transition"
+                >
+                  Close
+                </button>
+              )}
             </div>
           </div>
         </div>
