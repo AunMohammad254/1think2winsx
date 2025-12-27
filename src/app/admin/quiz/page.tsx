@@ -394,8 +394,8 @@ export default function AdminQuizManagementPage() {
                                 key={status}
                                 onClick={() => { setStatusFilter(status); setCurrentPage(1); }}
                                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${statusFilter === status
-                                        ? 'bg-purple-600 text-white'
-                                        : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                    ? 'bg-purple-600 text-white'
+                                    : 'bg-white/5 text-gray-400 hover:bg-white/10'
                                     }`}
                             >
                                 {status === 'all' ? 'All' : statusConfig[status]?.label || status}
@@ -577,10 +577,10 @@ export default function AdminQuizManagementPage() {
                                             {actionMenuOpen === quiz.id && (
                                                 <>
                                                     <div
-                                                        className="fixed inset-0 z-10"
+                                                        className="fixed inset-0 z-50"
                                                         onClick={() => setActionMenuOpen(null)}
                                                     />
-                                                    <div className="absolute right-0 top-10 z-20 w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl py-1">
+                                                    <div className="absolute right-0 top-10 z-[60] w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl py-1">
                                                         <button
                                                             onClick={() => handleEdit(quiz)}
                                                             className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/10 transition-colors"
@@ -660,8 +660,8 @@ export default function AdminQuizManagementPage() {
                                             key={page}
                                             onClick={() => setCurrentPage(page)}
                                             className={`w-10 h-10 rounded-lg font-medium transition-colors ${currentPage === page
-                                                    ? 'bg-purple-600 text-white'
-                                                    : 'text-gray-400 hover:text-white hover:bg-white/10'
+                                                ? 'bg-purple-600 text-white'
+                                                : 'text-gray-400 hover:text-white hover:bg-white/10'
                                                 }`}
                                         >
                                             {page}

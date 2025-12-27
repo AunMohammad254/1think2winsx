@@ -96,8 +96,8 @@ async function ActivityFeed() {
 // ============================================
 const navItems = [
   { href: '/admin/dashboard', label: 'Overview', icon: LayoutDashboard, active: true },
-  { href: '/admin/quizzes', label: 'Quiz Management', icon: FileText },
-  { href: '/admin/quiz', label: 'Create Quiz', icon: FileText },
+  { href: '/admin/quiz', label: 'Quiz Management', icon: FileText },
+  { href: '/admin/quiz-evaluation', label: 'Quiz Evaluation', icon: CheckSquare },
   { href: '/admin/prizes', label: 'Prizes', icon: Gift },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet },
   { href: '/admin/claims', label: 'Prize Claims', icon: Trophy },
@@ -107,8 +107,8 @@ const navItems = [
 ];
 
 const quickActions = [
-  { href: '/admin/quiz', label: 'Create New Quiz', icon: FileText, color: 'purple' },
-  { href: '/admin/quizzes', label: 'Manage Quizzes', icon: CheckSquare, color: 'blue' },
+  { href: '/admin/quiz', label: 'Manage Quizzes', icon: FileText, color: 'blue' },
+  { href: '/admin/quiz-evaluation', label: 'Quiz Evaluation', icon: CheckSquare, color: 'purple' },
   { href: '/admin/prizes', label: 'Manage Prizes', icon: Trophy, color: 'green' },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet, color: 'emerald' },
   { href: '/admin/claims', label: 'Prize Claims', icon: Gift, color: 'amber' },
