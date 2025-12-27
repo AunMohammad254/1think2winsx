@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
 import { securityLogger } from '@/lib/security-logger';
 import { createClient } from '@supabase/supabase-js';
 
-let cachedHtml: string | null = null;
+/**
+ * Public Streaming Active API
+ * 
+ * Returns the active stream configuration for public consumption.
+ * Uses DATABASE-ONLY storage - no file-based fallback.
+ */
+
+let cachedConfig: { embedHtml: string; isActive: boolean; title?: string } | null = null;
 let cachedAt = 0;
 const CACHE_TTL_MS = 5_000; // 5 seconds - short TTL for quick admin refresh
 
@@ -20,84 +25,88 @@ function getSupabaseAdmin() {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
-// Try to get embed HTML from Supabase RPC
-async function getEmbedFromSupabase(): Promise<string | null> {
+// Get stream config from database
+async function getStreamConfig(): Promise<{ embedHtml: string; isActive: boolean; title?: string } | null> {
   try {
     const supabase = getSupabaseAdmin();
     if (!supabase) return null;
 
-    const { data, error } = await supabase.rpc('get_stream_embed');
-    if (!error && data?.success && data.embedHtml) {
-      return data.embedHtml;
-    }
+    const { data, error } = await supabase.rpc('get_live_stream_config');
+
     if (error) {
-      console.warn('Supabase RPC error, will try file fallback:', error.message);
+      console.error('RPC error fetching stream config:', error);
+      return null;
     }
+
+    if (!data?.success || !data.isActive) {
+      return null;
+    }
+
+    // Return config if there's embed content
+    if (data.embedHtml || data.embedUrl) {
+      return {
+        embedHtml: data.embedHtml || (data.embedUrl ? `<iframe src="${data.embedUrl}" allowfullscreen></iframe>` : ''),
+        isActive: data.isActive,
+        title: data.title,
+      };
+    }
+
     return null;
   } catch (err) {
-    console.warn('Supabase RPC failed:', err);
+    console.error('Error fetching stream config:', err);
     return null;
   }
 }
 
-async function readAdminEmbedHtml(): Promise<string | null> {
-  try {
-    const filePath = path.join(process.cwd(), 'public', 'uploads', 'stream-embed.html');
-    const buf = await fs.readFile(filePath);
-    const html = buf.toString('utf8').trim();
-    return html.length > 0 ? html : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-async function getCachedEmbedHtml(): Promise<string | null> {
+// Get cached stream config
+async function getCachedStreamConfig(): Promise<{ embedHtml: string; isActive: boolean; title?: string } | null> {
   const now = Date.now();
-  if (cachedHtml && now - cachedAt < CACHE_TTL_MS) {
-    return cachedHtml;
+  if (cachedConfig && now - cachedAt < CACHE_TTL_MS) {
+    return cachedConfig;
   }
 
-  // Try Supabase first, then fall back to file
-  let html = await getEmbedFromSupabase();
-  if (!html) {
-    html = await readAdminEmbedHtml();
-  }
-
-  cachedHtml = html;
+  cachedConfig = await getStreamConfig();
   cachedAt = now;
-  return html;
+  return cachedConfig;
 }
 
 // GET - Get active stream for public consumption
 export async function GET() {
   try {
     const start = Date.now();
-    const embedHtml = await getCachedEmbedHtml();
-    if (embedHtml) {
-      securityLogger.logPerformanceMetric('streaming_active', Date.now() - start, '/api/streaming/active');
+    const config = await getCachedStreamConfig();
+
+    securityLogger.logPerformanceMetric('streaming_active', Date.now() - start, '/api/streaming/active');
+
+    if (config && config.embedHtml) {
       return NextResponse.json({
         hasActiveStream: true,
         stream: {
           id: 'admin-embed',
-          name: 'Livestream',
+          name: config.title || 'Livestream',
           quality: 'auto',
           autoReconnect: false,
           maxReconnectAttempts: 0,
           reconnectDelay: 3000,
           facebookLiveVideo: {
             id: 'admin-embed',
-            title: 'Livestream',
+            title: config.title || 'Livestream',
             description: 'Admin-provided livestream embed',
-            embedHtml: embedHtml,
+            embedHtml: config.embedHtml,
             streamUrl: '',
             creationTime: new Date().toISOString(),
           },
           session: null,
         },
-      }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+      }, {
+        headers: { 'Cache-Control': 'no-store, max-age=0' }
+      });
     }
-    securityLogger.logPerformanceMetric('streaming_active', Date.now() - start, '/api/streaming/active');
-    return NextResponse.json({ hasActiveStream: false, stream: null }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+
+    return NextResponse.json(
+      { hasActiveStream: false, stream: null },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    );
   } catch (error) {
     console.error('Error fetching active stream:', error);
     return NextResponse.json(

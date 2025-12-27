@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Video } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
-import StreamingManager from '@/components/admin/StreamingManager';
+import LiveStreamManager from '@/components/admin/LiveStreamManager';
 
 async function checkAuth() {
     const supabase = await createClient();
@@ -45,7 +45,7 @@ export default async function AdminStreamingPage() {
 
             {/* Main Content */}
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <StreamingManager />
+                <LiveStreamManager />
             </main>
         </div>
     );

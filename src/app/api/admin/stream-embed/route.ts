@@ -3,11 +3,13 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { createClient } from '@supabase/supabase-js';
-import fs from 'fs/promises';
-import path from 'path';
 
-// File-based fallback path
-const EMBED_RELATIVE_PATH = path.join('public', 'uploads', 'stream-embed.html');
+/**
+ * Admin Stream Embed API
+ * 
+ * This API now uses DATABASE-ONLY storage via Supabase RPC functions.
+ * No file-based fallback - all data is stored in the StreamEmbed table.
+ */
 
 // Create Supabase admin client for RPC calls
 function getSupabaseAdmin() {
@@ -15,74 +17,45 @@ function getSupabaseAdmin() {
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseServiceKey) {
-    console.warn('Supabase credentials not configured, using file fallback');
-    return null;
+    throw new Error('Supabase credentials not configured');
   }
 
   return createClient(supabaseUrl, supabaseServiceKey);
-}
-
-// File-based fallback functions
-async function ensureUploadsDir() {
-  const dirPath = path.join(process.cwd(), 'public', 'uploads');
-  try {
-    await fs.mkdir(dirPath, { recursive: true });
-  } catch {
-    // ignore
-  }
-}
-
-async function readEmbedFile(): Promise<string | null> {
-  const filePath = path.join(process.cwd(), EMBED_RELATIVE_PATH);
-  try {
-    const buf = await fs.readFile(filePath);
-    return buf.toString('utf8');
-  } catch {
-    return null;
-  }
-}
-
-async function writeEmbedFile(html: string): Promise<void> {
-  await ensureUploadsDir();
-  const filePath = path.join(process.cwd(), EMBED_RELATIVE_PATH);
-  await fs.writeFile(filePath, html, 'utf8');
 }
 
 // GET /api/admin/stream-embed - Get current livestream embed code
 export async function GET(_req: NextRequest) {
   try {
     const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.rpc('get_live_stream_config');
 
-    // Try Supabase RPC first
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.rpc('get_stream_embed');
-
-        if (!error && data?.success) {
-          return NextResponse.json({
-            embedHtml: data.embedHtml || ''
-          });
-        }
-
-        if (error) {
-          console.warn('Supabase RPC error, falling back to file:', error.message);
-        }
-      } catch (rpcError) {
-        console.warn('Supabase RPC failed, falling back to file:', rpcError);
-      }
+    if (error) {
+      console.error('RPC error fetching stream config:', error);
+      return NextResponse.json({
+        success: false,
+        embedHtml: '',
+        error: error.message
+      }, { status: 500 });
     }
 
-    // Fallback to file-based storage
-    const embedHtml = await readEmbedFile();
     return NextResponse.json({
-      embedHtml: embedHtml || ''
+      success: true,
+      embedHtml: data?.embedHtml || '',
+      embedUrl: data?.embedUrl || null,
+      title: data?.title || 'Livestream',
+      platform: data?.platform || 'custom',
+      isActive: data?.isActive ?? false,
+      updatedAt: data?.updatedAt,
+      updatedBy: data?.updatedBy,
     });
 
   } catch (error) {
-    console.error('Error reading embed code:', error);
+    console.error('Error reading stream config:', error);
     return NextResponse.json({
-      embedHtml: ''
-    });
+      success: false,
+      embedHtml: '',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }
 
@@ -97,9 +70,24 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const embedHtmlRaw = (body?.embedHtml ?? '').toString();
+    const embedUrl = body?.embedUrl || null;
+    const title = body?.title || 'Livestream';
+    const platform = body?.platform || 'custom';
+    const isActive = body?.isActive ?? true;
 
-    if (!embedHtmlRaw || embedHtmlRaw.length < 10) {
-      return NextResponse.json({ error: 'Embed HTML is required (minimum 10 characters)' }, { status: 400 });
+    // Validation
+    if (!embedHtmlRaw && !embedUrl) {
+      return NextResponse.json({
+        success: false,
+        error: 'Either embedHtml or embedUrl is required'
+      }, { status: 400 });
+    }
+
+    if (embedHtmlRaw && embedHtmlRaw.length < 10) {
+      return NextResponse.json({
+        success: false,
+        error: 'Embed HTML is required (minimum 10 characters)'
+      }, { status: 400 });
     }
 
     // Light sanitization: strip script tags
@@ -108,39 +96,47 @@ export async function POST(req: NextRequest) {
       .replace(/<script[^>]*>.*?<\/script>/gis, '');
 
     const supabase = getSupabaseAdmin();
-    let savedToSupabase = false;
 
-    // Try Supabase RPC first
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.rpc('update_stream_embed', {
-          p_embed_html: embedHtml,
-          p_admin_email: authResult.user?.email || 'admin'
-        });
+    const { data, error } = await supabase.rpc('update_live_stream_config', {
+      p_embed_html: embedHtml || null,
+      p_embed_url: embedUrl,
+      p_title: title,
+      p_platform: platform,
+      p_is_active: isActive,
+      p_admin_email: authResult.user?.email || 'admin'
+    });
 
-        if (!error && data?.success) {
-          savedToSupabase = true;
-        } else if (error) {
-          console.warn('Supabase RPC save failed, will use file fallback:', error.message);
-        }
-      } catch (rpcError) {
-        console.warn('Supabase RPC failed, using file fallback:', rpcError);
-      }
+    if (error) {
+      console.error('RPC error saving stream config:', error);
+      return NextResponse.json({
+        success: false,
+        error: error.message
+      }, { status: 500 });
     }
 
-    // Always save to file as backup/fallback
-    await writeEmbedFile(embedHtml);
+    if (!data?.success) {
+      return NextResponse.json({
+        success: false,
+        error: data?.error || 'Failed to save stream configuration'
+      }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
-      savedToSupabase
+      embedHtml: data.embedHtml,
+      embedUrl: data.embedUrl,
+      title: data.title,
+      platform: data.platform,
+      isActive: data.isActive,
+      updatedAt: data.updatedAt,
+      updatedBy: data.updatedBy,
     });
 
   } catch (error) {
-    console.error('Error saving embed code:', error);
+    console.error('Error saving stream config:', error);
     return NextResponse.json({
-      error: 'Failed to save embed code',
-      details: error instanceof Error ? error.message : String(error)
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save embed code'
     }, { status: 500 });
   }
 }
