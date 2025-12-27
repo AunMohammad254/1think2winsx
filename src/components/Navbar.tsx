@@ -113,12 +113,12 @@ export default function Navbar() {
                 </div>
               ) : user ? (
                 // Logged in state
-                <motion.div variants={linkVariants}>
+                <div>
                   <UserProfileDropdown user={user} onSignOut={signOut} />
-                </motion.div>
+                </div>
               ) : (
                 // Logged out state
-                <motion.div variants={linkVariants} className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   {/* Sign In Button */}
                   <Link
                     href="/login"
@@ -137,7 +137,7 @@ export default function Navbar() {
                     <span className="hidden sm:inline">Get Started</span>
                     <span className="sm:hidden">Join</span>
                   </Link>
-                </motion.div>
+                </div>
               )}
 
               {/* Mobile Menu Button */}

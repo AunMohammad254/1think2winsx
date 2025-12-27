@@ -58,7 +58,10 @@ tools/
 
 # Backup env files
 .env(supabase)
+.env.production
 
 #SQL
 SQL/
 
+# Google OAuth client secrets (sensitive - do not commit)
+client_secret*.json
