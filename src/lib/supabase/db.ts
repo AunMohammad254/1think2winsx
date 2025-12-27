@@ -4,6 +4,7 @@
  */
 
 import { createClient } from './server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import type { Database, Insertable, Updatable } from './database.types'
 import { createId } from '@paralleldrive/cuid2'
 
@@ -263,10 +264,15 @@ export const quizDb = {
     },
 
     async create(quizData: Insertable<'Quiz'>) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for quiz creation
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Quiz')
-            .insert({ id: generateId(), ...quizData })
+            .insert({
+                id: generateId(),
+                ...quizData,
+                updatedAt: new Date().toISOString()
+            })
             .select()
             .single()
 
@@ -275,7 +281,8 @@ export const quizDb = {
     },
 
     async update(id: string, quizData: Updatable<'Quiz'>) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for quiz update
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Quiz')
             .update({ ...quizData, updatedAt: new Date().toISOString() })
@@ -288,7 +295,8 @@ export const quizDb = {
     },
 
     async delete(id: string) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for quiz deletion
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('Quiz')
             .delete()
@@ -341,10 +349,15 @@ export const questionDb = {
     },
 
     async create(questionData: Insertable<'Question'>) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for question creation
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Question')
-            .insert({ id: generateId(), ...questionData })
+            .insert({
+                id: generateId(),
+                ...questionData,
+                updatedAt: new Date().toISOString()
+            })
             .select()
             .single()
 
@@ -353,8 +366,13 @@ export const questionDb = {
     },
 
     async createMany(questions: Insertable<'Question'>[]) {
-        const supabase = await getDb()
-        const questionsWithIds = questions.map(q => ({ id: generateId(), ...q }))
+        // Use admin client to bypass RLS for question creation
+        const supabase = getAdminDb()
+        const questionsWithIds = questions.map(q => ({
+            id: generateId(),
+            ...q,
+            updatedAt: new Date().toISOString()
+        }))
 
         const { data, error } = await supabase
             .from('Question')
@@ -366,7 +384,8 @@ export const questionDb = {
     },
 
     async update(id: string, questionData: Updatable<'Question'>) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for question update
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Question')
             .update({ ...questionData, updatedAt: new Date().toISOString() })
@@ -379,7 +398,8 @@ export const questionDb = {
     },
 
     async delete(id: string) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for question deletion
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('Question')
             .delete()
@@ -389,7 +409,8 @@ export const questionDb = {
     },
 
     async setCorrectAnswer(id: string, correctOption: number) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for setting correct answer
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Question')
             .update({
@@ -868,12 +889,20 @@ export const prizeRedemptionDb = {
 }
 
 // ============================================================================
-// ADMIN SESSION OPERATIONS
+// ADMIN SESSION OPERATIONS (Uses service_role client for admin privileges)
 // ============================================================================
+
+
+// Get admin client with service_role for bypassing RLS
+function getAdminDb() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    return createAdminClient(supabaseUrl, supabaseServiceKey)
+}
 
 export const adminSessionDb = {
     async findByToken(token: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('AdminSession')
             .select('*')
@@ -886,7 +915,7 @@ export const adminSessionDb = {
     },
 
     async create(sessionData: Insertable<'AdminSession'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('AdminSession')
             .insert({ id: generateId(), ...sessionData })
@@ -898,7 +927,7 @@ export const adminSessionDb = {
     },
 
     async delete(token: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('AdminSession')
             .delete()
@@ -908,7 +937,7 @@ export const adminSessionDb = {
     },
 
     async deleteExpired() {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('AdminSession')
             .delete()
