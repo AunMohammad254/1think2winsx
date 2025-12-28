@@ -37,9 +37,9 @@ export async function PUT(request: NextRequest) {
 
     const userId = session.user.id;
 
-    // Apply rate limiting (using auth rate limiter for password changes)
+    // Apply rate limiting (using dedicated password change limiter - 5 attempts per 15 min)
     const rateLimitResponse = await applyRateLimit(
-      rateLimiters.auth,
+      rateLimiters.passwordChange,
       request,
       userId,
       '/api/profile/change-password'
@@ -47,7 +47,7 @@ export async function PUT(request: NextRequest) {
     if (rateLimitResponse) {
       recordSecurityEvent('RATE_LIMIT_EXCEEDED', request, userId, {
         endpoint: '/api/profile/change-password',
-        rateLimiter: 'auth'
+        rateLimiter: 'passwordChange'
       });
       return rateLimitResponse;
     }

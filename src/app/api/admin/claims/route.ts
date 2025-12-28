@@ -187,6 +187,8 @@ export async function PUT(request: NextRequest) {
     }
 
     const { claimId, status, notes } = validationResult.data;
+
+    // Get database client (RLS policies control access)
     const supabase = await getDb();
 
     // Try RPC first for rejection with refund

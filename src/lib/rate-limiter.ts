@@ -225,6 +225,13 @@ export const rateLimiters = {
   prizeRedemption: new RateLimiter({
     windowMs: 60 * 60 * 1000, // 1 hour
     maxRequests: 5 // 5 prize redemptions per hour
+  }),
+
+  // Password change - dedicated limiter with 5 attempts per 15 minutes
+  // Separate from auth to avoid password change being blocked by login attempts
+  passwordChange: new RateLimiter({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    maxRequests: 5 // 5 password change attempts per 15 minutes
   })
 };
 
