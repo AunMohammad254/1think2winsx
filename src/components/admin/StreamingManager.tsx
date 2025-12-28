@@ -38,24 +38,64 @@ function DraftPreview({ embedHtml }: { embedHtml: string }) {
   const isYouTube = embedHtml.toLowerCase().includes('youtube.com') ||
     embedHtml.toLowerCase().includes('youtu.be');
 
-  // YouTube embeds need to be converted to proper embed URLs
-  let processedHtml = embedHtml;
+  // Extract YouTube video ID
+  const getYouTubeVideoId = (input: string): string | null => {
+    const patterns = [
+      /youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
+      /youtube\.com\/embed\/([a-zA-Z0-9_-]+)/,
+      /youtube\.com\/live\/([a-zA-Z0-9_-]+)/,
+      /youtu\.be\/([a-zA-Z0-9_-]+)/,
+      /youtube\.com\/v\/([a-zA-Z0-9_-]+)/,
+    ];
 
-  if (isYouTube && !embedHtml.includes('<iframe')) {
-    // If it's just a YouTube URL, convert it to an embed iframe
-    const youtubeMatch = embedHtml.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/);
-    if (youtubeMatch) {
-      const videoId = youtubeMatch[1];
-      processedHtml = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+    for (const pattern of patterns) {
+      const match = input.match(pattern);
+      if (match) return match[1];
     }
-  } else if (isYouTube && embedHtml.includes('<iframe')) {
-    // Ensure YouTube iframe has proper attributes for embedding
-    processedHtml = embedHtml
-      .replace(/src="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=/g, 'src="https://www.youtube.com/embed/')
-      .replace(/src="https?:\/\/youtu\.be\//g, 'src="https://www.youtube.com/embed/');
+    return null;
+  };
+
+  // For YouTube, render the iframe directly (no wrapper iframe)
+  if (isYouTube) {
+    const videoId = getYouTubeVideoId(embedHtml);
+
+    if (videoId) {
+      // Render YouTube iframe directly - this avoids Error 153
+      return (
+        <iframe
+          src={`https://www.youtube.com/embed/${videoId}?autoplay=0&rel=0&modestbranding=1`}
+          className="w-full h-full border-0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          title="YouTube video preview"
+        />
+      );
+    }
+
+    // If we can't extract video ID but it looks like a YouTube iframe, try to extract src
+    if (embedHtml.includes('<iframe')) {
+      const srcMatch = embedHtml.match(/src=["']([^"']+)["']/i);
+      if (srcMatch) {
+        let embedUrl = srcMatch[1];
+        // Convert watch URLs to embed URLs
+        embedUrl = embedUrl
+          .replace(/youtube\.com\/watch\?v=/g, 'youtube.com/embed/')
+          .replace(/youtu\.be\//g, 'youtube.com/embed/');
+
+        return (
+          <iframe
+            src={embedUrl}
+            className="w-full h-full border-0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            title="YouTube video preview"
+          />
+        );
+      }
+    }
   }
 
-  // Build a sandboxed HTML document for the embed
+  // For non-YouTube content, use sandboxed wrapper approach
   const previewDoc = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
@@ -65,7 +105,7 @@ function DraftPreview({ embedHtml }: { embedHtml: string }) {
       .wrapper > * { max-width: 100%; max-height: 100%; }
     </style>
   </head><body>
-    <div class="wrapper">${processedHtml}</div>
+    <div class="wrapper">${embedHtml}</div>
   </body></html>`;
 
   return (

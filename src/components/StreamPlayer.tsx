@@ -127,6 +127,63 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
       </div>
     );
   }
+  // Helper function to extract YouTube video ID
+  const getYouTubeVideoId = (input: string): string | null => {
+    const patterns = [
+      /youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
+      /youtube\.com\/embed\/([a-zA-Z0-9_-]+)/,
+      /youtube\.com\/live\/([a-zA-Z0-9_-]+)/,
+      /youtu\.be\/([a-zA-Z0-9_-]+)/,
+      /youtube\.com\/v\/([a-zA-Z0-9_-]+)/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = input.match(pattern);
+      if (match) return match[1];
+    }
+    return null;
+  };
+
+  // Check if embed is YouTube
+  const isYouTube = streamData.embedHtml.toLowerCase().includes('youtube.com') ||
+    streamData.embedHtml.toLowerCase().includes('youtu.be');
+
+  const youtubeVideoId = isYouTube ? getYouTubeVideoId(streamData.embedHtml) : null;
+
+  // For YouTube, render iframe directly (avoids Error 153)
+  const renderStreamContent = () => {
+    if (youtubeVideoId) {
+      return (
+        <iframe
+          ref={iframeRef}
+          src={`https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&rel=0&modestbranding=1`}
+          className="w-full h-full border-0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          aria-label={streamData.title}
+          onLoad={handleIframeLoad}
+          onError={handleIframeError}
+          title={streamData.title}
+        />
+      );
+    }
+
+    // For non-YouTube content, use the data:text/html approach
+    return (
+      <iframe
+        ref={iframeRef}
+        src={`data:text/html;charset=utf-8,${encodeURIComponent(buildResponsiveEmbedHtml(streamData.embedHtml))}`}
+        className="yt-player-frame"
+        allow="autoplay; fullscreen; picture-in-picture"
+        allowFullScreen
+        loading="lazy"
+        aria-label={streamData.title}
+        onLoad={handleIframeLoad}
+        onError={handleIframeError}
+        title={streamData.title}
+      />
+    );
+  };
 
   return (
     <div
@@ -138,18 +195,7 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
     >
       {/* Stream iframe */}
       <div className="relative w-full h-full">
-        <iframe
-          ref={iframeRef}
-          src={`data:text/html;charset=utf-8,${encodeURIComponent(buildResponsiveEmbedHtml(streamData.embedHtml))}`}
-          className="yt-player-frame"
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowFullScreen
-          loading="lazy"
-          aria-label={streamData.title}
-          onLoad={handleIframeLoad}
-          onError={handleIframeError}
-          title={streamData.title}
-        />
+        {renderStreamContent()}
       </div>
 
       {/* Controls overlay */}

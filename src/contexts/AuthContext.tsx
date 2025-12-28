@@ -97,11 +97,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const signOut = async () => {
         try {
             await supabase.auth.signOut();
+            // Clear local state
+            setSession(null);
+            setUser(null);
+            // Redirect to login page
+            window.location.href = '/login';
         } catch (error) {
             console.error('[AuthContext] Sign out error:', error);
             // Force clear local state even if sign out fails
             setSession(null);
             setUser(null);
+            // Still redirect to login
+            window.location.href = '/login';
         }
     };
 
