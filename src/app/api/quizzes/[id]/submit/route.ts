@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { requirePaymentAccess } from '@/lib/payment-middleware';
-import { quizDb, quizAttemptDb, questionAttemptDb, answerDb, dailyPaymentDb } from '@/lib/supabase/db';
+import { quizDb, quizAttemptDb, questionAttemptDb, dailyPaymentDb, getDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
-import { executeCriticalTransaction } from '@/lib/transaction-manager';
 
 const submitQuizSchema = z.object({
   answers: z.array(z.object({
@@ -79,26 +78,7 @@ export async function POST(
 
     const { answers } = validationResult.data;
 
-    // Check if user has already completed this quiz
-    const existingAttempt = await quizAttemptDb.findByUserAndQuiz(userId, quizId);
-    const hasCompleted = existingAttempt?.isCompleted === true;
-
-    // Get questions that the user has already attempted
-    const attemptedQuestions = await questionAttemptDb.findByUserAndQuiz(userId, quizId);
-    const attemptedQuestionIds = attemptedQuestions.map((qa: { questionId: string }) => qa.questionId);
-
-    // Check if this is a reattempt with new questions
-    const isReattempt = hasCompleted && attemptedQuestionIds.length > 0;
-
-    // If it's not a reattempt and user has already completed, block submission
-    if (hasCompleted && !isReattempt) {
-      return NextResponse.json(
-        { error: 'You have already completed this quiz' },
-        { status: 403 }
-      );
-    }
-
-    // Get quiz with questions
+    // Get quiz to validate it exists and is active
     const quiz = await quizDb.findByIdWithQuestions(quizId);
 
     if (!quiz || quiz.status !== 'active') {
@@ -112,102 +92,141 @@ export async function POST(
       (q: { status: string }) => q.status === 'active'
     );
 
-    // Validate that all questions are answered
-    const questionIds = activeQuestions.map((q: { id: string }) => q.id);
-    const answeredQuestionIds = answers.map(a => a.questionId);
-
-    // For reattempts, only validate new questions
-    const questionsToValidate = isReattempt
-      ? questionIds.filter((qid: string) => !attemptedQuestionIds.includes(qid))
-      : questionIds;
-
-    const missingQuestions = questionsToValidate.filter((qid: string) => !answeredQuestionIds.includes(qid));
-    if (missingQuestions.length > 0) {
-      return NextResponse.json(
-        { error: 'All questions must be answered', missingQuestions },
-        { status: 400 }
-      );
-    }
-
-    // Validate that user is only answering new questions in reattempt
-    if (isReattempt) {
-      const invalidAnswers = answeredQuestionIds.filter(id => attemptedQuestionIds.includes(id));
-      if (invalidAnswers.length > 0) {
-        return NextResponse.json(
-          { error: 'Cannot reanswer previously attempted questions', invalidAnswers },
-          { status: 400 }
-        );
-      }
-    }
-
     const totalQuestions = activeQuestions.length;
-    const scorePercentage = 0; // Will be determined during admin evaluation
-    const totalPoints = 0;
-    const passed = false;
 
     // Get current payment for reference
     const currentPayment = await dailyPaymentDb.findFirstActive(userId);
 
-    // Create quiz attempt and answers
-    const result = await executeCriticalTransaction(async () => {
-      let quizAttempt;
+    // Try to use the RPC function first (handles unique constraints properly)
+    const supabase = await getDb();
 
-      if (isReattempt && existingAttempt) {
-        // Update existing attempt if it's a reattempt
-        quizAttempt = await quizAttemptDb.update(existingAttempt.id, {
-          completedAt: new Date().toISOString(),
-          isEvaluated: false,
-        });
-      } else {
-        // Create new quiz attempt
-        quizAttempt = await quizAttemptDb.create({
-          userId,
-          quizId,
-          score: scorePercentage,
-          points: totalPoints,
-          isCompleted: true,
-          isEvaluated: false,
-          completedAt: new Date().toISOString(),
-          dailyPaymentId: currentPayment?.id || null,
-        });
+    const { data: rpcResult, error: rpcError } = await supabase.rpc(
+      'submit_quiz_attempt',
+      {
+        p_user_id: userId,
+        p_quiz_id: quizId,
+        p_answers: answers,
+        p_daily_payment_id: currentPayment?.id || null
       }
+    );
 
-      // Create individual question attempts for tracking
-      const questionAttemptRecords = answers.map(answer => ({
+    // If RPC function exists and works, use its result
+    if (!rpcError && rpcResult && rpcResult.success) {
+      recordSecurityEvent('QUIZ_SUBMITTED', request, userId, {
+        quizId: quiz.id,
+        attemptId: rpcResult.attemptId,
+        answersSubmitted: rpcResult.answersSubmitted,
+        isReattempt: rpcResult.isReattempt,
+      });
+
+      return createSecureJsonResponse({
+        message: rpcResult.isReattempt
+          ? 'New quiz predictions submitted successfully'
+          : 'Quiz predictions submitted successfully',
+        results: {
+          attemptId: rpcResult.attemptId,
+          score: null,
+          points: null,
+          totalQuestions,
+          submittedAnswers: rpcResult.answersSubmitted,
+          status: 'pending_evaluation',
+          isReattempt: rpcResult.isReattempt,
+          note: rpcResult.isReattempt
+            ? 'Your predictions for the new questions have been submitted. The admin will review all submissions and add correct answers. Points will be allocated to top performers based on accuracy.'
+            : 'Your predictions have been submitted. The admin will review all submissions and add correct answers. Points will be allocated to top performers based on accuracy.'
+        }
+      }, { status: 200 });
+    }
+
+    // If RPC returned an error result
+    if (rpcResult && !rpcResult.success) {
+      console.error('RPC quiz submission error:', rpcResult.error);
+      return NextResponse.json(
+        { error: rpcResult.error || 'Failed to submit quiz' },
+        { status: 500 }
+      );
+    }
+
+    // Fallback: If RPC function doesn't exist, use direct database operations
+    // This handles the case where the SQL hasn't been run yet
+    console.log('RPC function not available, using fallback submission method');
+
+    // Check if user has already completed this quiz
+    const existingAttempt = await quizAttemptDb.findByUserAndQuiz(userId, quizId);
+    const hasCompleted = existingAttempt?.isCompleted === true;
+
+    // Get questions that the user has already attempted
+    const attemptedQuestions = await questionAttemptDb.findByUserAndQuiz(userId, quizId);
+    const attemptedQuestionIds = attemptedQuestions.map((qa: { questionId: string }) => qa.questionId);
+
+    const isReattempt = hasCompleted && attemptedQuestionIds.length > 0;
+
+    let quizAttempt;
+
+    if (isReattempt && existingAttempt) {
+      // Update existing attempt if it's a reattempt
+      quizAttempt = await quizAttemptDb.update(existingAttempt.id, {
+        completedAt: new Date().toISOString(),
+        isEvaluated: false,
+      });
+    } else {
+      // Create new quiz attempt
+      quizAttempt = await quizAttemptDb.create({
         userId,
-        questionId: answer.questionId,
         quizId,
-        selectedOption: answer.selectedOption,
-        isCorrect: false,
-        attemptedAt: new Date(),
-      }));
+        score: 0,
+        points: 0,
+        isCompleted: true,
+        isEvaluated: false,
+        completedAt: new Date().toISOString(),
+        dailyPaymentId: currentPayment?.id || null,
+      });
+    }
 
-      await questionAttemptDb.createMany(questionAttemptRecords);
+    // Insert answers and question attempts with conflict handling
+    let answersSubmitted = 0;
+    for (const answer of answers) {
+      try {
+        // Try to insert/update QuestionAttempt using upsert
+        await supabase
+          .from('QuestionAttempt')
+          .upsert({
+            userId,
+            questionId: answer.questionId,
+            quizId,
+            selectedOption: answer.selectedOption,
+            isCorrect: false,
+            attemptedAt: new Date().toISOString(),
+          }, {
+            onConflict: 'userId,questionId',
+            ignoreDuplicates: false
+          });
 
-      // Create individual answers
-      const answerRecords = answers.map(answer => ({
-        userId,
-        questionId: answer.questionId,
-        selectedOption: answer.selectedOption,
-        quizAttemptId: quizAttempt.id,
-        isCorrect: false,
-      }));
+        // Insert Answer (these are always new per attempt)
+        await supabase
+          .from('Answer')
+          .insert({
+            userId,
+            questionId: answer.questionId,
+            quizAttemptId: quizAttempt.id,
+            selectedOption: answer.selectedOption,
+            isCorrect: false,
+            createdAt: new Date().toISOString(),
+          });
 
-      await answerDb.createMany(answerRecords);
-
-      return { quizAttempt };
-    }, {
-      context: 'quiz_submission',
-      userId: userId,
-      description: `Quiz submission for quiz ${id}`
-    });
+        answersSubmitted++;
+      } catch (insertError) {
+        console.error('Error inserting answer:', insertError);
+        // Continue with other answers
+      }
+    }
 
     recordSecurityEvent('QUIZ_SUBMITTED', request, userId, {
       quizId: quiz.id,
-      score: scorePercentage,
-      points: totalPoints,
-      passed,
-      attemptId: result.quizAttempt.id,
+      attemptId: quizAttempt.id,
+      answersSubmitted,
+      isReattempt,
+      method: 'fallback'
     });
 
     return createSecureJsonResponse({
@@ -215,11 +234,11 @@ export async function POST(
         ? 'New quiz predictions submitted successfully'
         : 'Quiz predictions submitted successfully',
       results: {
-        attemptId: result.quizAttempt.id,
+        attemptId: quizAttempt.id,
         score: null,
         points: null,
         totalQuestions,
-        submittedAnswers: answers.length,
+        submittedAnswers: answersSubmitted,
         status: 'pending_evaluation',
         isReattempt,
         note: isReattempt
@@ -235,7 +254,7 @@ export async function POST(
       quizId: id,
     });
     return NextResponse.json(
-      { error: 'Failed to submit quiz' },
+      { error: error instanceof Error ? error.message : 'Failed to submit quiz' },
       { status: 500 }
     );
   }

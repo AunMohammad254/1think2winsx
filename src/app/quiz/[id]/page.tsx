@@ -101,21 +101,45 @@ export default function QuizPage() {
     }
   }, [quizId, router]);
 
+  // Helper function to get CSRF token
+  const getCSRFToken = useCallback(async (): Promise<string | null> => {
+    try {
+      const response = await fetch('/api/csrf-token');
+      if (!response.ok) {
+        console.error('Failed to get CSRF token');
+        return null;
+      }
+      const data = await response.json();
+      return data.csrfToken;
+    } catch (error) {
+      console.error('Error fetching CSRF token:', error);
+      return null;
+    }
+  }, []);
+
   const handleSubmitQuiz = useCallback(async () => {
     if (isSubmitting) return;
 
     setIsSubmitting(true);
     try {
+      // Get CSRF token for secure submission
+      const csrfToken = await getCSRFToken();
+      if (!csrfToken) {
+        throw new Error('Unable to verify security token. Please refresh the page and try again.');
+      }
+
       const response = await fetch(`/api/quizzes/${quizId}/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken,
         },
         body: JSON.stringify({ answers }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to submit quiz');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.message || 'Failed to submit quiz');
       }
 
       const result = await response.json();
@@ -129,7 +153,7 @@ export default function QuizPage() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [quizId, answers, isSubmitting]);
+  }, [quizId, answers, isSubmitting, getCSRFToken]);
 
   useEffect(() => {
     if (isLoading) return;

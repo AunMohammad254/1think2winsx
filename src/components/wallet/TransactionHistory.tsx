@@ -31,6 +31,43 @@ const statusConfig: Record<TransactionStatus, { label: string; bgClass: string; 
     },
 };
 
+// Helper function to determine transaction type
+function getTransactionInfo(tx: WalletTransaction) {
+    // Check if this is a quiz access deduction
+    const isQuizAccess = tx.paymentMethod === 'QuizAccess';
+    const isDeduction = tx.amount < 0 || isQuizAccess;
+
+    if (isDeduction) {
+        return {
+            type: 'deduction' as const,
+            label: 'Quiz Access',
+            description: 'Daily quiz access payment',
+            iconBg: 'bg-gradient-to-br from-purple-400 to-blue-500',
+            amountPrefix: '-',
+            amountColor: 'text-red-400',
+            amount: Math.abs(tx.amount), // Always show positive for display
+        };
+    }
+
+    return {
+        type: 'deposit' as const,
+        label: 'Deposit',
+        description: `Via ${tx.paymentMethod}`,
+        iconBg: tx.status === 'approved'
+            ? 'bg-gradient-to-br from-emerald-400 to-green-500'
+            : tx.status === 'rejected'
+                ? 'bg-gradient-to-br from-red-400 to-pink-500'
+                : 'bg-gradient-to-br from-yellow-400 to-orange-500',
+        amountPrefix: tx.status === 'approved' ? '+' : '',
+        amountColor: tx.status === 'approved'
+            ? 'text-emerald-400'
+            : tx.status === 'rejected'
+                ? 'text-red-400 line-through opacity-50'
+                : 'text-white',
+        amount: tx.amount,
+    };
+}
+
 export default function TransactionHistory({
     transactions,
     isLoading = false,
@@ -75,7 +112,7 @@ export default function TransactionHistory({
                     </svg>
                 </div>
                 <h3 className="text-white font-semibold mb-2">No Transactions</h3>
-                <p className="text-slate-400 text-sm">Your deposit history will appear here</p>
+                <p className="text-slate-400 text-sm">Your transaction history will appear here</p>
             </div>
         );
     }
@@ -84,19 +121,21 @@ export default function TransactionHistory({
         <div className="space-y-3">
             {visibleTransactions.map((tx) => {
                 const config = statusConfig[tx.status];
-                const isApproved = tx.status === 'approved';
+                const txInfo = getTransactionInfo(tx);
+                const isDeduction = txInfo.type === 'deduction';
 
                 return (
                     <div key={tx.id} className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl p-4 hover:bg-white/[0.08] transition-colors">
                         <div className="flex items-center gap-3">
                             {/* Icon */}
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isApproved
-                                ? 'bg-gradient-to-br from-emerald-400 to-green-500'
-                                : tx.status === 'rejected'
-                                    ? 'bg-gradient-to-br from-red-400 to-pink-500'
-                                    : 'bg-gradient-to-br from-yellow-400 to-orange-500'
-                                }`}>
-                                {isApproved ? (
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${txInfo.iconBg}`}>
+                                {isDeduction ? (
+                                    // Quiz/Game icon for deductions
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                ) : tx.status === 'approved' ? (
                                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                     </svg>
@@ -114,11 +153,19 @@ export default function TransactionHistory({
                             {/* Details */}
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
-                                    <span className="text-white font-medium text-sm">Deposit</span>
-                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.bgClass} ${config.textClass}`}>
-                                        <div className={`w-1.5 h-1.5 rounded-full ${config.dotClass}`}></div>
-                                        {config.label}
-                                    </span>
+                                    <span className="text-white font-medium text-sm">{txInfo.label}</span>
+                                    {/* Show status badge for deposits, always show "Completed" for deductions */}
+                                    {isDeduction ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>
+                                            Completed
+                                        </span>
+                                    ) : (
+                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.bgClass} ${config.textClass}`}>
+                                            <div className={`w-1.5 h-1.5 rounded-full ${config.dotClass}`}></div>
+                                            {config.label}
+                                        </span>
+                                    )}
                                 </div>
                                 <p className="text-slate-400 text-xs truncate">
                                     {new Date(tx.createdAt).toLocaleDateString('en-US', {
@@ -133,23 +180,27 @@ export default function TransactionHistory({
 
                             {/* Amount */}
                             <div className="text-right">
-                                <span className={`text-lg font-bold ${isApproved
-                                    ? 'text-emerald-400'
-                                    : tx.status === 'rejected'
-                                        ? 'text-red-400 line-through opacity-50'
-                                        : 'text-white'
-                                    }`}>
-                                    {isApproved ? '+' : ''}{tx.amount.toFixed(0)}
+                                <span className={`text-lg font-bold ${txInfo.amountColor}`}>
+                                    {txInfo.amountPrefix}{txInfo.amount.toFixed(0)}
                                 </span>
                                 <span className="text-slate-400 text-xs ml-1">PKR</span>
                             </div>
                         </div>
 
-                        {/* Transaction ID */}
-                        {tx.transactionId && (
+                        {/* Transaction ID - only show for deposits */}
+                        {!isDeduction && tx.transactionId && !tx.transactionId.startsWith('quiz_access_') && (
                             <div className="mt-3 pt-3 border-t border-white/5">
                                 <p className="text-xs text-slate-500">
                                     ID: <span className="text-slate-400 font-mono">{tx.transactionId}</span>
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Admin notes for quiz access */}
+                        {isDeduction && tx.adminNotes && (
+                            <div className="mt-3 pt-3 border-t border-white/5">
+                                <p className="text-xs text-slate-500">
+                                    {tx.adminNotes}
                                 </p>
                             </div>
                         )}
@@ -179,3 +230,4 @@ export default function TransactionHistory({
         </div>
     );
 }
+
