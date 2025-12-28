@@ -398,7 +398,8 @@ export async function deletePrize(
             };
         }
 
-        await supabase.from('Prize').delete().eq('id', id);
+        // Use prizeDb.delete which uses admin client to bypass RLS
+        await prizeDb.delete(id);
 
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');

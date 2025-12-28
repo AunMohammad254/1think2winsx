@@ -189,16 +189,18 @@ export class RateLimiter {
  * Pre-configured rate limiters for common use cases
  */
 export const rateLimiters = {
-  // Authentication endpoints (login, register)
+  // Authentication endpoints (login, register, password change)
+  // Increased from 5 to 10 attempts to avoid false positives
   auth: new RateLimiter({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    maxRequests: 5 // 5 attempts per 15 minutes
+    maxRequests: 10 // 10 attempts per 15 minutes
   }),
 
-  // Profile updates
+  // Profile updates (including password changes)
+  // Increased from 10 to 30 updates to avoid blocking legitimate users
   profile: new RateLimiter({
     windowMs: 60 * 60 * 1000, // 1 hour
-    maxRequests: 10 // 10 updates per hour
+    maxRequests: 30 // 30 updates per hour
   }),
 
   // Admin operations

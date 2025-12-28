@@ -44,7 +44,6 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
-    const offset = (page - 1) * limit;
 
     const supabase = await getDb();
 
@@ -81,27 +80,15 @@ export async function GET(request: NextRequest) {
       console.warn('RPC fallback to direct query:', rpcError);
     }
 
-    // Fallback to direct Supabase queries
-    let query = supabase
-      .from('PrizeRedemption')
-      .select(`
-        *,
-        User:userId (id, name, email, phone, points),
-        Prize:prizeId (id, name, description, imageUrl, type, pointsRequired)
-      `, { count: 'exact' })
-      .order('requestedAt', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (status && ['pending', 'approved', 'rejected', 'fulfilled'].includes(status)) {
-      query = query.eq('status', status);
-    }
-
-    const { data: claims, count, error } = await query;
-
-    if (error) throw error;
+    // Fallback to direct Supabase queries using admin client
+    const result = await prizeRedemptionDb.findAllAdmin({
+      status: status || undefined,
+      page,
+      limit
+    });
 
     // Transform claims to handle Supabase FK join format
-    const formattedClaims = (claims || []).map((claim: any) => ({
+    const formattedClaims = (result.data || []).map((claim: any) => ({
       ...claim,
       user: Array.isArray(claim.User) ? claim.User[0] : claim.User,
       prize: Array.isArray(claim.Prize) ? claim.Prize[0] : claim.Prize,
@@ -125,10 +112,10 @@ export async function GET(request: NextRequest) {
     return createSecureJsonResponse({
       claims: formattedClaims,
       pagination: {
-        page,
-        limit,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / limit),
+        page: result.page,
+        limit: result.limit,
+        total: result.count,
+        totalPages: result.totalPages,
       },
     });
 

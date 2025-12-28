@@ -778,7 +778,8 @@ export const prizeDb = {
     },
 
     async create(prizeData: Insertable<'Prize'>) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for prize creation
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Prize')
             .insert({ id: generateId(), ...prizeData })
@@ -790,7 +791,8 @@ export const prizeDb = {
     },
 
     async update(id: string, prizeData: Updatable<'Prize'>) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for prize update
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Prize')
             .update({ ...prizeData, updatedAt: new Date().toISOString() })
@@ -802,8 +804,20 @@ export const prizeDb = {
         return data
     },
 
+    async delete(id: string) {
+        // Use admin client to bypass RLS for prize deletion
+        const supabase = getAdminDb()
+        const { error } = await supabase
+            .from('Prize')
+            .delete()
+            .eq('id', id)
+
+        if (error) throw error
+    },
+
     async decrementStock(id: string) {
-        const supabase = await getDb()
+        // Use admin client to bypass RLS for stock update
+        const supabase = getAdminDb()
         const { data: prize, error: fetchError } = await supabase
             .from('Prize')
             .select('stock')
@@ -857,6 +871,56 @@ export const prizeRedemptionDb = {
         return data || []
     },
 
+    async findById(id: string) {
+        // Use admin client for fetching any claim (admin access)
+        const supabase = getAdminDb()
+        const { data, error } = await supabase
+            .from('PrizeRedemption')
+            .select(`
+                *,
+                User:userId (id, name, email, phone, points),
+                Prize:prizeId (id, name, description, imageUrl, type, pointsRequired)
+            `)
+            .eq('id', id)
+            .single()
+
+        if (error && error.code !== 'PGRST116') throw error
+        return data
+    },
+
+    async findAllAdmin(options?: { status?: string, page?: number, limit?: number }) {
+        // Use admin client to fetch all claims (bypasses RLS)
+        const supabase = getAdminDb()
+        const page = options?.page || 1
+        const limit = options?.limit || 20
+        const offset = (page - 1) * limit
+
+        let query = supabase
+            .from('PrizeRedemption')
+            .select(`
+                *,
+                User:userId (id, name, email, phone, points),
+                Prize:prizeId (id, name, description, imageUrl, type, pointsRequired)
+            `, { count: 'exact' })
+            .order('requestedAt', { ascending: false })
+            .range(offset, offset + limit - 1)
+
+        if (options?.status && options.status !== 'all') {
+            query = query.eq('status', options.status)
+        }
+
+        const { data, count, error } = await query
+
+        if (error) throw error
+        return {
+            data: data || [],
+            count: count || 0,
+            page,
+            limit,
+            totalPages: Math.ceil((count || 0) / limit)
+        }
+    },
+
     async create(redemptionData: Insertable<'PrizeRedemption'>) {
         const supabase = await getDb()
         const { data, error } = await supabase
@@ -870,7 +934,8 @@ export const prizeRedemptionDb = {
     },
 
     async updateStatus(id: string, status: string, notes?: string) {
-        const supabase = await getDb()
+        // Use admin client to update any claim status (admin access)
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('PrizeRedemption')
             .update({
