@@ -191,6 +191,29 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
 }
 // Build a responsive HTML wrapper around the admin-provided embed
 function buildResponsiveEmbedHtml(rawHtml: string): string {
+  let processedHtml = rawHtml;
+
+  // Check if this is a YouTube embed/URL
+  const isYouTube = rawHtml.toLowerCase().includes('youtube.com') ||
+    rawHtml.toLowerCase().includes('youtu.be');
+
+  if (isYouTube) {
+    // If it's just a YouTube URL (not an iframe), convert to embed
+    if (!rawHtml.includes('<iframe')) {
+      const youtubeMatch = rawHtml.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/);
+      if (youtubeMatch) {
+        const videoId = youtubeMatch[1];
+        processedHtml = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+      }
+    } else {
+      // Convert watch URLs in iframes to embed URLs
+      processedHtml = rawHtml
+        .replace(/src="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=/g, 'src="https://www.youtube.com/embed/')
+        .replace(/src="https?:\/\/youtu\.be\//g, 'src="https://www.youtube.com/embed/')
+        .replace(/src="https?:\/\/(?:www\.)?youtube\.com\/live\//g, 'src="https://www.youtube.com/embed/');
+    }
+  }
+
   const doc = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
@@ -205,7 +228,7 @@ function buildResponsiveEmbedHtml(rawHtml: string): string {
       }
     </style>
   </head><body>
-    <div class="wrapper">${rawHtml}</div>
+    <div class="wrapper">${processedHtml}</div>
   </body></html>`;
   return doc;
 }

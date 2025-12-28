@@ -34,6 +34,27 @@ const previewModes: { mode: PreviewMode; icon: typeof Monitor; label: string; wi
 // Draft Preview Component - Renders current unsaved embed HTML
 // ============================================
 function DraftPreview({ embedHtml }: { embedHtml: string }) {
+  // Detect if this is a YouTube embed (needs special handling)
+  const isYouTube = embedHtml.toLowerCase().includes('youtube.com') ||
+    embedHtml.toLowerCase().includes('youtu.be');
+
+  // YouTube embeds need to be converted to proper embed URLs
+  let processedHtml = embedHtml;
+
+  if (isYouTube && !embedHtml.includes('<iframe')) {
+    // If it's just a YouTube URL, convert it to an embed iframe
+    const youtubeMatch = embedHtml.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/);
+    if (youtubeMatch) {
+      const videoId = youtubeMatch[1];
+      processedHtml = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+    }
+  } else if (isYouTube && embedHtml.includes('<iframe')) {
+    // Ensure YouTube iframe has proper attributes for embedding
+    processedHtml = embedHtml
+      .replace(/src="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=/g, 'src="https://www.youtube.com/embed/')
+      .replace(/src="https?:\/\/youtu\.be\//g, 'src="https://www.youtube.com/embed/');
+  }
+
   // Build a sandboxed HTML document for the embed
   const previewDoc = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -44,15 +65,15 @@ function DraftPreview({ embedHtml }: { embedHtml: string }) {
       .wrapper > * { max-width: 100%; max-height: 100%; }
     </style>
   </head><body>
-    <div class="wrapper">${embedHtml}</div>
+    <div class="wrapper">${processedHtml}</div>
   </body></html>`;
 
   return (
     <iframe
       srcDoc={previewDoc}
       className="w-full h-full border-0"
-      sandbox="allow-scripts allow-same-origin allow-presentation"
-      allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+      sandbox="allow-scripts allow-same-origin allow-presentation allow-forms allow-popups allow-popups-to-escape-sandbox"
+      allow="autoplay; fullscreen; picture-in-picture; encrypted-media; accelerometer; gyroscope"
       title="Draft embed preview"
     />
   );
