@@ -94,6 +94,40 @@ export async function POST(
 
     const totalQuestions = activeQuestions.length;
 
+    // Validate that all questions have been answered (selectedOption >= 0)
+    const unansweredQuestions = answers.filter(a => a.selectedOption < 0);
+    if (unansweredQuestions.length > 0) {
+      recordSecurityEvent('INVALID_INPUT', request, userId, {
+        endpoint: '/api/quizzes/[id]/submit',
+        error: 'Unanswered questions detected',
+        unansweredCount: unansweredQuestions.length,
+        totalQuestions,
+      });
+      return NextResponse.json(
+        {
+          error: 'All questions must be answered before submitting',
+          unansweredCount: unansweredQuestions.length,
+          message: `Please answer all ${totalQuestions} questions before submitting.`
+        },
+        { status: 400 }
+      );
+    }
+
+    // Validate that all submitted answers correspond to valid questions
+    const activeQuestionIds = activeQuestions.map((q: { id: string }) => q.id);
+    const invalidAnswers = answers.filter(a => !activeQuestionIds.includes(a.questionId));
+    if (invalidAnswers.length > 0) {
+      recordSecurityEvent('INVALID_INPUT', request, userId, {
+        endpoint: '/api/quizzes/[id]/submit',
+        error: 'Invalid question IDs in submission',
+        invalidCount: invalidAnswers.length,
+      });
+      return NextResponse.json(
+        { error: 'Invalid question IDs in submission' },
+        { status: 400 }
+      );
+    }
+
     // Get current payment for reference
     const currentPayment = await dailyPaymentDb.findFirstActive(userId);
 

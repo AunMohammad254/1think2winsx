@@ -64,6 +64,7 @@ export default function QuizPage() {
   const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
   const [showStream, setShowStream] = useState(false);
   const [showTimeExpired, setShowTimeExpired] = useState(false); // Time expired dialog
+  const [showUnansweredWarning, setShowUnansweredWarning] = useState(false); // Unanswered questions warning
 
   const fetchQuiz = useCallback(async () => {
     try {
@@ -117,9 +118,17 @@ export default function QuizPage() {
     }
   }, []);
 
-  const handleSubmitQuiz = useCallback(async () => {
+  const handleSubmitQuiz = useCallback(async (forceSubmit: boolean = false) => {
     if (isSubmitting) return;
 
+    // Check if all questions are answered (unless forced or time expired)
+    const unansweredCount = answers.filter(a => a.selectedOption === -1).length;
+    if (!forceSubmit && unansweredCount > 0) {
+      setShowUnansweredWarning(true);
+      return;
+    }
+
+    setShowUnansweredWarning(false);
     setIsSubmitting(true);
     try {
       // Get CSRF token for secure submission
@@ -214,10 +223,10 @@ export default function QuizPage() {
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  // Handle time expired - submit and redirect to results
+  // Handle time expired - submit and redirect to results (force submit even if incomplete)
   const handleTimeExpiredClose = async () => {
     setShowTimeExpired(false);
-    await handleSubmitQuiz();
+    await handleSubmitQuiz(true); // Force submit on time expiry
     router.push(`/quiz/${quizId}/results`);
   };
 
@@ -486,7 +495,7 @@ export default function QuizPage() {
               <div className="flex gap-3 w-full sm:w-auto">
                 {currentQuestionIndex === quiz.questions.length - 1 ? (
                   <button
-                    onClick={handleSubmitQuiz}
+                    onClick={() => handleSubmitQuiz()}
                     disabled={isSubmitting}
                     className="flex-1 sm:flex-none py-3 px-8 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 shadow-lg shadow-green-500/25 flex items-center justify-center gap-2"
                   >
@@ -603,6 +612,52 @@ export default function QuizPage() {
                     className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg font-bold rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
                   >
                     View Results
+                  </button>
+                </div>
+              </div>
+            )
+          }
+
+          {/* Unanswered Questions Warning Modal */}
+          {
+            showUnansweredWarning && (
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="glass-card glass-border rounded-2xl p-8 max-w-md w-full text-center">
+                  <div className="text-6xl mb-6">⚠️</div>
+                  <h2 className="text-2xl font-bold text-white mb-4">Answer All Questions</h2>
+                  <p className="text-gray-300 mb-4">
+                    You have <span className="text-red-400 font-bold">{answers.filter(a => a.selectedOption === -1).length}</span> unanswered question{answers.filter(a => a.selectedOption === -1).length !== 1 ? 's' : ''}.
+                  </p>
+                  <p className="text-yellow-300 text-sm mb-6">
+                    Please answer all questions before submitting the quiz.
+                  </p>
+
+                  {/* Show unanswered question numbers */}
+                  <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+                    <p className="text-gray-400 text-sm mb-2">Unanswered questions:</p>
+                    <div className="flex flex-wrap gap-2 justify-center">
+                      {answers.map((answer, index) =>
+                        answer.selectedOption === -1 ? (
+                          <button
+                            key={index}
+                            onClick={() => {
+                              setCurrentQuestionIndex(index);
+                              setShowUnansweredWarning(false);
+                            }}
+                            className="w-10 h-10 rounded-lg bg-red-500/20 border border-red-500/50 text-red-300 font-medium hover:bg-red-500/30 transition-colors"
+                          >
+                            {index + 1}
+                          </button>
+                        ) : null
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setShowUnansweredWarning(false)}
+                    className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg font-bold rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                  >
+                    Go Answer Questions
                   </button>
                 </div>
               </div>
