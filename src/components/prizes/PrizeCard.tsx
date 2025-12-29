@@ -34,10 +34,10 @@ export default function PrizeCard({
 
     const categoryStyle = categoryColors[prize.category] || categoryColors.general;
 
-    // Card size variants
+    // Card size variants - all cards take 1 column for consistent grid layout
     const sizeClasses = {
         default: 'col-span-1',
-        featured: 'col-span-1 md:col-span-2 row-span-2',
+        featured: 'col-span-1', // Featured cards get visual distinction but same column width
         compact: 'col-span-1',
     };
 
@@ -139,8 +139,8 @@ export default function PrizeCard({
                         onClick={() => onRedeem?.(prize)}
                         disabled={!canRedeem || isRedeeming || isOutOfStock}
                         className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-2 ${canRedeem && !isRedeeming && !isOutOfStock
-                                ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 hover:shadow-lg hover:shadow-blue-500/25 active:scale-[0.98]'
-                                : 'bg-slate-700 text-gray-400 cursor-not-allowed'
+                            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 hover:shadow-lg hover:shadow-blue-500/25 active:scale-[0.98]'
+                            : 'bg-slate-700 text-gray-400 cursor-not-allowed'
                             }`}
                     >
                         {isRedeeming ? (

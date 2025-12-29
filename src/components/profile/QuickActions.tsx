@@ -13,6 +13,7 @@ interface QuickAction {
 
 interface QuickActionsProps {
     actions?: QuickAction[];
+    onChangePasswordClick?: () => void;
 }
 
 const defaultActions: QuickAction[] = [
@@ -50,23 +51,29 @@ const defaultActions: QuickAction[] = [
         ),
     },
     {
-        id: 'settings',
-        label: 'Settings',
+        id: 'changePassword',
+        label: 'Change Password',
         gradient: 'from-slate-400 to-slate-600',
-        href: '/profile/change-password',
         icon: (
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
         ),
     },
 ];
 
-export default function QuickActions({ actions = defaultActions }: QuickActionsProps) {
+export default function QuickActions({ actions = defaultActions, onChangePasswordClick }: QuickActionsProps) {
+    // Apply the onChangePasswordClick to the changePassword action
+    const actionsWithHandlers = actions.map(action => {
+        if (action.id === 'changePassword' && onChangePasswordClick) {
+            return { ...action, onClick: onChangePasswordClick };
+        }
+        return action;
+    });
+
     return (
         <div className="flex justify-center gap-6">
-            {actions.map((action) => {
+            {actionsWithHandlers.map((action) => {
                 const content = (
                     <div className="flex flex-col items-center gap-2 group">
                         <div className={`w-14 h-14 rounded-full bg-gradient-to-br ${action.gradient} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-200`}>

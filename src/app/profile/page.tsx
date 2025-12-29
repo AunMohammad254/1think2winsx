@@ -8,7 +8,7 @@ import Image from 'next/image';
 import { useProfile } from '@/contexts/ProfileContext';
 import ProfilePictureUpload from '@/components/ProfilePictureUpload';
 import PrizeRedemption from '@/components/PrizeRedemption';
-import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid } from '@/components/profile';
+import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal } from '@/components/profile';
 
 export default function ProfilePage() {
   const { user, isLoading } = useAuth();
@@ -16,6 +16,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const [uploadLoading, setUploadLoading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const handleImageUpload = async (file: File) => {
     setUploadLoading(true);
@@ -231,7 +232,7 @@ export default function ProfilePage() {
           <BalanceCard balance={profile.walletBalance || 0} />
 
           {/* Quick Actions */}
-          <QuickActions />
+          <QuickActions onChangePasswordClick={() => setShowPasswordModal(true)} />
 
           {/* Stats Grid */}
           <StatsGrid stats={stats} />
@@ -419,6 +420,12 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+      />
     </div>
   );
 }
