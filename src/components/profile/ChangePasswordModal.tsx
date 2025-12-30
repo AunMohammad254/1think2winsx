@@ -96,17 +96,34 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
         return 'Strong';
     };
 
-    // Check if user is OAuth-only - fetch fresh data from Supabase
+    // Check if user can change password - fetch from server (checks actual DB password field)
     useEffect(() => {
-        const checkOAuthStatus = async () => {
+        const checkPasswordStatus = async () => {
             if (user && isOpen) {
                 setIsCheckingAuth(true);
                 try {
-                    // Use the client function that fetches fresh user data with identities
-                    const { checkAuthMethodsClient } = await import('@/lib/auth-helpers');
-                    const methods = await checkAuthMethodsClient();
-                    setAuthMethods(methods);
-                    setIsOAuthOnly(!methods.canChangePassword);
+                    // Use the API endpoint that checks the actual password field in the DB
+                    const response = await fetch('/api/profile/can-change-password', {
+                        credentials: 'include'
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        setIsOAuthOnly(!data.canChangePassword);
+                        setAuthMethods({
+                            hasEmailPassword: data.hasPassword,
+                            hasOAuth: !data.hasPassword,
+                            oAuthProviders: data.authMethod === 'oauth' ? ['OAuth Provider'] : [],
+                            canChangePassword: data.canChangePassword,
+                            primaryAuthMethod: data.authMethod === 'email' ? 'email' : 'oauth'
+                        });
+                    } else {
+                        // Fallback to client-side check if API fails
+                        const { checkAuthMethodsClient } = await import('@/lib/auth-helpers');
+                        const methods = await checkAuthMethodsClient();
+                        setAuthMethods(methods);
+                        setIsOAuthOnly(!methods.canChangePassword);
+                    }
                 } catch (error) {
                     console.error('Error checking auth methods:', error);
                     // Fallback to basic check
@@ -118,7 +135,7 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                 }
             }
         };
-        checkOAuthStatus();
+        checkPasswordStatus();
     }, [user, isOpen]);
 
     // Reset form when modal closes
