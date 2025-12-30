@@ -59,6 +59,7 @@ export async function GET() {
             email: session.user.email || `user_${userId}@placeholder.local`,
             name: session.user.name || null,
             password: null,
+            authProvider: 'google', // Mark as OAuth signup (Google is the primary provider)
           });
           user = newUser;
         } catch (createError) {

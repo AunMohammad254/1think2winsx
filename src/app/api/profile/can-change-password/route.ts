@@ -33,11 +33,13 @@ export async function GET() {
 
         // Check if user has a password set in the database
         const hasPassword = !!currentUser.password && currentUser.password.length > 0;
+        const authProvider = currentUser.authProvider || (hasPassword ? 'email' : 'oauth');
 
         return NextResponse.json({
             canChangePassword: hasPassword,
             hasPassword: hasPassword,
-            // Indicate the auth method based on password presence
+            // Return actual auth provider from database
+            authProvider: authProvider,
             authMethod: hasPassword ? 'email' : 'oauth'
         }, { status: 200 });
 

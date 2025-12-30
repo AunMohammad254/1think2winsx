@@ -25,6 +25,7 @@ export interface Database {
                     profilePicture: string | null
                     points: number
                     walletBalance: number
+                    authProvider: string | null
                     createdAt: string
                     updatedAt: string
                 }
@@ -38,6 +39,7 @@ export interface Database {
                     profilePicture?: string | null
                     points?: number
                     walletBalance?: number
+                    authProvider?: string | null
                     createdAt?: string
                     updatedAt?: string
                 }
@@ -51,6 +53,7 @@ export interface Database {
                     profilePicture?: string | null
                     points?: number
                     walletBalance?: number
+                    authProvider?: string | null
                     createdAt?: string
                     updatedAt?: string
                 }

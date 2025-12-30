@@ -89,10 +89,12 @@ export async function POST(request: NextRequest) {
       password: string;
       phone?: string;
       dateOfBirth?: string;
+      authProvider: string;
     } = {
       name,
       email,
       password: hashedPassword,
+      authProvider: 'email', // Mark as email/password signup
     };
 
     // Add optional fields if provided
