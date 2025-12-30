@@ -1,26 +1,61 @@
+# ============================================================================
+# Docker Compose Configuration for 1Think2Wins
+# ============================================================================
+# Usage:
+#   Development: docker-compose up -d
+#   Production:  docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   View logs:   docker-compose logs -f
+#   Stop:        docker-compose down
+# ============================================================================
+
 version: '3.8'
+
 services:
+  # ============================================================================
+  # Next.js Application
+  # ============================================================================
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: 1think2wins-app
+    restart: unless-stopped
     env_file:
-      - .env
-      - .env.local
+      - .env.production
+    environment:
+      - NODE_ENV=production
     networks:
       - webnet
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
+  # ============================================================================
+  # Nginx Reverse Proxy
+  # ============================================================================
   nginx:
-    image: nginx:stable
+    image: nginx:alpine
+    container_name: 1think2wins-nginx
+    restart: unless-stopped
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      # Uncomment for SSL
+      # - ./deploy/ssl:/etc/nginx/ssl:ro
     networks:
       - webnet
-    restart: unless-stopped
 
+# ============================================================================
+# Networks
+# ============================================================================
 networks:
   webnet:
     driver: bridge

@@ -65,3 +65,11 @@ SQL/
 
 # Google OAuth client secrets (sensitive - do not commit)
 client_secret*.json
+
+# Build outputs and temp files
+build-output.txt
+tsc-errors.txt
+tsc-output.txt
+
+#other
+docs/

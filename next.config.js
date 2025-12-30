@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Standalone output for Docker deployments
+  // Creates a minimal production bundle at .next/standalone
+  output: 'standalone',
+
   // Security configurations
   poweredByHeader: false, // Remove X-Powered-By header
 
