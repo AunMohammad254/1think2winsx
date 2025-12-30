@@ -89,7 +89,7 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
         // Get the origin for email redirect
         const origin = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
-        const { error: signUpError } = await supabase.auth.signUp({
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
             email: formData.email,
             password: formData.password,
             options: {
@@ -110,6 +110,35 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
                 return { success: false, error: 'Unable to send confirmation email. Please try again or contact support.' };
             }
             return { success: false, error: signUpError.message };
+        }
+
+        // Also create user in public.User table with hashed password
+        // This ensures the password is stored for password change detection
+        if (signUpData.user) {
+            try {
+                const registerResponse = await fetch(`${origin}/api/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: formData.name,
+                        email: formData.email,
+                        password: formData.password,
+                        phone: formData.phone,
+                        dateOfBirth: formData.dateOfBirth,
+                    }),
+                });
+
+                if (!registerResponse.ok) {
+                    // User already exists in public.User is fine - they may have registered before
+                    const result = await registerResponse.json();
+                    if (registerResponse.status !== 409) {
+                        console.error('[registerAction] Failed to create public.User:', result);
+                    }
+                }
+            } catch (err) {
+                console.error('[registerAction] Error creating public.User:', err);
+                // Continue anyway - the Supabase auth user was created successfully
+            }
         }
 
         return {

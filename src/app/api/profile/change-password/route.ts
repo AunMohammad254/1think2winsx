@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { userDb } from '@/lib/supabase/db';
+import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
-import bcrypt from 'bcryptjs';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -17,6 +15,7 @@ const changePasswordSchema = z.object({
 });
 
 // PUT /api/profile/change-password - Change user password
+// Uses Supabase Auth for password verification and update
 export async function PUT(request: NextRequest) {
   try {
     // Apply CSRF protection
@@ -25,9 +24,12 @@ export async function PUT(request: NextRequest) {
       return csrfValidation;
     }
 
-    const session = await auth();
+    const supabase = await createClient();
 
-    if (!session || !session.user) {
+    // Get current user from Supabase Auth
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !user) {
       securityLogger.logUnauthorizedAccess(undefined, '/api/profile/change-password', request);
       return NextResponse.json(
         { message: 'Unauthorized' },
@@ -35,7 +37,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const userId = session.user.id;
+    const userId = user.id;
 
     // Apply rate limiting (using dedicated password change limiter - 5 attempts per 15 min)
     const rateLimitResponse = await applyRateLimit(
@@ -66,32 +68,32 @@ export async function PUT(request: NextRequest) {
 
     const { currentPassword, newPassword } = validationResult.data;
 
-    // Get current user data
-    const currentUser = await userDb.findById(userId);
+    // Check if user has an 'email' identity (meaning they signed up with email/password)
+    const identities = user.identities || [];
+    const hasEmailIdentity = identities.some(identity => identity.provider === 'email');
 
-    if (!currentUser) {
-      return NextResponse.json(
-        { message: 'User not found' },
-        { status: 404 }
-      );
-    }
-
-    // Check if user has a password (OAuth users may not have one)
-    if (!currentUser.password) {
+    if (!hasEmailIdentity) {
+      const oAuthProviders = identities.map(i => i.provider).join(', ');
       recordSecurityEvent('INVALID_PASSWORD_ATTEMPT', request, userId, {
         endpoint: '/api/profile/change-password',
-        attemptType: 'oauth_user_password_change'
+        attemptType: 'oauth_user_password_change',
+        providers: oAuthProviders
       });
       securityLogger.logAuthFailure(userId, '/api/profile/change-password', 'OAuth user attempting password change');
       return NextResponse.json(
-        { message: 'Cannot change password for OAuth accounts' },
+        { message: 'Cannot change password for OAuth accounts. Please manage your password through your OAuth provider.' },
         { status: 400 }
       );
     }
 
-    // Verify current password
-    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, currentUser.password);
-    if (!isCurrentPasswordValid) {
+    // Verify current password by attempting to sign in with it
+    // This is the secure way to verify the password without storing it in public.User
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: user.email!,
+      password: currentPassword,
+    });
+
+    if (signInError) {
       recordSecurityEvent('INVALID_PASSWORD_ATTEMPT', request, userId, {
         endpoint: '/api/profile/change-password',
         attemptType: 'current_password_verification'
@@ -103,20 +105,32 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Check if new password is different from current
-    const isSamePassword = await bcrypt.compare(newPassword, currentUser.password);
-    if (isSamePassword) {
+    // Check if new password is the same as current (use signIn to verify)
+    const { error: samePasswordError } = await supabase.auth.signInWithPassword({
+      email: user.email!,
+      password: newPassword,
+    });
+
+    if (!samePasswordError) {
+      // If signIn succeeds with new password, it means it's the same as current
       return NextResponse.json(
         { message: 'New password must be different from current password' },
         { status: 400 }
       );
     }
 
-    // Hash new password
-    const hashedNewPassword = await bcrypt.hash(newPassword, 12);
+    // Update password using Supabase Auth
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword
+    });
 
-    // Update user password
-    await userDb.update(userId, { password: hashedNewPassword });
+    if (updateError) {
+      console.error('[change-password] Error updating password:', updateError);
+      return NextResponse.json(
+        { message: updateError.message || 'Failed to update password' },
+        { status: 400 }
+      );
+    }
 
     // Log successful password change
     securityLogger.logSecurityEvent({
@@ -124,7 +138,7 @@ export async function PUT(request: NextRequest) {
       userId: userId,
       endpoint: '/api/profile/change-password',
       details: {
-        action: 'User successfully changed password',
+        action: 'User successfully changed password via Supabase Auth',
         timestamp: new Date().toISOString()
       }
     });
