@@ -103,8 +103,10 @@ export async function validateAdminSession(): Promise<{ valid: boolean; email?: 
             return { valid: false };
         }
 
-        console.log('[Admin Session] Valid session for:', session.email);
-        return { valid: true, email: session.email };
+        // Extract email from session (explicit type handling for admin client)
+        const sessionEmail = (session as { email: string }).email;
+        console.log('[Admin Session] Valid session for:', sessionEmail);
+        return { valid: true, email: sessionEmail };
     } catch (error) {
         console.error('Error validating admin session:', error);
         return { valid: false };
@@ -163,6 +165,9 @@ export async function requireAdminSession(): Promise<string> {
         // Dynamic import to avoid circular dependencies
         const { redirect } = await import('next/navigation');
         redirect('/admin/login');
+        // redirect() throws, but TypeScript doesn't know that
+        // This line is unreachable but helps TypeScript understand the flow
+        throw new Error('Redirect to admin login');
     }
 
     return session.email;

@@ -8,6 +8,10 @@ const ADMIN_SESSION_COOKIE = 'admin-session';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Create a new request with the pathname header for server components to read
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-pathname', pathname);
+
   // Check if this is an admin route (except admin login page and API routes)
   const isAdminRoute = pathname.startsWith('/admin') &&
     !pathname.startsWith('/admin/login') &&
@@ -26,6 +30,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Update Supabase session (refresh tokens, check auth for protected routes)
+  // Pass the modified request with pathname header
   const supabaseResponse = await updateSession(request);
 
   // If Supabase middleware returned a redirect, use that
@@ -72,6 +77,9 @@ export async function middleware(request: NextRequest) {
   if (process.env.NODE_ENV === 'production') {
     response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
+
+  // Add pathname header so server components can access current route
+  response.headers.set('x-pathname', pathname);
 
   return response;
 }

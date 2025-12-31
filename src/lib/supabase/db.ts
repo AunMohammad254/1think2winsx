@@ -289,7 +289,7 @@ export const quizDb = {
     },
 
     async create(quizData: Insertable<'Quiz'>) {
-        
+
         const supabase = await getDb()
         const { data, error } = await supabase
             .from('Quiz')
@@ -306,7 +306,7 @@ export const quizDb = {
     },
 
     async update(id: string, quizData: Updatable<'Quiz'>) {
-        
+
         const supabase = await getDb()
         const { data, error } = await supabase
             .from('Quiz')
@@ -374,7 +374,7 @@ export const questionDb = {
     },
 
     async create(questionData: Insertable<'Question'>) {
-        
+
         const supabase = await getDb()
         const { data, error } = await supabase
             .from('Question')
@@ -391,7 +391,7 @@ export const questionDb = {
     },
 
     async createMany(questions: Insertable<'Question'>[]) {
-        
+
         const supabase = await getDb()
         const questionsWithIds = questions.map(q => ({
             id: generateId(),
@@ -997,14 +997,15 @@ export const adminSessionDb = {
     async create(sessionData: Insertable<'AdminSession'>) {
         // Use admin client (service_role) to bypass RLS for admin session operations
         const supabase = getAdminDb()
-        const { data, error } = await supabase
-            .from('AdminSession')
-            .insert({ id: generateId(), ...sessionData })
+        const insertData = { id: generateId(), ...sessionData }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await (supabase.from('AdminSession') as any)
+            .insert(insertData)
             .select()
             .single()
 
         if (error) throw error
-        return data
+        return data as Database['public']['Tables']['AdminSession']['Row']
     },
 
     async delete(token: string) {
