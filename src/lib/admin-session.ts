@@ -140,3 +140,30 @@ export async function clearAdminSession(): Promise<void> {
 export function getAdminSessionCookieName(): string {
     return ADMIN_SESSION_COOKIE;
 }
+
+/**
+ * Require valid admin session for server-side page protection.
+ * Validates the admin session token against the database.
+ * If not valid, throws a redirect to the admin login page.
+ * 
+ * Usage in admin pages:
+ * ```ts
+ * import { requireAdminSession } from '@/lib/admin-session';
+ * 
+ * export default async function AdminPage() {
+ *   const adminEmail = await requireAdminSession();
+ *   // Page content here...
+ * }
+ * ```
+ */
+export async function requireAdminSession(): Promise<string> {
+    const session = await validateAdminSession();
+
+    if (!session.valid || !session.email) {
+        // Dynamic import to avoid circular dependencies
+        const { redirect } = await import('next/navigation');
+        redirect('/admin/login');
+    }
+
+    return session.email;
+}

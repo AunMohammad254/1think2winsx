@@ -981,7 +981,8 @@ export const prizeRedemptionDb = {
 
 export const adminSessionDb = {
     async findByToken(token: string) {
-        const supabase = await getDb()
+        // Use admin client (service_role) to bypass RLS for admin session operations
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('AdminSession')
             .select('*')
@@ -994,7 +995,8 @@ export const adminSessionDb = {
     },
 
     async create(sessionData: Insertable<'AdminSession'>) {
-        const supabase = await getDb()
+        // Use admin client (service_role) to bypass RLS for admin session operations
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('AdminSession')
             .insert({ id: generateId(), ...sessionData })
@@ -1006,7 +1008,8 @@ export const adminSessionDb = {
     },
 
     async delete(token: string) {
-        const supabase = await getDb()
+        // Use admin client (service_role) to bypass RLS for admin session operations
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('AdminSession')
             .delete()
@@ -1016,7 +1019,8 @@ export const adminSessionDb = {
     },
 
     async deleteExpired() {
-        const supabase = await getDb()
+        // Use admin client (service_role) to bypass RLS for admin session operations
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('AdminSession')
             .delete()

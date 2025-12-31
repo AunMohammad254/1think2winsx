@@ -16,23 +16,24 @@ import {
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
+import { requireAdminSession } from '@/lib/admin-session';
 
 import { getDashboardStats, getRecentActivity } from '@/actions/dashboard-actions';
 import KPICard, { KPICardSkeleton } from '@/components/admin/dashboard/KPICard';
 import RecentActivityFeed, { RecentActivityFeedSkeleton } from '@/components/admin/dashboard/RecentActivityFeed';
 
 // ============================================
-// Auth Check
+// Auth Check - Validates admin session
 // ============================================
 async function checkAuth() {
+  // Require valid admin session (validates token in database)
+  const adminEmail = await requireAdminSession();
+
+  // Also get the user for metadata
   const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!session) {
-    redirect('/login');
-  }
-
-  return session;
+  return { adminEmail, user };
 }
 
 // ============================================
@@ -119,10 +120,11 @@ const quickActions = [
 // Main Page Component
 // ============================================
 export default async function AdminDashboardPage() {
-  const session = await checkAuth();
-  const userName = session.user?.user_metadata?.name ||
-    session.user?.user_metadata?.full_name ||
-    session.user?.email?.split('@')[0] ||
+  const { adminEmail, user } = await checkAuth();
+  const userName = user?.user_metadata?.name ||
+    user?.user_metadata?.full_name ||
+    user?.email?.split('@')[0] ||
+    adminEmail.split('@')[0] ||
     'Admin';
 
   return (

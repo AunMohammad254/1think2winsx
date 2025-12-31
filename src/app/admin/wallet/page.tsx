@@ -1,18 +1,12 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Wallet } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { requireAdminSession } from '@/lib/admin-session';
 import WalletTransactionsManager from '@/components/admin/WalletTransactionsManager';
 
 async function checkAuth() {
-    const supabase = await createClient();
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-        redirect('/admin/login');
-    }
-
-    return session;
+    // Require valid admin session (validates token in database)
+    await requireAdminSession();
 }
 
 export default async function AdminWalletPage() {

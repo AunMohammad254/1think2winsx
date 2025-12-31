@@ -80,7 +80,7 @@ export default function UserProfileDropdown({ user, onSignOut }: UserProfileDrop
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 10, scale: 0.95 }}
                         transition={{ duration: 0.15, ease: 'easeOut' }}
-                        className="absolute right-0 top-full mt-2 w-56 origin-top-right"
+                        className="absolute right-0 top-full mt-2 w-56 origin-top-right z-[1000]"
                     >
                         <div className="rounded-xl bg-gray-900/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50 overflow-hidden">
                             {/* User Info Header */}
