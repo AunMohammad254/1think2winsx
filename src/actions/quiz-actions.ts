@@ -1,12 +1,12 @@
 'use server';
 
-import { quizDb, questionDb, quizAttemptDb, answerDb, getDb, generateId } from '@/lib/supabase/db';
+import { quizDb, questionDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
+import { getDb } from '@/lib/supabase/db';
 import {
     QuizFormSchema,
     CreateQuizInput,
-    UpdateQuizInput,
-    QuizSubmission
+    UpdateQuizInput
 } from '@/lib/schemas/QuizFormSchema';
 
 // ============================================
@@ -42,7 +42,8 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             description: quizData.description || null,
             duration: quizData.duration,
             passingScore: quizData.passingScore,
-            accessPrice: quizData.accessPrice ?? 2,
+            // Access price is not part of the schema/DB in this version but kept for type compat if needed
+            // accessPrice: quizData.accessPrice ?? 2,
             status: quizData.status,
         });
 
@@ -96,7 +97,6 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
         }
 
         const { questions, id: quizId, ...quizData } = validationResult.data;
-        const supabase = await getDb();
 
         // Update quiz basic info
         await quizDb.update(quizId!, {
@@ -104,7 +104,6 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             description: quizData.description || null,
             duration: quizData.duration,
             passingScore: quizData.passingScore,
-            accessPrice: quizData.accessPrice ?? 2,
             status: quizData.status,
         });
 
@@ -221,85 +220,5 @@ export async function pauseQuiz(id: string): Promise<ActionResult> {
 // User Quiz Actions
 // ============================================
 
-/**
- * Submit quiz answers
- */
-export async function submitQuizAttempt(
-    submission: QuizSubmission
-): Promise<ActionResult<{ attemptId: string; answersSubmitted: number }>> {
-    try {
-        const { quizId, answers } = submission;
-        const supabase = await getDb();
-
-        const { data: { user } } = await supabase.auth.getUser();
-
-        if (!user) {
-            return { success: false, error: 'Unauthorized' };
-        }
-
-        const userId = user.id;
-
-        // Create the attempt
-        const attempt = await quizAttemptDb.create({
-            userId,
-            quizId,
-            isCompleted: true,
-            completedAt: new Date().toISOString(),
-        });
-
-        // Create answers
-        for (const answer of answers) {
-            await answerDb.create({
-                userId,
-                questionId: answer.questionId,
-                quizAttemptId: attempt.id,
-                selectedOption: answer.selectedOption,
-            });
-
-            // Also create/update question attempt
-            // Check if question attempt exists
-            const { data: existingAttempt } = await supabase
-                .from('QuestionAttempt')
-                .select('id')
-                .eq('userId', userId)
-                .eq('questionId', answer.questionId)
-                .single();
-
-            if (existingAttempt) {
-                // Update existing
-                await supabase
-                    .from('QuestionAttempt')
-                    .update({
-                        selectedOption: answer.selectedOption,
-                        attemptedAt: new Date().toISOString(),
-                    })
-                    .eq('id', existingAttempt.id);
-            } else {
-                // Create new
-                await supabase
-                    .from('QuestionAttempt')
-                    .insert({
-                        id: generateId(),
-                        userId,
-                        questionId: answer.questionId,
-                        quizId,
-                        selectedOption: answer.selectedOption,
-                    });
-            }
-        }
-
-        revalidatePath(`/quiz/${quizId}`);
-
-        return {
-            success: true,
-            data: {
-                attemptId: attempt.id,
-                answersSubmitted: answers.length
-            },
-            message: 'Quiz submitted successfully!'
-        };
-    } catch (error) {
-        console.error('Submit quiz attempt error:', error);
-        return { success: false, error: 'Failed to submit quiz. Please try again.' };
-    }
-}
+// Note: Quiz submission is now handled by the API route at /api/quizzes/[id]/submit
+// for better security (CSRF protection, Rate Limiting) and performance.

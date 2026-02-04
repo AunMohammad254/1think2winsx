@@ -21,7 +21,6 @@ import {
     ChevronRight,
     ArrowUpDown,
     RefreshCw,
-    Download,
 } from 'lucide-react';
 import QuizFormBuilder from '@/components/admin/QuizFormBuilder';
 import { publishQuiz, pauseQuiz, deleteQuiz } from '@/actions/quiz-actions';
