@@ -1037,11 +1037,11 @@ export const adminSessionDb = {
 
 export const rateLimitDb = {
     async count(key: string, windowMs: number) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const windowStart = new Date(Date.now() - windowMs).toISOString()
 
-        const { count, error } = await supabase
-            .from('RateLimitEntry')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { count, error } = await (supabase.from('RateLimitEntry') as any)
             .select('*', { count: 'exact', head: true })
             .eq('key', key)
             .gte('createdAt', windowStart)
@@ -1051,20 +1051,20 @@ export const rateLimitDb = {
     },
 
     async add(key: string) {
-        const supabase = await getDb()
-        const { error } = await supabase
-            .from('RateLimitEntry')
+        const supabase = getAdminDb()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error } = await (supabase.from('RateLimitEntry') as any)
             .insert({ id: generateId(), key })
 
         if (error) throw error
     },
 
     async cleanup(key: string, windowMs: number) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const windowStart = new Date(Date.now() - windowMs).toISOString()
 
-        const { error } = await supabase
-            .from('RateLimitEntry')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error } = await (supabase.from('RateLimitEntry') as any)
             .delete()
             .eq('key', key)
             .lt('createdAt', windowStart)
