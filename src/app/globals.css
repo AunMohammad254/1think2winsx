@@ -26,28 +26,26 @@
   }
 }
 
-
 :root {
   --background: linear-gradient(135deg, #1e3a8a 0%, #1f2937 50%, #000000 100%);
   --foreground: #ffffff;
-  
+
   /* Theme Colors - Easy to customize for your brand */
-  --color-primary: #16a34a;           /* Cricket Green */
-  --color-primary-rgb: 22, 163, 74;   /* RGB for opacity support */
-  --color-secondary: #eab308;         /* Gold */
+  --color-primary: #16a34a; /* Cricket Green */
+  --color-primary-rgb: 22, 163, 74; /* RGB for opacity support */
+  --color-secondary: #eab308; /* Gold */
   --color-secondary-rgb: 234, 179, 8; /* RGB for opacity support */
-  --color-accent: #1e40af;            /* Deep Blue */
-  --color-accent-rgb: 30, 64, 175;    /* RGB for opacity support */
-  
+  --color-accent: #1e40af; /* Deep Blue */
+  --color-accent-rgb: 30, 64, 175; /* RGB for opacity support */
+
   /* Cricket Theme - Deep Emerald & Midnight Blue */
-  --color-emerald: #059669;           /* Deep Emerald Green */
+  --color-emerald: #059669; /* Deep Emerald Green */
   --color-emerald-rgb: 5, 150, 105;
-  --color-midnight: #0f172a;          /* Midnight Blue */
+  --color-midnight: #0f172a; /* Midnight Blue */
   --color-midnight-rgb: 15, 23, 42;
-  --color-gold: #f59e0b;              /* Gold Accent */
+  --color-gold: #f59e0b; /* Gold Accent */
   --color-gold-rgb: 245, 158, 11;
 }
-
 
 :root {
   --color-background: var(--background);
@@ -60,7 +58,12 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: linear-gradient(135deg, #1e3a8a 0%, #1f2937 50%, #000000 100%);
+    --background: linear-gradient(
+      135deg,
+      #1e3a8a 0%,
+      #1f2937 50%,
+      #000000 100%
+    );
     --foreground: #ffffff;
   }
 }
@@ -144,7 +147,7 @@ h1, h2, h3, h4, h5, h6 {
     -webkit-backdrop-filter: none;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
   }
-  
+
   /* Disable complex gradients on mobile */
   .bg-gradient-glass,
   .bg-gradient-glass-blue,
@@ -279,7 +282,7 @@ h1, h2, h3, h4, h5, h6 {
   .animate-ping {
     animation: none !important;
   }
-  
+
   /* Disable complex animations on mobile */
   .complex-animation {
     animation: none !important;
@@ -327,19 +330,27 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Breakpoints for optimal viewing */
 @media (min-width: 1920px) {
-  .yt-responsive-player { max-width: 1600px; }
+  .yt-responsive-player {
+    max-width: 1600px;
+  }
 }
 
 @media (min-width: 1024px) and (max-width: 1919px) {
-  .yt-responsive-player { max-width: 1024px; }
+  .yt-responsive-player {
+    max-width: 1024px;
+  }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
-  .yt-responsive-player { max-width: 768px; }
+  .yt-responsive-player {
+    max-width: 768px;
+  }
 }
 
 @media (max-width: 767px) {
-  .yt-responsive-player { max-width: 100%; }
+  .yt-responsive-player {
+    max-width: 100%;
+  }
 }
 
 /* Orientation handling */
@@ -349,7 +360,6 @@ h1, h2, h3, h4, h5, h6 {
     aspect-ratio: 16 / 9; /* keep proportions in portrait */
   }
 }
-
 
 /* Focus styles for accessibility */
 .focus-visible:focus-visible {
@@ -372,10 +382,12 @@ h1, h2, h3, h4, h5, h6 {
 /* Desktop-only shimmer */
 @media (min-width: 769px) {
   .loading-shimmer {
-    background: linear-gradient(90deg, 
-      rgba(255, 255, 255, 0.1) 0%, 
-      rgba(255, 255, 255, 0.2) 50%, 
-      rgba(255, 255, 255, 0.1) 100%);
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(255, 255, 255, 0.2) 50%,
+      rgba(255, 255, 255, 0.1) 100%
+    );
     background-size: 200% 100%;
     animation: shimmer 2s infinite;
   }
@@ -398,23 +410,19 @@ h1, h2, h3, h4, h5, h6 {
     background: rgba(255, 255, 255, 0.08) !important;
     border: 1px solid rgba(255, 255, 255, 0.15) !important;
   }
-  
+
   /* Simplify gradients for mobile */
   .bg-gradient-blue-black {
     background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
   }
-  
+
   /* Optimize animations for mobile */
-  * {
-    animation-duration: 0.2s !important;
-    transition-duration: 0.2s !important;
-  }
-  
+
   /* Disable complex animations on mobile */
   .animate-pulse {
     animation: none !important;
   }
-  
+
   /* Enable hardware acceleration for transforms */
   .glass-transition {
     transform: translateZ(0);
@@ -424,8 +432,9 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Hardware-accelerated animations */
 .glass-transition {
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
-              opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: transform, opacity;
 }
 
@@ -458,7 +467,6 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Reduced motion preferences */
 @media (prefers-reduced-motion: reduce) {
-  *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
@@ -466,7 +474,7 @@ h1, h2, h3, h4, h5, h6 {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  
+
   .animate-pulse,
   .animate-pulse-optimized {
     animation: none !important;
@@ -479,7 +487,7 @@ h1, h2, h3, h4, h5, h6 {
     background: rgba(0, 0, 0, 0.9) !important;
     border: 2px solid rgba(255, 255, 255, 0.8) !important;
   }
-  
+
   .text-gray-300 {
     color: rgba(255, 255, 255, 0.95) !important;
   }
@@ -552,5 +560,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .animate-success-scale {
-  animation: success-scale 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  animation: success-scale 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)
+    forwards;
 }

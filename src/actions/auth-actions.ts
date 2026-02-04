@@ -54,8 +54,28 @@ async function createSupabaseClient() {
 /**
  * Server Action: Login with email and password
  */
+import { z } from 'zod';
+
+// ... (keep existing imports)
+
+// Validation Schemas
+const LoginSchema = z.object({
+    email: z.string().email(),
+    password: z.string().min(1)
+});
+
+// ... (keep existing interfaces)
+
+/**
+ * Server Action: Login with email and password
+ */
 export async function loginAction(formData: LoginFormData): Promise<AuthResult> {
     try {
+        const validation = LoginSchema.safeParse(formData);
+        if (!validation.success) {
+            return { success: false, error: 'Invalid input format' };
+        }
+
         const supabase = await createSupabaseClient();
 
         const { error } = await supabase.auth.signInWithPassword({

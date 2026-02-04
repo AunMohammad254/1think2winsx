@@ -225,12 +225,19 @@ export async function pauseQuiz(id: string): Promise<ActionResult> {
  * Submit quiz answers
  */
 export async function submitQuizAttempt(
-    userId: string,
     submission: QuizSubmission
 ): Promise<ActionResult<{ attemptId: string; answersSubmitted: number }>> {
     try {
         const { quizId, answers } = submission;
         const supabase = await getDb();
+
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+            return { success: false, error: 'Unauthorized' };
+        }
+
+        const userId = user.id;
 
         // Create the attempt
         const attempt = await quizAttemptDb.create({

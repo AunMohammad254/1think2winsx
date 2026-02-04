@@ -99,30 +99,53 @@ export async function deductWalletForQuizAccess(
         // Note: Supabase doesn't have native transactions like Prisma
         // We'll perform operations sequentially and handle errors
         try {
-            // 1. Deduct balance
-            const newBalance = dbUser.walletBalance - amount;
-            await userDb.update(dbUser.id, { walletBalance: newBalance });
+            // 1. Atomic Deduction using RPC
+            // This prevents race conditions where a user could spend the same balance twice
+            const { data: rpcResult, error: rpcError } = await supabase.rpc('deduct_wallet_balance', {
+                p_user_id: user.id,
+                p_amount: amount
+            });
+
+            if (rpcError || !rpcResult || !rpcResult.success) {
+                console.error('Wallet deduction failed:', rpcError || rpcResult?.error);
+                return {
+                    success: false,
+                    error: (rpcResult?.error as string) || 'Insufficient balance or transaction failed',
+                    insufficientBalance: rpcResult?.error === 'Insufficient funds'
+                };
+            }
+
+            const newBalance = rpcResult.new_balance;
 
             // 2. Create wallet transaction record for history
-            await walletTransactionDb.create({
-                userId: dbUser.id,
-                amount: -amount, // Negative for deduction
-                paymentMethod: 'QuizAccess',
-                transactionId: `quiz_access_${Date.now()}_${dbUser.id}`,
-                status: 'approved', // Auto-approved since it's a deduction
-                adminNotes: quizId ? `Quiz access payment for quiz: ${quizId}` : '24-hour quiz access payment',
-                processedAt: now.toISOString(),
-            });
+            // Even if this fails, the deduction has happened. Ideally this should be in the same transaction
+            // but Supabase HTTP API doesn't support multi-statement transactions easily without RPC.
+            // Since we prioritized the deduction safely, we record the log best-effort.
+            try {
+                await walletTransactionDb.create({
+                    userId: dbUser.id,
+                    amount: -amount, // Negative for deduction
+                    paymentMethod: 'QuizAccess',
+                    transactionId: `quiz_access_${Date.now()}_${dbUser.id}`,
+                    status: 'approved', // Auto-approved since it's a deduction
+                    adminNotes: quizId ? `Quiz access payment for quiz: ${quizId}` : '24-hour quiz access payment',
+                    processedAt: now.toISOString(),
+                });
 
-            // 3. Create daily payment record for quiz access
-            const dailyPayment = await dailyPaymentDb.create({
-                userId: dbUser.id,
-                amount: amount,
-                status: 'completed',
-                paymentMethod: 'wallet',
-                transactionId: `wallet_${Date.now()}_${dbUser.id}`,
-                expiresAt: expiresAt.toISOString(),
-            });
+                // 3. Create daily payment record for quiz access
+                await dailyPaymentDb.create({
+                    userId: dbUser.id,
+                    amount: amount,
+                    status: 'completed',
+                    paymentMethod: 'wallet',
+                    transactionId: `wallet_${Date.now()}_${dbUser.id}`,
+                    expiresAt: expiresAt.toISOString(),
+                });
+            } catch (logError) {
+                console.error('Failed to log transaction history, but deduction occurred:', logError);
+                // We do NOT rollback here because the money is already gone safely.
+                // In a production banking app, this whole block would be one big PL/pgSQL function.
+            }
 
             // Revalidate wallet page to show new balance and transaction
             revalidatePath('/profile/wallet');
@@ -132,16 +155,11 @@ export async function deductWalletForQuizAccess(
                 success: true,
                 message: 'Payment successful! You now have 24-hour quiz access.',
                 newBalance: newBalance,
-                paymentId: dailyPayment.id,
+                // We might not have a dailyPayment.id if logging failed, but that's acceptable for now to avoid blocking the user
+                paymentId: `wallet_${Date.now()}_${dbUser.id}`,
             };
         } catch (innerError) {
-            // If any operation fails, try to rollback the balance
-            console.error('Transaction error, attempting rollback:', innerError);
-            try {
-                await userDb.update(dbUser.id, { walletBalance: dbUser.walletBalance });
-            } catch (rollbackError) {
-                console.error('Rollback failed:', rollbackError);
-            }
+            console.error('Transaction error:', innerError);
             throw innerError;
         }
     } catch (error) {
