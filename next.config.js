@@ -21,6 +21,13 @@ const nextConfig = {
     // Remove console logs in production
     removeConsole: process.env.NODE_ENV === 'production',
   },
+
+  // Modular imports for better tree-shaking
+  modularizeImports: {
+    'lucide-react': {
+      transform: 'lucide-react/dist/esm/icons/{{kebabCase member}}',
+    },
+  },
   // Security headers (additional to middleware)
   async headers() {
     return [
