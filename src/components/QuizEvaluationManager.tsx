@@ -1,345 +1,21 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-
-// Types
-type Quiz = {
-  id: string;
-  title: string;
-  totalQuestions: number;
-  questionsWithAnswers: number;
-};
-
-type Question = {
-  id: string;
-  text: string;
-  options: string[] | string;
-  correctOption: number | null;
-  hasCorrectAnswer: boolean;
-};
-
-type QuizAttempt = {
-  id: string;
-  userId: string;
-  score: number;
-  isEvaluated: boolean;
-  createdAt: string;
-  user: {
-    name: string;
-    email: string;
-  };
-};
-
-type Winner = {
-  userId: string;
-  userName: string;
-  userEmail: string;
-  score: number;
-  pointsAwarded: number;
-  newTotalPoints?: number;
-};
-
-type ApiQuizQuestion = {
-  hasCorrectAnswer: boolean;
-};
-
-type ApiQuiz = {
-  id: string;
-  title: string;
-  _count?: {
-    questions: number;
-  };
-  questions?: ApiQuizQuestion[];
-};
-
-type QuizEvaluation = {
-  quiz: Quiz;
-  evaluation: {
-    totalAttempts: number;
-    evaluatedAttempts: number;
-    pendingAttempts: number;
-    isFullyEvaluated: boolean;
-  };
-  questions: Question[];
-  attempts: QuizAttempt[];
-};
-
-type PointsAllocationResult = {
-  success: boolean;
-  message: string;
-  allocation?: {
-    totalAttempts: number;
-    topPercentageCount: number;
-    eligibleWinners: number;
-    pointsPerWinner: number;
-    totalPointsDistributed: number;
-    percentageThreshold: number;
-  };
-  winners?: Winner[];
-};
-
-// Step Component
-const StepIndicator = ({ currentStep }: { currentStep: number }) => {
-  const steps = [
-    { num: 1, label: 'Select Quiz', icon: '📋' },
-    { num: 2, label: 'Set Answers', icon: '✏️' },
-    { num: 3, label: 'Evaluate', icon: '📊' },
-    { num: 4, label: 'Allocate Points', icon: '🏆' },
-  ];
-
-  return (
-    <div className="flex items-center justify-between mb-8">
-      {steps.map((step, index) => (
-        <div key={step.num} className="flex items-center flex-1">
-          <div className="flex flex-col items-center">
-            <div
-              className={`w-12 h-12 rounded-full flex items-center justify-center text-xl transition-all duration-500 ${currentStep >= step.num
-                  ? 'bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg shadow-blue-500/30 scale-110'
-                  : 'bg-white/10 text-gray-400'
-                }`}
-            >
-              {step.icon}
-            </div>
-            <span
-              className={`mt-2 text-xs font-medium transition-colors duration-300 ${currentStep >= step.num ? 'text-blue-300' : 'text-gray-500'
-                }`}
-            >
-              {step.label}
-            </span>
-          </div>
-          {index < steps.length - 1 && (
-            <div className="flex-1 mx-2">
-              <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className={`h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500 ${currentStep > step.num ? 'w-full' : 'w-0'
-                    }`}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-};
-
-// Stat Card Component
-const StatCard = ({
-  icon,
-  label,
-  value,
-  color = 'blue',
-  animate = false,
-}: {
-  icon: string;
-  label: string;
-  value: string | number;
-  color?: 'blue' | 'green' | 'yellow' | 'purple';
-  animate?: boolean;
-}) => {
-  const colors = {
-    blue: 'from-blue-500/20 to-blue-600/10 border-blue-400/30 text-blue-300',
-    green: 'from-green-500/20 to-green-600/10 border-green-400/30 text-green-300',
-    yellow: 'from-yellow-500/20 to-yellow-600/10 border-yellow-400/30 text-yellow-300',
-    purple: 'from-purple-500/20 to-purple-600/10 border-purple-400/30 text-purple-300',
-  };
-
-  return (
-    <div
-      className={`relative overflow-hidden rounded-xl bg-gradient-to-br ${colors[color]} border p-4 transition-all duration-300 hover:scale-105 hover:shadow-lg`}
-    >
-      <div className={`text-3xl mb-2 ${animate ? 'animate-bounce' : ''}`}>{icon}</div>
-      <div className="text-2xl font-bold text-white">{value}</div>
-      <div className="text-sm opacity-80">{label}</div>
-      <div className="absolute -right-4 -top-4 w-20 h-20 bg-white/5 rounded-full" />
-    </div>
-  );
-};
-
-// Quiz Card Component
-const QuizCard = ({
-  quiz,
-  isSelected,
-  onClick,
-}: {
-  quiz: Quiz;
-  isSelected: boolean;
-  onClick: () => void;
-}) => {
-  const progress = quiz.totalQuestions > 0
-    ? Math.round((quiz.questionsWithAnswers / quiz.totalQuestions) * 100)
-    : 0;
-
-  return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left p-4 rounded-xl border transition-all duration-300 ${isSelected
-          ? 'bg-gradient-to-br from-blue-500/30 to-purple-600/20 border-blue-400 shadow-lg shadow-blue-500/20 scale-[1.02]'
-          : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
-        }`}
-    >
-      <div className="flex justify-between items-start mb-2">
-        <h4 className="font-semibold text-white text-lg">{quiz.title}</h4>
-        {isSelected && (
-          <span className="text-blue-400 text-xl animate-pulse">✓</span>
-        )}
-      </div>
-      <div className="flex items-center gap-4 text-sm text-gray-400">
-        <span>📝 {quiz.totalQuestions} questions</span>
-        <span>✅ {quiz.questionsWithAnswers} answered</span>
-      </div>
-      <div className="mt-3">
-        <div className="flex justify-between text-xs mb-1">
-          <span className="text-gray-400">Answer Progress</span>
-          <span className={progress === 100 ? 'text-green-400' : 'text-blue-400'}>{progress}%</span>
-        </div>
-        <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-          <div
-            className={`h-full transition-all duration-500 ${progress === 100
-                ? 'bg-gradient-to-r from-green-500 to-emerald-500'
-                : 'bg-gradient-to-r from-blue-500 to-purple-500'
-              }`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
-    </button>
-  );
-};
-
-// Question Card Component
-const QuestionCard = ({
-  question,
-  index,
-  correctAnswer,
-  onAnswerChange,
-  isExpanded,
-  onToggle,
-  disabled,
-}: {
-  question: Question;
-  index: number;
-  correctAnswer: number | undefined;
-  onAnswerChange: (optionIndex: number) => void;
-  isExpanded: boolean;
-  onToggle: () => void;
-  disabled: boolean;
-}) => {
-  const options = Array.isArray(question.options)
-    ? question.options
-    : JSON.parse(question.options || '[]');
-
-  const isAnswered = correctAnswer !== undefined;
-
-  return (
-    <div
-      className={`rounded-xl border transition-all duration-300 overflow-hidden ${isAnswered
-          ? 'bg-green-500/10 border-green-400/30'
-          : 'bg-white/5 border-white/10'
-        }`}
-    >
-      <button
-        onClick={onToggle}
-        className="w-full p-4 text-left flex items-center justify-between"
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${isAnswered
-                ? 'bg-green-500 text-white'
-                : 'bg-white/10 text-gray-400'
-              }`}
-          >
-            {isAnswered ? '✓' : index + 1}
-          </div>
-          <span className="text-white font-medium line-clamp-1">{question.text}</span>
-        </div>
-        <span
-          className={`text-xl transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''
-            }`}
-        >
-          ▼
-        </span>
-      </button>
-
-      <div
-        className={`transition-all duration-300 ${isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-          }`}
-      >
-        <div className="p-4 pt-0 space-y-2">
-          {options.map((option: string, optionIndex: number) => (
-            <label
-              key={optionIndex}
-              className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all duration-200 ${correctAnswer === optionIndex
-                  ? 'bg-blue-500/30 border border-blue-400'
-                  : 'bg-white/5 border border-transparent hover:bg-white/10'
-                } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <div
-                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${correctAnswer === optionIndex
-                    ? 'border-blue-400 bg-blue-500'
-                    : 'border-gray-500'
-                  }`}
-              >
-                {correctAnswer === optionIndex && (
-                  <div className="w-2 h-2 rounded-full bg-white" />
-                )}
-              </div>
-              <span className="text-gray-200 flex-1">{option}</span>
-              {question.hasCorrectAnswer && question.correctOption === optionIndex && (
-                <span className="px-2 py-1 rounded text-xs bg-green-500/20 text-green-300 border border-green-400/30">
-                  Saved ✓
-                </span>
-              )}
-              <input
-                type="radio"
-                name={`question-${question.id}`}
-                value={optionIndex}
-                checked={correctAnswer === optionIndex}
-                onChange={() => onAnswerChange(optionIndex)}
-                disabled={disabled}
-                className="sr-only"
-              />
-            </label>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Winner Row Component
-const WinnerRow = ({ winner, rank }: { winner: Winner; rank: number }) => {
-  const medals = ['🥇', '🥈', '🥉'];
-
-  return (
-    <tr className="border-b border-white/10 hover:bg-white/5 transition-colors">
-      <td className="py-3 px-4">
-        <span className="text-2xl">{medals[rank - 1] || `#${rank}`}</span>
-      </td>
-      <td className="py-3 px-4">
-        <div>
-          <div className="font-medium text-white">{winner.userName || 'Anonymous'}</div>
-          <div className="text-xs text-gray-400">{winner.userEmail}</div>
-        </div>
-      </td>
-      <td className="py-3 px-4 text-center">
-        <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 font-medium">
-          {winner.score}%
-        </span>
-      </td>
-      <td className="py-3 px-4 text-center">
-        <span className="px-3 py-1 rounded-full bg-green-500/20 text-green-300 font-bold">
-          +{winner.pointsAwarded} pts
-        </span>
-      </td>
-    </tr>
-  );
-};
-
-// Loading Skeleton
-const Skeleton = ({ className = '' }: { className?: string }) => (
-  <div className={`animate-pulse bg-white/10 rounded ${className}`} />
-);
+import {
+  type Quiz,
+  type Question,
+  type Winner,
+  type ApiQuiz,
+  type ApiQuizQuestion,
+  type QuizEvaluation,
+  type PointsAllocationResult,
+  StepIndicator,
+  StatCard,
+  QuizCard,
+  QuestionCard,
+  WinnerRow,
+  Skeleton,
+} from './quiz-evaluation';
 
 // Main Component
 export default function QuizEvaluationManager() {
@@ -626,8 +302,8 @@ export default function QuizEvaluationManager() {
       {message && (
         <div
           className={`p-4 rounded-xl flex items-center justify-between backdrop-blur-sm transition-all duration-300 ${message.type === 'success'
-              ? 'bg-green-500/20 border border-green-400/30 text-green-300'
-              : 'bg-red-500/20 border border-red-400/30 text-red-300'
+            ? 'bg-green-500/20 border border-green-400/30 text-green-300'
+            : 'bg-red-500/20 border border-red-400/30 text-red-300'
             }`}
         >
           <div className="flex items-center gap-3">
@@ -758,8 +434,8 @@ export default function QuizEvaluationManager() {
                 onClick={handleEvaluateQuiz}
                 disabled={loading || answeredCount !== totalQuestions}
                 className={`mt-6 w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loading || answeredCount !== totalQuestions
-                    ? 'bg-white/10 text-gray-500 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-500 hover:to-purple-500 hover:shadow-lg hover:shadow-blue-500/30 hover:scale-[1.02]'
+                  ? 'bg-white/10 text-gray-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-500 hover:to-purple-500 hover:shadow-lg hover:shadow-blue-500/30 hover:scale-[1.02]'
                   }`}
               >
                 {loading ? (
@@ -866,8 +542,8 @@ export default function QuizEvaluationManager() {
                 onClick={handleAllocatePoints}
                 disabled={loading}
                 className={`mt-6 w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loading
-                    ? 'bg-white/10 text-gray-500 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-500 hover:to-pink-500 hover:shadow-lg hover:shadow-purple-500/30 hover:scale-[1.02]'
+                  ? 'bg-white/10 text-gray-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-500 hover:to-pink-500 hover:shadow-lg hover:shadow-purple-500/30 hover:scale-[1.02]'
                   }`}
               >
                 {loading ? (

@@ -1,27 +1,22 @@
-'use strict';
-
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Comprehensive tests for StreamPlayer timer reference typing
  * Tests verify cross-environment-safe timer patterns used in React components
  * 
  * Timer pattern: ReturnType<typeof setTimeout> | null
- * This pattern works correctly in both Node.js and browser environments
  */
 
 describe('StreamPlayer Timer Ref Typing', () => {
   describe('Initialization', () => {
     it('initializes as null (initial value)', () => {
       const timerRef: ReturnType<typeof setTimeout> | null = null;
-      assert.strictEqual(timerRef, null);
+      expect(timerRef).toBeNull();
     });
 
     it('type allows undefined coercion', () => {
-      let timerRef: ReturnType<typeof setTimeout> | null = null;
-      // Simulating React ref initial state
-      assert.strictEqual(timerRef ?? null, null);
+      const timerRef: ReturnType<typeof setTimeout> | null = null;
+      expect(timerRef ?? null).toBeNull();
     });
   });
 
@@ -29,16 +24,16 @@ describe('StreamPlayer Timer Ref Typing', () => {
     it('accepts a timeout handle after initialization', async () => {
       let timerRef: ReturnType<typeof setTimeout> | null = null;
       timerRef = setTimeout(() => { }, 10);
-      assert.ok(timerRef, 'Timer ref should be truthy after setTimeout');
+      expect(timerRef).toBeTruthy();
       clearTimeout(timerRef);
     });
 
     it('supports clearing and resetting to null', () => {
       let timerRef: ReturnType<typeof setTimeout> | null = setTimeout(() => { }, 5);
-      assert.ok(timerRef, 'Timer ref should be truthy initially');
+      expect(timerRef).toBeTruthy();
       clearTimeout(timerRef);
       timerRef = null;
-      assert.strictEqual(timerRef, null);
+      expect(timerRef).toBeNull();
     });
 
     it('handles multiple timer replacements', () => {
@@ -46,13 +41,12 @@ describe('StreamPlayer Timer Ref Typing', () => {
 
       // First timer
       timerRef = setTimeout(() => { }, 100);
-      const firstRef = timerRef;
-      assert.ok(timerRef);
+      expect(timerRef).toBeTruthy();
 
       // Clear and replace
       clearTimeout(timerRef);
       timerRef = setTimeout(() => { }, 200);
-      assert.ok(timerRef);
+      expect(timerRef).toBeTruthy();
 
       // Cleanup
       clearTimeout(timerRef);
@@ -64,32 +58,29 @@ describe('StreamPlayer Timer Ref Typing', () => {
     it('works with setInterval pattern', () => {
       let intervalRef: ReturnType<typeof setInterval> | null = null;
       intervalRef = setInterval(() => { }, 1000);
-      assert.ok(intervalRef);
+      expect(intervalRef).toBeTruthy();
       clearInterval(intervalRef);
       intervalRef = null;
-      assert.strictEqual(intervalRef, null);
+      expect(intervalRef).toBeNull();
     });
   });
 
   describe('Cleanup Patterns', () => {
     it('handles safe cleanup when null', () => {
-      let timerRef: ReturnType<typeof setTimeout> | null = null;
-      // This should not throw
+      const timerRef: ReturnType<typeof setTimeout> | null = null;
       if (timerRef) {
         clearTimeout(timerRef);
       }
-      assert.ok(true, 'Safe cleanup completed');
+      expect(true).toBe(true);
     });
 
     it('simulates useEffect cleanup pattern', () => {
       let timerRef: ReturnType<typeof setTimeout> | null = null;
 
-      // Simulate effect setup
       const setup = () => {
         timerRef = setTimeout(() => { }, 1000);
       };
 
-      // Simulate effect cleanup
       const cleanup = () => {
         if (timerRef) {
           clearTimeout(timerRef);
@@ -98,10 +89,10 @@ describe('StreamPlayer Timer Ref Typing', () => {
       };
 
       setup();
-      assert.ok(timerRef, 'Timer should be set after setup');
+      expect(timerRef).toBeTruthy();
 
       cleanup();
-      assert.strictEqual(timerRef, null, 'Timer should be null after cleanup');
+      expect(timerRef).toBeNull();
     });
 
     it('handles rapid setup/cleanup cycles', () => {
@@ -116,7 +107,7 @@ describe('StreamPlayer Timer Ref Typing', () => {
       if (timerRef) clearTimeout(timerRef);
       timerRef = null;
 
-      assert.strictEqual(timerRef, null);
+      expect(timerRef).toBeNull();
     });
   });
 
@@ -129,12 +120,11 @@ describe('StreamPlayer Timer Ref Typing', () => {
         timerRef = setTimeout(() => { }, 100);
       }
 
-      // TypeScript knows timerRef could be either type here
       if (timerRef) {
         clearTimeout(timerRef);
       }
 
-      assert.ok(true, 'Type safety maintained');
+      expect(true).toBe(true);
     });
   });
 });

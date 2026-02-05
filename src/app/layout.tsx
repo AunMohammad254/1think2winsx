@@ -20,13 +20,15 @@ const geistMono = Geist_Mono({
 const poppins = Poppins({
   variable: "--font-poppins",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800", "900"],
+  weight: ["400", "600", "700"],
+  display: 'swap',
 });
 
 const montserrat = Montserrat({
   variable: "--font-montserrat",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800", "900"],
+  weight: ["400", "600", "700", "800"],
+  display: 'swap',
 });
 
 export const metadata: Metadata = {

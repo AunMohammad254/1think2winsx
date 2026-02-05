@@ -2,9 +2,28 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
-import QuizEvaluationManager from '@/components/QuizEvaluationManager';
+
+// Lazy load the heavy QuizEvaluationManager component (967 lines, 36KB)
+const QuizEvaluationManager = dynamic(
+    () => import('@/components/QuizEvaluationManager'),
+    {
+        loading: () => (
+            <div className="space-y-6">
+                <div className="h-32 bg-gray-800/50 rounded-xl animate-pulse" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {[1, 2, 3].map((i) => (
+                        <div key={i} className="h-24 bg-gray-800/50 rounded-xl animate-pulse" />
+                    ))}
+                </div>
+                <div className="h-64 bg-gray-800/50 rounded-xl animate-pulse" />
+            </div>
+        ),
+        ssr: false // Admin component, no SSR needed
+    }
+);
 
 export default function QuizEvaluationPage() {
     const router = useRouter();
