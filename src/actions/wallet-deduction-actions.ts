@@ -54,16 +54,12 @@ export async function deductWalletForQuizAccess(
     quizId?: string
 ): Promise<WalletDeductionResponse> {
     try {
-        console.log('[deductWallet] Starting payment for amount:', amount);
         const supabase = await createClient();
         const { data: { user }, error: authError } = await supabase.auth.getUser();
 
         if (authError || !user) {
-            console.log('[deductWallet] Auth error:', authError?.message);
             return { success: false, error: 'You must be logged in' };
         }
-
-        console.log('[deductWallet] User email:', user.email);
 
         // Validate amount
         if (amount <= 0) {
@@ -72,8 +68,6 @@ export async function deductWalletForQuizAccess(
 
         // Get user with current balance
         const dbUser = await userDb.findByEmail(user.email!);
-
-        console.log('[deductWallet] DB User found:', !!dbUser, dbUser?.id, dbUser?.walletBalance);
 
         if (!dbUser) {
             return {

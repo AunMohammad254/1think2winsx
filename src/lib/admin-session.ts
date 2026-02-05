@@ -89,23 +89,18 @@ export async function validateAdminSession(): Promise<{ valid: boolean; email?: 
         const token = cookieStore.get(ADMIN_SESSION_COOKIE)?.value;
 
         if (!token) {
-            console.log('[Admin Session] No admin session cookie found');
             return { valid: false };
         }
 
-        console.log('[Admin Session] Cookie found, validating token...');
 
         // Look up session in database (findByToken already filters expired)
         const session = await adminSessionDb.findByToken(token);
 
         if (!session) {
-            console.log('[Admin Session] Token not found or expired in database');
             return { valid: false };
         }
 
-        // Extract email from session (explicit type handling for admin client)
         const sessionEmail = (session as { email: string }).email;
-        console.log('[Admin Session] Valid session for:', sessionEmail);
         return { valid: true, email: sessionEmail };
     } catch (error) {
         console.error('Error validating admin session:', error);

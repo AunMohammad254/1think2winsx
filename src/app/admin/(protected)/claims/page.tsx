@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Gift } from 'lucide-react';
 import { requireAdminSession } from '@/lib/admin-session';
-import PlayerClaimsManager from '@/components/admin/PlayerClaimsManager';
+import { DynamicPlayerClaimsManager } from '@/components/admin/DynamicAdminComponents';
 
 async function checkAuth() {
     // Require valid admin session (validates token in database)
@@ -39,7 +39,7 @@ export default async function AdminClaimsPage() {
 
             {/* Main Content */}
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <PlayerClaimsManager />
+                <DynamicPlayerClaimsManager />
             </main>
         </div>
     );

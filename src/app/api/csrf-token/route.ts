@@ -38,9 +38,6 @@ export async function GET(request: NextRequest) {
     // Generate CSRF token
     const csrfToken = generateCSRFToken();
 
-    // Log successful token generation
-    console.log(`CSRF token generated for user: ${userId}`);
-
     return createSecureJsonResponse(
       {
         csrfToken,

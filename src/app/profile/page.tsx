@@ -5,10 +5,28 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
 import { useProfile } from '@/contexts/ProfileContext';
 import ProfilePictureUpload from '@/components/ProfilePictureUpload';
-import PrizeRedemption from '@/components/PrizeRedemption';
 import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal } from '@/components/profile';
+
+// Dynamic import for large component
+const PrizeRedemption = dynamic(
+  () => import('@/components/PrizeRedemption'),
+  {
+    loading: () => (
+      <div className="p-6 space-y-4 animate-pulse">
+        <div className="h-8 bg-white/10 rounded w-48" />
+        <div className="grid grid-cols-2 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-32 bg-white/5 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    ),
+    ssr: false
+  }
+);
 
 export default function ProfilePage() {
   const { user, isLoading } = useAuth();

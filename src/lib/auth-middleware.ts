@@ -55,14 +55,6 @@ export async function requireAuth(
   const { adminOnly = false, maxRetries = 1, context = 'api_request' } = options;
   let lastError: Error | null = null;
 
-  // Log authentication attempt for debugging
-  console.log(`Auth attempt for ${context}:`, {
-    adminOnly,
-    nodeEnv: process.env.NODE_ENV,
-    hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-    hasSupabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  });
-
   // Retry authentication in case of temporary session issues
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {

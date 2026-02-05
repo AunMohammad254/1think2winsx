@@ -47,7 +47,6 @@ export async function updateSession(request: NextRequest) {
                 authCookies.forEach(cookie => {
                     supabaseResponse.cookies.delete(cookie.name)
                 })
-                console.log('[Auth Middleware] Cleared stale auth cookies due to refresh token error')
             }
         } else {
             user = data.user
