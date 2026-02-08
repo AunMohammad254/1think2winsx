@@ -76,14 +76,14 @@ export const quizDb = {
     },
 
     async create(quizData: Insertable<'Quiz'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Quiz')
             .insert({
                 id: generateId(),
                 ...quizData,
                 updatedAt: new Date().toISOString()
-            })
+            } as any)
             .select()
             .single()
 
@@ -92,10 +92,10 @@ export const quizDb = {
     },
 
     async update(id: string, quizData: Updatable<'Quiz'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Quiz')
-            .update({ ...quizData, updatedAt: new Date().toISOString() })
+            .update({ ...quizData, updatedAt: new Date().toISOString() } as any)
             .eq('id', id)
             .select()
             .single()
@@ -105,7 +105,7 @@ export const quizDb = {
     },
 
     async delete(id: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('Quiz')
             .delete()
