@@ -109,11 +109,13 @@ export const walletTransactionDb = {
 export const dailyPaymentDb = {
     async findActiveByUserId(userId: string) {
         const supabase = await getDb()
+        const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('DailyPayment')
             .select('*')
             .eq('userId', userId)
-            .eq('isActive', true)
+            .eq('status', 'completed')
+            .gt('expiresAt', now)
             .order('createdAt', { ascending: false })
 
         if (error) throw error
@@ -122,11 +124,13 @@ export const dailyPaymentDb = {
 
     async findFirstActive(userId: string) {
         const supabase = await getDb()
+        const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('DailyPayment')
             .select('*')
             .eq('userId', userId)
-            .eq('isActive', true)
+            .eq('status', 'completed')
+            .gt('expiresAt', now)
             .order('createdAt', { ascending: false })
             .limit(1)
             .single()

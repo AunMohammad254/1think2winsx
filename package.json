@@ -40,6 +40,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.58.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@testing-library/dom": "^10.0.0-alpha.3",
     "@testing-library/jest-dom": "^6.9.1",

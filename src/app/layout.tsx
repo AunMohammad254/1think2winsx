@@ -5,6 +5,7 @@ import { Providers } from "./providers";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Toaster } from "sonner";
+import { WebVitals } from "@/components/analytics/WebVitals";
 
 
 const geistSans = Geist({
@@ -60,6 +61,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <Providers>
+          <WebVitals />
           <Toaster position="top-right" richColors closeButton />
           <div className="min-h-screen flex flex-col">
             <Navbar />
