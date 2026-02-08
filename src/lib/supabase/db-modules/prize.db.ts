@@ -2,7 +2,7 @@
  * Prize and Prize Redemption Database Operations
  */
 
-import { getDb, generateId } from './shared'
+import { getDb, getAdminDb, generateId } from './shared'
 import type { Insertable, Updatable } from '../database.types'
 
 // ============================================================================
@@ -41,10 +41,10 @@ export const prizeDb = {
     },
 
     async create(prizeData: Insertable<'Prize'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Prize')
-            .insert({ id: generateId(), ...prizeData })
+            .insert({ id: generateId(), ...prizeData } as any)
             .select()
             .single()
 
@@ -53,10 +53,10 @@ export const prizeDb = {
     },
 
     async update(id: string, prizeData: Updatable<'Prize'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Prize')
-            .update({ ...prizeData, updatedAt: new Date().toISOString() })
+            .update({ ...prizeData, updatedAt: new Date().toISOString() } as any)
             .eq('id', id)
             .select()
             .single()
@@ -66,7 +66,7 @@ export const prizeDb = {
     },
 
     async delete(id: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('Prize')
             .delete()
@@ -76,16 +76,17 @@ export const prizeDb = {
     },
 
     async decrementStock(id: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
 
         // Fetch current stock
-        const { data: prize, error: fetchError } = await supabase
+        const { data: prizeData, error: fetchError } = await supabase
             .from('Prize')
             .select('stockQuantity')
             .eq('id', id)
             .single()
 
         if (fetchError) throw fetchError
+        const prize = prizeData as { stockQuantity: number } | null
         if (!prize || prize.stockQuantity <= 0) {
             throw new Error('Prize out of stock')
         }
@@ -96,7 +97,7 @@ export const prizeDb = {
             .update({
                 stockQuantity: prize.stockQuantity - 1,
                 updatedAt: new Date().toISOString()
-            })
+            } as any)
             .eq('id', id)
             .select()
             .single()

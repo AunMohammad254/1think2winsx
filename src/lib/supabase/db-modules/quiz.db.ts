@@ -2,7 +2,7 @@
  * Quiz, Question, QuizAttempt, Answer, QuestionAttempt Database Operations
  */
 
-import { getDb, generateId } from './shared'
+import { getDb, getAdminDb, generateId } from './shared'
 import type { Insertable, Updatable } from '../database.types'
 
 // ============================================================================
@@ -158,14 +158,14 @@ export const questionDb = {
     },
 
     async create(questionData: Insertable<'Question'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Question')
             .insert({
                 id: generateId(),
                 ...questionData,
                 updatedAt: new Date().toISOString()
-            })
+            } as any)
             .select()
             .single()
 
@@ -174,7 +174,7 @@ export const questionDb = {
     },
 
     async createMany(questions: Insertable<'Question'>[]) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const questionsWithIds = questions.map(q => ({
             id: generateId(),
             ...q,
@@ -183,7 +183,7 @@ export const questionDb = {
 
         const { data, error } = await supabase
             .from('Question')
-            .insert(questionsWithIds)
+            .insert(questionsWithIds as any)
             .select()
 
         if (error) throw error
@@ -191,10 +191,10 @@ export const questionDb = {
     },
 
     async update(id: string, questionData: Updatable<'Question'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Question')
-            .update({ ...questionData, updatedAt: new Date().toISOString() })
+            .update({ ...questionData, updatedAt: new Date().toISOString() } as any)
             .eq('id', id)
             .select()
             .single()
@@ -204,7 +204,7 @@ export const questionDb = {
     },
 
     async delete(id: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('Question')
             .delete()
@@ -214,14 +214,14 @@ export const questionDb = {
     },
 
     async setCorrectAnswer(id: string, correctOption: number) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Question')
             .update({
                 correctOption,
                 hasCorrectAnswer: true,
                 updatedAt: new Date().toISOString()
-            })
+            } as any)
             .eq('id', id)
             .select()
             .single()
