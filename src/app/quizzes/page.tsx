@@ -8,6 +8,7 @@ import { Search, Filter, Clock, CheckCircle, Sparkles, Wallet, AlertTriangle } f
 import QuizCard from '@/components/quiz/QuizCard';
 import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
 import QuizDetailModal from '@/components/quiz/QuizDetailModal';
+import QuizAttemptModal from '@/components/quiz/QuizAttemptModal';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 
@@ -56,6 +57,7 @@ export default function QuizzesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
+  const [attemptQuizId, setAttemptQuizId] = useState<string | null>(null);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -269,15 +271,6 @@ export default function QuizzesPage() {
           </p>
         </div>
 
-        {/* Live Stream Section */}
-        <div className="mb-8">
-          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-4">
-            <Suspense fallback={<div className="h-64 bg-gray-800 rounded-xl animate-pulse" />}>
-              <LazyStreamPlayer autoPlay={false} />
-            </Suspense>
-          </div>
-        </div>
-
         {/* Access Status Banner */}
         {hasAccess && paymentInfo && (
           <div className="mb-8 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl">
@@ -298,6 +291,15 @@ export default function QuizzesPage() {
             </div>
           </div>
         )}
+
+        {/* Live Stream Section */}
+        <div className="mb-8">
+          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-4">
+            <Suspense fallback={<div className="h-64 bg-gray-800 rounded-xl animate-pulse" />}>
+              <LazyStreamPlayer autoPlay={false} />
+            </Suspense>
+          </div>
+        </div>
 
         {/* Error Banner */}
         {error && (
@@ -402,6 +404,25 @@ export default function QuizzesPage() {
             }}
             isOpen={!!selectedQuiz}
             onClose={() => setSelectedQuiz(null)}
+            onStartQuiz={(quizId) => {
+              setSelectedQuiz(null);
+              setAttemptQuizId(quizId);
+            }}
+          />
+        )}
+
+        {/* Quiz Attempt Modal */}
+        {attemptQuizId && (
+          <QuizAttemptModal
+            quizId={attemptQuizId}
+            isOpen={!!attemptQuizId}
+            onClose={() => {
+              setAttemptQuizId(null);
+              fetchQuizzes();
+            }}
+            onQuizCompleted={() => {
+              fetchQuizzes();
+            }}
           />
         )}
 

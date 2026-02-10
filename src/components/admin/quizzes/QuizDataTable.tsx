@@ -143,7 +143,7 @@ export default function QuizDataTable({ data, searchParams }: QuizDataTableProps
     }
 
     return (
-        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl overflow-hidden">
+        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl">
             {/* Bulk Actions Bar */}
             {selectedQuizzes.length > 0 && (
                 <div className="flex items-center gap-4 px-6 py-3 bg-purple-500/10 border-b border-purple-500/20">
@@ -369,8 +369,8 @@ export default function QuizDataTable({ data, searchParams }: QuizDataTableProps
                                     key={page}
                                     onClick={() => handlePageChange(page)}
                                     className={`w-10 h-10 rounded-lg font-medium transition-colors ${currentPage === page
-                                            ? 'bg-purple-600 text-white'
-                                            : 'text-gray-400 hover:text-white hover:bg-white/10'
+                                        ? 'bg-purple-600 text-white'
+                                        : 'text-gray-400 hover:text-white hover:bg-white/10'
                                         }`}
                                 >
                                     {page}

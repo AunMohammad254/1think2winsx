@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { X, Clock, HelpCircle, Target, AlertTriangle, Play } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 
 interface QuizDetailModalProps {
     quiz: {
@@ -19,6 +18,7 @@ interface QuizDetailModalProps {
     };
     isOpen: boolean;
     onClose: () => void;
+    onStartQuiz?: (quizId: string) => void;
 }
 
 const difficultyConfig = {
@@ -27,8 +27,7 @@ const difficultyConfig = {
     hard: { label: 'Hard', color: 'text-red-400', bg: 'bg-red-500/20', border: 'border-red-500/30' },
 };
 
-export default function QuizDetailModal({ quiz, isOpen, onClose }: QuizDetailModalProps) {
-    const router = useRouter();
+export default function QuizDetailModal({ quiz, isOpen, onClose, onStartQuiz }: QuizDetailModalProps) {
     const [isStarting, setIsStarting] = useState(false);
 
     const difficulty = quiz.difficulty || 'medium';
@@ -36,7 +35,10 @@ export default function QuizDetailModal({ quiz, isOpen, onClose }: QuizDetailMod
 
     const handleStartQuiz = () => {
         setIsStarting(true);
-        router.push(`/quiz/${quiz.id}`);
+        if (onStartQuiz) {
+            onStartQuiz(quiz.id);
+        }
+        onClose();
     };
 
     const handleBackdropClick = (e: React.MouseEvent) => {

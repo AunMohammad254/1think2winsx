@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import QuizFormBuilder from '@/components/admin/QuizFormBuilder';
 import { publishQuiz, pauseQuiz, deleteQuiz } from '@/actions/quiz-actions';
+import { createClient } from '@/lib/supabase/client';
 
 // ============================================
 // Types
@@ -126,6 +127,49 @@ export default function AdminQuizManagementPage() {
     useEffect(() => {
         fetchQuizzes();
     }, [fetchQuizzes]);
+
+    // ============================================
+    // Realtime Subscription
+    // ============================================
+    useEffect(() => {
+        const supabase = createClient();
+
+        const channel = supabase
+            .channel('quiz-changes')
+            .on('postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'Quiz' },
+                (payload) => {
+                    const newQuiz = payload.new as Quiz;
+                    setQuizzes(prev => {
+                        // Avoid duplicates
+                        if (prev.some(q => q.id === newQuiz.id)) return prev;
+                        return [...prev, newQuiz];
+                    });
+                    toast.success(`New quiz "${newQuiz.title}" added`);
+                }
+            )
+            .on('postgres_changes',
+                { event: 'UPDATE', schema: 'public', table: 'Quiz' },
+                (payload) => {
+                    const updatedQuiz = payload.new as Quiz;
+                    setQuizzes(prev => prev.map(q =>
+                        q.id === updatedQuiz.id ? updatedQuiz : q
+                    ));
+                }
+            )
+            .on('postgres_changes',
+                { event: 'DELETE', schema: 'public', table: 'Quiz' },
+                (payload) => {
+                    const deletedId = payload.old.id as string;
+                    setQuizzes(prev => prev.filter(q => q.id !== deletedId));
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
 
     // ============================================
     // Actions
@@ -433,7 +477,7 @@ export default function AdminQuizManagementPage() {
                 )}
 
                 {/* Data Table */}
-                <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+                <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10">
                     {/* Table Header */}
                     <div className="grid grid-cols-12 gap-4 p-4 border-b border-white/10 bg-white/5 text-sm font-medium text-gray-400">
                         <div className="col-span-1 flex items-center">
@@ -579,7 +623,7 @@ export default function AdminQuizManagementPage() {
                                                         className="fixed inset-0 z-50"
                                                         onClick={() => setActionMenuOpen(null)}
                                                     />
-                                                    <div className="absolute right-0 top-10 z-[60] w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl py-1">
+                                                    <div className="absolute right-0 bottom-full mb-2 z-[60] w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl py-1">
                                                         <button
                                                             onClick={() => handleEdit(quiz)}
                                                             className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/10 transition-colors"

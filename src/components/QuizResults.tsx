@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 
 type QuizResultsProps = {
@@ -10,6 +11,8 @@ type QuizResultsProps = {
   totalQuestions: number;
   submittedAnswers: number;
   note: string;
+  isInModal?: boolean;
+  onClose?: () => void;
 };
 
 // Confetti particle component
@@ -25,7 +28,8 @@ const ConfettiParticle = ({ delay, color, left }: { delay: number; color: string
   />
 );
 
-export default function QuizResults({ success, message, totalQuestions, submittedAnswers, note }: QuizResultsProps) {
+export default function QuizResults({ success, message, totalQuestions, submittedAnswers, note, isInModal = false, onClose }: QuizResultsProps) {
+  const router = useRouter();
   const [showConfetti, setShowConfetti] = useState(success);
   const [animationPhase, setAnimationPhase] = useState<'initial' | 'revealed' | 'final'>('initial');
 
@@ -62,7 +66,7 @@ export default function QuizResults({ success, message, totalQuestions, submitte
   }, [success]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+    <div className={`${isInModal ? '' : 'min-h-screen'} flex items-center justify-center p-4 relative overflow-hidden`}>
       {/* Confetti Animation */}
       {showConfetti && (
         <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden">
@@ -87,8 +91,8 @@ export default function QuizResults({ success, message, totalQuestions, submitte
         {/* Success Checkmark Animation */}
         <div className="mb-6 relative">
           <div className={`w-28 h-28 mx-auto rounded-full flex items-center justify-center transition-all duration-500 ${success
-              ? 'bg-gradient-to-br from-green-400 to-emerald-600'
-              : 'bg-gradient-to-br from-red-400 to-red-600'
+            ? 'bg-gradient-to-br from-green-400 to-emerald-600'
+            : 'bg-gradient-to-br from-red-400 to-red-600'
             }`}
             style={{
               transform: animationPhase === 'final' ? 'scale(1)' : 'scale(0)',
@@ -175,26 +179,43 @@ export default function QuizResults({ success, message, totalQuestions, submitte
             opacity: animationPhase === 'final' ? 1 : 0,
           }}
         >
-          <Link
-            href="/quizzes"
-            className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-lg font-semibold rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-lg shadow-green-500/25"
-          >
-            🎯 Take More Quizzes
-          </Link>
-
-          <Link
-            href="/profile"
-            className="w-full py-4 px-6 glass-card-blue glass-border-blue text-white font-semibold rounded-xl hover:bg-blue-500/20 transition-all duration-200"
-          >
-            👤 View My Points & Prizes
-          </Link>
-
-          <Link
-            href="/"
-            className="w-full py-3 px-6 text-gray-400 hover:text-white transition-colors"
-          >
-            Back to Lobby
-          </Link>
+          {isInModal ? (
+            <>
+              <button
+                onClick={onClose}
+                className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-lg font-semibold rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-lg shadow-green-500/25"
+              >
+                🎯 Take More Quizzes
+              </button>
+              <button
+                onClick={() => { router.push('/profile'); onClose?.(); }}
+                className="w-full py-4 px-6 glass-card-blue glass-border-blue text-white font-semibold rounded-xl hover:bg-blue-500/20 transition-all duration-200"
+              >
+                👤 View My Points & Prizes
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/quizzes"
+                className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-lg font-semibold rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-lg shadow-green-500/25"
+              >
+                🎯 Take More Quizzes
+              </Link>
+              <Link
+                href="/profile"
+                className="w-full py-4 px-6 glass-card-blue glass-border-blue text-white font-semibold rounded-xl hover:bg-blue-500/20 transition-all duration-200"
+              >
+                👤 View My Points & Prizes
+              </Link>
+              <Link
+                href="/"
+                className="w-full py-3 px-6 text-gray-400 hover:text-white transition-colors"
+              >
+                Back to Lobby
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Live Stream Section */}
