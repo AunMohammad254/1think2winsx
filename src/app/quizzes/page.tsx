@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import QuizDetailModal from '@/components/quiz/QuizDetailModal';
 import QuizAttemptModal from '@/components/quiz/QuizAttemptModal';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
+import { createClient } from '@/lib/supabase/client';
 
 interface Quiz {
   id: string;
@@ -59,49 +60,8 @@ export default function QuizzesPage() {
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [attemptQuizId, setAttemptQuizId] = useState<string | null>(null);
 
-  // Redirect to login if not authenticated
-  useEffect(() => {
-    if (isLoading) return;
-
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-
-    fetchQuizzes();
-  }, [user, isLoading, router]);
-
-  // Update time remaining every second
-  useEffect(() => {
-    if (!paymentInfo) return;
-
-    const updateTimer = () => {
-      const now = new Date().getTime();
-      const expiry = new Date(paymentInfo.expiresAt).getTime();
-      const remaining = expiry - now;
-
-      if (remaining <= 0) {
-        setTimeRemaining('Expired');
-        setHasAccess(false);
-        setPaymentInfo(null);
-        toast.warning('Your 24-hour access has expired');
-        return;
-      }
-
-      const hours = Math.floor(remaining / (1000 * 60 * 60));
-      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
-
-      setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-
-    return () => clearInterval(interval);
-  }, [paymentInfo]);
-
-  const fetchQuizzes = async () => {
+  // Fetch quizzes (wrapped in useCallback for realtime re-use)
+  const fetchQuizzesData = useCallback(async () => {
     try {
       const response = await fetch('/api/quizzes', { cache: 'no-store' });
       if (response.status === 304) {
@@ -134,7 +94,85 @@ export default function QuizzesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    fetchQuizzesData();
+  }, [user, isLoading, router, fetchQuizzesData]);
+
+  // Realtime subscription for live quiz updates
+  useEffect(() => {
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel('user-quiz-changes')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'Quiz' },
+        () => {
+          // Re-fetch to get enriched data with access status
+          fetchQuizzesData();
+        }
+      )
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'Quiz' },
+        () => {
+          fetchQuizzesData();
+        }
+      )
+      .on('postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'Quiz' },
+        (payload) => {
+          const deletedId = payload.old.id as string;
+          setQuizzes(prev => prev.filter(q => q.id !== deletedId));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchQuizzesData]);
+
+  // Update time remaining every second
+  useEffect(() => {
+    if (!paymentInfo) return;
+
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const expiry = new Date(paymentInfo.expiresAt).getTime();
+      const remaining = expiry - now;
+
+      if (remaining <= 0) {
+        setTimeRemaining('Expired');
+        setHasAccess(false);
+        setPaymentInfo(null);
+        toast.warning('Your 24-hour access has expired');
+        return;
+      }
+
+      const hours = Math.floor(remaining / (1000 * 60 * 60));
+      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+      setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [paymentInfo]);
+
+  // Legacy fetchQuizzes alias for components that call it
+  const fetchQuizzes = fetchQuizzesData;
 
   const handleQuizClick = (quizId: string) => {
     const quiz = quizzes.find(q => q.id === quizId);

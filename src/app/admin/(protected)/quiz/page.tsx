@@ -139,22 +139,16 @@ export default function AdminQuizManagementPage() {
             .on('postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'Quiz' },
                 (payload) => {
-                    const newQuiz = payload.new as Quiz;
-                    setQuizzes(prev => {
-                        // Avoid duplicates
-                        if (prev.some(q => q.id === newQuiz.id)) return prev;
-                        return [...prev, newQuiz];
-                    });
-                    toast.success(`New quiz "${newQuiz.title}" added`);
+                    // Re-fetch to get enriched data (with _count, stats)
+                    toast.success(`New quiz "${(payload.new as { title?: string }).title}" added`);
+                    fetchQuizzes();
                 }
             )
             .on('postgres_changes',
                 { event: 'UPDATE', schema: 'public', table: 'Quiz' },
-                (payload) => {
-                    const updatedQuiz = payload.new as Quiz;
-                    setQuizzes(prev => prev.map(q =>
-                        q.id === updatedQuiz.id ? updatedQuiz : q
-                    ));
+                () => {
+                    // Re-fetch to get enriched data
+                    fetchQuizzes();
                 }
             )
             .on('postgres_changes',
@@ -162,6 +156,7 @@ export default function AdminQuizManagementPage() {
                 (payload) => {
                     const deletedId = payload.old.id as string;
                     setQuizzes(prev => prev.filter(q => q.id !== deletedId));
+                    toast.info('A quiz was deleted');
                 }
             )
             .subscribe();
@@ -169,7 +164,7 @@ export default function AdminQuizManagementPage() {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, []);
+    }, [fetchQuizzes]);
 
     // ============================================
     // Actions
@@ -178,7 +173,7 @@ export default function AdminQuizManagementPage() {
         const result = await publishQuiz(id);
         if (result.success) {
             toast.success(result.message);
-            fetchQuizzes();
+            // Realtime UPDATE event will trigger re-fetch
         } else {
             toast.error(result.error);
         }
@@ -189,7 +184,7 @@ export default function AdminQuizManagementPage() {
         const result = await pauseQuiz(id);
         if (result.success) {
             toast.success(result.message);
-            fetchQuizzes();
+            // Realtime UPDATE event will trigger re-fetch
         } else {
             toast.error(result.error);
         }
@@ -204,7 +199,7 @@ export default function AdminQuizManagementPage() {
         const result = await deleteQuiz(id);
         if (result.success) {
             toast.success(result.message);
-            fetchQuizzes();
+            // Realtime DELETE event will remove from state
         } else {
             toast.error(result.error);
         }
@@ -226,7 +221,7 @@ export default function AdminQuizManagementPage() {
 
         toast.success(`Deleted ${successCount} quiz(es)`);
         setSelectedQuizzes([]);
-        fetchQuizzes();
+        // Realtime DELETE events will remove from state
     };
 
     const handleEdit = async (quiz: Quiz) => {

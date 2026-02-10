@@ -106,74 +106,109 @@ export async function GET(request: NextRequest) {
 
     if (quizzesError) throw quizzesError;
 
-    // Format quizzes with access status and reattempt information
-    const formattedQuizzes = await Promise.all(
-      (quizzes || []).map(async (quiz) => {
-        // Get questions for this quiz
-        const { data: questions } = await supabase
-          .from('Question')
-          .select('id, text, options')
-          .eq('quizId', quiz.id)
-          .eq('status', 'active');
+    // Batch fetch all related data instead of N+1 queries per quiz
+    const quizIds = (quizzes || []).map((q: any) => q.id);
 
-        // Get user's most recent completed attempt
-        const { data: attempts } = await supabase
-          .from('QuizAttempt')
-          .select('id, score, completedAt')
-          .eq('quizId', quiz.id)
-          .eq('userId', userId)
-          .eq('isCompleted', true)
-          .order('completedAt', { ascending: false })
-          .limit(1);
+    // Fetch all questions for all quizzes at once
+    const { data: allQuestions } = quizIds.length > 0
+      ? await supabase
+        .from('Question')
+        .select('id, quizId, text, options')
+        .in('quizId', quizIds)
+        .eq('status', 'active')
+      : { data: [] };
 
-        // Get user's question attempts for this quiz
-        const { data: questionAttempts } = await supabase
-          .from('QuestionAttempt')
-          .select('questionId')
-          .eq('quizId', quiz.id)
-          .eq('userId', userId);
+    // Fetch user's latest completed attempt per quiz
+    const { data: allUserAttempts } = quizIds.length > 0
+      ? await supabase
+        .from('QuizAttempt')
+        .select('id, quizId, score, completedAt')
+        .in('quizId', quizIds)
+        .eq('userId', userId)
+        .eq('isCompleted', true)
+        .order('completedAt', { ascending: false })
+      : { data: [] };
 
-        // Get counts
-        const [questionsCount, attemptsCount] = await Promise.all([
-          supabase.from('Question').select('*', { count: 'exact', head: true }).eq('quizId', quiz.id).eq('status', 'active'),
-          supabase.from('QuizAttempt').select('*', { count: 'exact', head: true }).eq('quizId', quiz.id),
-        ]);
+    // Fetch user's question attempts for all quizzes at once
+    const { data: allQuestionAttempts } = quizIds.length > 0
+      ? await supabase
+        .from('QuestionAttempt')
+        .select('quizId, questionId')
+        .in('quizId', quizIds)
+        .eq('userId', userId)
+      : { data: [] };
 
-        const userAttempt = attempts?.[0];
-        const attemptedQuestionIds = (questionAttempts || []).map((qa) => qa.questionId);
-        const totalQuestions = questionsCount.count || 0;
-        const attemptedQuestionsCount = attemptedQuestionIds.length;
-        const newQuestionsCount = totalQuestions - attemptedQuestionsCount;
+    // Fetch total attempt counts per quiz
+    const { data: allAttemptCounts } = quizIds.length > 0
+      ? await supabase
+        .from('QuizAttempt')
+        .select('quizId')
+        .in('quizId', quizIds)
+      : { data: [] };
 
-        const isCompleted = !!userAttempt;
-        const hasNewQuestions = isCompleted && newQuestionsCount > 0;
+    // Group data by quizId in-memory
+    const questionsByQuiz = new Map<string, any[]>();
+    for (const q of (allQuestions || [])) {
+      if (!questionsByQuiz.has(q.quizId)) questionsByQuiz.set(q.quizId, []);
+      questionsByQuiz.get(q.quizId)!.push(q);
+    }
 
-        return {
-          id: quiz.id,
-          title: quiz.title,
-          description: quiz.description || '',
-          duration: quiz.duration,
-          passingScore: quiz.passingScore,
-          status: quiz.status,
-          questionCount: totalQuestions,
-          totalAttempts: attemptsCount.count || 0,
-          hasAccess: paymentAccess.hasAccess,
-          isCompleted,
-          hasNewQuestions,
-          newQuestionsCount: hasNewQuestions ? newQuestionsCount : 0,
-          lastAttemptDate: userAttempt?.completedAt ? new Date(userAttempt.completedAt) : null,
-          createdAt: new Date(quiz.createdAt),
-          updatedAt: new Date(quiz.updatedAt),
-          questions: paymentAccess.hasAccess
-            ? (questions || []).map((q) => ({
-              id: q.id,
-              text: q.text,
-              options: JSON.parse(q.options),
-            }))
-            : []
-        };
-      })
-    );
+    // Get latest attempt per quiz (first one per quizId since ordered desc)
+    const latestAttemptByQuiz = new Map<string, any>();
+    for (const a of (allUserAttempts || [])) {
+      if (!latestAttemptByQuiz.has(a.quizId)) {
+        latestAttemptByQuiz.set(a.quizId, a);
+      }
+    }
+
+    const questionAttemptsByQuiz = new Map<string, Set<string>>();
+    for (const qa of (allQuestionAttempts || [])) {
+      if (!questionAttemptsByQuiz.has(qa.quizId)) questionAttemptsByQuiz.set(qa.quizId, new Set());
+      questionAttemptsByQuiz.get(qa.quizId)!.add(qa.questionId);
+    }
+
+    const attemptCountByQuiz = new Map<string, number>();
+    for (const a of (allAttemptCounts || [])) {
+      attemptCountByQuiz.set(a.quizId, (attemptCountByQuiz.get(a.quizId) || 0) + 1);
+    }
+
+    // Build enriched quiz objects
+    const formattedQuizzes = (quizzes || []).map((quiz: any) => {
+      const questions = questionsByQuiz.get(quiz.id) || [];
+      const userAttempt = latestAttemptByQuiz.get(quiz.id);
+      const attemptedQuestionIds = questionAttemptsByQuiz.get(quiz.id) || new Set();
+      const totalQuestions = questions.length;
+      const attemptedQuestionsCount = attemptedQuestionIds.size;
+      const newQuestionsCount = totalQuestions - attemptedQuestionsCount;
+
+      const isCompleted = !!userAttempt;
+      const hasNewQuestions = isCompleted && newQuestionsCount > 0;
+
+      return {
+        id: quiz.id,
+        title: quiz.title,
+        description: quiz.description || '',
+        duration: quiz.duration,
+        passingScore: quiz.passingScore,
+        status: quiz.status,
+        questionCount: totalQuestions,
+        totalAttempts: attemptCountByQuiz.get(quiz.id) || 0,
+        hasAccess: paymentAccess.hasAccess,
+        isCompleted,
+        hasNewQuestions,
+        newQuestionsCount: hasNewQuestions ? newQuestionsCount : 0,
+        lastAttemptDate: userAttempt?.completedAt ? new Date(userAttempt.completedAt) : null,
+        createdAt: new Date(quiz.createdAt),
+        updatedAt: new Date(quiz.updatedAt),
+        questions: paymentAccess.hasAccess
+          ? questions.map((q: any) => ({
+            id: q.id,
+            text: q.text,
+            options: JSON.parse(q.options),
+          }))
+          : []
+      };
+    });
 
     const responseData = {
       quizzes: formattedQuizzes,

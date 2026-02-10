@@ -79,69 +79,80 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    // Get questions and stats for each quiz
-    const quizzesWithStats = await Promise.all(
-      (quizzes || []).map(async (quiz: any) => {
-        // Get questions for this quiz
-        const { data: questions } = await supabase
-          .from('Question')
-          .select('id, text, options, correctOption, hasCorrectAnswer, status, createdAt, updatedAt')
-          .eq('quizId', quiz.id);
+    // Batch fetch all related data in 2 queries instead of 4×N
+    const quizIds = (quizzes || []).map((q: any) => q.id);
 
-        // Get attempt counts
-        const { count: totalAttempts } = await supabase
-          .from('QuizAttempt')
-          .select('*', { count: 'exact', head: true })
-          .eq('quizId', quiz.id);
+    // Fetch all questions for all quizzes at once
+    const { data: allQuestions } = quizIds.length > 0
+      ? await supabase
+        .from('Question')
+        .select('id, quizId, text, options, correctOption, hasCorrectAnswer, status, createdAt, updatedAt')
+        .in('quizId', quizIds)
+      : { data: [] };
 
-        const { count: completedAttempts } = await supabase
-          .from('QuizAttempt')
-          .select('*', { count: 'exact', head: true })
-          .eq('quizId', quiz.id)
-          .eq('isCompleted', true);
+    // Fetch all attempts for all quizzes at once
+    const { data: allAttempts } = quizIds.length > 0
+      ? await supabase
+        .from('QuizAttempt')
+        .select('quizId, isCompleted, score')
+        .in('quizId', quizIds)
+      : { data: [] };
 
-        // Calculate average score
-        const { data: avgResult } = await supabase
-          .from('QuizAttempt')
-          .select('score')
-          .eq('quizId', quiz.id)
-          .eq('isCompleted', true);
+    // Group data by quizId in-memory
+    const questionsByQuiz = new Map<string, any[]>();
+    for (const q of (allQuestions || [])) {
+      if (!questionsByQuiz.has(q.quizId)) questionsByQuiz.set(q.quizId, []);
+      questionsByQuiz.get(q.quizId)!.push(q);
+    }
 
-        const avgScore = avgResult && avgResult.length > 0
-          ? avgResult.reduce((sum: number, a: any) => sum + a.score, 0) / avgResult.length
-          : 0;
+    const attemptsByQuiz = new Map<string, any[]>();
+    for (const a of (allAttempts || [])) {
+      if (!attemptsByQuiz.has(a.quizId)) attemptsByQuiz.set(a.quizId, []);
+      attemptsByQuiz.get(a.quizId)!.push(a);
+    }
 
-        const activeQuestions = (questions || []).filter((q: any) => q.status === 'active').length;
-        const questionsWithAnswers = (questions || []).filter((q: any) => q.hasCorrectAnswer).length;
+    // Build enriched quiz objects
+    const quizzesWithStats = (quizzes || []).map((quiz: any) => {
+      const questions = questionsByQuiz.get(quiz.id) || [];
+      const attempts = attemptsByQuiz.get(quiz.id) || [];
 
-        return {
-          id: quiz.id,
-          title: quiz.title,
-          description: quiz.description,
-          duration: quiz.duration,
-          passingScore: quiz.passingScore,
-          status: quiz.status,
-          createdAt: quiz.createdAt,
-          updatedAt: quiz.updatedAt,
-          questions: questions || [],
-          _count: {
-            questions: (questions || []).length,
-            attempts: totalAttempts || 0
-          },
-          stats: {
-            totalQuestions: (questions || []).length,
-            activeQuestions,
-            questionsWithAnswers,
-            totalAttempts: totalAttempts || 0,
-            completedAttempts: completedAttempts || 0,
-            completionRate: totalAttempts && totalAttempts > 0
-              ? Math.round(((completedAttempts || 0) / totalAttempts) * 100)
-              : 0,
-            averageScore: Math.round(avgScore),
-          },
-        };
-      })
-    );
+      const totalAttempts = attempts.length;
+      const completedAttempts = attempts.filter((a: any) => a.isCompleted).length;
+      const completedScores = attempts.filter((a: any) => a.isCompleted).map((a: any) => a.score);
+      const avgScore = completedScores.length > 0
+        ? completedScores.reduce((sum: number, s: number) => sum + s, 0) / completedScores.length
+        : 0;
+
+      const activeQuestions = questions.filter((q: any) => q.status === 'active').length;
+      const questionsWithAnswers = questions.filter((q: any) => q.hasCorrectAnswer).length;
+
+      return {
+        id: quiz.id,
+        title: quiz.title,
+        description: quiz.description,
+        duration: quiz.duration,
+        passingScore: quiz.passingScore,
+        status: quiz.status,
+        createdAt: quiz.createdAt,
+        updatedAt: quiz.updatedAt,
+        questions: questions,
+        _count: {
+          questions: questions.length,
+          attempts: totalAttempts,
+        },
+        stats: {
+          totalQuestions: questions.length,
+          activeQuestions,
+          questionsWithAnswers,
+          totalAttempts,
+          completedAttempts,
+          completionRate: totalAttempts > 0
+            ? Math.round((completedAttempts / totalAttempts) * 100)
+            : 0,
+          averageScore: Math.round(avgScore),
+        },
+      };
+    });
 
     return createSecureJsonResponse({
       quizzes: quizzesWithStats,
