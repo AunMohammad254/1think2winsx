@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -60,10 +60,13 @@ export default function QuizzesPage() {
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [attemptQuizId, setAttemptQuizId] = useState<string | null>(null);
 
-  // Fetch quizzes (wrapped in useCallback for realtime re-use)
-  const fetchQuizzesData = useCallback(async () => {
+  // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
+  const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  const fetchQuizzesData = useCallback(async (fresh = false) => {
     try {
-      const response = await fetch('/api/quizzes', { cache: 'no-store' });
+      const url = fresh ? '/api/quizzes?fresh=1' : '/api/quizzes';
+      const response = await fetch(url, { cache: 'no-store' });
       if (response.status === 304) {
         setLoading(false);
         return;
@@ -96,6 +99,16 @@ export default function QuizzesPage() {
     }
   }, []);
 
+  // Debounced realtime re-fetch to avoid rapid consecutive API calls
+  const debouncedFreshFetch = useCallback(() => {
+    if (realtimeDebounceRef.current) {
+      clearTimeout(realtimeDebounceRef.current);
+    }
+    realtimeDebounceRef.current = setTimeout(() => {
+      fetchQuizzesData(true);
+    }, 500);
+  }, [fetchQuizzesData]);
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (isLoading) return;
@@ -117,14 +130,14 @@ export default function QuizzesPage() {
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'Quiz' },
         () => {
-          // Re-fetch to get enriched data with access status
-          fetchQuizzesData();
+          // Re-fetch with cache bust to get enriched data
+          debouncedFreshFetch();
         }
       )
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'Quiz' },
         () => {
-          fetchQuizzesData();
+          debouncedFreshFetch();
         }
       )
       .on('postgres_changes',
@@ -138,8 +151,11 @@ export default function QuizzesPage() {
 
     return () => {
       supabase.removeChannel(channel);
+      if (realtimeDebounceRef.current) {
+        clearTimeout(realtimeDebounceRef.current);
+      }
     };
-  }, [fetchQuizzesData]);
+  }, [debouncedFreshFetch]);
 
   // Update time remaining every second
   useEffect(() => {

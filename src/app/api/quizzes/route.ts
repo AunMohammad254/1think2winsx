@@ -83,16 +83,22 @@ export async function GET(request: NextRequest) {
 
     const paymentAccess = await checkPaymentAccess(userId, request);
 
+    // Support cache-busting for realtime re-fetches via ?fresh=1
+    const url = new URL(request.url);
+    const forceFresh = url.searchParams.get('fresh') === '1';
+
     const cacheKey = `quizzes_${userId}_${paymentAccess.hasAccess ? 'access' : 'noaccess'}`;
-    const cached = quizListCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-      const etag = createHash('sha1').update(JSON.stringify(cached.data)).digest('hex');
-      const clientETag = request.headers.get('if-none-match');
-      securityLogger.logPerformanceMetric('quiz_list_cache_hit', Date.now() - start, '/api/quizzes');
-      if (clientETag === etag) {
-        return new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
+    if (!forceFresh) {
+      const cached = quizListCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+        const etag = createHash('sha1').update(JSON.stringify(cached.data)).digest('hex');
+        const clientETag = request.headers.get('if-none-match');
+        securityLogger.logPerformanceMetric('quiz_list_cache_hit', Date.now() - start, '/api/quizzes');
+        if (clientETag === etag) {
+          return new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
+        }
+        return createSecureJsonResponse(cached.data, { status: 200, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
       }
-      return createSecureJsonResponse(cached.data, { status: 200, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
     }
 
     const supabase = await getDb();

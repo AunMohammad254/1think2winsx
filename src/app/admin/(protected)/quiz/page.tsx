@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -101,9 +101,11 @@ export default function AdminQuizManagementPage() {
     // ============================================
     // Data Fetching
     // ============================================
-    const fetchQuizzes = useCallback(async () => {
+    const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+    const fetchQuizzes = useCallback(async (silent = false) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             const response = await fetch('/api/admin/quizzes');
 
             if (!response.ok) {
@@ -120,9 +122,19 @@ export default function AdminQuizManagementPage() {
             setError(err instanceof Error ? err.message : 'Failed to load quizzes');
             toast.error('Failed to load quizzes');
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, []);
+
+    // Debounced silent re-fetch for realtime events
+    const debouncedSilentFetch = useCallback(() => {
+        if (realtimeDebounceRef.current) {
+            clearTimeout(realtimeDebounceRef.current);
+        }
+        realtimeDebounceRef.current = setTimeout(() => {
+            fetchQuizzes(true);
+        }, 500);
+    }, [fetchQuizzes]);
 
     useEffect(() => {
         fetchQuizzes();
@@ -139,16 +151,14 @@ export default function AdminQuizManagementPage() {
             .on('postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'Quiz' },
                 (payload) => {
-                    // Re-fetch to get enriched data (with _count, stats)
                     toast.success(`New quiz "${(payload.new as { title?: string }).title}" added`);
-                    fetchQuizzes();
+                    debouncedSilentFetch();
                 }
             )
             .on('postgres_changes',
                 { event: 'UPDATE', schema: 'public', table: 'Quiz' },
                 () => {
-                    // Re-fetch to get enriched data
-                    fetchQuizzes();
+                    debouncedSilentFetch();
                 }
             )
             .on('postgres_changes',
@@ -163,8 +173,11 @@ export default function AdminQuizManagementPage() {
 
         return () => {
             supabase.removeChannel(channel);
+            if (realtimeDebounceRef.current) {
+                clearTimeout(realtimeDebounceRef.current);
+            }
         };
-    }, [fetchQuizzes]);
+    }, [debouncedSilentFetch]);
 
     // ============================================
     // Actions
@@ -394,7 +407,7 @@ export default function AdminQuizManagementPage() {
 
                     <div className="flex items-center gap-3">
                         <button
-                            onClick={fetchQuizzes}
+                            onClick={() => fetchQuizzes()}
                             disabled={loading}
                             className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
                         >
