@@ -102,23 +102,9 @@ export const userDb = {
 
     async addPoints(id: string, points: number) {
         const supabase = await getDb()
-        const { data: user, error: fetchError } = await supabase
-            .from('User')
-            .select('points')
-            .eq('id', id)
-            .single()
-
-        if (fetchError) throw fetchError
-
+        // Use atomic RPC to avoid read-then-write race condition
         const { data, error } = await supabase
-            .from('User')
-            .update({
-                points: (user?.points || 0) + points,
-                updatedAt: new Date().toISOString()
-            })
-            .eq('id', id)
-            .select()
-            .single()
+            .rpc('increment_user_points', { p_user_id: id, p_delta: points })
 
         if (error) throw error
         return data
@@ -126,23 +112,9 @@ export const userDb = {
 
     async updateWalletBalance(id: string, amount: number) {
         const supabase = await getDb()
-        const { data: user, error: fetchError } = await supabase
-            .from('User')
-            .select('walletBalance')
-            .eq('id', id)
-            .single()
-
-        if (fetchError) throw fetchError
-
+        // Use atomic RPC to avoid read-then-write race condition
         const { data, error } = await supabase
-            .from('User')
-            .update({
-                walletBalance: (user?.walletBalance || 0) + amount,
-                updatedAt: new Date().toISOString()
-            })
-            .eq('id', id)
-            .select()
-            .single()
+            .rpc('increment_user_wallet', { p_user_id: id, p_delta: amount })
 
         if (error) throw error
         return data

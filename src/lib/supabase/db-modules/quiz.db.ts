@@ -255,9 +255,11 @@ export const quizAttemptDb = {
             .select('*')
             .eq('userId', userId)
             .eq('quizId', quizId)
-            .single()
+            .order('createdAt', { ascending: false })
+            .limit(1)
+            .maybeSingle()
 
-        if (error && error.code !== 'PGRST116') throw error
+        if (error) throw error
         return data
     },
 
@@ -390,15 +392,21 @@ export const answerDb = {
             .eq('questionId', questionId)
 
         if (fetchError) throw fetchError
+        if (!answers || answers.length === 0) return
 
-        // Update each answer's correctness
-        for (const answer of answers || []) {
-            const isCorrect = answer.selectedOption === correctOption
-            await supabase
-                .from('Answer')
-                .update({ isCorrect })
-                .eq('id', answer.id)
-        }
+        // Partition into correct / incorrect answer IDs
+        const correctIds = answers.filter(a => a.selectedOption === correctOption).map(a => a.id)
+        const wrongIds   = answers.filter(a => a.selectedOption !== correctOption).map(a => a.id)
+
+        // Two bulk updates instead of N sequential updates
+        await Promise.all([
+            correctIds.length > 0
+                ? supabase.from('Answer').update({ isCorrect: true }).in('id', correctIds)
+                : Promise.resolve(),
+            wrongIds.length > 0
+                ? supabase.from('Answer').update({ isCorrect: false }).in('id', wrongIds)
+                : Promise.resolve(),
+        ])
     },
 }
 

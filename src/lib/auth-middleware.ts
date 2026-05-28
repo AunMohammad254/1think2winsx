@@ -8,10 +8,6 @@ import type { User } from '@supabase/supabase-js';
 const adminCache = new Map<string, { isAdmin: boolean; timestamp: number }>();
 const ADMIN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
-// Session cache to reduce auth() calls
-const sessionCache = new Map<string, { user: User | null; timestamp: number }>();
-const SESSION_CACHE_TTL = 30 * 1000; // 30 seconds cache
-
 /**
  * Get Supabase server client
  */
@@ -58,35 +54,16 @@ export async function requireAuth(
   // Retry authentication in case of temporary session issues
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      // Check session cache first
-      const sessionCacheKey = `session_${Date.now().toString().slice(0, -4)}`; // Cache key changes every 10 seconds
-      const cachedSession = sessionCache.get(sessionCacheKey);
-
       let user: User | null = null;
 
-      if (cachedSession && (Date.now() - cachedSession.timestamp) < SESSION_CACHE_TTL) {
-        user = cachedSession.user;
-      } else {
-        const supabase = await getSupabaseServerClient();
-        const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
+      const supabase = await getSupabaseServerClient();
+      const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
 
-        if (error) {
-          console.error('Supabase auth error:', error);
-        }
-
-        user = supabaseUser;
-
-        // Cache the session
-        sessionCache.set(sessionCacheKey, { user, timestamp: Date.now() });
-
-        // Clean old cache entries
-        const sessionEntries = Array.from(sessionCache.entries());
-        for (const [key, value] of sessionEntries) {
-          if (Date.now() - value.timestamp > SESSION_CACHE_TTL) {
-            sessionCache.delete(key);
-          }
-        }
+      if (error) {
+        console.error('Supabase auth error:', error);
       }
+
+      user = supabaseUser;
 
       if (!user) {
         const error = new Error('No valid session found');

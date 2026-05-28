@@ -47,86 +47,80 @@ export async function GET(request: NextRequest) {
     const supabase = await getDb();
 
     // Calculate date filter based on timeframe
-    let dateFilter: Date | null = null;
+    let dateFilter: string | null = null;
     const now = new Date();
 
     if (timeframe === 'weekly') {
-      dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
     } else if (timeframe === 'monthly') {
-      dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     }
 
-    // Get all users with points
-    const { data: users } = await supabase
-      .from('User')
-      .select('id, name, points')
-      .order('points', { ascending: false });
+    // Fetch all required data in batch
+    let attemptsQuery = supabase.from('QuizAttempt').select('userId, score, createdAt');
+    let correctAnswersQuery = supabase.from('Answer').select('userId').eq('isCorrect', true);
+    let winningsQuery = supabase.from('Winning').select('userId');
+    let usersQuery = supabase.from('User').select('id, name, profilePicture');
 
-    // Get quiz attempts for each user
-    const leaderboardData = [];
+    if (dateFilter) {
+      attemptsQuery = attemptsQuery.gte('createdAt', dateFilter);
+      correctAnswersQuery = correctAnswersQuery.gte('createdAt', dateFilter);
+      winningsQuery = winningsQuery.gte('createdAt', dateFilter);
+    }
+    if (quizId) {
+      attemptsQuery = attemptsQuery.eq('quizId', quizId);
+    }
 
-    for (const user of (users || []).slice(0, limit * 2)) { // Get extra to filter
-      let attemptsQuery = supabase
-        .from('QuizAttempt')
-        .select('id, score, createdAt')
-        .eq('userId', user.id);
+    const [
+      { data: attempts },
+      { data: correctAnswers },
+      { data: winnings },
+      { data: users },
+      { data: redemptions }
+    ] = await Promise.all([
+      attemptsQuery,
+      correctAnswersQuery,
+      winningsQuery,
+      usersQuery,
+      supabase.from('PrizeRedemption').select('userId').in('status', ['pending', 'approved', 'fulfilled'])
+    ]);
 
-      if (dateFilter) {
-        attemptsQuery = attemptsQuery.gte('createdAt', dateFilter.toISOString());
-      }
-      if (quizId) {
-        attemptsQuery = attemptsQuery.eq('quizId', quizId);
-      }
+    // Build O(1)-lookup Maps for all aggregates
+    const userStats       = new Map<string, { score: number; count: number }>();
+    const correctByUser   = new Map<string, number>();
+    const winsByUser      = new Map<string, number>();
+    const redemptionsByUser = new Map<string, number>();
 
-      const { data: attempts } = await attemptsQuery;
+    for (const a of (attempts || [])) {
+      const prev = userStats.get(a.userId) || { score: 0, count: 0 };
+      userStats.set(a.userId, { score: prev.score + a.score, count: prev.count + 1 });
+    }
+    for (const c of (correctAnswers || [])) {
+      correctByUser.set(c.userId, (correctByUser.get(c.userId) || 0) + 1);
+    }
+    for (const w of (winnings || [])) {
+      winsByUser.set(w.userId, (winsByUser.get(w.userId) || 0) + 1);
+    }
+    for (const r of (redemptions || [])) {
+      redemptionsByUser.set(r.userId, (redemptionsByUser.get(r.userId) || 0) + 1);
+    }
 
-      if (!attempts || attempts.length === 0) continue;
+    const leaderboardData = (users || []).map((user: any) => {
+      const stats    = userStats.get(user.id) || { score: 0, count: 0 };
+      const correct  = correctByUser.get(user.id) || 0;
+      const winCount = (winsByUser.get(user.id) || 0) + (redemptionsByUser.get(user.id) || 0);
 
-      // Get correct answers count
-      let correctAnswersQuery = supabase
-        .from('Answer')
-        .select('id', { count: 'exact', head: true })
-        .eq('userId', user.id)
-        .eq('isCorrect', true);
-
-      if (dateFilter) {
-        correctAnswersQuery = correctAnswersQuery.gte('createdAt', dateFilter.toISOString());
-      }
-
-      const { count: correctAnswers } = await correctAnswersQuery;
-
-      // Get winnings count
-      let winningsQuery = supabase
-        .from('Winning')
-        .select('id', { count: 'exact', head: true })
-        .eq('userId', user.id);
-
-      if (dateFilter) {
-        winningsQuery = winningsQuery.gte('createdAt', dateFilter.toISOString());
-      }
-
-      const { count: winningsCount } = await winningsQuery;
-
-      // Get redemptions count
-      const { count: redemptionsCount } = await supabase
-        .from('PrizeRedemption')
-        .select('id', { count: 'exact', head: true })
-        .eq('userId', user.id)
-        .in('status', ['pending', 'approved', 'fulfilled']);
-
-      const totalScore = attempts.reduce((sum, a) => sum + a.score, 0);
-      const averageScore = attempts.length > 0 ? Math.round(totalScore / attempts.length) : 0;
-
-      leaderboardData.push({
+      return {
         id: user.id,
         userName: user.name,
-        quizzesTaken: attempts.length,
-        correctAnswers: correctAnswers || 0,
-        totalScore,
-        winCount: (winningsCount || 0) + (redemptionsCount || 0),
-        averageScore,
-      });
-    }
+        profilePicture: user.profilePicture,
+        quizzesTaken: stats.count,
+        correctAnswers: correct,
+        totalScore: stats.score,
+        winCount,
+        averageScore: stats.count > 0 ? Math.round(stats.score / stats.count) : 0,
+      };
+    }).filter(u => u.quizzesTaken > 0);
 
     // Sort and rank
     const rankedData = leaderboardData
@@ -145,6 +139,7 @@ export async function GET(request: NextRequest) {
       users: rankedData.map(user => ({
         id: user.id,
         username: user.userName || '',
+        profilePicture: user.profilePicture,
         totalScore: user.totalScore,
         quizCount: user.quizzesTaken,
         averageScore: user.averageScore,

@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion, useScroll, useTransform, useReducedMotion } from 'framer-motion';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { memo, useMemo, useRef } from 'react';
@@ -12,6 +12,8 @@ const HeroSection = memo(() => {
     const isLoggedIn = !!user;
 
     const sectionRef = useRef<HTMLDivElement>(null);
+
+    const prefersReduced = useReducedMotion();
 
     const { scrollYProgress } = useScroll({
         target: sectionRef,
@@ -64,14 +66,14 @@ const HeroSection = memo(() => {
 
     return (
         <section ref={sectionRef} className="relative min-h-[90vh] flex items-center overflow-hidden bg-gradient-to-br from-[var(--color-accent)] via-slate-900 to-black">
-            {/* Animated Gradient Mesh Background */}
+            {/* Animated Gradient Mesh Background — disabled when prefers-reduced-motion */}
             <div className="absolute inset-0 overflow-hidden">
                 <motion.div
                     className="absolute -top-1/4 -left-1/4 w-[80%] h-[80%] rounded-full opacity-25"
                     style={{
                         background: 'radial-gradient(circle, var(--color-primary) 0%, transparent 70%)'
                     }}
-                    animate={{
+                    animate={prefersReduced ? {} : {
                         scale: [1, 1.3, 0.9, 1.1, 1],
                         rotate: [0, 60, 120, 180, 360],
                         x: [0, 30, -20, 10, 0],
@@ -88,7 +90,7 @@ const HeroSection = memo(() => {
                     style={{
                         background: 'radial-gradient(circle, var(--color-secondary) 0%, transparent 70%)'
                     }}
-                    animate={{
+                    animate={prefersReduced ? {} : {
                         scale: [1.2, 0.9, 1.1, 0.8, 1.2],
                         rotate: [0, -60, -120, -180, -360],
                         x: [0, -30, 20, -10, 0],
@@ -105,7 +107,7 @@ const HeroSection = memo(() => {
                     style={{
                         background: 'radial-gradient(circle, #6366f1 0%, transparent 70%)'
                     }}
-                    animate={{
+                    animate={prefersReduced ? {} : {
                         scale: [0.8, 1.2, 0.9, 1.1, 0.8],
                         rotate: [0, 90, 180, 270, 360],
                     }}

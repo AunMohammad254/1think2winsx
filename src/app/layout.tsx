@@ -1,20 +1,16 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Poppins, Montserrat } from "next/font/google";
+import { Geist, Poppins, Montserrat } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Toaster } from "sonner";
 import { WebVitals } from "@/components/analytics/WebVitals";
+import { Suspense } from "react";
 
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
@@ -57,11 +53,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${poppins.variable} ${montserrat.variable} antialiased`}
+        className={`${geistSans.variable} ${poppins.variable} ${montserrat.variable} antialiased`}
         suppressHydrationWarning
       >
         <Providers>
-          <WebVitals />
+          <Suspense fallback={null}>
+            <WebVitals />
+          </Suspense>
           <Toaster position="top-right" richColors closeButton />
           <div className="min-h-screen flex flex-col">
             <Navbar />

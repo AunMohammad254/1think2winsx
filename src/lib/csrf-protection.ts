@@ -419,142 +419,31 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
 }
 
 /**
- * Middleware function to validate CSRF for state-changing operations
- * Uses NextAuth's built-in CSRF protection mechanism
- * Applies consistent security validation across all environments
+ * Middleware function to validate CSRF for state-changing operations.
+ * Delegates to validateCSRFToken to avoid duplicating session/cookie logic.
  */
 export async function requireCSRFToken(request: NextRequest): Promise<Response | null> {
   // Only validate CSRF for state-changing methods
-  const method = request.method;
-  const environment = process.env.NODE_ENV || 'development';
-
-  if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
-    return null; // No CSRF validation needed for GET requests
+  if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(request.method)) {
+    return null;
   }
 
-  try {
+  const result = await validateCSRFToken(request);
 
-    // Get the CSRF token from headers
-    const csrfToken = request.headers.get('x-csrf-token') ||
-      request.headers.get('X-CSRF-Token') ||
-      request.headers.get('csrf-token');
-
-    // CSRF token is required for all state-changing operations in all environments
-    if (!csrfToken) {
-      console.error(`[${environment.toUpperCase()}] CSRF token missing from ${method} request`);
-
-      return new Response(
-        JSON.stringify({
-          error: 'CSRF validation failed',
-          message: 'CSRF token missing from request headers'
-        }),
-        {
-          status: 403,
-          headers: SECURITY_CONFIG.SECURITY_HEADERS
-        }
-      );
-    }
-
-    // Try to get the Supabase session cookie
-    let hasSession = false;
-
-    try {
-      // Check for Supabase session cookies
-      const supabaseAuthCookie = request.cookies.get('sb-access-token') ||
-        request.cookies.get('sb-refresh-token');
-
-      // Check for admin session cookie
-      const adminSessionCookie = request.cookies.get('admin-session');
-
-      // Also check for the Supabase auth token pattern
-      const allCookies = request.cookies.getAll();
-      const hasSupabaseCookie = allCookies.some(cookie =>
-        cookie.name.includes('sb-') && cookie.name.includes('-auth-token')
-      );
-
-      if (supabaseAuthCookie || hasSupabaseCookie || adminSessionCookie) {
-        console.info(`[${environment.toUpperCase()}] Session found via ${adminSessionCookie ? 'Admin' : 'Supabase'} cookie`);
-        hasSession = true;
-      }
-    } catch (cookieError) {
-      console.warn(`[${environment.toUpperCase()}] Cookie check failed:`, cookieError);
-    }
-
-    // Session validation with enhanced security logging
-    if (!hasSession) {
-      console.error(`[${environment.toUpperCase()}] Invalid or missing session token for ${method} request`);
-
-      // Enhanced validation: Check if CSRF token format is valid but session is missing
-      const isValidFormat = typeof csrfToken === 'string' && csrfToken.length >= SECURITY_CONFIG.MIN_TOKEN_LENGTH;
-      const hasValidPattern = SECURITY_CONFIG.TOKEN_PATTERN.test(csrfToken);
-
-      if (isValidFormat && hasValidPattern) {
-        console.warn(`[${environment.toUpperCase()}] Valid CSRF token but missing session - potential security issue`);
-        // Only allow in specific production deployment scenarios with explicit environment variable
-        if (process.env.NODE_ENV === 'production' && process.env.VERCEL_ENV) {
-          console.warn(`[${environment.toUpperCase()}] Allowing ${method} request with valid CSRF token but missing session (Vercel deployment compatibility)`);
-          return null; // Allow the request to continue
-        }
-      }
-
-      return new Response(
-        JSON.stringify({
-          error: 'CSRF validation failed',
-          message: 'Invalid or missing session token'
-        }),
-        {
-          status: 403,
-          headers: SECURITY_CONFIG.SECURITY_HEADERS
-        }
-      );
-    }
-
-    // Validate CSRF token format consistently across all environments
-    if (typeof csrfToken !== 'string' || csrfToken.length < SECURITY_CONFIG.MIN_TOKEN_LENGTH) {
-      console.error(`[${environment.toUpperCase()}] Invalid CSRF token format for ${method} request - length: ${csrfToken?.length}`);
-      return new Response(
-        JSON.stringify({
-          error: 'CSRF validation failed',
-          message: 'Invalid CSRF token format'
-        }),
-        {
-          status: 403,
-          headers: SECURITY_CONFIG.SECURITY_HEADERS
-        }
-      );
-    }
-
-    // Validate token pattern strictly in all environments
-    if (!SECURITY_CONFIG.TOKEN_PATTERN.test(csrfToken)) {
-      console.error(`[${environment.toUpperCase()}] CSRF token does not match expected pattern for ${method} request`);
-      return new Response(
-        JSON.stringify({
-          error: 'CSRF validation failed',
-          message: 'CSRF token does not match expected pattern'
-        }),
-        {
-          status: 403,
-          headers: SECURITY_CONFIG.SECURITY_HEADERS
-        }
-      );
-    }
-
-    console.log(`[${environment.toUpperCase()}] CSRF validation passed for ${method} request`);
-    return null; // Validation passed, continue with request
-
-  } catch (error) {
-    console.error(`[${environment.toUpperCase()}] CSRF validation error for ${method} request:`, error);
-    return new Response(
-      JSON.stringify({
-        error: 'CSRF validation failed',
-        message: 'CSRF validation failed due to server error'
-      }),
-      {
-        status: 403,
-        headers: SECURITY_CONFIG.SECURITY_HEADERS
-      }
-    );
+  if (result.isValid) {
+    return null; // Validation passed — let the request continue
   }
+
+  return new Response(
+    JSON.stringify({
+      error: 'CSRF validation failed',
+      message: result.error || 'CSRF token is invalid or missing',
+    }),
+    {
+      status: 403,
+      headers: SECURITY_CONFIG.SECURITY_HEADERS,
+    }
+  );
 }
 
 /**

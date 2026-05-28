@@ -320,8 +320,8 @@ export default function Home() {
                     </motion.div>
 
                     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
-                        {prizeData.map((prize, index) => (
-                            <PrizeCard key={index} {...prize} />
+                        {prizeData.map((prize) => (
+                            <PrizeCard key={prize.title} {...prize} />
                         ))}
                     </div>
                 </div>
@@ -397,8 +397,8 @@ export default function Home() {
 
                         {/* Stats Section */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-12 max-w-3xl mx-auto">
-                            {statsData.map((stat, index) => (
-                                <StatCard key={index} {...stat} />
+                            {statsData.map((stat) => (
+                                <StatCard key={stat.label} {...stat} />
                             ))}
                         </div>
                     </motion.div>
