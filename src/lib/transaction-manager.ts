@@ -38,7 +38,7 @@ export class TransactionManager {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         securityLogger.logSecurityEvent({
-          type: 'SUSPICIOUS_ACTIVITY',
+          type: 'ADMIN_ACCESS',
           userId: userId || 'system',
           endpoint: context,
           details: {
@@ -61,7 +61,7 @@ export class TransactionManager {
 
         const duration = Date.now() - startTime;
         securityLogger.logSecurityEvent({
-          type: 'SUSPICIOUS_ACTIVITY',
+          type: 'ADMIN_ACCESS',
           userId: userId || 'system',
           endpoint: context,
           details: {
@@ -80,7 +80,7 @@ export class TransactionManager {
         const isLastAttempt = attempt === maxRetries;
 
         securityLogger.logSecurityEvent({
-          type: 'SUSPICIOUS_ACTIVITY',
+          type: 'ADMIN_ACCESS',
           userId: userId || 'system',
           endpoint: context,
           details: {
@@ -121,7 +121,7 @@ export class TransactionManager {
     const { context, userId, amount, description } = options;
 
     securityLogger.logSecurityEvent({
-      type: 'SUSPICIOUS_ACTIVITY',
+      type: 'ADMIN_ACCESS',
       userId: userId || 'system',
       endpoint: context,
       details: {
@@ -141,7 +141,7 @@ export class TransactionManager {
       });
 
       securityLogger.logSecurityEvent({
-        type: 'SUSPICIOUS_ACTIVITY',
+        type: 'ADMIN_ACCESS',
         userId: userId || 'system',
         endpoint: context,
         details: {
@@ -155,7 +155,7 @@ export class TransactionManager {
 
     } catch (error) {
       securityLogger.logSecurityEvent({
-        type: 'SUSPICIOUS_ACTIVITY',
+        type: 'ADMIN_ACCESS',
         userId: userId || 'system',
         endpoint: context,
         details: {

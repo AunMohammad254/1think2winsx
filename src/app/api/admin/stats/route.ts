@@ -70,13 +70,11 @@ export async function GET(request: NextRequest) {
 
     const totalRevenue = (completedPayments || []).reduce((sum, p) => sum + (p.amount || 0), 0);
 
-    // Get average score
-    const { data: quizAttempts } = await supabase
-      .from('QuizAttempt')
-      .select('score');
+    // Get average score via SQL aggregate (avoids full table scan)
+    const { data: avgScoreData } = await supabase
+      .rpc('get_quiz_attempt_avg_score');
 
-    const scores = (quizAttempts || []).map(a => a.score).filter(s => s !== null);
-    const averageScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const averageScore = Number(avgScoreData) || 0;
 
     const stats = {
       totalUsers: userCount || 0,
@@ -93,7 +91,7 @@ export async function GET(request: NextRequest) {
 
     // Log admin stats access for audit trail
     securityLogger.logSecurityEvent({
-      type: 'SUSPICIOUS_ACTIVITY',
+      type: 'ADMIN_ACCESS',
       details: {
         action: 'ADMIN_STATS_ACCESSED',
         adminUser: {
@@ -104,7 +102,10 @@ export async function GET(request: NextRequest) {
       }
     }, request);
 
-    return createSecureJsonResponse(stats);
+    const response = createSecureJsonResponse(stats);
+    // Cache for 60 seconds with stale-while-revalidate to reduce repeated DB hits
+    response.headers.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=30');
+    return response;
   } catch (error) {
     console.error('Error fetching admin stats:', error);
 

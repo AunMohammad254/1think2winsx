@@ -98,34 +98,46 @@ export async function GET() {
       .order('createdAt', { ascending: false })
       .limit(20);
 
-    // Get answers for each attempt
-    const quizHistory = [];
-    for (const attempt of rawQuizHistory || []) {
-      if (!attempt.Quiz) continue;
+    // Collect attempt IDs and quiz IDs for batch fetching
+    const attemptIds = (rawQuizHistory || []).filter((a: any) => a.Quiz).map((a: any) => a.id);
+    const quizIdsInHistory = [...new Set(
+      (rawQuizHistory || []).filter((a: any) => a.Quiz).map((a: any) => {
+        const q = Array.isArray(a.Quiz) ? a.Quiz[0] : a.Quiz;
+        return q?.id;
+      }).filter(Boolean)
+    )];
 
-      const { data: answers } = await supabase
-        .from('Answer')
-        .select('id, isCorrect, questionId')
-        .eq('quizAttemptId', attempt.id);
+    // Batch fetch answers and question counts in parallel (replaces N+1 loop)
+    const [{ data: allAnswers }, { data: questionCounts }] = await Promise.all([
+      attemptIds.length > 0
+        ? supabase.from('Answer').select('id, isCorrect, questionId, quizAttemptId').in('quizAttemptId', attemptIds)
+        : Promise.resolve({ data: [] }),
+      quizIdsInHistory.length > 0
+        ? supabase.from('Question').select('quizId').in('quizId', quizIdsInHistory)
+        : Promise.resolve({ data: [] }),
+    ]);
 
-      // Get question count for quiz
-      const quizRaw = attempt.Quiz;
-      const quiz = Array.isArray(quizRaw) ? quizRaw[0] : quizRaw;
-
-      const { count: questionCount } = await supabase
-        .from('Question')
-        .select('*', { count: 'exact', head: true })
-        .eq('quizId', quiz?.id);
-
-      quizHistory.push({
-        ...attempt,
-        quiz: {
-          ...quiz,
-          _count: { questions: questionCount || 0 }
-        },
-        answers: answers || []
-      });
+    // Build lookup maps
+    const answersByAttempt = new Map<string, any[]>();
+    for (const ans of (allAnswers || [])) {
+      if (!answersByAttempt.has(ans.quizAttemptId)) answersByAttempt.set(ans.quizAttemptId, []);
+      answersByAttempt.get(ans.quizAttemptId)!.push(ans);
     }
+    const questionCountByQuiz = new Map<string, number>();
+    for (const q of (questionCounts || [])) {
+      questionCountByQuiz.set(q.quizId, (questionCountByQuiz.get(q.quizId) || 0) + 1);
+    }
+
+    const quizHistory = (rawQuizHistory || [])
+      .filter((attempt: any) => attempt.Quiz)
+      .map((attempt: any) => {
+        const quiz = Array.isArray(attempt.Quiz) ? attempt.Quiz[0] : attempt.Quiz;
+        return {
+          ...attempt,
+          quiz: { ...quiz, _count: { questions: questionCountByQuiz.get(quiz?.id) || 0 } },
+          answers: answersByAttempt.get(attempt.id) || [],
+        };
+      });
 
     // Get best scores (top 5)
     const { data: rawBestScores } = await supabase

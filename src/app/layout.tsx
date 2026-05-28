@@ -3,10 +3,12 @@ import { Geist, Poppins, Montserrat } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
 import { Toaster } from "sonner";
 import { WebVitals } from "@/components/analytics/WebVitals";
 import { Suspense } from "react";
+import dynamic from "next/dynamic";
+
+const Footer = dynamic(() => import("@/components/Footer"));
 
 
 const geistSans = Geist({

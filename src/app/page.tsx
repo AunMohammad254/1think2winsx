@@ -1,180 +1,17 @@
-'use client';
-
 import LazySection from '@/components/LazySection';
 import HeroSection from '@/components/HeroSection';
 import Link from "next/link";
-import { memo, useMemo, useState, useRef, useEffect } from 'react';
-import { motion, useInView, Variants } from 'framer-motion';
-import { UserPlus, BrainCircuit, Trophy, Bike, Smartphone, Headphones, Watch } from 'lucide-react';
-
-const sectionVariants: Variants = {
-    hidden: { opacity: 0, y: 40 },
-    visible: {
-        opacity: 1,
-        y: 0,
-        transition: { duration: 0.6, ease: [0.0, 0.0, 0.2, 1] }
-    }
-};
-
-const cardVariants: Variants = {
-    hidden: { opacity: 0, y: 60, scale: 0.95 },
-    visible: (delay: number) => ({
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        transition: { duration: 0.5, delay: delay * 0.15, ease: [0.0, 0.0, 0.2, 1] }
-    })
-};
-
-
-function CountUp({ end, suffix = '', duration = 2 }: { end: number; suffix?: string; duration?: number }) {
-    const [count, setCount] = useState(0);
-    const ref = useRef<HTMLSpanElement>(null);
-    const isInView = useInView(ref, { once: true });
-
-    useEffect(() => {
-        if (!isInView) return;
-        let startTime: number | null = null;
-        const step = (timestamp: number) => {
-            if (!startTime) startTime = timestamp;
-            const progress = Math.min((timestamp - startTime) / (duration * 1000), 1);
-            setCount(Math.floor(progress * end));
-            if (progress < 1) requestAnimationFrame(step);
-        };
-        requestAnimationFrame(step);
-    }, [isInView, end, duration]);
-
-    return <span ref={ref}>{count.toLocaleString()}{suffix}</span>;
-}
-
-const StepCard = memo(({ title, description, gradient, delay, icon: Icon }: {
-    title: string;
-    description: string;
-    gradient: string;
-    delay: number;
-    icon: React.ElementType;
-}) => (
-    <motion.div
-        className="group relative"
-        variants={cardVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-50px" }}
-        custom={delay}
-        whileHover={{ y: -8, scale: 1.03 }}
-        transition={{ type: "spring", stiffness: 300, damping: 20 }}
-    >
-        <motion.div
-            className={`absolute inset-0 ${gradient} rounded-3xl blur-xl transition-all duration-500`}
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ delay: delay * 0.15 + 0.3 }}
-        />
-        <div className="relative glass-card-blue p-8 rounded-3xl border border-blue-400/20 shadow-2xl">
-            <div className="text-center space-y-6">
-                <div className="relative mx-auto w-20 h-20 mb-6">
-                    <motion.div
-                        className="relative w-full h-full bg-white rounded-2xl flex items-center justify-center shadow-xl"
-                        whileHover={{ rotate: 12 }}
-                        transition={{ type: "spring", stiffness: 200 }}
-                    >
-                        <Icon className="w-10 h-10 text-blue-600" />
-                    </motion.div>
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-4">{title}</h3>
-                <p className="text-gray-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: description }} />
-            </div>
-        </div>
-    </motion.div>
-));
-StepCard.displayName = 'StepCard';
-
-const PrizeCard = memo(({ icon: Icon, title, description, gradient, badge, delay }: {
-    icon: React.ElementType;
-    title: string;
-    description: string;
-    gradient: string;
-    badge: string;
-    delay: number;
-}) => (
-    <motion.div
-        className="group relative"
-        variants={cardVariants}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-50px" }}
-        custom={delay}
-        whileHover={{ y: -12, scale: 1.04 }}
-        transition={{ type: "spring", stiffness: 300, damping: 20 }}
-    >
-        <motion.div
-            className={`absolute inset-0 ${gradient} rounded-3xl blur-xl transition-all duration-500`}
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ delay: delay * 0.15 + 0.3 }}
-        />
-        <div className="relative glass-card-blue p-6 rounded-3xl border border-red-400/20 shadow-2xl">
-            <div className="text-center space-y-4">
-                <div className="relative mx-auto w-24 h-24 mb-4">
-                    <motion.div
-                        className="relative w-full h-full bg-white rounded-2xl flex items-center justify-center shadow-xl"
-                        whileHover={{ rotate: 12 }}
-                        transition={{ type: "spring", stiffness: 200 }}
-                    >
-                        <Icon className="w-12 h-12 text-blue-600" />
-                    </motion.div>
-                </div>
-                <h3 className="text-2xl font-bold text-white">{title}</h3>
-                <p className="text-gray-300 text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: description }} />
-                <div className="pt-2">
-                    <motion.span
-                        className={`inline-block px-4 py-2 ${gradient} rounded-full text-orange-300 text-sm font-semibold border border-orange-400/30`}
-                        whileHover={{ scale: 1.1 }}
-                        transition={{ type: "spring", stiffness: 400 }}
-                    >
-                        {badge}
-                    </motion.span>
-                </div>
-            </div>
-        </div>
-    </motion.div>
-));
-PrizeCard.displayName = 'PrizeCard';
-
-const StatCard = memo(({ end, suffix, display, label, color }: {
-    end: number | null;
-    suffix?: string;
-    display?: string;
-    label: string;
-    color: string;
-}) => (
-    <motion.div
-        className="group"
-        initial={{ opacity: 0, y: 30, scale: 0.9 }}
-        whileInView={{ opacity: 1, y: 0, scale: 1 }}
-        viewport={{ once: true }}
-        transition={{ duration: 0.5 }}
-        whileHover={{ scale: 1.06 }}
-    >
-        <div className={`glass-card-blue p-4 rounded-2xl border ${color} touch-manipulation`}>
-            <div className={`text-2xl md:text-3xl font-black ${color.replace('border-', 'text-').replace('/20', '')} mb-1`}>
-                {display || <CountUp end={end!} suffix={suffix} />}
-            </div>
-            <div className="text-sm text-gray-300">{label}</div>
-        </div>
-    </motion.div>
-));
-StatCard.displayName = 'StatCard';
+import { StepCard, PrizeCard, StatCard, ConnectorLine, AnimatedCTA, AnimatedHeader } from '@/components/HomeClientIslands';
 
 export default function Home() {
-    const stepData = useMemo(() => [
+    const stepData = [
         {
             step: 1,
             title: "Register & Pay",
             description: 'Create an account and pay just <span class="font-bold text-cyan-300">2 PKR</span> to enter the quiz competition',
             gradient: "bg-gradient-to-r from-blue-600/20 to-cyan-600/20",
             delay: 0,
-            icon: UserPlus
+            icon: "UserPlus"
         },
         {
             step: 2,
@@ -182,7 +19,7 @@ export default function Home() {
             description: 'Test your cricket knowledge with our challenging <span class="font-bold text-pink-300">tape ball cricket</span> questions',
             gradient: "bg-gradient-to-r from-purple-600/20 to-pink-600/20",
             delay: 0.15,
-            icon: BrainCircuit
+            icon: "BrainCircuit"
         },
         {
             step: 3,
@@ -190,13 +27,13 @@ export default function Home() {
             description: 'Random winners are selected after each quiz session to win <span class="font-bold text-yellow-300">exciting prizes</span>!',
             gradient: "bg-gradient-to-r from-green-600/20 to-yellow-600/20",
             delay: 0.3,
-            icon: Trophy
+            icon: "Trophy"
         }
-    ], []);
+    ];
 
-    const prizeData = useMemo(() => [
+    const prizeData = [
         {
-            icon: Bike,
+            icon: "Bike",
             title: "Bike",
             description: 'Win a brand new motorcycle worth <span class="font-bold text-orange-300">PKR 150,000+</span>',
             gradient: "bg-gradient-to-r from-red-500/20 to-orange-500/20",
@@ -204,7 +41,7 @@ export default function Home() {
             delay: 0
         },
         {
-            icon: Smartphone,
+            icon: "Smartphone",
             title: "Smartphone",
             description: 'Latest smartphone worth <span class="font-bold text-cyan-300">PKR 50,000+</span>',
             gradient: "bg-gradient-to-r from-blue-500/20 to-cyan-500/20",
@@ -212,7 +49,7 @@ export default function Home() {
             delay: 0.15
         },
         {
-            icon: Headphones,
+            icon: "Headphones",
             title: "Wireless Earbuds",
             description: 'Premium wireless earbuds worth <span class="font-bold text-pink-300">PKR 15,000+</span>',
             gradient: "bg-gradient-to-r from-purple-500/20 to-pink-500/20",
@@ -220,21 +57,21 @@ export default function Home() {
             delay: 0.3
         },
         {
-            icon: Watch,
+            icon: "Watch",
             title: "Smart Watch",
             description: 'Advanced smartwatch worth <span class="font-bold text-emerald-300">PKR 25,000+</span>',
             gradient: "bg-gradient-to-r from-green-500/20 to-emerald-500/20",
             badge: "Tech Prize",
             delay: 0.45
         }
-    ], []);
+    ];
 
-    const statsData = useMemo(() => [
+    const statsData = [
         { end: 1000, suffix: "+", label: "Active Players", color: "border-blue-400/20" },
         { end: 10000, suffix: "+", label: "Prizes Won", color: "border-purple-400/20" },
         { end: 500, suffix: "+", label: "Quizzes Taken", color: "border-green-400/20" },
         { end: null, display: "24/7", label: "Available", color: "border-yellow-400/20" }
-    ], []);
+    ];
 
     return (
         <div className="flex flex-col overflow-hidden">
@@ -253,25 +90,10 @@ export default function Home() {
                 </div>
 
                 {/* Connector line between steps */}
-                <motion.div
-                    className="hidden md:block absolute top-[45%] left-[15%] right-[15%] h-px z-0"
-                    initial={{ scaleX: 0, opacity: 0 }}
-                    whileInView={{ scaleX: 1, opacity: 1 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 1, delay: 0.3 }}
-                    style={{ transformOrigin: 'center' }}
-                >
-                    <div className="w-full h-full bg-gradient-to-r from-transparent via-blue-400/30 via-purple-400/30 to-transparent" />
-                </motion.div>
+                <ConnectorLine />
 
                 <div className="container mx-auto px-4 relative z-10">
-                    <motion.div
-                        className="text-center mb-16"
-                        variants={sectionVariants}
-                        initial="hidden"
-                        whileInView="visible"
-                        viewport={{ once: true }}
-                    >
+                    <AnimatedHeader>
                         <h2 className="text-4xl md:text-6xl font-black mb-6">
                             <span className="bg-gradient-to-r from-white via-blue-200 to-cyan-300 bg-clip-text text-transparent">
                                 How It Works
@@ -280,7 +102,7 @@ export default function Home() {
                         <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
                             Simple steps to start your cricket quiz journey and win amazing prizes
                         </p>
-                    </motion.div>
+                    </AnimatedHeader>
 
                     <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
                         {stepData.map((step) => (
@@ -302,13 +124,7 @@ export default function Home() {
                 </div>
 
                 <div className="container mx-auto px-4 relative z-10">
-                    <motion.div
-                        className="text-center mb-16"
-                        variants={sectionVariants}
-                        initial="hidden"
-                        whileInView="visible"
-                        viewport={{ once: true }}
-                    >
+                    <AnimatedHeader>
                         <h2 className="text-4xl md:text-6xl font-black mb-6">
                             <span className="bg-gradient-to-r from-yellow-300 via-orange-300 to-red-400 bg-clip-text text-transparent">
                                 Amazing Prizes
@@ -317,7 +133,7 @@ export default function Home() {
                         <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
                             Win incredible prizes worth thousands of rupees in our cricket quiz competition
                         </p>
-                    </motion.div>
+                    </AnimatedHeader>
 
                     <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl mx-auto">
                         {prizeData.map((prize) => (
@@ -341,13 +157,7 @@ export default function Home() {
                 </div>
 
                 <div className="container mx-auto px-4 text-center relative z-10">
-                    <motion.div
-                        className="max-w-4xl mx-auto space-y-8"
-                        variants={sectionVariants}
-                        initial="hidden"
-                        whileInView="visible"
-                        viewport={{ once: true }}
-                    >
+                    <AnimatedCTA>
                         <div className="space-y-6">
                             <h2 className="text-4xl md:text-6xl font-black leading-tight">
                                 <span className="bg-gradient-to-r from-white via-blue-100 to-cyan-200 bg-clip-text text-transparent">
@@ -371,13 +181,7 @@ export default function Home() {
                             >
                                 <span className="relative z-10 flex items-center gap-3">
                                     <span>🚀 Register Now</span>
-                                    <motion.span
-                                        className="inline-block"
-                                        animate={{ x: [0, 5, 0] }}
-                                        transition={{ duration: 1.5, repeat: Infinity }}
-                                    >
-                                        →
-                                    </motion.span>
+                                    <span className="inline-block">→</span>
                                 </span>
                                 <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl opacity-0 md:group-hover:opacity-100 transition-opacity duration-300"></div>
                             </Link>
@@ -401,7 +205,7 @@ export default function Home() {
                                 <StatCard key={stat.label} {...stat} />
                             ))}
                         </div>
-                    </motion.div>
+                    </AnimatedCTA>
                 </div>
             </section>
         </div>

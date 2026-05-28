@@ -103,73 +103,74 @@ export async function POST(request: NextRequest) {
 
     // Process evaluation
     const evaluationResult = await executeCriticalTransaction(async () => {
-      // Update questions with correct answers
+      // 1. Set correct answers on all questions (sequential, small set)
       for (const [questionId, correctOption] of Object.entries(correctAnswers)) {
         await questionDb.setCorrectAnswer(questionId, correctOption as number);
       }
 
-      // Evaluate all unevaluated quiz attempts
+      const attemptList = attempts || [];
+      console.log(`[QUIZ_EVALUATION] Starting evaluation for quiz ${quizId} with ${attemptList.length} attempts`);
+
+      if (attemptList.length === 0) return [];
+
+      // 2. Batch-fetch ALL answers for ALL unevaluated attempts in one query
+      const attemptIds = attemptList.map((a: any) => a.id);
+      const { data: allAnswerData } = await supabase
+        .from('Answer')
+        .select('id, questionId, selectedOption, quizAttemptId')
+        .in('quizAttemptId', attemptIds);
+
+      // Group answers by attemptId
+      const answersByAttempt = new Map<string, any[]>();
+      for (const ans of (allAnswerData || [])) {
+        if (!answersByAttempt.has(ans.quizAttemptId)) answersByAttempt.set(ans.quizAttemptId, []);
+        answersByAttempt.get(ans.quizAttemptId)!.push(ans);
+      }
+
+      // 3. Evaluate scores in-memory and collect correct/wrong answer IDs
+      const correctAnswerIds: string[] = [];
+      const wrongAnswerIds: string[] = [];
       const evaluatedAttempts = [];
 
-      console.log(`[QUIZ_EVALUATION] Starting evaluation for quiz ${quizId} with ${(attempts || []).length} attempts`);
-
-      for (const attempt of attempts || []) {
-        // Get answers for this attempt
-        const { data: answerData } = await supabase
-          .from('Answer')
-          .select('id, questionId, selectedOption')
-          .eq('quizAttemptId', attempt.id);
-
+      for (const attempt of attemptList) {
+        const answerData = answersByAttempt.get(attempt.id) || [];
         let score = 0;
         const answerDetails = [];
 
-        // Handle Supabase join - can return array or single object
         const userRaw = attempt.User;
         const user = Array.isArray(userRaw) ? userRaw[0] : userRaw;
         console.log(`[QUIZ_EVALUATION] Evaluating attempt ${attempt.id} for user ${user?.email}`);
 
-        // Update answers with correct/incorrect status
-        for (const answer of answerData || []) {
+        for (const answer of answerData) {
           const correctOption = correctAnswers[answer.questionId];
           const isCorrect = answer.selectedOption === correctOption;
-
-          if (isCorrect) score++;
-
-          answerDetails.push({
-            questionId: answer.questionId,
-            selectedOption: answer.selectedOption,
-            correctOption,
-            isCorrect
-          });
-
-          // Update answer correctness
-          await supabase
-            .from('Answer')
-            .update({ isCorrect })
-            .eq('id', answer.id);
+          if (isCorrect) {
+            score++;
+            correctAnswerIds.push(answer.id);
+          } else {
+            wrongAnswerIds.push(answer.id);
+          }
+          answerDetails.push({ questionId: answer.questionId, selectedOption: answer.selectedOption, correctOption, isCorrect });
         }
 
-        console.log(`[QUIZ_EVALUATION] User ${user?.email} scored ${score}/${questionIds.length} (${Math.round((score / questionIds.length) * 100)}%)`);
-
-        // Update quiz attempt with score and mark as evaluated
         const scorePercentage = Math.round((score / questionIds.length) * 100);
+        console.log(`[QUIZ_EVALUATION] User ${user?.email} scored ${score}/${questionIds.length} (${scorePercentage}%)`);
 
-        await quizAttemptDb.update(attempt.id, {
-          score: scorePercentage,
-          isEvaluated: true
-        });
-
-        evaluatedAttempts.push({
-          userId: attempt.userId,
-          userEmail: user?.email,
-          score,
-          totalQuestions: questionIds.length,
-          percentage: scorePercentage
-        });
+        await quizAttemptDb.update(attempt.id, { score: scorePercentage, isEvaluated: true });
+        evaluatedAttempts.push({ userId: attempt.userId, userEmail: user?.email, score, totalQuestions: questionIds.length, percentage: scorePercentage });
       }
 
-      console.log(`[QUIZ_EVALUATION] Completed evaluation for ${evaluatedAttempts.length} attempts`);
+      // 4. Two bulk IN-clause updates instead of N×M sequential writes
+      await Promise.all([
+        correctAnswerIds.length > 0
+          ? supabase.from('Answer').update({ isCorrect: true }).in('id', correctAnswerIds)
+          : Promise.resolve(),
+        wrongAnswerIds.length > 0
+          ? supabase.from('Answer').update({ isCorrect: false }).in('id', wrongAnswerIds)
+          : Promise.resolve(),
+      ]);
 
+      console.log(`[QUIZ_EVALUATION] Completed evaluation for ${evaluatedAttempts.length} attempts`);
       return evaluatedAttempts;
     }, {
       context: 'quiz_evaluation',

@@ -18,12 +18,18 @@ export async function getDb() {
     return await createClient()
 }
 
+let cachedAdminDb: any = null
+
 /**
  * Get Supabase admin client with service_role key
  * This bypasses ALL RLS policies - use only for admin operations
  * Note: Uses loose typing to avoid TypeScript inference issues with table operations
  */
 export function getAdminDb() {
+    if (cachedAdminDb) {
+        return cachedAdminDb
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
@@ -33,7 +39,7 @@ export function getAdminDb() {
 
     // Create admin client - cast to any to avoid strict type inference issues
     // This is acceptable since admin operations bypass RLS and need flexibility
-    return createAdminClient(supabaseUrl, supabaseServiceKey, {
+    cachedAdminDb = createAdminClient(supabaseUrl, supabaseServiceKey, {
         auth: {
             autoRefreshToken: false,
             persistSession: false
@@ -42,4 +48,6 @@ export function getAdminDb() {
             schema: 'public'
         }
     }) as ReturnType<typeof createClient> extends Promise<infer T> ? T : never
+
+    return cachedAdminDb
 }

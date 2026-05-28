@@ -77,32 +77,15 @@ export const prizeDb = {
 
     async decrementStock(id: string) {
         const supabase = getAdminDb()
-
-        // Fetch current stock
-        const { data: prizeData, error: fetchError } = await supabase
-            .from('Prize')
-            .select('stockQuantity')
-            .eq('id', id)
-            .single()
-
-        if (fetchError) throw fetchError
-        const prize = prizeData as { stockQuantity: number } | null
-        if (!prize || prize.stockQuantity <= 0) {
-            throw new Error('Prize out of stock')
-        }
-
-        // Decrement stock
+        // Use atomic RPC to prevent concurrent oversell race condition
         const { data, error } = await supabase
-            .from('Prize')
-            .update({
-                stockQuantity: prize.stockQuantity - 1,
-                updatedAt: new Date().toISOString()
-            } as any)
-            .eq('id', id)
-            .select()
-            .single()
+            .rpc('decrement_prize_stock', { p_prize_id: id })
 
-        if (error) throw error
+        if (error) {
+            // Re-throw with clear message for out-of-stock case
+            if (error.code === 'P0001') throw new Error('Prize out of stock')
+            throw error
+        }
         return data
     },
 }

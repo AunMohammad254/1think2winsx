@@ -43,7 +43,7 @@ class SecurityLogger {
     };
     
     // Log to console (in production, you'd want to send to a proper logging service)
-    console.warn('[SECURITY EVENT]', JSON.stringify(securityEvent, null, 2));
+    console.warn('[SECURITY EVENT]', JSON.stringify(securityEvent));
     
     // In production, you might want to:
     // - Send to a SIEM system

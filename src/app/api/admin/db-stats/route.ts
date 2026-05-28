@@ -75,33 +75,30 @@ export async function GET(request: NextRequest) {
       supabase.from('Winning').select('*', { count: 'exact', head: true }).gte('createdAt', sevenDaysAgoStr),
     ]);
 
-    // Top performing quizzes
+    // Top performing quizzes — batch count via SQL RPC (replaces per-quiz N+1 loop)
     const { data: quizzes } = await supabase
       .from('Quiz')
-      .select('id, title');
+      .select('id, title')
+      .limit(20);
 
-    const topQuizzesData = await Promise.all(
-      (quizzes || []).slice(0, 10).map(async (quiz: any) => {
-        const { count } = await supabase
-          .from('QuizAttempt')
-          .select('*', { count: 'exact', head: true })
-          .eq('quizId', quiz.id);
-        return { ...quiz, attemptCount: count || 0 };
-      })
-    );
+    const quizIds = (quizzes || []).map((q: any) => q.id);
+    const { data: attemptCountRows } = quizIds.length > 0
+      ? await supabase.rpc('get_quiz_attempt_counts_by_quiz', { quiz_ids: quizIds })
+      : { data: [] };
 
-    const topQuizzes = topQuizzesData
-      .sort((a, b) => b.attemptCount - a.attemptCount)
+    const attemptCountByQuiz = new Map<string, number>();
+    for (const row of (attemptCountRows || [])) {
+      attemptCountByQuiz.set(row.quiz_id, Number(row.attempt_count));
+    }
+
+    const topQuizzes = (quizzes || [])
+      .map((quiz: any) => ({ ...quiz, attemptCount: attemptCountByQuiz.get(quiz.id) || 0 }))
+      .sort((a: any, b: any) => b.attemptCount - a.attemptCount)
       .slice(0, 5);
 
-    // Get average scores
-    const { data: attemptScores } = await supabase
-      .from('QuizAttempt')
-      .select('score');
-
-    const avgScore = attemptScores && attemptScores.length > 0
-      ? attemptScores.reduce((sum, a) => sum + a.score, 0) / attemptScores.length
-      : 0;
+    // Get average scores via SQL aggregate (avoids full table scan)
+    const { data: avgScoreData } = await supabase.rpc('get_quiz_attempt_avg_score');
+    const avgScore = Number(avgScoreData) || 0;
 
     // Get completion rate
     const { count: completedAttempts } = await supabase
@@ -113,31 +110,16 @@ export async function GET(request: NextRequest) {
       ? ((completedAttempts || 0) / attemptCount) * 100
       : 0;
 
-    // Get prize distribution
-    const { data: winnings } = await supabase
-      .from('Winning')
-      .select('prizeId');
+    // Get prize distribution via SQL GROUP BY RPC (replaces full Winning table load)
+    const { data: prizeDistributionRows } = await supabase.rpc('get_prize_distribution');
+    const prizeDistributionWithDetails = (prizeDistributionRows || []).map((row: any) => ({
+      prizeId: row.prize_id,
+      prizeName: row.prize_name || 'Unknown',
+      prizeType: row.prize_type || 'Unknown',
+      count: Number(row.win_count),
+    }));
 
-    const prizeDistribution: Record<string, number> = {};
-    (winnings || []).forEach((w: any) => {
-      prizeDistribution[w.prizeId] = (prizeDistribution[w.prizeId] || 0) + 1;
-    });
-
-    const { data: prizes } = await supabase
-      .from('Prize')
-      .select('id, name, type');
-
-    const prizeDistributionWithDetails = Object.entries(prizeDistribution).map(([prizeId, count]) => {
-      const prize = (prizes || []).find((p: any) => p.id === prizeId);
-      return {
-        prizeId,
-        prizeName: prize?.name || 'Unknown',
-        prizeType: prize?.type || 'Unknown',
-        count,
-      };
-    }).sort((a, b) => b.count - a.count);
-
-    return createSecureJsonResponse({
+    const response = createSecureJsonResponse({
       overview: {
         totalUsers: userCount || 0,
         totalQuizzes: quizCount || 0,
@@ -154,13 +136,17 @@ export async function GET(request: NextRequest) {
         newPayments: recentPayments || 0,
         newWinnings: recentWinnings || 0,
       },
-      topQuizzes: topQuizzes.map(quiz => ({
+      topQuizzes: topQuizzes.map((quiz: any) => ({
         id: quiz.id,
         title: quiz.title,
         attemptCount: quiz.attemptCount,
       })),
       prizeDistribution: prizeDistributionWithDetails,
     }, { status: 200 });
+
+    // Cache admin stats for 60s — data doesn't need to be real-time
+    response.headers.set('Cache-Control', 'private, max-age=60, stale-while-revalidate=30');
+    return response;
   } catch (error) {
     console.error('Error fetching database statistics:', error);
     return NextResponse.json(

@@ -179,7 +179,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     }
   }, [authLoading, user]);
 
-  const updateProfile = async (data: { name: string; email: string }) => {
+  const updateProfile = useCallback(async (data: { name: string; email: string }) => {
     try {
       setError(null);
 
@@ -211,9 +211,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       setError(errorMessage);
       throw err; // Re-throw to allow component to handle it
     }
-  };
+  }, [setProfile, setError]);
 
-  const uploadProfilePicture = async (file: File) => {
+  const uploadProfilePicture = useCallback(async (file: File) => {
     try {
       setError(null);
 
@@ -247,21 +247,21 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       setError(errorMessage);
       throw err;
     }
-  };
+  }, [setProfile, setError]);
 
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     await fetchProfile();
-  };
+  }, [fetchProfile]);
 
-  const clearError = () => {
+  const clearError = useCallback(() => {
     setError(null);
-  };
+  }, []);
 
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
 
-  const value: ProfileContextType = {
+  const value = React.useMemo(() => ({
     profile,
     loading,
     error,
@@ -269,7 +269,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     uploadProfilePicture,
     refreshProfile,
     clearError,
-  };
+  }), [profile, loading, error, updateProfile, uploadProfilePicture, refreshProfile, clearError]);
 
   return (
     <ProfileContext.Provider value={value}>

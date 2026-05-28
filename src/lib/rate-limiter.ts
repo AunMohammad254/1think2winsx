@@ -141,28 +141,19 @@ export class RateLimiter {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify([
+          ['SET', key, '0', 'PX', this.config.windowMs.toString(), 'NX'],
           ['INCR', key],
           ['PTTL', key],
         ]),
       }, 1500);
       const data = await resp.json();
-      const count = (data?.[0]?.result as number) || 1;
-      let ttl = (data?.[1]?.result as number) ?? -2;
+      const count = (data?.[1]?.result as number) || 1;
+      let ttl = (data?.[2]?.result as number) ?? -2;
+      
       if (ttl === -1 || ttl === -2) {
-        const setTtlResp = await this.fetchWithTimeout(`${this.upstashUrl}/pipeline`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${this.upstashToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify([
-            ['PEXPIRE', key, this.config.windowMs],
-            ['PTTL', key],
-          ]),
-        }, 1500);
-        const ttlData = await setTtlResp.json();
-        ttl = (ttlData?.[1]?.result as number) ?? this.config.windowMs;
+        ttl = this.config.windowMs;
       }
+      
       const resetTime = Date.now() + (ttl > 0 ? ttl : this.config.windowMs);
       return { count, resetTime };
     } catch {
