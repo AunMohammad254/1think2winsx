@@ -101,14 +101,3 @@ export function formatDate(dateString: string): string {
         minute: '2-digit',
     });
 }
-
-export async function getCSRFToken(): Promise<string | null> {
-    try {
-        const response = await fetch('/api/csrf-token');
-        if (!response.ok) throw new Error('Failed to fetch CSRF token');
-        const data = await response.json();
-        return data.csrfToken;
-    } catch {
-        return null;
-    }
-}

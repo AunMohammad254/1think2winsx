@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
+import { getCSRFToken } from '@/lib/csrf';
 import QuizResults from '@/components/QuizResults';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 
@@ -101,22 +102,7 @@ export default function QuizPage() {
       setLoading(false);
     }
   }, [quizId, router]);
-
-  // Helper function to get CSRF token
-  const getCSRFToken = useCallback(async (): Promise<string | null> => {
-    try {
-      const response = await fetch('/api/csrf-token');
-      if (!response.ok) {
-        console.error('Failed to get CSRF token');
-        return null;
-      }
-      const data = await response.json();
-      return data.csrfToken;
-    } catch (error) {
-      console.error('Error fetching CSRF token:', error);
-      return null;
-    }
-  }, []);
+// Fetch quiz data
 
   const handleSubmitQuiz = useCallback(async (forceSubmit: boolean = false) => {
     if (isSubmitting) return;
@@ -141,7 +127,7 @@ export default function QuizPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
+          'X-CSRF-Token': csrfToken || '',
         },
         body: JSON.stringify({ answers }),
       });

@@ -1,108 +1,24 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { memo, useMemo } from 'react';
-
-// Floating cricket element component
-const FloatingElement = memo(({
-    children,
-    delay = 0,
-    duration = 6,
-    x = 0,
-    y = 0
-}: {
-    children: React.ReactNode;
-    delay?: number;
-    duration?: number;
-    x?: number;
-    y?: number;
-}) => (
-    <motion.div
-        className="absolute pointer-events-none select-none"
-        style={{ left: `${x}%`, top: `${y}%` }}
-        initial={{ opacity: 0, scale: 0 }}
-        animate={{
-            opacity: [0.3, 0.6, 0.3],
-            scale: [0.8, 1.1, 0.8],
-            y: [0, -20, 0],
-            rotate: [0, 10, -10, 0]
-        }}
-        transition={{
-            duration,
-            delay,
-            repeat: Infinity,
-            ease: "easeInOut"
-        }}
-    >
-        {children}
-    </motion.div>
-));
-FloatingElement.displayName = 'FloatingElement';
-
-// 3D Cricket Ball component
-const CricketBall = memo(() => (
-    <motion.div
-        className="relative w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80"
-        initial={{ scale: 0, rotateY: -180 }}
-        animate={{ scale: 1, rotateY: 0 }}
-        transition={{ duration: 0.8, delay: 0.4, type: "spring", stiffness: 100 }}
-    >
-        {/* Glow effect */}
-        <div className="absolute inset-0 rounded-full bg-gradient-to-br from-[var(--color-accent)]/30 to-[var(--color-primary)]/20 blur-2xl animate-pulse" />
-
-        {/* Main ball */}
-        <motion.div
-            className="relative w-full h-full rounded-full"
-            style={{
-                background: 'radial-gradient(circle at 30% 30%, #dc2626 0%, #991b1b 50%, #7f1d1d 100%)',
-                boxShadow: `
-          inset -20px -20px 40px rgba(0,0,0,0.4),
-          inset 10px 10px 30px rgba(255,255,255,0.2),
-          0 20px 60px rgba(0,0,0,0.5),
-          0 0 80px rgba(var(--color-accent-rgb), 0.3)
-        `
-            }}
-            animate={{
-                rotateZ: [0, 360],
-            }}
-            transition={{
-                duration: 20,
-                repeat: Infinity,
-                ease: "linear"
-            }}
-        >
-            {/* Seam lines */}
-            <div className="absolute inset-4 rounded-full border-2 border-white/20"
-                style={{
-                    borderStyle: 'dashed',
-                    transform: 'rotateX(60deg) rotateZ(20deg)'
-                }}
-            />
-            <div className="absolute inset-4 rounded-full border-2 border-white/20"
-                style={{
-                    borderStyle: 'dashed',
-                    transform: 'rotateX(60deg) rotateZ(-20deg)'
-                }}
-            />
-
-            {/* Highlight */}
-            <div
-                className="absolute top-[15%] left-[20%] w-[25%] h-[20%] rounded-full"
-                style={{
-                    background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.6) 0%, transparent 70%)'
-                }}
-            />
-        </motion.div>
-    </motion.div>
-));
-CricketBall.displayName = 'CricketBall';
+import { memo, useMemo, useRef } from 'react';
+import { FloatingElement, CricketBall } from './hero';
 
 // Main HeroSection component
 const HeroSection = memo(() => {
     const { user, isLoading } = useAuth();
     const isLoggedIn = !!user;
+
+    const sectionRef = useRef<HTMLDivElement>(null);
+
+    const { scrollYProgress } = useScroll({
+        target: sectionRef,
+        offset: ["start start", "end start"]
+    });
+    const heroY = useTransform(scrollYProgress, [0, 1], [0, 120]);
+    const ballY = useTransform(scrollYProgress, [0, 1], [0, -80]);
 
     // Animation variants
     const containerVariants = useMemo(() => ({
@@ -147,32 +63,51 @@ const HeroSection = memo(() => {
     }, [isLoading, isLoggedIn]);
 
     return (
-        <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-gradient-to-br from-[var(--color-accent)] via-slate-900 to-black">
-            {/* Animated Background Gradient */}
+        <section ref={sectionRef} className="relative min-h-[90vh] flex items-center overflow-hidden bg-gradient-to-br from-[var(--color-accent)] via-slate-900 to-black">
+            {/* Animated Gradient Mesh Background */}
             <div className="absolute inset-0 overflow-hidden">
                 <motion.div
-                    className="absolute -top-1/2 -left-1/2 w-full h-full rounded-full opacity-30"
+                    className="absolute -top-1/4 -left-1/4 w-[80%] h-[80%] rounded-full opacity-25"
                     style={{
                         background: 'radial-gradient(circle, var(--color-primary) 0%, transparent 70%)'
                     }}
                     animate={{
-                        scale: [1, 1.2, 1],
-                        rotate: [0, 90, 0]
+                        scale: [1, 1.3, 0.9, 1.1, 1],
+                        rotate: [0, 60, 120, 180, 360],
+                        x: [0, 30, -20, 10, 0],
+                        y: [0, -20, 30, -10, 0],
                     }}
                     transition={{
-                        duration: 15,
+                        duration: 25,
                         repeat: Infinity,
                         ease: "easeInOut"
                     }}
                 />
                 <motion.div
-                    className="absolute -bottom-1/2 -right-1/2 w-full h-full rounded-full opacity-20"
+                    className="absolute -bottom-1/4 -right-1/4 w-[80%] h-[80%] rounded-full opacity-20"
                     style={{
                         background: 'radial-gradient(circle, var(--color-secondary) 0%, transparent 70%)'
                     }}
                     animate={{
-                        scale: [1.2, 1, 1.2],
-                        rotate: [90, 0, 90]
+                        scale: [1.2, 0.9, 1.1, 0.8, 1.2],
+                        rotate: [0, -60, -120, -180, -360],
+                        x: [0, -30, 20, -10, 0],
+                        y: [0, 30, -20, 10, 0],
+                    }}
+                    transition={{
+                        duration: 30,
+                        repeat: Infinity,
+                        ease: "easeInOut"
+                    }}
+                />
+                <motion.div
+                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[60%] h-[60%] rounded-full opacity-15"
+                    style={{
+                        background: 'radial-gradient(circle, #6366f1 0%, transparent 70%)'
+                    }}
+                    animate={{
+                        scale: [0.8, 1.2, 0.9, 1.1, 0.8],
+                        rotate: [0, 90, 180, 270, 360],
                     }}
                     transition={{
                         duration: 20,
@@ -204,8 +139,8 @@ const HeroSection = memo(() => {
                 </FloatingElement>
             </div>
 
-            {/* Main Content */}
-            <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            {/* Main Content with Parallax */}
+            <motion.div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10" style={{ y: heroY }}>
                 <div className="flex flex-col lg:flex-row items-center justify-between gap-12 lg:gap-16">
 
                     {/* Text Content */}
@@ -324,9 +259,10 @@ const HeroSection = memo(() => {
                         </motion.div>
                     </motion.div>
 
-                    {/* Visual Element - Cricket Ball */}
+                    {/* Visual Element - Cricket Ball with Parallax */}
                     <motion.div
                         className="flex-shrink-0 relative"
+                        style={{ y: ballY }}
                         initial={{ opacity: 0, x: 100 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ duration: 0.8, delay: 0.3 }}
@@ -356,7 +292,7 @@ const HeroSection = memo(() => {
                         </motion.div>
                     </motion.div>
                 </div>
-            </div>
+            </motion.div>
 
             {/* Bottom gradient fade */}
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-gray-900 to-transparent pointer-events-none" />

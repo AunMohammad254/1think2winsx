@@ -56,9 +56,9 @@ export async function PUT(request: NextRequest) {
     // Validate request body
     const validationResult = updateProfileSchema.safeParse(body);
     if (!validationResult.success) {
-      securityLogger.logInvalidInput(userId, '/api/profile/update', validationResult.error.errors, request);
+      securityLogger.logInvalidInput(userId, '/api/profile/update', validationResult.error.issues, request);
       return NextResponse.json(
-        { message: 'Invalid input', errors: validationResult.error.errors },
+        { message: 'Invalid input', errors: validationResult.error.issues },
         { status: 400 }
       );
     }

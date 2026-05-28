@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import { getCSRFToken } from '@/lib/csrf';
 import { validatePasswordData, sanitizeInput, formatErrorMessage } from '@/utils/validation';
 import Link from 'next/link';
 import { isOAuthOnlyUser, getUserAuthMethods, getProviderDisplayName, type AuthMethods } from '@/lib/auth-helpers';
@@ -105,25 +106,15 @@ export default function ChangePasswordPage() {
       }
 
       // Get CSRF token
-      const getCSRFToken = async () => {
-        const csrfResponse = await fetch('/api/csrf-token', {
-          credentials: 'include'
-        });
-        if (!csrfResponse.ok) {
-          throw new Error('Failed to get CSRF token');
-        }
-        const csrfData = await csrfResponse.json();
-        return csrfData.csrfToken;
-      };
-
       const csrfToken = await getCSRFToken();
 
       const response = await fetch('/api/profile/change-password', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
+          'X-CSRF-Token': csrfToken || '',
         },
+
         credentials: 'include',
         body: JSON.stringify({
           currentPassword: sanitizedData.currentPassword,

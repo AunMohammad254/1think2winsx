@@ -8,7 +8,6 @@ import { Plus, Trash2, GripVertical, Check, X, Save, Loader2, ChevronDown, Chevr
 import {
     QuizFormSchema,
     QuizFormData,
-    QuestionFormData,
     defaultQuestion,
     defaultQuiz
 } from '@/lib/schemas/QuizFormSchema';
@@ -46,7 +45,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
         setValue,
         formState: { errors, isDirty },
     } = useForm<QuizFormData>({
-        resolver: zodResolver(QuizFormSchema),
+        resolver: zodResolver(QuizFormSchema) as any,
         defaultValues: initialData || defaultQuiz,
     });
 

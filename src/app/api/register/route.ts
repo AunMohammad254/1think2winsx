@@ -55,9 +55,9 @@ export async function POST(request: NextRequest) {
     // Validate input
     const validationResult = registerSchema.safeParse(body);
     if (!validationResult.success) {
-      securityLogger.logInvalidInput(undefined, '/api/register', validationResult.error.errors, request);
+      securityLogger.logInvalidInput(undefined, '/api/register', validationResult.error.issues, request);
       return NextResponse.json(
-        { message: 'Invalid input', errors: validationResult.error.errors },
+        { message: 'Invalid input', errors: validationResult.error.issues },
         { status: 400 }
       );
     }

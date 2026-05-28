@@ -10,7 +10,7 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 
 const evaluationSchema = z.object({
   quizId: z.string().min(1, 'Quiz ID is required'),
-  correctAnswers: z.record(z.number().min(0).max(9))
+  correctAnswers: z.record(z.string(), z.number().min(0).max(9))
 });
 
 // POST /api/admin/quiz-evaluation - Add correct answers and evaluate quiz
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const validationResult = evaluationSchema.safeParse(body);
     if (!validationResult.success) {
       return NextResponse.json(
-        { message: 'Invalid input data', errors: validationResult.error.errors },
+        { message: 'Invalid input data', errors: validationResult.error.issues },
         { status: 400 }
       );
     }

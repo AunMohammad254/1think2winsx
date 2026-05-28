@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { getCSRFToken } from '@/lib/csrf';
 import {
   type Quiz,
   type Question,
@@ -40,19 +41,6 @@ export default function QuizEvaluationManager() {
     if (!quizEvaluation.evaluation.isFullyEvaluated) return 2;
     if (showWinners) return 4;
     return 3;
-  };
-
-  // CSRF Token
-  const getCSRFToken = async (): Promise<string | null> => {
-    try {
-      const response = await fetch('/api/csrf-token');
-      if (!response.ok) throw new Error('Failed to fetch CSRF token');
-      const data = await response.json();
-      return data.csrfToken;
-    } catch (error) {
-      console.error('Error fetching CSRF token:', error);
-      return null;
-    }
   };
 
   // Fetch quizzes
@@ -199,7 +187,7 @@ export default function QuizEvaluationManager() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
+          'X-CSRF-Token': csrfToken || '',
         },
         body: JSON.stringify({
           quizId: selectedQuiz,
@@ -242,7 +230,7 @@ export default function QuizEvaluationManager() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
+          'X-CSRF-Token': csrfToken || '',
         },
         body: JSON.stringify({
           quizId: selectedQuiz,

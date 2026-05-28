@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { getCSRFToken, type Prize, type RedemptionFormData } from './types';
+import { getCSRFToken } from '@/lib/csrf';
+import { type Prize, type RedemptionFormData } from './types';
 
 interface RedemptionFormModalProps {
     prize: Prize;
@@ -67,7 +68,7 @@ export function RedemptionFormModal({
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRF-Token': csrfToken,
+                    'X-CSRF-Token': csrfToken || '',
                 },
                 body: JSON.stringify({
                     prizeId: prize.id,

@@ -55,10 +55,10 @@ export async function POST(request: NextRequest) {
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, session.user.id, {
         endpoint: '/api/admin/questions',
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
-        { error: 'Invalid question data', details: validationResult.error.errors },
+        { error: 'Invalid question data', details: validationResult.error.issues },
         { status: 400 }
       );
     }

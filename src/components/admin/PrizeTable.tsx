@@ -2,6 +2,7 @@
 
 import type { Prize } from '@/types/prize';
 import { STATUS_COLORS } from '@/types/prize';
+import Image from 'next/image';
 
 interface PrizeTableProps {
     prizes: Prize[];
@@ -79,12 +80,13 @@ export default function PrizeTable({
                                 {/* Prize Name & Image */}
                                 <td className="p-4">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-12 h-12 rounded-lg bg-slate-700/50 overflow-hidden flex-shrink-0">
+                                        <div className="relative w-12 h-12 rounded-lg bg-slate-700/50 overflow-hidden flex-shrink-0">
                                             {prize.imageUrl ? (
-                                                <img
+                                                <Image
                                                     src={prize.imageUrl}
                                                     alt={prize.name}
-                                                    className="w-full h-full object-cover"
+                                                    fill
+                                                    className="object-cover"
                                                 />
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center text-xl">🎁</div>
@@ -181,12 +183,13 @@ export default function PrizeTable({
                 {prizes.map((prize) => (
                     <div key={prize.id} className="p-4 space-y-3">
                         <div className="flex items-center gap-3">
-                            <div className="w-16 h-16 rounded-lg bg-slate-700/50 overflow-hidden flex-shrink-0">
+                            <div className="relative w-16 h-16 rounded-lg bg-slate-700/50 overflow-hidden flex-shrink-0">
                                 {prize.imageUrl ? (
-                                    <img
+                                    <Image
                                         src={prize.imageUrl}
                                         alt={prize.name}
-                                        className="w-full h-full object-cover"
+                                        fill
+                                        className="object-cover"
                                     />
                                 ) : (
                                     <div className="w-full h-full flex items-center justify-center text-2xl">🎁</div>

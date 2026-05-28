@@ -54,9 +54,9 @@ export async function POST(request: NextRequest) {
     // Validate input with proper error handling
     const validationResult = redeemPrizeSchema.safeParse(body);
     if (!validationResult.success) {
-      securityLogger.logInvalidInput(session.user.id, '/api/prize-redemption', validationResult.error.errors, request);
+      securityLogger.logInvalidInput(session.user.id, '/api/prize-redemption', validationResult.error.issues, request);
       return NextResponse.json(
-        { message: 'Invalid input', errors: validationResult.error.errors },
+        { message: 'Invalid input', errors: validationResult.error.issues },
         { status: 400 }
       );
     }
@@ -259,7 +259,7 @@ export async function POST(request: NextRequest) {
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { message: 'Invalid input data', errors: error.errors },
+        { message: 'Invalid input data', errors: error.issues },
         { status: 400 }
       );
     }

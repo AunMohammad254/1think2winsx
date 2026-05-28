@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import {
@@ -22,7 +21,7 @@ import {
     ArrowUpDown,
     RefreshCw,
 } from 'lucide-react';
-import QuizFormBuilder from '@/components/admin/QuizFormBuilder';
+import { DynamicQuizFormBuilder } from '@/components/admin/DynamicAdminComponents';
 import { publishQuiz, pauseQuiz, deleteQuiz } from '@/actions/quiz-actions';
 import { createClient } from '@/lib/supabase/client';
 
@@ -75,7 +74,6 @@ const statusConfig = {
 // Component
 // ============================================
 export default function AdminQuizManagementPage() {
-    const router = useRouter();
 
     // Data state
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -374,7 +372,7 @@ export default function AdminQuizManagementPage() {
                         </h1>
                     </div>
 
-                    <QuizFormBuilder
+                    <DynamicQuizFormBuilder
                         initialData={editingQuiz as unknown as undefined}
                         onSuccess={handleFormSuccess}
                         onCancel={() => { setShowForm(false); setEditingQuiz(null); }}

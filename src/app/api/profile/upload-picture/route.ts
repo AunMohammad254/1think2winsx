@@ -8,6 +8,8 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { securityLogger } from '@/lib/security-logger';
 import { createSecureFileUploadResponse } from '@/lib/security-headers';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
+import { requireCSRFToken } from '@/lib/csrf-protection';
+
 
 // Dynamic import for sharp to avoid build issues
 let sharp: typeof import('sharp') | null = null;
@@ -21,6 +23,12 @@ async function getSharp() {
 
 export async function POST(request: NextRequest) {
   try {
+    // Apply CSRF protection
+    const csrfValidation = await requireCSRFToken(request);
+    if (csrfValidation) {
+      return csrfValidation;
+    }
+
     const session = await auth();
 
     if (!session || !session.user) {
@@ -165,8 +173,14 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(_request: NextRequest) {
+export async function DELETE(request: NextRequest) {
   try {
+    // Apply CSRF protection
+    const csrfValidation = await requireCSRFToken(request);
+    if (csrfValidation) {
+      return csrfValidation;
+    }
+
     const session = await auth();
 
     if (!session || !session.user) {

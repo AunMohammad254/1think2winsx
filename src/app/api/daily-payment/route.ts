@@ -71,10 +71,10 @@ export async function POST(request: NextRequest) {
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, userId, {
         endpoint: '/api/daily-payment',
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
-        { error: 'Invalid payment data', details: validationResult.error.errors },
+        { error: 'Invalid payment data', details: validationResult.error.issues },
         { status: 400 }
       );
     }

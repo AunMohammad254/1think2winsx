@@ -117,7 +117,7 @@ export default function QuizManagement({ quizId, onQuizChange }: QuizManagementP
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
+          'X-CSRF-Token': csrfToken || '',
         },
         body: JSON.stringify({
           status: newStatus,

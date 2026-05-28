@@ -142,9 +142,9 @@ export async function POST(request: NextRequest) {
       // Validate input
       const validationResult = redeemPrizeSchema.safeParse(body);
       if (!validationResult.success) {
-        securityLogger.logInvalidInput(userId, '/api/prizes', validationResult.error.errors, request);
+        securityLogger.logInvalidInput(userId, '/api/prizes', validationResult.error.issues, request);
         return NextResponse.json(
-          { message: 'Invalid input', errors: validationResult.error.errors },
+          { message: 'Invalid input', errors: validationResult.error.issues },
           { status: 400 }
         );
       }

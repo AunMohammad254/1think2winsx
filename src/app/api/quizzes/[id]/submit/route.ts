@@ -43,7 +43,7 @@ export async function POST(
 
     // Apply rate limiting
     const rateLimitResponse = await applyRateLimit(
-      rateLimiters.general,
+      rateLimiters.quiz,
       request,
       userId,
       '/api/quizzes/[id]/submit'
@@ -68,10 +68,10 @@ export async function POST(
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, userId, {
         endpoint: '/api/quizzes/[id]/submit',
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
-        { error: 'Invalid submission data', details: validationResult.error.errors },
+        { error: 'Invalid submission data', details: validationResult.error.issues },
         { status: 400 }
       );
     }

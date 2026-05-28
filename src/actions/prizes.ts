@@ -102,7 +102,7 @@ export async function redeemPrize(
         if (!validation.success) {
             return {
                 success: false,
-                error: validation.error.errors[0]?.message || 'Invalid input'
+                error: validation.error.issues[0]?.message || 'Invalid input'
             };
         }
 
@@ -299,7 +299,7 @@ export async function createPrize(
         if (!validation.success) {
             return {
                 success: false,
-                error: validation.error.errors[0]?.message || 'Invalid input'
+                error: validation.error.issues[0]?.message || 'Invalid input'
             };
         }
 
@@ -347,7 +347,7 @@ export async function updatePrize(
         if (!validation.success) {
             return {
                 success: false,
-                error: validation.error.errors[0]?.message || 'Invalid input'
+                error: validation.error.issues[0]?.message || 'Invalid input'
             };
         }
 

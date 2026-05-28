@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { Gift, Search, RefreshCw, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { getCSRFToken } from '@/lib/csrf';
+
 // Import extracted components
 import {
   StatusStats,
   ClaimCard,
   ClaimDetailsModal,
   ClaimsSkeleton,
-  getCSRFToken,
   type Claim,
   type ClaimStatus,
   type PaginationInfo,

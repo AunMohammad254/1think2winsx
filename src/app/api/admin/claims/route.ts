@@ -179,9 +179,9 @@ export async function PUT(request: NextRequest) {
     // Validate input with proper error handling
     const validationResult = updateClaimSchema.safeParse(body);
     if (!validationResult.success) {
-      securityLogger.logInvalidInput(authResult.user.id, '/api/admin/claims', validationResult.error.errors, request);
+      securityLogger.logInvalidInput(authResult.user.id, '/api/admin/claims', validationResult.error.issues, request);
       return NextResponse.json(
-        { message: 'Invalid input', errors: validationResult.error.errors },
+        { message: 'Invalid input', errors: validationResult.error.issues },
         { status: 400 }
       );
     }
@@ -409,7 +409,7 @@ export async function PUT(request: NextRequest) {
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { message: 'Invalid input data', errors: error.errors },
+        { message: 'Invalid input data', errors: error.issues },
         { status: 400 }
       );
     }

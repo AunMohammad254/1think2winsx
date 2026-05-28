@@ -227,6 +227,12 @@ export const rateLimiters = {
     maxRequests: 5 // 5 prize redemptions per hour
   }),
 
+  // Quiz submission - 10 attempts per 5 minutes
+  quiz: new RateLimiter({
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    maxRequests: 10 // 10 quiz submissions per 5 minutes
+  }),
+
   // Password change - dedicated limiter with 5 attempts per 15 minutes
   // Separate from auth to avoid password change being blocked by login attempts
   passwordChange: new RateLimiter({

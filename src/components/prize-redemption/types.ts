@@ -52,14 +52,3 @@ export function getStatusColor(status: string): string {
             return 'bg-gray-500/20 text-gray-300 border border-gray-500/30';
     }
 }
-
-export async function getCSRFToken(): Promise<string | null> {
-    try {
-        const response = await fetch('/api/csrf-token');
-        if (!response.ok) throw new Error('Failed to fetch CSRF token');
-        const data = await response.json();
-        return data.csrfToken;
-    } catch {
-        return null;
-    }
-}

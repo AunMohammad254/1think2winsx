@@ -272,7 +272,7 @@ export async function PUT(request: NextRequest) {
     const validationResult = updateProfileSchema.safeParse(body);
     if (!validationResult.success) {
       return NextResponse.json(
-        { message: 'Invalid input', errors: validationResult.error.errors },
+        { message: 'Invalid input', errors: validationResult.error.issues },
         { status: 400 }
       );
     }

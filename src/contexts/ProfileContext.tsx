@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { getCSRFToken } from '@/lib/csrf';
 
 export type QuizAttempt = {
   id: string;
@@ -183,24 +184,13 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       // Get CSRF token
-      const getCSRFToken = async () => {
-        const csrfResponse = await fetch('/api/csrf-token', {
-          credentials: 'include'
-        });
-        if (!csrfResponse.ok) {
-          throw new Error('Failed to get CSRF token');
-        }
-        const csrfData = await csrfResponse.json();
-        return csrfData.csrfToken;
-      };
-
       const csrfToken = await getCSRFToken();
 
       const response = await fetch('/api/profile/update', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
+          'X-CSRF-Token': csrfToken || '',
         },
         credentials: 'include',
         body: JSON.stringify(data),
@@ -228,17 +218,6 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       // Get CSRF token
-      const getCSRFToken = async () => {
-        const csrfResponse = await fetch('/api/csrf-token', {
-          credentials: 'include'
-        });
-        if (!csrfResponse.ok) {
-          throw new Error('Failed to get CSRF token');
-        }
-        const csrfData = await csrfResponse.json();
-        return csrfData.csrfToken;
-      };
-
       const csrfToken = await getCSRFToken();
 
       const formData = new FormData();
@@ -247,7 +226,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       const response = await fetch('/api/profile/upload-picture', {
         method: 'POST',
         headers: {
-          'X-CSRF-Token': csrfToken,
+          'X-CSRF-Token': csrfToken || '',
         },
         credentials: 'include',
         body: formData,

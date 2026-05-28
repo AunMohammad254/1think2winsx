@@ -22,7 +22,7 @@ export const QuestionSchema = z.object({
     options: z.array(OptionSchema)
         .min(2, 'At least 2 options required')
         .max(6, 'Maximum 6 options allowed'),
-    correctOption: z.number().optional(),
+    correctOption: z.number(),
     status: z.enum(['active', 'paused']).default('active'),
 });
 
@@ -84,21 +84,21 @@ export type QuizSubmission = z.infer<typeof QuizSubmissionSchema>;
 // Validation Helpers
 // ============================================
 export function validateQuizForm(data: unknown): { success: true; data: QuizFormData } |
-{ success: false; errors: z.ZodError['errors'] } {
+{ success: false; errors: z.ZodIssue[] } {
     const result = QuizFormSchema.safeParse(data);
     if (result.success) {
         return { success: true, data: result.data };
     }
-    return { success: false, errors: result.error.errors };
+    return { success: false, errors: result.error.issues };
 }
 
 export function validateQuizSubmission(data: unknown): { success: true; data: QuizSubmission } |
-{ success: false; errors: z.ZodError['errors'] } {
+{ success: false; errors: z.ZodIssue[] } {
     const result = QuizSubmissionSchema.safeParse(data);
     if (result.success) {
         return { success: true, data: result.data };
     }
-    return { success: false, errors: result.error.errors };
+    return { success: false, errors: result.error.issues };
 }
 
 // ============================================
@@ -117,6 +117,7 @@ export const defaultQuestion: QuestionFormData = {
         { text: '', isCorrect: false },
         { text: '', isCorrect: false },
     ],
+    correctOption: 0,
     status: 'active',
 };
 

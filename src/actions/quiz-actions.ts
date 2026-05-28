@@ -30,7 +30,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
         if (!validationResult.success) {
             return {
                 success: false,
-                error: validationResult.error.errors.map(e => e.message).join(', ')
+                error: validationResult.error.issues.map(e => e.message).join(', ')
             };
         }
 
@@ -92,7 +92,7 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
         if (!validationResult.success) {
             return {
                 success: false,
-                error: validationResult.error.errors.map(e => e.message).join(', ')
+                error: validationResult.error.issues.map(e => e.message).join(', ')
             };
         }
 

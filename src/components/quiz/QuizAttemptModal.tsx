@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
+import { getCSRFToken } from '@/lib/csrf';
 import { useAuth } from '@/contexts/AuthContext';
 import { X, Clock, HelpCircle, Target, AlertTriangle, Play, ChevronLeft, ChevronRight, Check, Tv, Loader2 } from 'lucide-react';
 import QuizResults from '@/components/QuizResults';
@@ -160,18 +161,6 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
         return () => clearInterval(timer);
     }, [phase, timeRemaining]);
 
-    // ─── CSRF helper ─────────────────────────────────────────────────────────
-    const getCSRFToken = useCallback(async (): Promise<string | null> => {
-        try {
-            const response = await fetch('/api/csrf-token');
-            if (!response.ok) return null;
-            const data = await response.json();
-            return data.csrfToken;
-        } catch {
-            return null;
-        }
-    }, []);
-
     // ─── Submit quiz ─────────────────────────────────────────────────────────
     const handleSubmitQuiz = useCallback(async (forceSubmit: boolean = false) => {
         if (isSubmitting) return;
@@ -194,7 +183,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRF-Token': csrfToken,
+                    'X-CSRF-Token': csrfToken || '',
                 },
                 body: JSON.stringify({ answers }),
             });

@@ -243,10 +243,10 @@ export async function PATCH(
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, session.user.id, {
         endpoint: '/api/admin/quizzes/[id]',
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
-        { error: 'Invalid update data', details: validationResult.error.errors },
+        { error: 'Invalid update data', details: validationResult.error.issues },
         { status: 400 }
       );
     }
@@ -375,10 +375,10 @@ export async function PUT(
     if (!validationResult.success) {
       recordSecurityEvent('INVALID_INPUT', request, session.user.id, {
         endpoint: '/api/admin/quizzes/[id]',
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return NextResponse.json(
-        { error: 'Invalid update data', details: validationResult.error.errors },
+        { error: 'Invalid update data', details: validationResult.error.issues },
         { status: 400 }
       );
     }

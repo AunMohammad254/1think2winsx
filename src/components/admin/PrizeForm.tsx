@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
 import type { Prize, PrizeFormData, PrizeCategoryValue, PrizeStatus } from '@/types/prize';
+import Image from 'next/image';
 
 // Form validation schema
 const prizeFormSchema = z.object({
@@ -127,12 +128,14 @@ export default function PrizeForm({
                 <form onSubmit={handleSubmit(handleFormSubmit)} className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
                     {/* Image Preview */}
                     <div className="flex items-start gap-6">
-                        <div className="w-32 h-32 rounded-xl bg-slate-700/50 border border-white/10 overflow-hidden flex-shrink-0">
+                        <div className="relative w-32 h-32 rounded-xl bg-slate-700/50 border border-white/10 overflow-hidden flex-shrink-0">
                             {previewUrl ? (
-                                <img
+                                <Image
                                     src={previewUrl}
                                     alt="Preview"
-                                    className="w-full h-full object-cover"
+                                    fill
+                                    unoptimized
+                                    className="object-cover"
                                     onError={() => setPreviewUrl('')}
                                 />
                             ) : (

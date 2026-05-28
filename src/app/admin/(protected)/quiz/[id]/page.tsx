@@ -8,8 +8,23 @@ import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import QuizManagement from '@/components/admin/QuizManagement';
-import QuestionManagement from '@/components/admin/QuestionManagement';
+import dynamic from 'next/dynamic';
+
+const QuizManagement = dynamic(
+  () => import('@/components/admin/QuizManagement'),
+  {
+    loading: () => <div className="h-48 bg-white/5 rounded-xl animate-pulse" />,
+    ssr: false
+  }
+);
+
+const QuestionManagement = dynamic(
+  () => import('@/components/admin/QuestionManagement'),
+  {
+    loading: () => <div className="h-48 bg-white/5 rounded-xl animate-pulse" />,
+    ssr: false
+  }
+);
 
 interface Quiz {
   id: string;

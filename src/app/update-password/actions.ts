@@ -32,7 +32,7 @@ export async function updatePassword(formData: FormData) {
     // Validate input
     const result = updatePasswordSchema.safeParse({ password, confirmPassword });
     if (!result.success) {
-        return { error: result.error.errors[0].message };
+        return { error: result.error.issues[0].message };
     }
 
     const supabase = await createClient();

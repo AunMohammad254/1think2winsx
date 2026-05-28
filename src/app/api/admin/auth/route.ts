@@ -1,12 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminCredentials, createAdminSession, clearAdminSession, validateAdminSession } from '@/lib/admin-session';
 import { securityLogger } from '@/lib/security-logger';
+import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
+import { requireCSRFToken } from '@/lib/csrf-protection';
+import { recordSecurityEvent } from '@/lib/security-monitoring';
 
 /**
  * POST /api/admin/auth - Admin login
  */
 export async function POST(request: NextRequest) {
     try {
+        // Apply rate limiting
+        const rateLimitResponse = await applyRateLimit(
+            rateLimiters.auth,
+            request,
+            undefined,
+            '/api/admin/auth'
+        );
+        if (rateLimitResponse) {
+            recordSecurityEvent('RATE_LIMIT_EXCEEDED', request, undefined, {
+                endpoint: '/api/admin/auth',
+                rateLimiter: 'auth'
+            });
+            return rateLimitResponse;
+        }
+
         const body = await request.json();
         const { email, password } = body;
 
@@ -52,8 +70,14 @@ export async function POST(request: NextRequest) {
 /**
  * DELETE /api/admin/auth - Admin logout
  */
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
     try {
+        // Apply CSRF protection
+        const csrfValidation = await requireCSRFToken(request);
+        if (csrfValidation) {
+            return csrfValidation;
+        }
+
         await clearAdminSession();
 
         return NextResponse.json({

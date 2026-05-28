@@ -74,3 +74,10 @@ tsc-output.txt
 #other
 docs/
 test-results
+GEMINI.md
+
+# graphify
+graphify-out/
+
+# Gemini IDE settings and cache
+.gemini/

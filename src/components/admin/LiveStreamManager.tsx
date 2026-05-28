@@ -9,14 +9,13 @@ import {
     Monitor,
     Smartphone,
     Tablet,
-    CheckCircle2,
-    AlertCircle,
+    CircleCheckBig,
+    CircleAlert,
     Code2,
     Eye,
     EyeOff,
     Power,
     PowerOff,
-    Youtube,
     Globe,
     Info,
 } from 'lucide-react';
@@ -42,8 +41,8 @@ const previewModes: { mode: PreviewMode; icon: typeof Monitor; label: string; wi
     { mode: 'mobile', icon: Smartphone, label: 'Mobile', width: 'max-w-sm' },
 ];
 
-const platformIcons: Record<string, typeof Youtube> = {
-    youtube: Youtube,
+const platformIcons: Record<string, typeof Video> = {
+    youtube: Video,
     facebook: Globe,
     twitch: Globe,
     custom: Code2,
@@ -210,7 +209,7 @@ export default function LiveStreamManager() {
                 }
 
                 toast.success('Stream configuration saved!', {
-                    icon: <CheckCircle2 className="w-5 h-5 text-emerald-400" />,
+                    icon: <CircleCheckBig className="w-5 h-5 text-emerald-400" />,
                     description: isActive ? 'Stream is now live' : 'Stream is saved but not active',
                 });
             } catch (err) {
@@ -313,7 +312,7 @@ export default function LiveStreamManager() {
             {/* Embed Editor Card */}
             <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 overflow-hidden">
                 {/* Header */}
-                <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+                <div className="px-6 py-4 border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                         <div className="p-2 rounded-xl bg-red-500/20">
                             <Code2 className="w-5 h-5 text-red-400" />
@@ -324,10 +323,10 @@ export default function LiveStreamManager() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {hasChanges && (
-                            <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-medium flex items-center gap-1.5">
-                                <AlertCircle className="w-3.5 h-3.5" />
+                            <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-medium flex items-center gap-1.5 whitespace-nowrap">
+                                <CircleAlert className="w-3.5 h-3.5" />
                                 Unsaved changes
                             </span>
                         )}
@@ -374,7 +373,7 @@ export default function LiveStreamManager() {
                                         <span className={`text-xs ${validation.valid ? 'text-emerald-400' : 'text-gray-500'}`}>
                                             {validation.valid ? (
                                                 <span className="flex items-center gap-1">
-                                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                                    <CircleCheckBig className="w-3.5 h-3.5" />
                                                     {validation.message}
                                                 </span>
                                             ) : (
@@ -401,11 +400,11 @@ export default function LiveStreamManager() {
                             </div>
 
                             {/* Actions */}
-                            <div className="flex items-center justify-between pt-2">
+                            <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-4 pt-2">
                                 <button
                                     onClick={handleDiscard}
                                     disabled={!hasChanges || isPending}
-                                    className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
                                     <RefreshCw className="w-4 h-4" />
                                     Discard Changes
@@ -414,7 +413,7 @@ export default function LiveStreamManager() {
                                 <button
                                     onClick={handleSave}
                                     disabled={isPending || !hasChanges || !validation.valid}
-                                    className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-pink-500 text-white font-medium hover:from-red-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-red-500/20"
+                                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-red-500 to-pink-500 text-white font-medium hover:from-red-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-red-500/20"
                                 >
                                     {isPending ? (
                                         <>

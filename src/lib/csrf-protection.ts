@@ -327,14 +327,17 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
       const supabaseAuthCookie = request.cookies.get('sb-access-token') ||
         request.cookies.get('sb-refresh-token');
 
+      // Check for admin session cookie
+      const adminSessionCookie = request.cookies.get('admin-session');
+
       // Also check for the Supabase auth token pattern
       const allCookies = request.cookies.getAll();
       const hasSupabaseCookie = allCookies.some(cookie =>
         cookie.name.includes('sb-') && cookie.name.includes('-auth-token')
       );
 
-      if (supabaseAuthCookie || hasSupabaseCookie) {
-        console.info(`[${environment.toUpperCase()}] Session found via Supabase cookie`);
+      if (supabaseAuthCookie || hasSupabaseCookie || adminSessionCookie) {
+        console.info(`[${environment.toUpperCase()}] Session found via ${adminSessionCookie ? 'Admin' : 'Supabase'} cookie`);
         hasSession = true;
       }
     } catch (cookieError) {
@@ -460,14 +463,17 @@ export async function requireCSRFToken(request: NextRequest): Promise<Response |
       const supabaseAuthCookie = request.cookies.get('sb-access-token') ||
         request.cookies.get('sb-refresh-token');
 
+      // Check for admin session cookie
+      const adminSessionCookie = request.cookies.get('admin-session');
+
       // Also check for the Supabase auth token pattern
       const allCookies = request.cookies.getAll();
       const hasSupabaseCookie = allCookies.some(cookie =>
         cookie.name.includes('sb-') && cookie.name.includes('-auth-token')
       );
 
-      if (supabaseAuthCookie || hasSupabaseCookie) {
-        console.info(`[${environment.toUpperCase()}] Session found via Supabase cookie`);
+      if (supabaseAuthCookie || hasSupabaseCookie || adminSessionCookie) {
+        console.info(`[${environment.toUpperCase()}] Session found via ${adminSessionCookie ? 'Admin' : 'Supabase'} cookie`);
         hasSession = true;
       }
     } catch (cookieError) {
