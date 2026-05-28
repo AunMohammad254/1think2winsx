@@ -10,7 +10,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "cleanup:orphaned": "tsx scripts/cleanup-orphaned-records.ts"
+    "cleanup:orphaned": "bun scripts/cleanup-orphaned-records.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

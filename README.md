@@ -142,7 +142,7 @@ mindmap
 
 ### Prerequisites
 
-<img src="https://skillicons.dev/icons?i=nodejs,npm,mongodb&theme=dark" alt="Prerequisites" />
+<img src="https://skillicons.dev/icons?i=nodejs,bun,mongodb&theme=dark" alt="Prerequisites" />
 
 </div>
 
@@ -156,7 +156,7 @@ git clone https://github.com/yourusername/1think2winsx.git
 cd 1think2winsx
 
 # Install dependencies
-npm install
+bun install
 
 # Set up environment variables
 cp .env.example .env.local
@@ -182,19 +182,19 @@ STRIPE_PUBLISHABLE_KEY="your-stripe-public-key"
 
 ```bash
 # Generate Prisma Client
-npx prisma generate
+bunx prisma generate
 
 # Push schema to database
-npx prisma db push
+bunx prisma db push
 
 # Seed initial data (optional)
-npm run seed
+bun run seed
 ```
 
 ### 🚀 Run Development Server
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 <div align="center">
@@ -241,11 +241,11 @@ npm run dev
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start development server |
-| `npm run build` | Build for production |
-| `npm run start` | Start production server |
-| `npm run lint` | Run ESLint |
-| `npm run cleanup:orphaned` | Clean orphaned database records |
+| `bun run dev` | Start development server |
+| `bun run build` | Build for production |
+| `bun run start` | Start production server |
+| `bun run lint` | Run ESLint |
+| `bun run cleanup:orphaned` | Clean orphaned database records |
 
 ---
 
