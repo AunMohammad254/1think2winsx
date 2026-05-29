@@ -48,7 +48,8 @@ export const QuizFormSchema = z.object({
         .max(1000, 'Access price cannot exceed 1000 PKR')
         .default(2),
     difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
-    status: z.enum(['draft', 'active', 'paused']).default('draft'),
+    status: z.enum(['draft', 'active', 'paused', 'scheduled']).default('draft'),
+    startsAt: z.string().nullable().optional(),
     questions: z.array(QuestionSchema)
         .min(1, 'At least 1 question required'),
 });
@@ -129,5 +130,6 @@ export const defaultQuiz: QuizFormData = {
     accessPrice: 2,
     difficulty: 'medium',
     status: 'draft',
+    startsAt: null,
     questions: [defaultQuestion],
 };

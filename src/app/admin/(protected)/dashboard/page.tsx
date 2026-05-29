@@ -12,7 +12,8 @@ import {
   Database,
   Shield,
   Gift,
-  ChevronRight
+  ChevronRight,
+  Bell
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
@@ -103,6 +104,7 @@ const navItems = [
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet },
   { href: '/admin/claims', label: 'Prize Claims', icon: Trophy },
   { href: '/admin/streaming', label: 'Live Streaming', icon: Video },
+  { href: '/admin/notifications', label: 'Notifications', icon: Bell },
   { href: '/admin/db-stats', label: 'Database', icon: Database },
   { href: '/admin/security', label: 'Security', icon: Shield },
 ];
@@ -114,6 +116,7 @@ const quickActions = [
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet, color: 'emerald' },
   { href: '/admin/claims', label: 'Prize Claims', icon: Gift, color: 'amber' },
   { href: '/admin/streaming', label: 'Live Streaming', icon: Video, color: 'red' },
+  { href: '/admin/notifications', label: 'Notifications', icon: Bell, color: 'indigo' },
 ];
 
 // ============================================

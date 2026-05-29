@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { getDb, quizDb, questionDb, generateId } from '@/lib/supabase/db';
+import { getDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -13,6 +13,8 @@ const createQuizSchema = z.object({
   duration: z.number().min(1).max(180).default(30),
   passingScore: z.number().min(0).max(100).default(70),
   timeLimit: z.number().min(1).max(3600).default(600),
+  status: z.enum(['active', 'paused', 'scheduled', 'draft']).optional(),
+  startsAt: z.string().nullable().optional(),
   isActive: z.boolean().default(true),
   questions: z.array(z.object({
     text: z.string().min(1).max(1000),
@@ -227,7 +229,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, description, duration, passingScore, isActive, questions } = validationResult.data;
+    const { title, description, duration, passingScore, status, startsAt, isActive, questions } = validationResult.data;
     const supabase = await getDb();
 
     // Create quiz
@@ -240,7 +242,8 @@ export async function POST(request: NextRequest) {
         description,
         duration,
         passingScore,
-        status: isActive ? 'active' : 'paused',
+        status: status || (isActive ? 'active' : 'paused'),
+        startsAt: startsAt || null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })

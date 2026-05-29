@@ -10,6 +10,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
+import { notificationDb } from '@/lib/supabase/db';
 
 // ============================================================
 // Types
@@ -240,6 +241,19 @@ export async function updateStreamConfig(
         revalidatePath('/quiz');
         revalidatePath('/');
 
+        if (data.isActive) {
+            try {
+                await notificationDb.createBroadcast({
+                    title: '🔴 Live Stream is Active!',
+                    message: `We are live streaming "${data.title || 'Live Session'}"! Watch now.`,
+                    type: 'live_stream',
+                    link: '/'
+                });
+            } catch (notifErr) {
+                console.error('Failed to send live stream broadcast notification:', notifErr);
+            }
+        }
+
         return {
             success: true,
             data: {
@@ -304,6 +318,19 @@ export async function toggleStreamStatus(
         revalidatePath('/admin/streaming');
         revalidatePath('/quiz');
         revalidatePath('/');
+
+        if (isActive) {
+            try {
+                await notificationDb.createBroadcast({
+                    title: '🔴 Live Stream is Active!',
+                    message: 'We are live right now! Join the stream to play quizzes and win real physical prizes.',
+                    type: 'live_stream',
+                    link: '/'
+                });
+            } catch (notifErr) {
+                console.error('Failed to send live stream broadcast notification:', notifErr);
+            }
+        }
 
         return {
             success: true,

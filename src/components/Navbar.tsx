@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import Logo from './navbar/Logo';
 import UserProfileDropdown from './navbar/UserProfileDropdown';
 import MobileNav from './navbar/MobileNav';
+import NotificationsDropdown from './navbar/NotificationsDropdown';
 
 // Navigation items configuration
 const navItems = [
@@ -113,7 +114,8 @@ export default function Navbar() {
                 </div>
               ) : user ? (
                 // Logged in state
-                <div>
+                <div className="flex items-center gap-3">
+                  <NotificationsDropdown />
                   <UserProfileDropdown user={user} onSignOut={signOut} />
                 </div>
               ) : (

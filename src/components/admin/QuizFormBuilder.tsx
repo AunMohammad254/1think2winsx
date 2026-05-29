@@ -29,6 +29,7 @@ const statusOptions = [
     { value: 'draft', label: 'Draft', color: 'bg-gray-500/20 text-gray-400 border-gray-500/30' },
     { value: 'active', label: 'Published', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
     { value: 'paused', label: 'Paused', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+    { value: 'scheduled', label: 'Scheduled', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
 ];
 
 export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: QuizFormBuilderProps) {
@@ -46,7 +47,14 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
         formState: { errors, isDirty },
     } = useForm<QuizFormData>({
         resolver: zodResolver(QuizFormSchema) as any,
-        defaultValues: initialData || defaultQuiz,
+        defaultValues: initialData
+            ? {
+                ...initialData,
+                startsAt: initialData.startsAt
+                    ? new Date(new Date(initialData.startsAt).getTime() - new Date(initialData.startsAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+                    : null
+              }
+            : defaultQuiz,
     });
 
     const { fields: questionFields, append: appendQuestion, remove: removeQuestion, move: moveQuestion } = useFieldArray({
@@ -55,6 +63,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     });
 
     const watchedQuestions = watch('questions');
+    const watchedStatus = watch('status');
 
     // Toggle question expansion
     const toggleQuestion = useCallback((index: number) => {
@@ -132,9 +141,14 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     const onSubmit = async (data: QuizFormData) => {
         setIsSubmitting(true);
         try {
+            // Clean up startsAt if status is not scheduled
+            const payload = {
+                ...data,
+                startsAt: data.status === 'scheduled' ? data.startsAt : null,
+            };
             const result = isEditing
-                ? await updateQuiz(data)
-                : await createQuiz(data);
+                ? await updateQuiz(payload)
+                : await createQuiz(payload);
 
             if (result.success) {
                 toast.success(result.message || (isEditing ? 'Quiz updated!' : 'Quiz created!'));
@@ -291,13 +305,13 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                             name="status"
                             control={control}
                             render={({ field }) => (
-                                <div className="flex gap-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                     {statusOptions.map((option) => (
                                         <button
                                             key={option.value}
                                             type="button"
                                             onClick={() => field.onChange(option.value)}
-                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-all ${field.value === option.value
+                                            className={`py-2 px-3 rounded-lg text-sm font-medium border transition-all ${field.value === option.value
                                                 ? option.color
                                                 : 'bg-gray-800/50 text-gray-400 border-white/5 hover:border-white/10'
                                                 }`}
@@ -309,6 +323,22 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                             )}
                         />
                     </div>
+
+                    {/* Schedule Date-Time Picker */}
+                    {watchedStatus === 'scheduled' && (
+                        <div className="md:col-span-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                            <label className="block text-sm font-medium text-gray-300">
+                                Publish Schedule Date & Time <span className="text-red-400">*</span>
+                            </label>
+                            <input
+                                type="datetime-local"
+                                {...register('startsAt')}
+                                required={watchedStatus === 'scheduled'}
+                                className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+                            />
+                            <p className="text-xs text-gray-500">Select when this quiz should automatically go live and notify users.</p>
+                        </div>
+                    )}
                 </div>
             </div>
 

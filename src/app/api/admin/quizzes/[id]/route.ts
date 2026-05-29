@@ -12,7 +12,8 @@ const updateQuizSchema = z.object({
   description: z.string().optional(),
   duration: z.number().min(1).max(180).optional(),
   passingScore: z.number().min(0).max(100).optional(),
-  status: z.enum(['active', 'paused']).optional(),
+  status: z.enum(['active', 'paused', 'scheduled', 'draft']).optional(),
+  startsAt: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -23,7 +24,8 @@ const completeQuizUpdateSchema = z.object({
   timeLimit: z.number().min(1).max(7200).optional(),
   duration: z.number().min(1).max(180).optional(),
   passingScore: z.number().min(0).max(100).optional(),
-  status: z.enum(['active', 'paused']).optional(),
+  status: z.enum(['active', 'paused', 'scheduled', 'draft']).optional(),
+  startsAt: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
   questions: z.array(z.object({
     id: z.string().optional(),
@@ -410,7 +412,8 @@ export async function PUT(
     const quizUpdateData: Record<string, any> = {
       title: updateData.title,
       description: updateData.description,
-      status: updateData.isActive ? 'active' : 'paused',
+      status: updateData.status || (updateData.isActive ? 'active' : 'paused'),
+      startsAt: updateData.startsAt || null,
       updatedAt: new Date().toISOString()
     };
 

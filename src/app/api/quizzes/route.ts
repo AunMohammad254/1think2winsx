@@ -52,8 +52,7 @@ interface QuizListResponse {
   accessError: string | null;
 }
 
-// Simple in-memory cache for quiz list
-const quizListCache = new Map<string, { data: QuizListResponse; timestamp: number }>();
+import { quizListCache } from '@/lib/quiz-cache';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // GET /api/quizzes - Get all active quizzes with access status

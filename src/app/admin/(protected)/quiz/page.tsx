@@ -34,7 +34,8 @@ interface Quiz {
     description: string | null;
     duration: number;
     passingScore: number;
-    status: 'draft' | 'active' | 'paused';
+    status: 'draft' | 'active' | 'paused' | 'scheduled';
+    startsAt?: string | null;
     createdAt: string;
     updatedAt: string;
     _count?: {
@@ -59,7 +60,7 @@ interface AdminQuizzesResponse {
 
 type SortField = 'title' | 'status' | 'createdAt' | 'questions' | 'attempts';
 type SortOrder = 'asc' | 'desc';
-type StatusFilter = 'all' | 'draft' | 'active' | 'paused';
+type StatusFilter = 'all' | 'draft' | 'active' | 'paused' | 'scheduled';
 
 // ============================================
 // Constants
@@ -68,6 +69,7 @@ const statusConfig = {
     draft: { label: 'Draft', color: 'bg-gray-500/20 text-gray-400 border-gray-500/30' },
     active: { label: 'Published', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
     paused: { label: 'Paused', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+    scheduled: { label: 'Scheduled', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
 };
 
 // ============================================
@@ -253,7 +255,8 @@ export default function AdminQuizManagementPage() {
                 duration: fullQuiz.duration || 30,
                 passingScore: fullQuiz.passingScore || 70,
                 difficulty: 'medium' as const,
-                status: (fullQuiz.status || 'draft') as 'draft' | 'active' | 'paused',
+                status: (fullQuiz.status || 'draft') as 'draft' | 'active' | 'paused' | 'scheduled',
+                startsAt: fullQuiz.startsAt || null,
                 questions: (fullQuiz.questions || []).map((q: { id: string; text: string; options: string | string[]; correctOption?: number; hasCorrectAnswer?: boolean; status?: string }) => ({
                     id: q.id,
                     text: q.text,
@@ -438,7 +441,7 @@ export default function AdminQuizManagementPage() {
                     {/* Status Filter */}
                     <div className="flex items-center gap-2">
                         <Filter className="w-5 h-5 text-gray-500" />
-                        {(['all', 'draft', 'active', 'paused'] as StatusFilter[]).map((status) => (
+                        {(['all', 'draft', 'active', 'paused', 'scheduled'] as StatusFilter[]).map((status) => (
                             <button
                                 key={status}
                                 onClick={() => { setStatusFilter(status); setCurrentPage(1); }}
@@ -447,7 +450,7 @@ export default function AdminQuizManagementPage() {
                                     : 'bg-white/5 text-gray-400 hover:bg-white/10'
                                     }`}
                             >
-                                {status === 'all' ? 'All' : statusConfig[status]?.label || status}
+                                {status === 'all' ? 'All' : (statusConfig[status as keyof typeof statusConfig]?.label || status)}
                             </button>
                         ))}
                     </div>
@@ -734,8 +737,8 @@ export default function AdminQuizManagementPage() {
                     {[
                         { label: 'Total Quizzes', value: quizzes.length, icon: HelpCircle, color: 'text-purple-400' },
                         { label: 'Published', value: quizzes.filter(q => q.status === 'active').length, icon: Play, color: 'text-green-400' },
-                        { label: 'Drafts', value: quizzes.filter(q => q.status === 'draft').length, icon: Clock, color: 'text-gray-400' },
-                        { label: 'Paused', value: quizzes.filter(q => q.status === 'paused').length, icon: Pause, color: 'text-yellow-400' },
+                        { label: 'Scheduled', value: quizzes.filter(q => q.status === 'scheduled').length, icon: Clock, color: 'text-blue-400' },
+                        { label: 'Drafts/Paused', value: quizzes.filter(q => q.status === 'draft' || q.status === 'paused').length, icon: Pause, color: 'text-yellow-400' },
                     ].map((stat) => (
                         <div
                             key={stat.label}

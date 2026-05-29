@@ -1,8 +1,7 @@
 'use server';
 
-import { quizDb, questionDb } from '@/lib/supabase/db';
+import { quizDb, questionDb, notificationDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
-import { getDb } from '@/lib/supabase/db';
 import {
     QuizFormSchema,
     CreateQuizInput,
@@ -42,10 +41,9 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             description: quizData.description || null,
             duration: quizData.duration,
             passingScore: quizData.passingScore,
-            // Access price is not part of the schema/DB in this version but kept for type compat if needed
-            // accessPrice: quizData.accessPrice ?? 2,
             status: quizData.status,
-        });
+            startsAt: quizData.startsAt || null,
+        } as any);
 
         // Create questions for the quiz
         for (const question of questions) {
@@ -60,6 +58,19 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
                 hasCorrectAnswer,
                 status: question.status,
             });
+        }
+
+        if (quizData.status === 'active') {
+            try {
+                await notificationDb.createBroadcast({
+                    title: '🎮 New Quiz Published!',
+                    message: `"${quiz.title || 'Challenge'}" is now active. Play now and score points!`,
+                    type: 'quiz_deadline',
+                    link: `/quiz/${quiz.id}`
+                });
+            } catch (notifErr) {
+                console.error('Failed to send quiz publication broadcast notification:', notifErr);
+            }
         }
 
         revalidatePath('/admin/quiz');
@@ -105,7 +116,8 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             duration: quizData.duration,
             passingScore: quizData.passingScore,
             status: quizData.status,
-        });
+            startsAt: quizData.startsAt || null,
+        } as any);
 
         // Get existing question IDs to update
         const existingQuestionIds = questions
@@ -187,7 +199,20 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
             return { success: false, error: 'Cannot publish quiz without questions' };
         }
 
-        await quizDb.update(id, { status: 'active' });
+        const updatedQuiz = await quizDb.update(id, { status: 'active' });
+
+        if (updatedQuiz) {
+            try {
+                await notificationDb.createBroadcast({
+                    title: '🎮 New Quiz Published!',
+                    message: `"${updatedQuiz.title || 'Challenge'}" is now active. Play now and score points!`,
+                    type: 'quiz_deadline',
+                    link: `/quiz/${id}`
+                });
+            } catch (notifErr) {
+                console.error('Failed to send quiz publication broadcast notification:', notifErr);
+            }
+        }
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
