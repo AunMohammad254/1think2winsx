@@ -12,29 +12,23 @@ import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
 import PodiumSection from './components/PodiumSection';
 import LeaderboardRow from './components/LeaderboardRow';
+import { Trophy, Target, HelpCircle, Award, Sparkles, ArrowUpRight } from 'lucide-react';
 import {
   staggerContainer,
   fadeInUp,
   fadeInDown,
   scaleIn,
-  slideUp,
   letterReveal,
   floatSlow,
   floatMedium,
   floatFast,
   softPulse,
-  glowPulse,
-  shimmerVariants,
   errorShake,
   slideInError,
   backToTopVariants,
   skeletonShimmer,
   springGentle,
-  smoothTween,
-  fastTween,
   inViewOptions,
-  getRankGradient,
-  getRankIcon,
 } from './animations';
 
 type LeaderboardEntry = {
@@ -172,7 +166,6 @@ function TimeframeTabs({
 
   const handleClick = (key: 'weekly' | 'monthly' | 'allTime', e: React.MouseEvent<HTMLButtonElement>) => {
     setTimeframe(key);
-    const rect = e.currentTarget.getBoundingClientRect();
     const containerRect = containerRef.current?.getBoundingClientRect();
     if (containerRect) {
       const x = e.clientX - containerRect.left;
@@ -502,7 +495,7 @@ export default function LeaderboardPage() {
       setLastUpdated(data.lastUpdated);
       if (dataLoadedRef.current && !skipCounter) setPlayCounter(true);
       dataLoadedRef.current = true;
-    } catch (err) {
+    } catch {
       setError('Failed to load leaderboard data. Please try again later.');
     } finally {
       setLoading(false);
@@ -569,47 +562,120 @@ export default function LeaderboardPage() {
               transition={{ duration: 0.3 }}
               className="space-y-6 sm:space-y-8"
             >
+              {/* Personal Player Status Dashboard */}
+              {user && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={springGentle}
+                  className="w-full max-w-5xl mx-auto animate-fadeIn"
+                >
+                  {currentUserEntry ? (
+                    <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900/60 to-teal-950/40 border border-emerald-500/30 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+                      <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+                      <div className="absolute -left-10 -top-10 w-40 h-40 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
+                      
+                      <div className="flex items-center gap-4 w-full md:w-auto relative z-10">
+                        <div className="w-14 h-14 bg-gradient-to-tr from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center font-black text-white shadow-lg text-lg">
+                          {currentUserEntry.userName.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                            {currentUserEntry.userName} <Sparkles className="w-4 h-4 text-yellow-400 animate-pulse" />
+                          </h2>
+                          <p className="text-slate-400 text-xs sm:text-sm font-medium mt-0.5">
+                            Your current position on the board
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-2 sm:gap-4 w-full md:w-auto text-center md:text-left relative z-10">
+                        <div className="bg-white/5 border border-white/5 rounded-2xl p-3">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1 flex items-center gap-1 justify-center md:justify-start">
+                            <Trophy className="w-3 h-3 text-yellow-400" /> Rank
+                          </span>
+                          <span className="text-lg sm:text-xl font-black text-white">
+                            #{currentUserEntry.rank}
+                          </span>
+                        </div>
+                        
+                        <div className="bg-white/5 border border-white/5 rounded-2xl p-3">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1 flex items-center gap-1 justify-center md:justify-start">
+                            <HelpCircle className="w-3 h-3 text-blue-400" /> Plays
+                          </span>
+                          <span className="text-lg sm:text-xl font-black text-white">
+                            {currentUserEntry.quizzesTaken}
+                          </span>
+                        </div>
+
+                        <div className="bg-white/5 border border-white/5 rounded-2xl p-3">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1 flex items-center gap-1 justify-center md:justify-start">
+                            <Target className="w-3 h-3 text-emerald-400" /> Accuracy
+                          </span>
+                          <span className="text-lg sm:text-xl font-black text-emerald-400">
+                            {currentUserEntry.quizzesTaken > 0 ? Math.round((currentUserEntry.correctAnswers / (currentUserEntry.quizzesTaken * 10)) * 100) : 0}%
+                          </span>
+                        </div>
+
+                        <div className="bg-white/5 border border-white/5 rounded-2xl p-3">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1 flex items-center gap-1 justify-center md:justify-start">
+                            <Award className="w-3 h-3 text-teal-400" /> Score
+                          </span>
+                          <span className="text-lg sm:text-xl font-black text-white">
+                            {currentUserEntry.totalScore}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gradient-to-r from-slate-900/80 to-slate-950/80 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+                      <div className="flex items-center gap-4 relative z-10">
+                        <div className="w-14 h-14 bg-slate-800 border border-white/10 rounded-2xl flex items-center justify-center font-black text-slate-400 shadow-md text-lg">
+                          ?
+                        </div>
+                        <div>
+                          <h2 className="text-base sm:text-lg font-black text-white">
+                            You are not ranked yet
+                          </h2>
+                          <p className="text-slate-400 text-xs sm:text-sm mt-0.5">
+                            Participate in any active quiz to qualify for the {timeframe} leaderboard!
+                          </p>
+                        </div>
+                      </div>
+                      <Link
+                        href="/quizzes"
+                        className="px-5 py-3 bg-linear-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl text-sm transition-all duration-300 shadow-lg flex items-center gap-1.5 shrink-0 hover:scale-105"
+                      >
+                        Start Quiz <ArrowUpRight className="w-4 h-4" />
+                      </Link>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
               {/* Podium */}
               <motion.div variants={fadeInUp} initial="hidden" animate="visible">
                 <PodiumSection entries={leaderboard.slice(0, 3)} isMobile={isMobile} playCounter={playCounter} />
               </motion.div>
 
-              {/* Table */}
+              {/* Leaderboard Stack */}
               <motion.div
                 variants={fadeInUp}
                 initial="hidden"
                 animate="visible"
-                className={`${!isMobile ? 'backdrop-blur-xl bg-white/5' : 'bg-slate-800/90'} border border-white/10 rounded-3xl shadow-2xl overflow-hidden`}
+                className="space-y-3 w-full max-w-5xl mx-auto"
               >
-                <div className="overflow-x-auto">
-                  <table className="min-w-full">
-                    <thead className="sticky top-0 z-20">
-                      <tr className="bg-linear-to-r from-emerald-500/20 to-teal-600/20 border-b border-white/10">
-                        {['Rank', 'Player', 'Quizzes', 'Correct', 'Score', 'Wins'].map((label, i) => (
-                          <th
-                            key={label}
-                            className={`px-4 sm:px-6 py-4 text-left text-xs sm:text-sm font-bold text-white uppercase tracking-wider ${i === 0 ? 'w-[110px]' : ''} ${i === 4 ? 'w-[100px]' : ''}`}
-                          >
-                            {label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {leaderboard.map((entry, index) => (
-                        <LeaderboardRow
-                          key={`${entry.id}-${entry.rank}`}
-                          entry={entry}
-                          index={index}
-                          isCurrentUser={entry.userName === userName}
-                          prevData={prevDataRef.current}
-                          isMobile={isMobile}
-                          playCounter={playCounter}
-                        />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                {leaderboard.map((entry, index) => (
+                  <LeaderboardRow
+                    key={`${entry.id}-${entry.rank}`}
+                    entry={entry}
+                    index={index}
+                    isCurrentUser={entry.userName === userName}
+                    prevData={prevDataRef.current}
+                    isMobile={isMobile}
+                    playCounter={playCounter}
+                  />
+                ))}
               </motion.div>
 
               {/* User position CTA */}
