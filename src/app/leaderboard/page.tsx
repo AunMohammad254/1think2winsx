@@ -135,7 +135,7 @@ function HeroSection({ lastUpdated, isMobile }: { lastUpdated: string; isMobile:
         initial="hidden"
         animate={inView ? 'visible' : 'hidden'}
       >
-        Compete with the best quiz masters worldwide
+        Think Smart, Win Big — dominate the leaderboard
       </motion.p>
       {lastUpdated && (
         <motion.p
@@ -320,7 +320,7 @@ function ErrorState({ error, isMobile, onRetry }: { error: string; isMobile: boo
           <motion.p className="text-red-300 mb-6" variants={fadeInUp}>{error}</motion.p>
           <motion.button
             onClick={onRetry}
-            className="px-6 py-3 bg-linear-to-r from-red-500 to-pink-600 text-white rounded-xl transition-all duration-300 shadow-lg touch-manipulation relative outline-none"
+            className="px-6 py-3 bg-linear-to-r from-red-500 to-rose-600 text-white rounded-xl transition-all duration-300 shadow-lg touch-manipulation relative outline-none"
             whileHover={!isMobile ? { scale: 1.05, transition: springGentle } : undefined}
             whileTap={{ scale: 0.97 }}
             onHoverStart={() => setShowRetryGlow(true)}

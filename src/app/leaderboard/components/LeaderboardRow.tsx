@@ -135,6 +135,41 @@ export default function LeaderboardRow({
           >
             {getRankIcon(entry.rank)}
           </motion.span>
+          {rankChanged && (
+            <div className="flex flex-col items-center">
+              {rankDiff > 0 ? (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-0.5 text-emerald-400"
+                >
+                  <motion.span
+                    animate={{ y: [0, -3, 0] }}
+                    transition={{ duration: 0.5, repeat: 3 }}
+                    className="text-xs"
+                  >
+                    ↑
+                  </motion.span>
+                  <span className="text-[10px] font-medium">+{rankDiff}</span>
+                </motion.div>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-0.5 text-red-400"
+                >
+                  <motion.span
+                    animate={{ x: [0, -2, 2, -2, 0] }}
+                    transition={{ duration: 0.4, repeat: 3 }}
+                    className="text-xs"
+                  >
+                    ↓
+                  </motion.span>
+                  <span className="text-[10px] font-medium">{rankDiff}</span>
+                </motion.div>
+              )}
+            </div>
+          )}
         </div>
       </td>
 
@@ -200,41 +235,6 @@ export default function LeaderboardRow({
         )}
       </td>
 
-      {rankChanged && (
-        <td className="pr-4 sm:pr-6 py-4 whitespace-nowrap">
-          {rankDiff > 0 ? (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-1 text-green-400"
-            >
-              <motion.span
-                animate={{ y: [0, -3, 0] }}
-                transition={{ duration: 0.5, repeat: 3 }}
-                className="text-sm"
-              >
-                ↑
-              </motion.span>
-              <span className="text-xs font-medium">+{rankDiff}</span>
-            </motion.div>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-1 text-red-400"
-            >
-              <motion.span
-                animate={{ x: [0, -2, 2, -2, 0] }}
-                transition={{ duration: 0.4, repeat: 3 }}
-                className="text-sm"
-              >
-                ↓
-              </motion.span>
-              <span className="text-xs font-medium">{rankDiff}</span>
-            </motion.div>
-          )}
-        </td>
-      )}
     </motion.tr>
   );
 }
