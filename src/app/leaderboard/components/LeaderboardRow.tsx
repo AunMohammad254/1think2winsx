@@ -91,7 +91,7 @@ export default function LeaderboardRow({
     : 'backdrop-blur-xl bg-white/[0.02] border-b border-white/5';
 
   const highlightClass = isCurrentUser
-    ? 'bg-linear-to-r from-blue-500/15 to-purple-600/15 border-l-2 border-blue-400'
+    ? 'bg-linear-to-r from-emerald-500/15 to-teal-600/15 border-l-2 border-emerald-400'
     : '';
 
   return (
@@ -111,7 +111,7 @@ export default function LeaderboardRow({
           : undefined
       }
       className={`group ${rowBase} ${highlightClass} ${isNewEntry ? 'border-t-2 border-t-green-400/40' : ''}`}
-      style={isCurrentUser && !isMobile ? { boxShadow: '0 0 20px rgba(59,130,246,0.08)' } : undefined}
+      style={isCurrentUser && !isMobile ? { boxShadow: '0 0 20px rgba(5,150,105,0.08)' } : undefined}
     >
       <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
         <div className="flex items-center gap-3">
@@ -141,7 +141,7 @@ export default function LeaderboardRow({
       <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
         <div className="flex items-center gap-3">
           <motion.div
-            className="w-10 h-10 bg-linear-to-r from-blue-400 to-purple-600 rounded-full flex items-center justify-center shadow-lg"
+            className="w-10 h-10 bg-linear-to-r from-emerald-400 to-teal-600 rounded-full flex items-center justify-center shadow-lg"
             whileHover={!isMobile ? { scale: 1.1, rotate: 5 } : undefined}
           >
             <span className="text-white font-bold text-sm">
@@ -149,11 +149,11 @@ export default function LeaderboardRow({
             </span>
           </motion.div>
           <div>
-            <div className="text-sm font-bold text-white group-hover:text-blue-300 transition-colors duration-300">
+            <div className="text-sm font-bold text-white group-hover:text-emerald-300 transition-colors duration-300">
               {entry.userName}
             </div>
             {isCurrentUser && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/30 text-blue-300 border border-blue-500/50">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/30 text-emerald-300 border border-emerald-500/50">
                 You
               </span>
             )}
@@ -176,7 +176,7 @@ export default function LeaderboardRow({
       <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
         <div className="relative inline-block">
           <motion.div
-            className="bg-linear-to-r from-purple-500/20 to-pink-500/20 rounded-lg px-4 py-2 border border-purple-500/30"
+            className="bg-linear-to-r from-emerald-500/20 to-teal-500/20 rounded-lg px-4 py-2 border border-emerald-500/30"
             whileHover={!isMobile ? { scale: 1.05, transition: springGentle } : undefined}
           >
             <span className="text-white font-bold text-lg">

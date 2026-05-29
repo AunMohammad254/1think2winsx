@@ -77,14 +77,14 @@ function FloatingBackground({ isMobile }: { isMobile: boolean }) {
 
   return (
     <>
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-purple-900/20 via-slate-900/10 to-transparent" />
-      <motion.div style={{ y: y1, opacity: opacity1 }} className="absolute top-[10%] left-[5%] w-72 h-72 bg-purple-500/10 rounded-full blur-3xl" variants={floatSlow} animate="animate" />
-      <motion.div style={{ y: y2, opacity: opacity2 }} className="absolute top-[30%] right-[10%] w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" variants={floatMedium} animate="animate" />
-      <motion.div style={{ y: y3, opacity: opacity3 }} className="absolute bottom-[20%] left-[15%] w-64 h-64 bg-pink-500/8 rounded-full blur-3xl" variants={floatFast} animate="animate" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-emerald-900/15 via-slate-900/10 to-transparent" />
+      <motion.div style={{ y: y1, opacity: opacity1 }} className="absolute top-[10%] left-[5%] w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl" variants={floatSlow} animate="animate" />
+      <motion.div style={{ y: y2, opacity: opacity2 }} className="absolute top-[30%] right-[10%] w-96 h-96 bg-yellow-500/8 rounded-full blur-3xl" variants={floatMedium} animate="animate" />
+      <motion.div style={{ y: y3, opacity: opacity3 }} className="absolute bottom-[20%] left-[15%] w-64 h-64 bg-blue-500/8 rounded-full blur-3xl" variants={floatFast} animate="animate" />
       <motion.div
         className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full blur-3xl"
         style={{
-          background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(59,130,246,0.06))',
+          background: 'linear-gradient(135deg, rgba(5,150,105,0.06), rgba(59,130,246,0.06))',
         }}
         animate={{ rotate: 360 }}
         transition={{ duration: 25, repeat: Infinity, ease: 'linear' }}
@@ -110,7 +110,7 @@ function HeroSection({ lastUpdated, isMobile }: { lastUpdated: string; isMobile:
         {title.split('').map((char, i) => (
           <motion.span
             key={i}
-            className="bg-linear-to-r from-blue-400 via-purple-500 to-pink-500 bg-clip-text text-transparent inline-block"
+            className="bg-linear-to-r from-emerald-400 via-teal-300 to-yellow-400 bg-clip-text text-transparent inline-block"
             variants={letterReveal}
             initial="hidden"
             animate={inView ? 'visible' : 'hidden'}
@@ -207,14 +207,14 @@ function TimeframeTabs({
               {timeframe === key && (
                 <motion.div
                   layoutId="tab-bg"
-                  className="absolute inset-0 bg-linear-to-r from-blue-500 to-purple-600 rounded-xl shadow-lg"
+                  className="absolute inset-0 bg-linear-to-r from-emerald-600 to-teal-500 rounded-xl shadow-lg"
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 />
               )}
               {timeframe === key && !isMobile && (
                 <motion.div
                   className="absolute inset-0 rounded-xl blur-md"
-                  style={{ background: 'rgba(59,130,246,0.15)' }}
+                  style={{ background: 'rgba(5,150,105,0.15)' }}
                   variants={softPulse}
                   animate="animate"
                 />
@@ -373,7 +373,7 @@ function EmptyState({ isMobile }: { isMobile: boolean }) {
         <p className="text-gray-300 mb-6">No leaderboard data available for the selected timeframe.</p>
         <Link
           href="/quizzes"
-          className="inline-flex items-center px-6 py-3 bg-linear-to-r from-blue-500 to-purple-600 text-white rounded-xl transition-all duration-300 shadow-lg touch-manipulation"
+          className="inline-flex items-center px-6 py-3 bg-linear-to-r from-cyan-500 to-blue-600 text-white rounded-xl transition-all duration-300 shadow-lg touch-manipulation"
         >
           🎯 Take a Quiz
         </Link>
@@ -399,18 +399,18 @@ function CallToAction({ isMobile }: { isMobile: boolean }) {
           className="flex items-center justify-center mb-6"
           whileHover={!isMobile ? { scale: 1.1, rotate: [0, -10, 10, 0] } : undefined}
         >
-          <div className="w-14 h-14 sm:w-16 sm:h-16 bg-linear-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center shadow-lg">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 bg-linear-to-r from-cyan-500 to-blue-600 rounded-full flex items-center justify-center shadow-lg">
             <span className="text-2xl sm:text-3xl">🎯</span>
           </div>
         </motion.div>
-        <h3 className="text-xl sm:text-2xl font-bold bg-linear-to-r from-green-400 to-blue-500 bg-clip-text text-transparent mb-4">
+        <h3 className="text-xl sm:text-2xl font-bold bg-linear-to-r from-yellow-300 via-orange-300 to-red-400 bg-clip-text text-transparent mb-4">
           Want to climb the leaderboard?
         </h3>
         <p className="text-gray-300 mb-6">Challenge yourself with our exciting quizzes and compete with players worldwide!</p>
         <motion.div whileHover={!isMobile ? { scale: 1.04 } : undefined} whileTap={{ scale: 0.98 }}>
           <Link
             href="/quizzes"
-            className="inline-flex items-center px-6 sm:px-8 py-3 sm:py-4 bg-linear-to-r from-green-500 to-blue-600 text-white text-base sm:text-lg font-bold rounded-2xl transition-all duration-300 shadow-2xl touch-manipulation gap-2 sm:gap-3"
+            className="inline-flex items-center px-6 sm:px-8 py-3 sm:py-4 bg-linear-to-r from-cyan-500 to-blue-600 text-white text-base sm:text-lg font-bold rounded-2xl transition-all duration-300 shadow-2xl touch-manipulation gap-2 sm:gap-3"
           >
             <span>🎮</span>
             Play Quizzes Now
@@ -451,8 +451,8 @@ function BackToTop({ isMobile }: { isMobile: boolean }) {
           animate="visible"
           exit="exit"
           onClick={scrollToTop}
-          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-linear-to-r from-blue-500 to-purple-600 text-white shadow-2xl flex items-center justify-center touch-manipulation outline-none"
-          whileHover={!isMobile ? { scale: 1.1, boxShadow: '0 0 30px rgba(59,130,246,0.5)' } : undefined}
+          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-linear-to-r from-emerald-500 to-teal-600 text-white shadow-2xl flex items-center justify-center touch-manipulation outline-none"
+          whileHover={!isMobile ? { scale: 1.1, boxShadow: '0 0 30px rgba(5,150,105,0.5)' } : undefined}
           whileTap={{ scale: 0.9 }}
         >
           <motion.span
@@ -539,7 +539,7 @@ export default function LeaderboardPage() {
   const debouncedLoading = useDebounce(loading, 200);
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-900 via-purple-900 to-slate-900 text-white relative overflow-x-hidden">
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-emerald-950/20 to-blue-950 text-white relative overflow-x-hidden">
       <FloatingBackground isMobile={isMobile} />
 
       <div className="relative z-10 container mx-auto px-4 py-6 sm:py-8 space-y-6 sm:space-y-8">
@@ -584,7 +584,7 @@ export default function LeaderboardPage() {
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
                     <thead className="sticky top-0 z-20">
-                      <tr className="bg-linear-to-r from-blue-500/20 to-purple-600/20 border-b border-white/10">
+                      <tr className="bg-linear-to-r from-emerald-500/20 to-teal-600/20 border-b border-white/10">
                         {['Rank', 'Player', 'Quizzes', 'Correct', 'Score', 'Wins'].map((label, i) => (
                           <th
                             key={label}
@@ -623,7 +623,7 @@ export default function LeaderboardPage() {
                 >
                   <div className="flex items-center gap-4 mb-4">
                     <motion.div
-                      className="w-12 h-12 bg-linear-to-r from-blue-400 to-purple-600 rounded-full flex items-center justify-center"
+                      className="w-12 h-12 bg-linear-to-r from-emerald-400 to-teal-600 rounded-full flex items-center justify-center"
                       whileHover={!isMobile ? { rotate: 15, scale: 1.1 } : undefined}
                     >
                       <span className="text-2xl">📍</span>
@@ -635,7 +635,7 @@ export default function LeaderboardPage() {
                   </p>
                   <Link
                     href="/quizzes"
-                    className="inline-flex items-center px-6 py-3 bg-linear-to-r from-blue-500 to-purple-600 text-white rounded-xl transition-all duration-300 shadow-lg touch-manipulation gap-2"
+                    className="inline-flex items-center px-6 py-3 bg-linear-to-r from-cyan-500 to-blue-600 text-white rounded-xl transition-all duration-300 shadow-lg touch-manipulation gap-2"
                   >
                     🚀 Start playing now
                   </Link>

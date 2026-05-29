@@ -127,9 +127,9 @@ export const softPulse: Variants = {
 export const glowPulse: Variants = {
   animate: {
     boxShadow: [
-      '0 0 20px rgba(59,130,246,0.3)',
-      '0 0 40px rgba(139,92,246,0.5)',
-      '0 0 20px rgba(59,130,246,0.3)',
+      '0 0 20px rgba(5,150,105,0.3)',
+      '0 0 40px rgba(20,184,166,0.5)',
+      '0 0 20px rgba(5,150,105,0.3)',
     ],
     transition: { duration: 3, repeat: Infinity, ease: 'easeInOut' },
   },
@@ -199,9 +199,9 @@ export function getRankGradient(rank: number): string {
   if (rank === 1) return 'from-yellow-400 via-yellow-500 to-yellow-600';
   if (rank === 2) return 'from-gray-300 via-gray-400 to-gray-500';
   if (rank === 3) return 'from-amber-400 via-amber-500 to-amber-600';
-  if (rank <= 10) return 'from-blue-400 via-blue-500 to-blue-600';
-  if (rank <= 25) return 'from-teal-400 via-teal-500 to-teal-600';
-  return 'from-purple-400 via-purple-500 to-purple-600';
+  if (rank <= 10) return 'from-emerald-400 via-emerald-500 to-teal-600';
+  if (rank <= 25) return 'from-cyan-400 via-cyan-500 to-blue-600';
+  return 'from-blue-400 via-blue-500 to-indigo-600';
 }
 
 export function getRankIcon(rank: number): string {
