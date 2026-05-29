@@ -128,7 +128,7 @@ export default function LeaderboardPage() {
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,var(--tw-gradient-stops))] from-purple-900/20 via-slate-900/10 to-transparent"></div>
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
           <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-purple-500/5 to-blue-500/5 rounded-full blur-3xl animate-spin" style={{ animationDuration: '20s' }}></div>
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-150 h-150 bg-linear-to-r from-purple-500/5 to-blue-500/5 rounded-full blur-3xl animate-spin" style={{ animationDuration: '20s' }}></div>
         </>
       )}
 
@@ -136,7 +136,7 @@ export default function LeaderboardPage() {
         {/* Header */}
         <div className="text-center mb-12">
           <div className={`${!isMobile ? 'backdrop-blur-xl bg-white/5' : 'bg-slate-800/90'} border border-white/10 rounded-3xl p-8 shadow-2xl`}>
-            <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-4">
+            <h1 className="text-4xl md:text-6xl font-bold bg-linear-to-r from-blue-400 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-4">
               🏆 Leaderboard
             </h1>
             <p className="text-gray-300 text-lg mb-4">
@@ -163,7 +163,7 @@ export default function LeaderboardPage() {
                   key={key}
                   type="button"
                   className={`relative px-4 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-medium rounded-xl transition-all duration-300 touch-manipulation ${timeframe === key
-                    ? `bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg ${!isMobile ? 'transform scale-105' : ''}`
+                    ? `bg-linear-to-r from-blue-500 to-purple-600 text-white shadow-lg ${!isMobile ? 'transform scale-105' : ''}`
                     : `text-gray-300 ${!isMobile ? 'hover:text-white hover:bg-white/10' : ''}`
                     }`}
                   onClick={() => setTimeframe(key as 'weekly' | 'monthly' | 'allTime')}
@@ -171,7 +171,7 @@ export default function LeaderboardPage() {
                   <span className="mr-2">{icon}</span>
                   {label}
                   {timeframe === key && !isMobile && (
-                    <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-600/20 rounded-xl blur animate-pulse"></div>
+                    <div className="absolute inset-0 bg-linear-to-r from-blue-500/20 to-purple-600/20 rounded-xl blur animate-pulse"></div>
                   )}
                 </button>
               ))}
@@ -201,7 +201,7 @@ export default function LeaderboardPage() {
                 <p className="text-red-300 mb-6">{error}</p>
                 <button
                   onClick={() => window.location.reload()}
-                  className={`px-6 py-3 bg-gradient-to-r from-red-500 to-pink-600 text-white rounded-xl ${!isMobile ? 'hover:from-red-600 hover:to-pink-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
+                  className={`px-6 py-3 bg-linear-to-r from-red-500 to-pink-600 text-white rounded-xl ${!isMobile ? 'hover:from-red-600 hover:to-pink-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
                 >
                   🔄 Retry
                 </button>
@@ -220,7 +220,7 @@ export default function LeaderboardPage() {
                 </p>
                 <Link
                   href="/quizzes"
-                  className={`inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl ${!isMobile ? 'hover:from-blue-600 hover:to-purple-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
+                  className={`inline-flex items-center px-6 py-3 bg-linear-to-r from-blue-500 to-purple-600 text-white rounded-xl ${!isMobile ? 'hover:from-blue-600 hover:to-purple-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
                 >
                   🎯 Take a Quiz
                 </Link>
@@ -234,9 +234,9 @@ export default function LeaderboardPage() {
               <div className="mb-12">
                 <div className="flex justify-center items-end space-x-4 mb-8">
                   {/* Second Place */}
-                  <div className={`${!isMobile ? 'backdrop-blur-xl' : ''} bg-gradient-to-b from-gray-400/20 to-gray-600/20 border border-gray-400/30 rounded-3xl p-6 shadow-2xl ${!isMobile ? 'transform hover:scale-105 transition-all duration-300' : ''}`}>
+                  <div className={`${!isMobile ? 'backdrop-blur-xl' : ''} bg-linear-to-b from-gray-400/20 to-gray-600/20 border border-gray-400/30 rounded-3xl p-6 shadow-2xl ${!isMobile ? 'transform hover:scale-105 transition-all duration-300' : ''}`}>
                     <div className="text-center">
-                      <div className="w-20 h-20 bg-gradient-to-r from-gray-300 to-gray-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                      <div className="w-20 h-20 bg-linear-to-r from-gray-300 to-gray-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
                         <span className="text-3xl">🥈</span>
                       </div>
                       <h3 className="text-xl font-bold text-white mb-2">{leaderboard[1]?.userName}</h3>
@@ -248,12 +248,12 @@ export default function LeaderboardPage() {
                   </div>
 
                   {/* First Place */}
-                  <div className={`${!isMobile ? 'backdrop-blur-xl' : ''} bg-gradient-to-b from-yellow-400/20 to-yellow-600/20 border border-yellow-400/30 rounded-3xl p-8 shadow-2xl ${!isMobile ? 'transform hover:scale-105 transition-all duration-300' : ''} -mt-8`}>
+                  <div className={`${!isMobile ? 'backdrop-blur-xl' : ''} bg-linear-to-b from-yellow-400/20 to-yellow-600/20 border border-yellow-400/30 rounded-3xl p-8 shadow-2xl ${!isMobile ? 'transform hover:scale-105 transition-all duration-300' : ''} -mt-8`}>
                     <div className="text-center">
-                      <div className={`w-24 h-24 bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg ${!isMobile ? 'animate-pulse' : ''}`}>
+                      <div className={`w-24 h-24 bg-linear-to-r from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg ${!isMobile ? 'animate-pulse' : ''}`}>
                         <span className="text-4xl">👑</span>
                       </div>
-                      <h3 className="text-2xl font-bold bg-gradient-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent mb-2">
+                      <h3 className="text-2xl font-bold bg-linear-to-r from-yellow-400 to-yellow-600 bg-clip-text text-transparent mb-2">
                         {leaderboard[0]?.userName}
                       </h3>
                       <p className="text-gray-300 mb-2">Score: {leaderboard[0]?.totalScore}</p>
@@ -264,9 +264,9 @@ export default function LeaderboardPage() {
                   </div>
 
                   {/* Third Place */}
-                  <div className={`${!isMobile ? 'backdrop-blur-xl' : ''} bg-gradient-to-b from-amber-400/20 to-amber-600/20 border border-amber-400/30 rounded-3xl p-6 shadow-2xl ${!isMobile ? 'transform hover:scale-105 transition-all duration-300' : ''}`}>
+                  <div className={`${!isMobile ? 'backdrop-blur-xl' : ''} bg-linear-to-b from-amber-400/20 to-amber-600/20 border border-amber-400/30 rounded-3xl p-6 shadow-2xl ${!isMobile ? 'transform hover:scale-105 transition-all duration-300' : ''}`}>
                     <div className="text-center">
-                      <div className="w-20 h-20 bg-gradient-to-r from-amber-400 to-amber-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                      <div className="w-20 h-20 bg-linear-to-r from-amber-400 to-amber-600 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
                         <span className="text-3xl">🥉</span>
                       </div>
                       <h3 className="text-xl font-bold text-white mb-2">{leaderboard[2]?.userName}</h3>
@@ -285,7 +285,7 @@ export default function LeaderboardPage() {
               <div className="overflow-x-auto">
                 <table className="min-w-full">
                   <thead>
-                    <tr className="bg-gradient-to-r from-blue-500/20 to-purple-600/20 border-b border-white/10">
+                    <tr className="bg-linear-to-r from-blue-500/20 to-purple-600/20 border-b border-white/10">
                       <th className="px-4 sm:px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wider">
                         🏅 Rank
                       </th>
@@ -311,18 +311,18 @@ export default function LeaderboardPage() {
                       <tr
                         key={entry.id}
                         className={`group ${!isMobile ? 'hover:bg-white/10' : ''} transition-all duration-300 touch-manipulation ${entry.userName === userName
-                          ? 'bg-gradient-to-r from-blue-500/20 to-purple-600/20 border-l-4 border-blue-400'
+                          ? 'bg-linear-to-r from-blue-500/20 to-purple-600/20 border-l-4 border-blue-400'
                           : ''
                           }`}
                       >
                         <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             {entry.rank <= 3 ? (
-                              <div className={`flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-r ${getRankGradient(entry.rank)} shadow-lg ${!isMobile ? 'transform group-hover:scale-110 transition-all duration-300' : ''}`}>
+                              <div className={`flex items-center justify-center w-12 h-12 rounded-full bg-linear-to-r ${getRankGradient(entry.rank)} shadow-lg ${!isMobile ? 'transform group-hover:scale-110 transition-all duration-300' : ''}`}>
                                 <span className="text-white font-bold text-lg">{entry.rank}</span>
                               </div>
                             ) : (
-                              <div className={`flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-r from-slate-600 to-slate-700 border border-white/20 shadow-lg ${!isMobile ? 'transform group-hover:scale-110 transition-all duration-300' : ''}`}>
+                              <div className={`flex items-center justify-center w-12 h-12 rounded-full bg-linear-to-r from-slate-600 to-slate-700 border border-white/20 shadow-lg ${!isMobile ? 'transform group-hover:scale-110 transition-all duration-300' : ''}`}>
                                 <span className="text-white font-bold">{entry.rank}</span>
                               </div>
                             )}
@@ -331,7 +331,7 @@ export default function LeaderboardPage() {
                         </td>
                         <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-purple-600 rounded-full flex items-center justify-center mr-3 shadow-lg">
+                            <div className="w-10 h-10 bg-linear-to-r from-blue-400 to-purple-600 rounded-full flex items-center justify-center mr-3 shadow-lg">
                               <span className="text-white font-bold text-sm">
                                 {entry.userName.charAt(0).toUpperCase()}
                               </span>
@@ -364,7 +364,7 @@ export default function LeaderboardPage() {
                         </td>
                         <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg px-4 py-2 border border-purple-500/30">
+                            <div className="bg-linear-to-r from-purple-500/20 to-pink-500/20 rounded-lg px-4 py-2 border border-purple-500/30">
                               <span className="text-white font-bold text-lg">{entry.totalScore}</span>
                             </div>
                           </div>
@@ -395,7 +395,7 @@ export default function LeaderboardPage() {
               <div className="mt-8">
                 <div className={`${!isMobile ? 'backdrop-blur-xl bg-white/5' : 'bg-slate-800/90'} border border-white/10 rounded-3xl p-6 shadow-2xl`}>
                   <div className="flex items-center mb-4">
-                    <div className="w-12 h-12 bg-gradient-to-r from-blue-400 to-purple-600 rounded-full flex items-center justify-center mr-4">
+                    <div className="w-12 h-12 bg-linear-to-r from-blue-400 to-purple-600 rounded-full flex items-center justify-center mr-4">
                       <span className="text-2xl">📍</span>
                     </div>
                     <h3 className="text-xl font-bold text-white">Your Position</h3>
@@ -405,7 +405,7 @@ export default function LeaderboardPage() {
                   </p>
                   <Link
                     href="/quizzes"
-                    className={`inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl ${!isMobile ? 'hover:from-blue-600 hover:to-purple-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
+                    className={`inline-flex items-center px-6 py-3 bg-linear-to-r from-blue-500 to-purple-600 text-white rounded-xl ${!isMobile ? 'hover:from-blue-600 hover:to-purple-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-lg touch-manipulation`}
                   >
                     🚀 Start playing now
                   </Link>
@@ -417,11 +417,11 @@ export default function LeaderboardPage() {
             <div className="mt-12 text-center">
               <div className={`${!isMobile ? 'backdrop-blur-xl bg-white/5' : 'bg-slate-800/90'} border border-white/10 rounded-3xl p-8 shadow-2xl`}>
                 <div className="flex items-center justify-center mb-6">
-                  <div className={`w-16 h-16 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center shadow-lg ${!isMobile ? 'animate-bounce' : ''}`}>
+                  <div className={`w-16 h-16 bg-linear-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center shadow-lg ${!isMobile ? 'animate-bounce' : ''}`}>
                     <span className="text-3xl">🎯</span>
                   </div>
                 </div>
-                <h3 className="text-2xl font-bold bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent mb-4">
+                <h3 className="text-2xl font-bold bg-linear-to-r from-green-400 to-blue-500 bg-clip-text text-transparent mb-4">
                   Want to climb the leaderboard?
                 </h3>
                 <p className="text-gray-300 mb-6">
@@ -429,7 +429,7 @@ export default function LeaderboardPage() {
                 </p>
                 <Link
                   href="/quizzes"
-                  className={`inline-flex items-center px-8 py-4 bg-gradient-to-r from-green-500 to-blue-600 text-white text-lg font-bold rounded-2xl ${!isMobile ? 'hover:from-green-600 hover:to-blue-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-2xl touch-manipulation`}
+                  className={`inline-flex items-center px-8 py-4 bg-linear-to-r from-green-500 to-blue-600 text-white text-lg font-bold rounded-2xl ${!isMobile ? 'hover:from-green-600 hover:to-blue-700 transform hover:scale-105' : ''} transition-all duration-300 shadow-2xl touch-manipulation`}
                 >
                   <span className="mr-3">🎮</span>
                   Play Quizzes Now

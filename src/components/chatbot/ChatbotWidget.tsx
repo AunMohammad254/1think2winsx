@@ -372,7 +372,7 @@ export default function ChatbotWidget() {
           transform: translateY(-1px);
         }
         .chatbot-panel {
-          background: rgba(10, 15, 35, 0.92);
+          background: rgba(10, 15, 35, 0.95);
           border: 1px solid rgba(255, 255, 255, 0.1);
           backdrop-filter: blur(24px);
           -webkit-backdrop-filter: blur(24px);
@@ -398,10 +398,14 @@ export default function ChatbotWidget() {
           background: rgba(255,255,255,0.15);
           border-radius: 2px;
         }
+        /* Mobile bottom-sheet safe area */
+        .chatbot-sheet-mobile {
+          padding-bottom: env(safe-area-inset-bottom, 0px);
+        }
       `}</style>
 
       {/* ─── Floating trigger button ─── */}
-      <div className="fixed bottom-6 right-6 z-[9999]">
+      <div className="fixed bottom-5 right-4 sm:bottom-6 sm:right-6 z-[9999]">
         <AnimatePresence>
           {!isOpen && (
             <motion.button
@@ -413,14 +417,14 @@ export default function ChatbotWidget() {
               onClick={() => setIsOpen(true)}
               id="chatbot-trigger-btn"
               aria-label="Open AI support chat"
-              className="relative w-14 h-14 rounded-full shadow-2xl shadow-blue-500/30 flex items-center justify-center bg-gradient-to-br from-blue-600 via-blue-700 to-purple-700 border border-white/20"
+              className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-2xl shadow-blue-500/30 flex items-center justify-center bg-gradient-to-br from-blue-600 via-blue-700 to-purple-700 border border-white/20"
             >
               {/* Pulse ring */}
               <span
                 className="absolute inset-0 rounded-full bg-blue-500/40"
                 style={{ animation: 'chatPulseRing 2s ease-out infinite' }}
               />
-              <MessageCircle className="w-6 h-6 text-white relative z-10" />
+              <MessageCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white relative z-10" />
 
               {/* Unread badge */}
               {hasUnread && (
@@ -433,18 +437,49 @@ export default function ChatbotWidget() {
         </AnimatePresence>
       </div>
 
+      {/* ─── Backdrop (mobile only) ─── */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[9998] bg-black/50 sm:hidden"
+            onClick={() => setIsOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ─── Chat panel ─── */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0,  scale: 1 }}
-            exit={{ opacity: 0, y: 30,  scale: 0.95 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed bottom-6 right-6 z-[9999] w-[360px] sm:w-[400px] max-h-[85vh] flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-black/50 chatbot-panel"
-            style={{ maxHeight: 'min(600px, 85vh)' }}
+            /* Mobile: slide up from bottom full-width sheet */
+            /* sm+: spring-pop floating card bottom-right    */
+            initial={{ opacity: 0, y: '100%' }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+            className={
+              'fixed z-[9999] flex flex-col overflow-hidden shadow-2xl shadow-black/60 chatbot-panel chatbot-sheet-mobile ' +
+              /* Mobile: anchor full-width to bottom, rounded top corners only */
+              'inset-x-0 bottom-0 rounded-t-2xl rounded-b-none ' +
+              /* sm+: floating card, restore all rounded corners + right positioning */
+              'sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[400px] sm:rounded-2xl sm:rounded-b-2xl'
+            }
+            style={{
+              maxHeight: 'min(600px, 85dvh)',
+              /* On mobile fill 80% of viewport height */
+              height: 'clamp(420px, 80dvh, 600px)',
+            }}
             id="chatbot-panel"
           >
+            {/* Drag handle pill — mobile only */}
+            <div className="sm:hidden flex justify-center pt-2.5 pb-1 flex-shrink-0">
+              <div className="w-10 h-1 rounded-full bg-white/20" />
+            </div>
+
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-gradient-to-r from-blue-900/40 to-purple-900/40 flex-shrink-0">
               <div className="flex items-center gap-3">
