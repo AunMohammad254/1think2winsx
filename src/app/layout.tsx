@@ -9,6 +9,9 @@ import { Suspense } from "react";
 import dynamic from "next/dynamic";
 
 const Footer = dynamic(() => import("@/components/Footer"));
+import ChatbotLoader from "@/components/chatbot/ChatbotLoader";
+
+
 
 
 const geistSans = Geist({
@@ -68,6 +71,7 @@ export default function RootLayout({
             <main className="flex-grow">{children}</main>
             <Footer />
           </div>
+          <ChatbotLoader />
         </Providers>
       </body>
     </html>
