@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, Volume2, VolumeX, Video, Hourglass, Zap, Info, Check, CheckCheck, Trash2 } from 'lucide-react';
+import { Bell, Volume2, VolumeX, Video, Hourglass, Zap, Info, Check, CheckCheck, Trash2, X } from 'lucide-react';
 import { useNotifications, Notification } from '@/hooks/useNotifications';
 
 // Icon and color map based on notification types
@@ -133,17 +133,17 @@ export default function NotificationsDropdown() {
             <div className="rounded-2xl bg-gray-950/95 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-black/80 overflow-hidden">
               
               {/* Dropdown Header */}
-              <div className="flex items-center justify-between px-4 py-3.5 border-b border-white/10 bg-white/5">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-white">Notifications</h3>
+              <div className="flex items-center justify-between px-3 py-3 border-b border-white/10 bg-white/5 gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h3 className="text-sm font-semibold text-white truncate">Notifications</h3>
                   {unreadCount > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-medium border border-purple-500/30">
+                    <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-medium border border-purple-500/30 shrink-0">
                       {unreadCount} new
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1 shrink-0">
                   {/* Sound Toggle */}
                   <button
                     onClick={() => toggleSound(!soundEnabled)}
@@ -157,17 +157,26 @@ export default function NotificationsDropdown() {
                   {unreadCount > 0 && (
                     <button
                       onClick={markAllAsRead}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors"
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors"
                     >
-                      <CheckCheck className="w-3.5 h-3.5" />
-                      <span>Read all</span>
+                      <CheckCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span className="hidden xs:inline">Read all</span>
                     </button>
                   )}
+
+                  {/* Close Dropdown on Mobile */}
+                  <button
+                    onClick={() => setIsOpen(false)}
+                    className="md:hidden p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-colors"
+                    aria-label="Close notifications"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 
               {/* Notifications List */}
-              <div className="max-h-96 overflow-y-auto divide-y divide-white/5 custom-scrollbar">
+              <div className="max-h-[280px] xs:max-h-[360px] md:max-h-[420px] overflow-y-auto divide-y divide-white/5 custom-scrollbar">
                 {loading ? (
                   <div className="flex items-center justify-center py-10 text-gray-500 text-sm">
                     <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-500 border-t-transparent mr-2" />
@@ -189,7 +198,7 @@ export default function NotificationsDropdown() {
                     return (
                       <div
                         key={notif.id}
-                        className={`relative flex gap-3 p-4 transition-colors hover:bg-white/5 ${
+                        className={`relative flex gap-3 p-3.5 sm:p-4 transition-colors hover:bg-white/5 ${
                           !notif.read ? 'bg-purple-500/[0.02]' : ''
                         }`}
                       >
@@ -199,14 +208,14 @@ export default function NotificationsDropdown() {
                         )}
 
                         {/* Icon Wrapper */}
-                        <div className={`flex items-center justify-center w-9 h-9 rounded-xl border shrink-0 ${typeConfig.bgColor}`}>
-                          <TypeIcon className={`w-4.5 h-4.5 ${typeConfig.iconColor}`} />
+                        <div className={`flex items-center justify-center w-8.5 h-8.5 rounded-xl border shrink-0 ${typeConfig.bgColor}`}>
+                          <TypeIcon className={`w-4 h-4 ${typeConfig.iconColor}`} />
                         </div>
 
                         {/* Text Content */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-xs font-semibold text-white truncate pr-2">
+                            <p className="text-xs font-semibold text-white break-words pr-2">
                               {notif.title}
                             </p>
                             <span className="text-[10px] text-white/40 whitespace-nowrap shrink-0 pt-0.5">

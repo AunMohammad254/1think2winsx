@@ -1,4 +1,4 @@
-const CACHE_NAME = '1think2wins-cache-v1';
+const CACHE_NAME = '1think2wins-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',
@@ -60,6 +60,28 @@ self.addEventListener('fetch', function (event) {
         return networkResponse;
       }).catch(function (err) {
         console.log('[Service Worker] Quiz API fetch failed, serving cache:', err);
+        return caches.match(event.request);
+      })
+    );
+    return;
+  }
+
+  // Network-First strategy for page/document navigation requests (prevents stale HTML after deployments)
+  const isHtml = event.request.mode === 'navigate' || 
+                 (event.request.headers.get('accept') && event.request.headers.get('accept').includes('text/html'));
+
+  if (isHtml) {
+    event.respondWith(
+      fetch(event.request).then(function (networkResponse) {
+        if (networkResponse && networkResponse.status === 200) {
+          const cacheCopy = networkResponse.clone();
+          caches.open(CACHE_NAME).then(function (cache) {
+            cache.put(event.request, cacheCopy);
+          });
+        }
+        return networkResponse;
+      }).catch(function (err) {
+        console.log('[Service Worker] Page fetch failed, serving cached shell:', err);
         return caches.match(event.request);
       })
     );
