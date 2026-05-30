@@ -300,26 +300,70 @@ export default function QuizResultsPage() {
           </button>
         </div>
 
-        {/* Share Results */}
-        <div className="glass-card glass-border rounded-2xl p-6 text-center">
-          <h3 className="text-lg font-semibold text-white mb-4">Share Your Results</h3>
-          <p className="text-gray-300 mb-4">
-            I just scored {result.percentage}% on &ldquo;{result.quiz.title}&rdquo; quiz! 🎯
+          {/* Share Results */}
+        <div className="glass-card glass-border rounded-2xl p-6 md:p-8 text-center mb-8">
+          <h3 className="text-xl font-bold text-white mb-4">Your Achievement Card</h3>
+          <p className="text-gray-400 text-sm mb-6">
+            Preview your dynamic quiz badge. Share it with friends on social media or download it!
           </p>
-          <div className="flex justify-center space-x-4">
+
+          {/* Share Card Preview Image */}
+          <div className="relative max-w-xl mx-auto rounded-xl overflow-hidden border border-white/10 shadow-2xl mb-6 bg-slate-950/60 aspect-[1200/630]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/quizzes/${quizId}/share-card?score=${result.correctAnswers}&total=${result.totalQuestions}&pct=${result.percentage}&title=${encodeURIComponent(result.quiz.title)}&name=${encodeURIComponent(user?.user_metadata?.name || user?.email?.split('@')[0] || 'Player')}`}
+              alt="Quiz Achievement Share Card"
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+          </div>
+
+          <div className="flex flex-wrap justify-center gap-3">
+            {/* WhatsApp Share */}
             <button
               onClick={() => {
-                const text = `I just scored ${result.percentage}% on "${result.quiz.title}" quiz! 🎯`;
-                if (navigator.share) {
-                  navigator.share({ text });
-                } else {
-                  navigator.clipboard.writeText(text);
-                  alert('Results copied to clipboard!');
+                const text = `I just scored ${result.percentage}% on the "${result.quiz.title}" cricket quiz on 1Think2Win! 🎯 Can you beat my score? Join and play now: ${window.location.origin}/quiz/${quizId}`;
+                window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+              }}
+              className="py-2.5 px-5 bg-[#25D366] hover:bg-[#20ba56] text-white rounded-xl font-medium transition-all duration-200 flex items-center gap-2 text-sm shadow-md"
+            >
+              <span>💬</span> WhatsApp
+            </button>
+
+            {/* Twitter / X Share */}
+            <button
+              onClick={() => {
+                const text = `I just completed the "${result.quiz.title}" cricket quiz on 1Think2Win with ${result.percentage}% accuracy! 🏆 Can you beat me? Play here:`;
+                const url = `${window.location.origin}/quiz/${quizId}`;
+                window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+              }}
+              className="py-2.5 px-5 bg-black hover:bg-gray-900 border border-white/10 text-white rounded-xl font-medium transition-all duration-200 flex items-center gap-2 text-sm shadow-md"
+            >
+              <span>𝕏</span> Share on X
+            </button>
+
+            {/* Download Image Card */}
+            <button
+              onClick={async () => {
+                try {
+                  const imageUrl = `/api/quizzes/${quizId}/share-card?score=${result.correctAnswers}&total=${result.totalQuestions}&pct=${result.percentage}&title=${encodeURIComponent(result.quiz.title)}&name=${encodeURIComponent(user?.user_metadata?.name || user?.email?.split('@')[0] || 'Player')}`;
+                  const response = await fetch(imageUrl);
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${result.quiz.title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_badge.png`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  window.URL.revokeObjectURL(url);
+                } catch (err) {
+                  console.error('Failed to download card:', err);
                 }
               }}
-              className="py-2 px-4 bg-gradient-to-r from-green-500 to-blue-500 text-white rounded-lg font-medium hover:from-green-600 hover:to-blue-600 transition-all duration-200"
+              className="py-2.5 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all duration-200 flex items-center gap-2 text-sm shadow-md"
             >
-              Share Results
+              <span>📥</span> Download Card
             </button>
           </div>
         </div>

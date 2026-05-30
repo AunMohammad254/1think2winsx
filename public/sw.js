@@ -31,13 +31,38 @@ self.addEventListener('activate', function (event) {
 });
 
 self.addEventListener('fetch', function (event) {
+  const isQuizApi = event.request.url.includes('/api/quizzes/') && event.request.url.match(/\/api\/quizzes\/[a-zA-Z0-9_-]+$/);
+
   // Only cache GET requests and skip chrome-extension/api/admin requests
   if (
     event.request.method !== 'GET' || 
-    event.request.url.includes('/api/') || 
     event.request.url.includes('/admin') ||
     !event.request.url.startsWith(self.location.origin)
   ) {
+    return;
+  }
+
+  // Skip API routes except for the quiz detail endpoint (which is cached for offline mode)
+  if (event.request.url.includes('/api/') && !isQuizApi) {
+    return;
+  }
+
+  // Network-First strategy for active quiz questions endpoint
+  if (isQuizApi) {
+    event.respondWith(
+      fetch(event.request).then(function (networkResponse) {
+        if (networkResponse && networkResponse.status === 200) {
+          const cacheCopy = networkResponse.clone();
+          caches.open(CACHE_NAME).then(function (cache) {
+            cache.put(event.request, cacheCopy);
+          });
+        }
+        return networkResponse;
+      }).catch(function (err) {
+        console.log('[Service Worker] Quiz API fetch failed, serving cache:', err);
+        return caches.match(event.request);
+      })
+    );
     return;
   }
 

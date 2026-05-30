@@ -13,7 +13,8 @@ import {
   Shield,
   Gift,
   ChevronRight,
-  Bell
+  Bell,
+  BarChart3
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
@@ -98,6 +99,7 @@ async function ActivityFeed() {
 // ============================================
 const navItems = [
   { href: '/admin/dashboard', label: 'Overview', icon: LayoutDashboard, active: true },
+  { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/admin/quiz', label: 'Quiz Management', icon: FileText },
   { href: '/admin/quiz-evaluation', label: 'Quiz Evaluation', icon: CheckSquare },
   { href: '/admin/prizes', label: 'Prizes', icon: Gift },
@@ -110,13 +112,13 @@ const navItems = [
 ];
 
 const quickActions = [
+  { href: '/admin/analytics', label: 'View Analytics', icon: BarChart3, color: 'indigo' },
   { href: '/admin/quiz', label: 'Manage Quizzes', icon: FileText, color: 'blue' },
   { href: '/admin/quiz-evaluation', label: 'Quiz Evaluation', icon: CheckSquare, color: 'purple' },
   { href: '/admin/prizes', label: 'Manage Prizes', icon: Trophy, color: 'green' },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet, color: 'emerald' },
   { href: '/admin/claims', label: 'Prize Claims', icon: Gift, color: 'amber' },
   { href: '/admin/streaming', label: 'Live Streaming', icon: Video, color: 'red' },
-  { href: '/admin/notifications', label: 'Notifications', icon: Bell, color: 'indigo' },
 ];
 
 // ============================================

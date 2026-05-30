@@ -66,6 +66,7 @@ export default function QuizPage() {
   const [showStream, setShowStream] = useState(false);
   const [showTimeExpired, setShowTimeExpired] = useState(false); // Time expired dialog
   const [showUnansweredWarning, setShowUnansweredWarning] = useState(false); // Unanswered questions warning
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const fetchQuiz = useCallback(async () => {
     try {
@@ -116,7 +117,16 @@ export default function QuizPage() {
 
     setShowUnansweredWarning(false);
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
+      // Check online status
+      if (typeof window !== 'undefined' && !navigator.onLine) {
+        localStorage.setItem(`pending_submit_${quizId}_${user?.id || 'anon'}`, JSON.stringify({ quizId, answers }));
+        setSubmitError('You are currently offline. Your predictions have been saved locally. They will be submitted automatically when your internet connection is restored.');
+        setIsSubmitting(false);
+        return;
+      }
+
       // Get CSRF token for secure submission
       const csrfToken = await getCSRFToken();
       if (!csrfToken) {
@@ -144,11 +154,11 @@ export default function QuizPage() {
       setSubmissionResult(result);
       setShowResults(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit quiz');
+      setSubmitError(err instanceof Error ? err.message : 'Failed to submit quiz');
     } finally {
       setIsSubmitting(false);
     }
-  }, [quizId, answers, isSubmitting, getCSRFToken]);
+  }, [quizId, answers, isSubmitting, getCSRFToken, user]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -179,6 +189,58 @@ export default function QuizPage() {
 
     return () => clearInterval(timer);
   }, [quizStarted, timeRemaining]);
+
+  // Offline sync effect
+  useEffect(() => {
+    if (!user || !quizId) return;
+
+    const handleOnline = async () => {
+      const pendingKey = `pending_submit_${quizId}_${user.id}`;
+      const pendingDataStr = localStorage.getItem(pendingKey);
+      if (pendingDataStr) {
+        setIsSubmitting(true);
+        setSubmitError('Connection restored! Submitting your saved answers...');
+        try {
+          const pendingData = JSON.parse(pendingDataStr);
+          const csrfToken = await getCSRFToken();
+          if (!csrfToken) {
+            throw new Error('CSRF verification failed');
+          }
+
+          const response = await fetch(`/api/quizzes/${quizId}/submit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfToken,
+            },
+            body: JSON.stringify({ answers: pendingData.answers }),
+          });
+
+          if (!response.ok) {
+            throw new Error('Submission failed');
+          }
+
+          const result = await response.json();
+          localStorage.removeItem(pendingKey);
+          setSubmissionResult(result);
+          setShowResults(true);
+          setSubmitError(null);
+        } catch (e) {
+          console.error('Failed to sync offline submission:', e);
+          setSubmitError('Failed to auto-submit answers. Please click Submit Quiz again.');
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    // Run sync immediately if we are online and have pending data
+    if (typeof window !== 'undefined' && navigator.onLine) {
+      handleOnline();
+    }
+    return () => window.removeEventListener('online', handleOnline);
+  }, [user, quizId, getCSRFToken]);
 
   const handleAnswerSelect = (questionId: string, optionIndex: number) => {
     setAnswers(prev =>
@@ -416,6 +478,18 @@ export default function QuizPage() {
                 </div>
               </div>
             </div>
+
+            {submitError && (
+              <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-yellow-200 text-sm flex items-center justify-between shadow-lg backdrop-blur-xl">
+                <span>⚠️ {submitError}</span>
+                <button 
+                  onClick={() => setSubmitError(null)}
+                  className="text-yellow-400 hover:text-white ml-2 text-xs font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             {/* Question Card */}
             <div className="glass-card glass-border rounded-2xl p-6 md:p-8 mb-6 bg-gradient-to-br from-blue-900/20 to-purple-900/20">

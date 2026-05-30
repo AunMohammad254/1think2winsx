@@ -25,11 +25,23 @@ interface SecurityStats {
   suspiciousActivities: number;
 }
 
+interface FraudAlert {
+  id: string;
+  type: 'FAST_ATTEMPT' | 'MULTI_ACCOUNT' | 'BULK_REDEMPTION';
+  severity: 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  title: string;
+  description: string;
+  timestamp: string;
+  userId?: string;
+  details: Record<string, any>;
+}
+
 export default function SecurityPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
   const [securityStats, setSecurityStats] = useState<SecurityStats | null>(null);
+  const [fraudAlerts, setFraudAlerts] = useState<FraudAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState('24h');
@@ -39,20 +51,23 @@ export default function SecurityPage() {
     try {
       setLoading(true);
 
-      const [statsResponse, eventsResponse] = await Promise.all([
+      const [statsResponse, eventsResponse, alertsResponse] = await Promise.all([
         fetch(`/api/admin/security/stats?timeframe=${timeframe}`),
-        fetch(`/api/admin/security/events?timeframe=${timeframe}&severity=${severityFilter}&limit=50`)
+        fetch(`/api/admin/security/events?timeframe=${timeframe}&severity=${severityFilter}&limit=50`),
+        fetch(`/api/admin/security/fraud-alerts`)
       ]);
 
-      if (!statsResponse.ok || !eventsResponse.ok) {
+      if (!statsResponse.ok || !eventsResponse.ok || !alertsResponse.ok) {
         throw new Error('Failed to fetch security data');
       }
 
       const statsData = await statsResponse.json();
       const eventsData = await eventsResponse.json();
+      const alertsData = await alertsResponse.json();
 
       setSecurityStats(statsData);
       setSecurityEvents(eventsData.events || []);
+      setFraudAlerts(alertsData.alerts || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load security data');
     } finally {
@@ -232,6 +247,106 @@ export default function SecurityPage() {
             </div>
           </div>
         )}
+
+        {/* Fraud Detection Alerts Section */}
+        <div className="bg-white rounded-lg shadow mb-6 sm:mb-8">
+          <div className="px-4 sm:px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-red-50/50">
+            <h3 className="text-base sm:text-lg font-semibold text-red-950 flex items-center gap-2">
+              <span>⚠️</span> Fraud Detection Alerts
+            </h3>
+            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+              {fraudAlerts.length} Active
+            </span>
+          </div>
+          <div className="p-4 sm:p-6">
+            {fraudAlerts.length === 0 ? (
+              <div className="text-center py-6 text-gray-500 text-sm">
+                ✅ No fraud or suspicious bot activity detected in the system.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {fraudAlerts.map((alert) => (
+                  <div
+                    key={alert.id}
+                    className={`p-4 rounded-lg border flex flex-col space-y-3 ${
+                      alert.severity === 'CRITICAL'
+                        ? 'bg-red-50 border-red-200'
+                        : alert.severity === 'HIGH'
+                        ? 'bg-orange-50 border-orange-200'
+                        : 'bg-yellow-50 border-yellow-200'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`px-2 py-0.5 text-xs font-bold rounded-full ${
+                            alert.severity === 'CRITICAL'
+                              ? 'bg-red-200 text-red-900'
+                              : alert.severity === 'HIGH'
+                              ? 'bg-orange-200 text-orange-950'
+                              : 'bg-yellow-200 text-yellow-950'
+                          }`}
+                        >
+                          {alert.severity}
+                        </span>
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-white/70 border border-gray-300 text-gray-800">
+                          {alert.type}
+                        </span>
+                        <h4 className="text-sm font-bold text-gray-900">{alert.title}</h4>
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {new Date(alert.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <p className="text-xs sm:text-sm text-gray-700">{alert.description}</p>
+
+                    {/* Details nested breakdown */}
+                    <div className="text-xs bg-white/80 p-3 rounded border border-gray-200 font-mono text-gray-800 space-y-1.5">
+                      {alert.type === 'FAST_ATTEMPT' && (
+                        <>
+                          <div><strong>User:</strong> {alert.details.userName} ({alert.details.userEmail})</div>
+                          <div><strong>Quiz:</strong> {alert.details.quizTitle}</div>
+                          <div><strong>Completion Time:</strong> {alert.details.durationSeconds?.toFixed(1)}s for {alert.details.questionsCount} questions</div>
+                          <div><strong>Avg Speed:</strong> {alert.details.secondsPerQuestion?.toFixed(2)}s per question</div>
+                          <div><strong>Score:</strong> {alert.details.score}%</div>
+                        </>
+                      )}
+                      {alert.type === 'MULTI_ACCOUNT' && (
+                        <>
+                          <div><strong>Shared IP Address:</strong> {alert.details.ip}</div>
+                          <div><strong>Number of Accounts:</strong> {alert.details.accountsCount}</div>
+                          <div className="mt-1">
+                            <strong>Associated Accounts:</strong>
+                            <ul className="list-disc pl-5 mt-0.5 space-y-0.5">
+                              {alert.details.accounts?.map((acc: any, idx: number) => (
+                                <li key={idx}>{acc.name || 'No Name'} ({acc.email})</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </>
+                      )}
+                      {alert.type === 'BULK_REDEMPTION' && (
+                        <>
+                          <div><strong>User:</strong> {alert.details.userName} ({alert.details.userEmail})</div>
+                          <div><strong>Redemptions count (24h):</strong> {alert.details.redemptionsCount}</div>
+                          <div className="mt-1">
+                            <strong>Requested Items:</strong>
+                            <ul className="list-disc pl-5 mt-0.5 space-y-0.5">
+                              {alert.details.redemptions?.map((red: any, idx: number) => (
+                                <li key={idx}>{red.prizeName} - {red.status} ({new Date(red.requestedAt).toLocaleTimeString()})</li>
+                              ))}
+                            </ul>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Charts and Tables */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8 mb-6 sm:mb-8">

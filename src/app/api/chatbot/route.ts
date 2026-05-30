@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+import { getAdminDb } from '@/lib/supabase/db';
 
 // ─────────────────────────────────────────────────────────────
 // Model configuration
@@ -148,12 +150,13 @@ async function callGemini(
   modelId: string,
   messages: GeminiMessage[],
   apiKey: string,
+  systemPromptOverride?: string,
 ): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
 
   const body = {
     system_instruction: {
-      parts: [{ text: SYSTEM_PROMPT }],
+      parts: [{ text: systemPromptOverride || SYSTEM_PROMPT }],
     },
     contents: messages,
     generationConfig: {
@@ -242,10 +245,91 @@ export async function POST(req: NextRequest) {
   const ip = getIp(req);
   const ipBuckets = getBucket(ip);
 
+  // Fetch authentication status & live context if authenticated
+  const session = await auth();
+  const userId = session?.user?.id;
+  const adminDb = getAdminDb();
+
+  let activeQuizzesText = 'No active quizzes currently.';
+  try {
+    const { data: activeQuizzes } = await adminDb
+      .from('Quiz')
+      .select('title, duration, accessPrice, passingScore')
+      .eq('status', 'active')
+      .limit(5);
+
+    if (activeQuizzes && activeQuizzes.length > 0) {
+      activeQuizzesText = activeQuizzes
+        .map((q: any) => `- "${q.title}": Entry Fee PKR ${q.accessPrice}, Duration ${q.duration} min, Passing Score ${q.passingScore}%`)
+        .join('\n');
+    }
+  } catch (err) {
+    console.error('[Chatbot] Failed to query active quizzes:', err);
+  }
+
+  let userContextText = '';
+  if (userId) {
+    try {
+      const [profileRes, attemptsRes, redemptionsRes] = await Promise.all([
+        adminDb.from('User').select('name, email, points, walletBalance').eq('id', userId).single(),
+        adminDb.from('QuizAttempt').select('id, quizId, score, points, isCompleted').eq('userId', userId).order('createdAt', { ascending: false }).limit(3),
+        adminDb.from('PrizeRedemption').select('id, prizeId, pointsUsed, status, requestedAt, notes').eq('userId', userId).order('createdAt', { ascending: false }).limit(3),
+      ]);
+
+      const profile = profileRes.data;
+      const attempts = attemptsRes.data;
+      const redemptions = redemptionsRes.data;
+
+      if (profile) {
+        // Query user rank
+        const { count: rankCount } = await adminDb
+          .from('User')
+          .select('*', { count: 'exact', head: true })
+          .gt('points', profile.points || 0);
+        const rank = (rankCount || 0) + 1;
+
+        // Fetch prize details for redemptions
+        const redemptionsWithPrize = await Promise.all((redemptions || []).map(async (r: any) => {
+          const { data: prize } = await adminDb.from('Prize').select('name').eq('id', r.prizeId).single();
+          return { ...r, prizeName: prize?.name || 'Unknown Prize' };
+        }));
+
+        userContextText = `
+## USER STATUS & PROFILE INFO
+- User is logged in.
+- Name: ${profile.name || 'User'}
+- Email: ${profile.email}
+- Wallet Balance: PKR ${profile.walletBalance || 0}
+- Total Points: ${profile.points || 0}
+- Current Leaderboard Rank: #${rank}
+
+### USER'S RECENT QUIZ ATTEMPTS:
+${attempts && attempts.length > 0 
+  ? attempts.map((a: any) => `- Quiz Attempt ID ${a.id}: Score ${a.score}%, Points Earned ${a.points}, Completed: ${a.isCompleted ? 'Yes' : 'No'}`).join('\n') 
+  : 'No quiz attempts recorded.'}
+
+### USER'S RECENT PRIZE REDEMPTIONS:
+${redemptionsWithPrize && redemptionsWithPrize.length > 0 
+  ? redemptionsWithPrize.map((r: any) => `- Prize: "${r.prizeName}", Points: ${r.pointsUsed}, Status: ${r.status}, Date: ${new Date(r.requestedAt).toLocaleDateString()}, Notes: ${r.notes || 'None'}`).join('\n') 
+  : 'No prize redemptions requested yet.'}
+`;
+      }
+    } catch (err) {
+      console.error('[Chatbot] Failed to query user context data:', err);
+    }
+  }
+
+  const finalSystemPrompt = `${SYSTEM_PROMPT}
+
+## ACTIVE QUIZZES SCHEDULE:
+${activeQuizzesText}
+${userContextText}
+`;
+
   // Try primary model (gemini-3.5-flash, 4 RPM)
   if (consumeToken(ipBuckets.primary, MODELS.primary.rpm, MODELS.primary.refillMs)) {
     try {
-      const text = await callGemini(MODELS.primary.id, messages, apiKey);
+      const text = await callGemini(MODELS.primary.id, messages, apiKey, finalSystemPrompt);
       const { clean, redirects } = extractRedirects(text);
       return NextResponse.json({ message: clean, redirects, model: MODELS.primary.label });
     } catch (err) {
@@ -257,7 +341,7 @@ export async function POST(req: NextRequest) {
   // Try fallback model (gemini-3.1-flash-lite, 14 RPM)
   if (consumeToken(ipBuckets.fallback, MODELS.fallback.rpm, MODELS.fallback.refillMs)) {
     try {
-      const text = await callGemini(MODELS.fallback.id, messages, apiKey);
+      const text = await callGemini(MODELS.fallback.id, messages, apiKey, finalSystemPrompt);
       const { clean, redirects } = extractRedirects(text);
       return NextResponse.json({ message: clean, redirects, model: MODELS.fallback.label });
     } catch (err) {

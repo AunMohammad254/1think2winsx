@@ -1,15 +1,35 @@
 'use client';
 
-import { motion, useScroll, useTransform, useReducedMotion } from 'framer-motion';
+import { motion, useScroll, useTransform, useReducedMotion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { memo, useMemo, useRef } from 'react';
+import { memo, useMemo, useRef, useState, useEffect } from 'react';
 import { FloatingElement, CricketBall } from './hero';
+import { usePWA } from '@/contexts/PWAContext';
+import { Download, Share, Plus, X } from 'lucide-react';
 
 // Main HeroSection component
 const HeroSection = memo(() => {
     const { user, isLoading } = useAuth();
     const isLoggedIn = !!user;
+
+    const { isInstallable, isInstalled, installApp } = usePWA();
+    const [isIOS, setIsIOS] = useState(false);
+    const [showIOSModal, setShowIOSModal] = useState(false);
+
+    useEffect(() => {
+        const userAgent = window.navigator.userAgent.toLowerCase();
+        setIsIOS(/iphone|ipad|ipod/.test(userAgent));
+    }, []);
+
+    const handleDownloadClick = async () => {
+        if (isInstallable) {
+            const outcome = await installApp();
+            console.log(`PWA installation outcome from Hero: ${outcome}`);
+        } else if (isIOS) {
+            setShowIOSModal(true);
+        }
+    };
 
     const sectionRef = useRef<HTMLDivElement>(null);
 
@@ -221,7 +241,7 @@ const HeroSection = memo(() => {
 
                             <Link href="/how-to-play">
                                 <motion.button
-                                    className="px-8 py-4 border-2 border-white/30 bg-white/5 backdrop-blur-sm text-white rounded-2xl font-bold text-lg"
+                                    className="px-8 py-4 border-2 border-white/30 bg-white/5 backdrop-blur-sm text-white rounded-2xl font-bold text-lg w-full sm:w-auto"
                                     whileHover={{
                                         scale: 1.05,
                                         borderColor: 'rgba(255,255,255,0.5)',
@@ -235,6 +255,20 @@ const HeroSection = memo(() => {
                                     </span>
                                 </motion.button>
                             </Link>
+
+                            {/* Mobile-Only PWA Download App Button */}
+                            {(!isInstalled && (isInstallable || isIOS)) && (
+                                <motion.button
+                                    onClick={handleDownloadClick}
+                                    className="flex sm:hidden group relative px-8 py-4 bg-gradient-to-r from-blue-600/90 via-indigo-600/90 to-purple-600/90 text-white rounded-2xl font-bold text-lg border border-white/10 shadow-xl shadow-purple-500/20 overflow-hidden justify-center items-center gap-2 backdrop-blur-md w-full"
+                                    whileTap={{ scale: 0.98 }}
+                                >
+                                    <Download className="w-5 h-5 text-cyan-300 animate-bounce" />
+                                    <span className="bg-gradient-to-r from-white to-gray-200 bg-clip-text text-transparent">
+                                        Download App
+                                    </span>
+                                </motion.button>
+                            )}
                         </motion.div>
 
                         {/* Stats Row */}
@@ -298,6 +332,98 @@ const HeroSection = memo(() => {
 
             {/* Bottom gradient fade */}
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-gray-900 to-transparent pointer-events-none" />
+
+            <AnimatePresence>
+                {showIOSModal && (
+                    <motion.div
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                    >
+                        <motion.div
+                            className="glass-card glass-border rounded-3xl p-6 bg-gradient-to-br from-gray-900/95 via-gray-800/90 to-gray-950/95 shadow-2xl backdrop-blur-xl relative overflow-hidden border border-white/10 max-w-md w-full"
+                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                            transition={{ type: "spring", duration: 0.5 }}
+                        >
+                            {/* Glowing auroras */}
+                            <div className="absolute -top-12 -right-12 w-24 h-24 rounded-full bg-purple-500/15 filter blur-xl" />
+                            <div className="absolute -bottom-12 -left-12 w-24 h-24 rounded-full bg-blue-500/15 filter blur-xl" />
+
+                            <button
+                                onClick={() => setShowIOSModal(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors p-1.5 rounded-full hover:bg-white/5"
+                                aria-label="Close modal"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+
+                            <div className="text-center mb-6">
+                                <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center border border-white/20 shadow-lg shadow-purple-500/20 mb-4">
+                                    <Download className="w-8 h-8 text-white" />
+                                </div>
+                                <h3 className="text-xl font-bold text-white">Install on iPhone / iPad</h3>
+                                <p className="text-sm text-gray-400 mt-2">
+                                    Add 1Think2Win to your home screen for quick, fullscreen app access!
+                                </p>
+                            </div>
+
+                            <div className="space-y-4 text-left">
+                                <div className="flex gap-4 items-start bg-white/5 p-3.5 rounded-xl border border-white/5">
+                                    <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
+                                        1
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-semibold text-white">Open in Safari</h4>
+                                        <p className="text-xs text-gray-400 mt-0.5">
+                                            Make sure you are viewing this page in Safari browser.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-4 items-start bg-white/5 p-3.5 rounded-xl border border-white/5">
+                                    <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
+                                        2
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-semibold text-white flex items-center gap-1.5">
+                                            Tap the Share button
+                                            <Share className="w-3.5 h-3.5 text-blue-400 inline" />
+                                        </h4>
+                                        <p className="text-xs text-gray-400 mt-0.5">
+                                            Scroll down or look at the bottom toolbar and tap the Share icon.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-4 items-start bg-white/5 p-3.5 rounded-xl border border-white/5">
+                                    <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
+                                        3
+                                    </div>
+                                    <div>
+                                        <h4 className="text-sm font-semibold text-white flex items-center gap-1.5">
+                                            Select 'Add to Home Screen'
+                                            <Plus className="w-3.5 h-3.5 text-purple-400 inline" />
+                                        </h4>
+                                        <p className="text-xs text-gray-400 mt-0.5">
+                                            Tap 'Add to Home Screen' and confirm the name to complete the installation.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => setShowIOSModal(false)}
+                                className="mt-6 w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 hover:border-white/20 text-white font-bold text-sm transition-all duration-200"
+                            >
+                                Got It
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </section>
     );
 });

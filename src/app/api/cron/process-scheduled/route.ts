@@ -95,6 +95,41 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 3b. Process warning notifications for quizzes starting in the next 10 minutes
+    const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const { data: warningQuizzes } = await adminDb
+      .from('Quiz')
+      .select('*')
+      .eq('status', 'scheduled')
+      .lte('startsAt', tenMinutesFromNow)
+      .gt('startsAt', now);
+
+    if (warningQuizzes && warningQuizzes.length > 0) {
+      console.log(`[Cron] Found ${warningQuizzes.length} quizzes starting in the next 10 minutes. Checking warnings...`);
+      for (const quiz of warningQuizzes) {
+        try {
+          const { data: alreadySent } = await adminDb
+            .from('Notification')
+            .select('id')
+            .eq('link', `/quiz/${quiz.id}`)
+            .eq('type', 'quiz_starts_soon')
+            .limit(1);
+
+          if (!alreadySent || alreadySent.length === 0) {
+            await notificationDb.createBroadcast({
+              title: '⏰ Cricket Quiz Starts in 10 Min!',
+              message: `Get ready! "${quiz.title || 'Challenge'}" starts in 10 minutes. Don't miss out!`,
+              type: 'quiz_starts_soon',
+              link: `/quiz/${quiz.id}`
+            });
+            console.log(`[Cron] Broadcasted 10-minute warning notification for quiz ${quiz.id}`);
+          }
+        } catch (warningErr) {
+          console.error(`[Cron] Failed to process warning notification for quiz ${quiz.id}:`, warningErr);
+        }
+      }
+    }
+
     // 4. Process due scheduled notifications
     if (!notifsEmpty) {
       console.log(`[Cron] Found ${dueNotifications.length} due scheduled notifications. Processing...`);

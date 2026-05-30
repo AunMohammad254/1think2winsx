@@ -10,6 +10,7 @@ import dynamic from "next/dynamic";
 
 const Footer = dynamic(() => import("@/components/Footer"));
 import ChatbotLoader from "@/components/chatbot/ChatbotLoader";
+import InstallPromptBanner from "@/components/InstallPromptBanner";
 
 
 
@@ -65,6 +66,7 @@ export default function RootLayout({
             <Footer />
           </div>
           <ChatbotLoader />
+          <InstallPromptBanner />
         </Providers>
       </body>
     </html>
