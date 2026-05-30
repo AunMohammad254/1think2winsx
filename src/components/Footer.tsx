@@ -1,13 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
     Target, Link2, LifeBuoy, Phone, Mail,
     ExternalLink, MessageCircle, Camera, Send, Bell,
     ChevronRight, Heart
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { getCSRFHeaders } from '@/lib/csrf';
 
 const staggerCol = (delay: number) => ({
     hidden: { opacity: 0, y: 30 },
@@ -36,6 +38,49 @@ const socialLinks = [
 ];
 
 const Footer = memo(function Footer() {
+    const [email, setEmail] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleSubscribe = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!email) {
+            toast.error('Please enter your email address');
+            return;
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email.trim())) {
+            toast.error('Please enter a valid email address');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const csrfHeaders = await getCSRFHeaders();
+            const res = await fetch('/api/newsletter/subscribe', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...csrfHeaders
+                },
+                body: JSON.stringify({ email: email.trim() })
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+                toast.success(data.message || 'Subscribed successfully!');
+                setEmail('');
+            } else {
+                toast.error(data.message || 'Failed to subscribe');
+            }
+        } catch (error) {
+            toast.error('An error occurred. Please try again.');
+            console.error('Subscription error:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <div className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-t from-gray-900/90 via-blue-900/60 to-transparent"></div>
@@ -186,23 +231,32 @@ const Footer = memo(function Footer() {
                             <p className="text-gray-300 text-sm mb-4">
                                 Get the latest quiz updates, cricket news, and exclusive prizes delivered to your inbox!
                             </p>
-                            <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+                            <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
                                 <input
                                     suppressHydrationWarning
                                     type="email"
                                     placeholder="Enter your email"
-                                    className="flex-1 px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    disabled={loading}
+                                    className="flex-1 px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 disabled:opacity-50"
                                 />
                                 <motion.button
-                                    className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg shadow-md md:shadow-lg border border-white/20 flex items-center justify-center gap-2"
-                                    whileHover={{ scale: 1.03, boxShadow: '0 0 20px rgba(59,130,246,0.4)' }}
-                                    whileTap={{ scale: 0.97 }}
+                                    type="submit"
+                                    disabled={loading}
+                                    className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg shadow-md md:shadow-lg border border-white/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                                    whileHover={loading ? {} : { scale: 1.03, boxShadow: '0 0 20px rgba(59,130,246,0.4)' }}
+                                    whileTap={loading ? {} : { scale: 0.97 }}
                                     transition={{ type: "spring", stiffness: 400, damping: 17 }}
                                 >
-                                    <Send className="w-4 h-4" />
+                                    {loading ? (
+                                        <div className="w-4.5 h-4.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <Send className="w-4 h-4" />
+                                    )}
                                     Subscribe
                                 </motion.button>
-                            </div>
+                            </form>
                         </div>
                     </motion.div>
 

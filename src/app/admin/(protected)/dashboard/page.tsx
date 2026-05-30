@@ -1,6 +1,5 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import {
   LayoutDashboard,
   FileText,
@@ -8,13 +7,13 @@ import {
   Trophy,
   Wallet,
   Video,
-  Settings,
   Database,
   Shield,
   Gift,
   ChevronRight,
   Bell,
-  BarChart3
+  BarChart3,
+  Mail
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
@@ -107,6 +106,7 @@ const navItems = [
   { href: '/admin/claims', label: 'Prize Claims', icon: Trophy },
   { href: '/admin/streaming', label: 'Live Streaming', icon: Video },
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
+  { href: '/admin/newsletter', label: 'Newsletter', icon: Mail },
   { href: '/admin/db-stats', label: 'Database', icon: Database },
   { href: '/admin/security', label: 'Security', icon: Shield },
 ];
@@ -118,6 +118,7 @@ const quickActions = [
   { href: '/admin/prizes', label: 'Manage Prizes', icon: Trophy, color: 'green' },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet, color: 'emerald' },
   { href: '/admin/claims', label: 'Prize Claims', icon: Gift, color: 'amber' },
+  { href: '/admin/newsletter', label: 'Send Newsletter', icon: Mail, color: 'blue' },
   { href: '/admin/streaming', label: 'Live Streaming', icon: Video, color: 'red' },
 ];
 

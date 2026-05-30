@@ -32,6 +32,7 @@ export {
 } from './admin.db'
 export { streamConfigDb } from './stream.db'
 export { notificationDb } from './notification.db'
+export { newsletterDb } from './newsletter.db'
 
 // Combined db object for convenience
 import { userDb } from './user.db'
@@ -41,6 +42,7 @@ import { prizeDb, prizeRedemptionDb } from './prize.db'
 import { adminSessionDb, rateLimitDb, securityEventDb } from './admin.db'
 import { streamConfigDb } from './stream.db'
 import { notificationDb } from './notification.db'
+import { newsletterDb } from './newsletter.db'
 
 export const db = {
     user: userDb,
@@ -57,6 +59,7 @@ export const db = {
     dailyPayment: dailyPaymentDb,
     streamConfig: streamConfigDb,
     notification: notificationDb,
+    newsletter: newsletterDb,
 }
 
 export default db
