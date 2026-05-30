@@ -439,8 +439,8 @@ export default function AdminQuizManagementPage() {
                     </div>
 
                     {/* Status Filter */}
-                    <div className="flex items-center gap-2">
-                        <Filter className="w-5 h-5 text-gray-500" />
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Filter className="w-5 h-5 text-gray-500 shrink-0" />
                         {(['all', 'draft', 'active', 'paused', 'scheduled'] as StatusFilter[]).map((status) => (
                             <button
                                 key={status}
@@ -458,7 +458,7 @@ export default function AdminQuizManagementPage() {
 
                 {/* Bulk Actions */}
                 {selectedQuizzes.length > 0 && (
-                    <div className="flex items-center gap-4 mb-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+                    <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl">
                         <span className="text-purple-300 text-sm">
                             {selectedQuizzes.length} selected
                         </span>
@@ -486,7 +486,7 @@ export default function AdminQuizManagementPage() {
                 )}
 
                 {/* Data Table */}
-                <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10">
+                <div className="relative z-10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10">
                     {/* Table Header */}
                     <div className="grid grid-cols-12 gap-4 p-4 border-b border-white/10 bg-white/5 text-sm font-medium text-gray-400">
                         <div className="col-span-1 flex items-center">
@@ -499,38 +499,38 @@ export default function AdminQuizManagementPage() {
                         </div>
                         <button
                             onClick={() => toggleSort('title')}
-                            className="col-span-4 flex items-center gap-2 hover:text-white transition-colors text-left"
+                            className="col-span-6 md:col-span-4 flex items-center gap-2 hover:text-white transition-colors text-left"
                         >
                             Title
                             <ArrowUpDown className="w-4 h-4" />
                         </button>
                         <button
                             onClick={() => toggleSort('status')}
-                            className="col-span-2 flex items-center gap-2 hover:text-white transition-colors"
+                            className="col-span-3 md:col-span-2 flex items-center gap-2 hover:text-white transition-colors"
                         >
                             Status
                             <ArrowUpDown className="w-4 h-4" />
                         </button>
                         <button
                             onClick={() => toggleSort('questions')}
-                            className="col-span-1 flex items-center gap-2 hover:text-white transition-colors"
+                            className="hidden md:flex col-span-1 items-center gap-2 hover:text-white transition-colors"
                         >
                             <HelpCircle className="w-4 h-4" />
                         </button>
                         <button
                             onClick={() => toggleSort('attempts')}
-                            className="col-span-1 flex items-center gap-2 hover:text-white transition-colors"
+                            className="hidden md:flex col-span-1 items-center gap-2 hover:text-white transition-colors"
                         >
                             <Users className="w-4 h-4" />
                         </button>
                         <button
                             onClick={() => toggleSort('createdAt')}
-                            className="col-span-2 flex items-center gap-2 hover:text-white transition-colors"
+                            className="hidden md:flex col-span-2 items-center gap-2 hover:text-white transition-colors"
                         >
                             Created
                             <ArrowUpDown className="w-4 h-4" />
                         </button>
-                        <div className="col-span-1 text-right">Actions</div>
+                        <div className="col-span-2 md:col-span-1 text-right">Actions</div>
                     </div>
 
                     {/* Table Body */}
@@ -587,7 +587,7 @@ export default function AdminQuizManagementPage() {
                                         </div>
 
                                         {/* Title */}
-                                        <div className="col-span-4">
+                                        <div className="col-span-6 md:col-span-4 min-w-0">
                                             <h3 className="font-medium text-white truncate">{quiz.title}</h3>
                                             {quiz.description && (
                                                 <p className="text-sm text-gray-500 truncate">{quiz.description}</p>
@@ -595,29 +595,29 @@ export default function AdminQuizManagementPage() {
                                         </div>
 
                                         {/* Status */}
-                                        <div className="col-span-2">
+                                        <div className="col-span-3 md:col-span-2">
                                             <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${status.color}`}>
                                                 {status.label}
                                             </span>
                                         </div>
 
                                         {/* Questions */}
-                                        <div className="col-span-1 text-gray-400 text-sm">
+                                        <div className="hidden md:block col-span-1 text-gray-400 text-sm">
                                             {questionCount}
                                         </div>
 
                                         {/* Attempts */}
-                                        <div className="col-span-1 text-gray-400 text-sm">
+                                        <div className="hidden md:block col-span-1 text-gray-400 text-sm">
                                             {attemptCount}
                                         </div>
 
                                         {/* Created */}
-                                        <div className="col-span-2 text-gray-400 text-sm">
+                                        <div className="hidden md:block col-span-2 text-gray-400 text-sm">
                                             {new Date(quiz.createdAt).toLocaleDateString()}
                                         </div>
 
                                         {/* Actions */}
-                                        <div className="col-span-1 flex justify-end relative">
+                                        <div className="col-span-2 md:col-span-1 flex justify-end relative">
                                             <button
                                                 onClick={() => setActionMenuOpen(actionMenuOpen === quiz.id ? null : quiz.id)}
                                                 className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
@@ -632,7 +632,7 @@ export default function AdminQuizManagementPage() {
                                                         className="fixed inset-0 z-50"
                                                         onClick={() => setActionMenuOpen(null)}
                                                     />
-                                                    <div className="absolute right-0 bottom-full mb-2 z-[60] w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl py-1">
+                                                    <div className="absolute right-0 top-full mt-2 z-[1000] w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl py-1">
                                                         <button
                                                             onClick={() => handleEdit(quiz)}
                                                             className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/10 transition-colors"
