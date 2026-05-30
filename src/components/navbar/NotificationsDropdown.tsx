@@ -128,7 +128,7 @@ export default function NotificationsDropdown() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="absolute right-0 top-full mt-2 w-80 md:w-96 origin-top-right z-[1000]"
+            className="fixed md:absolute left-4 right-4 md:left-auto md:right-0 top-[72px] md:top-full mt-2 w-auto md:w-96 origin-top z-[1000]"
           >
             <div className="rounded-2xl bg-gray-950/95 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-black/80 overflow-hidden">
               
