@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
 
@@ -30,11 +30,12 @@ interface AuthProviderProps {
     children: ReactNode;
 }
 
+const supabase = createClient();
+
 export function AuthProvider({ children }: AuthProviderProps) {
     const [user, setUser] = useState<User | null>(null);
     const [session, setSession] = useState<Session | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const supabase = useMemo(() => createClient(), []);
 
     useEffect(() => {
         // Get initial session

@@ -137,7 +137,7 @@ export default function MobileNav({ isOpen, onClose, user, onSignOut }: MobileNa
                             <div className="flex items-center justify-between p-4 border-b border-white/10">
                                 <motion.span
                                     variants={itemVariants}
-                                    className="text-lg font-bold text-white font-montserrat"
+                                    className="text-lg font-bold text-white font-poppins"
                                 >
                                     Menu
                                 </motion.span>

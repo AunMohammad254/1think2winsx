@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Menu, LogIn, Sparkles, Home, FileText, HelpCircle, Trophy, BarChart3, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import Logo from './navbar/Logo';
@@ -61,10 +61,11 @@ export default function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Get all nav items including profile if logged in
-  const allNavItems = user
-    ? [...navItems, { href: '/profile', label: 'Profile', icon: User }]
-    : navItems;
+  // Memoized nav items — stable reference avoids recreating the array on every render.
+  const allNavItems = useMemo(
+    () => user ? [...navItems, { href: '/profile', label: 'Profile', icon: User }] : navItems,
+    [user]
+  );
 
   return (
     <>

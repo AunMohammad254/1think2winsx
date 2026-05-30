@@ -16,7 +16,7 @@ export default function Logo() {
         <div className="relative w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-0.5 shadow-lg shadow-purple-500/25 group-hover:shadow-purple-500/40 transition-shadow duration-300">
           <div className="w-full h-full rounded-[10px] bg-black/80 backdrop-blur-sm flex items-center justify-center">
             {/* Stylized "1T" Logo */}
-            <span className="text-lg md:text-xl font-black bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent font-montserrat">
+            <span className="text-lg md:text-xl font-black bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent font-poppins">
               1T
             </span>
           </div>
@@ -32,7 +32,7 @@ export default function Logo() {
         transition={{ duration: 0.5, delay: 0.1, ease: 'easeOut' }}
         className="hidden sm:block"
       >
-        <h1 className="text-lg md:text-xl font-bold font-montserrat leading-tight">
+        <h1 className="text-lg md:text-xl font-bold font-poppins leading-tight">
           <span className="bg-gradient-to-r from-white via-blue-100 to-purple-200 bg-clip-text text-transparent">
             1Think
           </span>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getCSRFToken } from '@/lib/csrf';
 import {
   type Quiz,
@@ -34,14 +34,13 @@ export default function QuizEvaluationManager() {
   const [winners, setWinners] = useState<Winner[]>([]);
   const [showWinners, setShowWinners] = useState(false);
 
-  // Calculate current step
-  const getCurrentStep = () => {
-    if (!selectedQuiz) return 1;
-    if (!quizEvaluation) return 1;
+  // Memoized current step — avoids recomputing on every render.
+  const currentStep = useMemo(() => {
+    if (!selectedQuiz || !quizEvaluation) return 1;
     if (!quizEvaluation.evaluation.isFullyEvaluated) return 2;
     if (showWinners) return 4;
     return 3;
-  };
+  }, [selectedQuiz, quizEvaluation, showWinners]);
 
   // Fetch quizzes
   const fetchQuizzes = useCallback(async () => {
@@ -284,7 +283,7 @@ export default function QuizEvaluationManager() {
   return (
     <div className="space-y-6">
       {/* Step Indicator */}
-      <StepIndicator currentStep={getCurrentStep()} />
+      <StepIndicator currentStep={currentStep} />
 
       {/* Message Display */}
       {message && (
@@ -610,22 +609,7 @@ export default function QuizEvaluationManager() {
         </div>
       )}
 
-      {/* Add CSS for fade-in animation */}
-      <style jsx global>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-fadeIn {
-          animation: fadeIn 0.5s ease-out forwards;
-        }
-      `}</style>
+
     </div>
   );
 }

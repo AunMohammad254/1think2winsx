@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Loader2, Settings, Maximize2, Minimize2 } from 'lucide-react';
+import { buildEmbedDataUri, getYouTubeVideoId, isYouTubeContent } from '@/lib/embed-utils';
 
 interface StreamData {
   id: string;
@@ -74,7 +75,12 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
     }
   }, [isFullscreen]);
 
-  // Keyboard controls (F toggles fullscreen)
+  // Keyboard controls (F toggles fullscreen).
+  // Uses a ref so the listener does not need to be re-attached on every
+  // isFullscreen state change.
+  const isFullscreenRef = useRef(isFullscreen);
+  useEffect(() => { isFullscreenRef.current = isFullscreen; }, [isFullscreen]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'f') {
@@ -85,7 +91,8 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
     const node = containerRef.current;
     node?.addEventListener('keydown', onKeyDown);
     return () => node?.removeEventListener('keydown', onKeyDown);
-  }, [isFullscreen, toggleFullscreen]);
+    // toggleFullscreen is stable (useCallback with no deps that change per frame)
+  }, [toggleFullscreen]);
 
   const handleIframeLoad = useCallback(() => {
     setLoading(false);
@@ -127,54 +134,27 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
       </div>
     );
   }
-  // Helper function to extract YouTube video ID
-  const getYouTubeVideoId = (input: string): string | null => {
-    const patterns = [
-      /youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/,
-      /youtube\.com\/embed\/([a-zA-Z0-9_-]+)/,
-      /youtube\.com\/live\/([a-zA-Z0-9_-]+)/,
-      /youtu\.be\/([a-zA-Z0-9_-]+)/,
-      /youtube\.com\/v\/([a-zA-Z0-9_-]+)/,
-    ];
-
-    for (const pattern of patterns) {
-      const match = input.match(pattern);
-      if (match) return match[1];
+  // Memoized embed source — avoids recalculating the iframe src on every render.
+  const embedSrc = useMemo(() => {
+    if (!streamData) return '';
+    const ytId = isYouTubeContent(streamData.embedHtml)
+      ? getYouTubeVideoId(streamData.embedHtml)
+      : null;
+    if (ytId) {
+      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1`;
     }
-    return null;
-  };
-
-  // Check if embed is YouTube
-  const isYouTube = streamData.embedHtml.toLowerCase().includes('youtube.com') ||
-    streamData.embedHtml.toLowerCase().includes('youtu.be');
-
-  const youtubeVideoId = isYouTube ? getYouTubeVideoId(streamData.embedHtml) : null;
+    return buildEmbedDataUri(streamData.embedHtml);
+  }, [streamData]);
 
   // For YouTube, render iframe directly (avoids Error 153)
   const renderStreamContent = () => {
-    if (youtubeVideoId) {
-      return (
-        <iframe
-          ref={iframeRef}
-          src={`https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&rel=0&modestbranding=1`}
-          className="w-full h-full border-0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
-          aria-label={streamData.title}
-          onLoad={handleIframeLoad}
-          onError={handleIframeError}
-          title={streamData.title}
-        />
-      );
-    }
-
-    // For non-YouTube content, use the data:text/html approach
+    if (!streamData) return null;
     return (
       <iframe
         ref={iframeRef}
-        src={`data:text/html;charset=utf-8,${encodeURIComponent(buildResponsiveEmbedHtml(streamData.embedHtml))}`}
-        className="yt-player-frame"
-        allow="autoplay; fullscreen; picture-in-picture"
+        src={embedSrc}
+        className={isYouTubeContent(streamData.embedHtml) ? 'w-full h-full border-0' : 'yt-player-frame'}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
         allowFullScreen
         loading="lazy"
         aria-label={streamData.title}
@@ -235,46 +215,4 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
     </div>
   );
 }
-// Build a responsive HTML wrapper around the admin-provided embed
-function buildResponsiveEmbedHtml(rawHtml: string): string {
-  let processedHtml = rawHtml;
 
-  // Check if this is a YouTube embed/URL
-  const isYouTube = rawHtml.toLowerCase().includes('youtube.com') ||
-    rawHtml.toLowerCase().includes('youtu.be');
-
-  if (isYouTube) {
-    // If it's just a YouTube URL (not an iframe), convert to embed
-    if (!rawHtml.includes('<iframe')) {
-      const youtubeMatch = rawHtml.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]+)/);
-      if (youtubeMatch) {
-        const videoId = youtubeMatch[1];
-        processedHtml = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
-      }
-    } else {
-      // Convert watch URLs in iframes to embed URLs
-      processedHtml = rawHtml
-        .replace(/src="https?:\/\/(?:www\.)?youtube\.com\/watch\?v=/g, 'src="https://www.youtube.com/embed/')
-        .replace(/src="https?:\/\/youtu\.be\//g, 'src="https://www.youtube.com/embed/')
-        .replace(/src="https?:\/\/(?:www\.)?youtube\.com\/live\//g, 'src="https://www.youtube.com/embed/');
-    }
-  }
-
-  const doc = `<!doctype html><html lang="en"><head><meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-      html, body { height: 100%; margin: 0; padding: 0; background: #000; }
-      .wrapper { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
-      /* Ensure inner iframe/video fills container without distortion */
-      iframe, video { width: 100% !important; height: 100% !important; border: 0; }
-      /* Prevent overflow clipping and maintain proportions */
-      .wrapper > * { max-width: 100%; max-height: 100%; }
-      @media (orientation: portrait) {
-        .wrapper { padding: 0; }
-      }
-    </style>
-  </head><body>
-    <div class="wrapper">${processedHtml}</div>
-  </body></html>`;
-  return doc;
-}

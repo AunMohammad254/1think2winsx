@@ -46,97 +46,23 @@ export async function GET(request: NextRequest) {
 
     const supabase = await getDb();
 
-    // Calculate date filter based on timeframe
-    let dateFilter: string | null = null;
-    const now = new Date();
+    // Call high-performance server-side aggregation RPC
+    const { data: rankedData, error: rpcError } = await supabase.rpc('get_leaderboard', {
+      p_timeframe: timeframe,
+      p_limit: limit,
+      p_quiz_id: quizId || null
+    });
 
-    if (timeframe === 'weekly') {
-      dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    } else if (timeframe === 'monthly') {
-      dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    if (rpcError) {
+      console.error('Leaderboard RPC error:', rpcError);
+      return NextResponse.json(
+        { message: 'Error fetching leaderboard' },
+        { status: 500 }
+      );
     }
-
-    // Fetch all required data in batch
-    let attemptsQuery = supabase.from('QuizAttempt').select('userId, score, createdAt');
-    let correctAnswersQuery = supabase.from('Answer').select('userId').eq('isCorrect', true);
-    let winningsQuery = supabase.from('Winning').select('userId');
-    let usersQuery = supabase.from('User').select('id, name, profilePicture');
-
-    if (dateFilter) {
-      attemptsQuery = attemptsQuery.gte('createdAt', dateFilter);
-      correctAnswersQuery = correctAnswersQuery.gte('createdAt', dateFilter);
-      winningsQuery = winningsQuery.gte('createdAt', dateFilter);
-    }
-    if (quizId) {
-      attemptsQuery = attemptsQuery.eq('quizId', quizId);
-    }
-
-    const [
-      { data: attempts },
-      { data: correctAnswers },
-      { data: winnings },
-      { data: users },
-      { data: redemptions }
-    ] = await Promise.all([
-      attemptsQuery,
-      correctAnswersQuery,
-      winningsQuery,
-      usersQuery,
-      supabase.from('PrizeRedemption').select('userId').in('status', ['pending', 'approved', 'fulfilled'])
-    ]);
-
-    // Build O(1)-lookup Maps for all aggregates
-    const userStats       = new Map<string, { score: number; count: number }>();
-    const correctByUser   = new Map<string, number>();
-    const winsByUser      = new Map<string, number>();
-    const redemptionsByUser = new Map<string, number>();
-
-    for (const a of (attempts || [])) {
-      const prev = userStats.get(a.userId) || { score: 0, count: 0 };
-      userStats.set(a.userId, { score: prev.score + a.score, count: prev.count + 1 });
-    }
-    for (const c of (correctAnswers || [])) {
-      correctByUser.set(c.userId, (correctByUser.get(c.userId) || 0) + 1);
-    }
-    for (const w of (winnings || [])) {
-      winsByUser.set(w.userId, (winsByUser.get(w.userId) || 0) + 1);
-    }
-    for (const r of (redemptions || [])) {
-      redemptionsByUser.set(r.userId, (redemptionsByUser.get(r.userId) || 0) + 1);
-    }
-
-    const leaderboardData = (users || []).map((user: any) => {
-      const stats    = userStats.get(user.id) || { score: 0, count: 0 };
-      const correct  = correctByUser.get(user.id) || 0;
-      const winCount = (winsByUser.get(user.id) || 0) + (redemptionsByUser.get(user.id) || 0);
-
-      return {
-        id: user.id,
-        userName: user.name,
-        profilePicture: user.profilePicture,
-        quizzesTaken: stats.count,
-        correctAnswers: correct,
-        totalScore: stats.score,
-        winCount,
-        averageScore: stats.count > 0 ? Math.round(stats.score / stats.count) : 0,
-      };
-    }).filter(u => u.quizzesTaken > 0);
-
-    // Sort and rank
-    const rankedData = leaderboardData
-      .sort((a, b) => {
-        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
-        if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
-        return b.quizzesTaken - a.quizzesTaken;
-      })
-      .slice(0, limit)
-      .map((user, index) => ({
-        ...user,
-        rank: index + 1,
-      }));
 
     const responseData = {
-      users: rankedData.map(user => ({
+      users: (rankedData || []).map((user: any) => ({
         id: user.id,
         username: user.userName || '',
         profilePicture: user.profilePicture,
@@ -145,8 +71,8 @@ export async function GET(request: NextRequest) {
         averageScore: user.averageScore,
         lastQuizDate: new Date()
       })),
-      leaderboard: rankedData,
-      total: rankedData.length,
+      leaderboard: rankedData || [],
+      total: (rankedData || []).length,
       timeframe,
       lastUpdated: new Date().toISOString(),
     };

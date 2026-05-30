@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useProfile } from '@/contexts/ProfileContext';
 import Image from 'next/image';
 
@@ -36,12 +36,7 @@ export default function PrizeRedemption() {
   const [previewPrize, setPreviewPrize] = useState<Prize | null>(null);
   const [previewRedemption, setPreviewRedemption] = useState<RedemptionHistory | null>(null);
 
-  useEffect(() => {
-    fetchPrizes();
-    fetchRedemptionHistory();
-  }, []);
-
-  const fetchPrizes = async () => {
+  const fetchPrizes = useCallback(async () => {
     try {
       const response = await fetch('/api/prizes');
       if (response.ok) {
@@ -51,9 +46,9 @@ export default function PrizeRedemption() {
     } catch {
       // Error handled silently
     }
-  };
+  }, []);
 
-  const fetchRedemptionHistory = async () => {
+  const fetchRedemptionHistory = useCallback(async () => {
     try {
       const response = await fetch('/api/prize-redemption');
       if (response.ok) {
@@ -62,10 +57,15 @@ export default function PrizeRedemption() {
       }
     } catch {
       // Error handled silently
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.allSettled([fetchPrizes(), fetchRedemptionHistory()]).finally(() =>
+      setLoading(false)
+    );
+  }, [fetchPrizes, fetchRedemptionHistory]);
 
   const handleRedeem = (prizeId: string, prizeName: string, pointsRequired: number) => {
     if (!profile || profile.points < pointsRequired) {

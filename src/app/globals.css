@@ -51,9 +51,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
   --font-poppins: var(--font-poppins);
-  --font-montserrat: var(--font-montserrat);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -562,4 +560,51 @@ h1, h2, h3, h4, h5, h6 {
 .animate-success-scale {
   animation: success-scale 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)
     forwards;
+}
+
+/* FadeIn animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+/* Floating animation for background blobs */
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(20px) scale(1.05); }
+}
+
+@keyframes float-medium {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-30px) scale(0.95); }
+}
+
+@keyframes float-fast {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(15px) scale(1.02); }
+}
+
+.animate-float-slow {
+  animation: float-slow 8s ease-in-out infinite;
+}
+
+.animate-float-medium {
+  animation: float-medium 6s ease-in-out infinite;
+}
+
+.animate-float-fast {
+  animation: float-fast 4s ease-in-out infinite;
+}
+
+.will-change-transform {
+  will-change: transform;
 }

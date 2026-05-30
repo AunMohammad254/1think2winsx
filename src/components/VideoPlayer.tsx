@@ -14,7 +14,7 @@
  * - Keyboard controls (F for fullscreen)
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     Loader2,
     WifiOff,
@@ -25,6 +25,7 @@ import {
     Video,
 } from 'lucide-react';
 import { getStreamConfig, type StreamConfig } from '@/actions/streaming-actions';
+import { buildEmbedDataUri, getYouTubeVideoId, isYouTubeContent } from '@/lib/embed-utils';
 
 // ============================================
 // Props Interface
@@ -53,7 +54,7 @@ interface VideoPlayerProps {
 // ============================================
 export default function VideoPlayer({
     className = '',
-    autoPlay = true,
+    autoPlay: _autoPlay = true,
     showControls = true,
     fallbackMessage = 'Stream Currently Offline',
     onError,
@@ -159,21 +160,25 @@ export default function VideoPlayer({
     }, []);
 
     // ============================================
-    // Build Embed HTML
+    // Memoized embed source
     // ============================================
-    const buildEmbedDocument = (rawHtml: string): string => {
-        return `<!doctype html><html lang="en"><head><meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <style>
-        html, body { height: 100%; margin: 0; padding: 0; background: #000; overflow: hidden; }
-        .wrapper { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
-        iframe, video { width: 100% !important; height: 100% !important; border: 0; }
-        .wrapper > * { max-width: 100%; max-height: 100%; }
-      </style>
-    </head><body>
-      <div class="wrapper">${rawHtml}</div>
-    </body></html>`;
-    };
+    // Computed once when config changes — prevents the iframe from
+    // reloading on every parent re-render.
+    const embedSrc = useMemo(() => {
+        if (!config?.isActive) return '';
+
+        if (config.embedHtml && isYouTubeContent(config.embedHtml)) {
+            const videoId = getYouTubeVideoId(config.embedHtml);
+            if (videoId) {
+                return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
+            }
+        }
+
+        const embedContent = config.embedHtml
+            || (config.embedUrl ? `<iframe src="${config.embedUrl}" allowfullscreen></iframe>` : '');
+
+        return embedContent ? buildEmbedDataUri(embedContent) : '';
+    }, [config?.embedHtml, config?.embedUrl, config?.isActive]);
 
     // ============================================
     // Render: Loading State
@@ -235,8 +240,6 @@ export default function VideoPlayer({
     // ============================================
     // Render: Active Stream
     // ============================================
-    const embedContent = config.embedHtml || (config.embedUrl ? `<iframe src="${config.embedUrl}" allowfullscreen></iframe>` : '');
-
     return (
         <div
             ref={containerRef}
@@ -246,7 +249,7 @@ export default function VideoPlayer({
             aria-label={`Live stream: ${config.title || 'Livestream'}`}
             tabIndex={0}
         >
-            {/* Stream Iframe */}
+                {/* Stream Iframe */}
             <div className="relative w-full h-full">
                 {!iframeLoaded && (
                     <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
@@ -254,7 +257,7 @@ export default function VideoPlayer({
                     </div>
                 )}
                 <iframe
-                    src={`data:text/html;charset=utf-8,${encodeURIComponent(buildEmbedDocument(embedContent))}`}
+                    src={embedSrc}
                     className="w-full h-full border-0"
                     allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                     allowFullScreen

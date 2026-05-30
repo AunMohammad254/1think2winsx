@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Poppins, Montserrat } from "next/font/google";
+import { Geist, Poppins } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import Navbar from "@/components/Navbar";
@@ -22,14 +22,7 @@ const geistSans = Geist({
 const poppins = Poppins({
   variable: "--font-poppins",
   subsets: ["latin"],
-  weight: ["400", "600", "700"],
-  display: 'swap',
-});
-
-const montserrat = Montserrat({
-  variable: "--font-montserrat",
-  subsets: ["latin"],
-  weight: ["400", "600", "700", "800"],
+  weight: ["600", "700"],
   display: 'swap',
 });
 
@@ -58,7 +51,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${poppins.variable} ${montserrat.variable} antialiased`}
+        className={`${geistSans.variable} ${poppins.variable} antialiased`}
         suppressHydrationWarning
       >
         <Providers>

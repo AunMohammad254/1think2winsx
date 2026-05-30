@@ -1,41 +1,11 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
-import { motion, useInView, animate } from 'framer-motion';
+import React, { useRef, useEffect, useState, memo } from 'react';
+import { motion, useInView } from 'framer-motion';
 import { rowVariants, getRankGradient, getRankIcon, getRankGlow, springGentle } from '../animations';
 import { Trophy, HelpCircle, Target, Award } from 'lucide-react';
-
-type LeaderboardEntry = {
-  id: string;
-  rank: number;
-  userName: string;
-  quizzesTaken: number;
-  correctAnswers: number;
-  totalScore: number;
-  winCount: number;
-  averageScore?: number;
-};
-
-type PrevData = Map<string, { rank: number; score: number }>;
-
-function AnimatedScore({ value, play }: { value: number; play: boolean }) {
-  const nodeRef = useRef<HTMLSpanElement>(null);
-
-  useEffect(() => {
-    if (!play || !nodeRef.current) return;
-    const from = parseInt(nodeRef.current.textContent || '0', 10);
-    const controls = animate(from, value, {
-      duration: 0.6,
-      ease: 'easeOut',
-      onUpdate: (latest) => {
-        if (nodeRef.current) nodeRef.current.textContent = Math.round(latest).toString();
-      },
-    });
-    return controls.stop;
-  }, [value, play]);
-
-  return <span ref={nodeRef}>{value}</span>;
-}
+import { LeaderboardEntry, PrevData } from '../types';
+import AnimatedScore from './AnimatedScore';
 
 function ScoreFlash({ show }: { show: boolean }) {
   if (!show) return null;
@@ -49,24 +19,27 @@ function ScoreFlash({ show }: { show: boolean }) {
   );
 }
 
-export default function LeaderboardRow({
+function LeaderboardRow({
   entry,
   index,
   isCurrentUser,
   prevData,
-  isMobile,
   playCounter,
 }: {
   entry: LeaderboardEntry;
   index: number;
   isCurrentUser: boolean;
   prevData: PrevData;
-  isMobile: boolean;
   playCounter: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-30px' });
   const [scoreFlash, setScoreFlash] = useState(false);
+  const [hasHover, setHasHover] = useState(false);
+
+  useEffect(() => {
+    setHasHover(window.matchMedia('(hover: hover)').matches);
+  }, []);
 
   const prev = prevData.get(entry.userName);
   const rankChanged = prev && prev.rank !== entry.rank;
@@ -105,7 +78,7 @@ export default function LeaderboardRow({
       animate={inView ? 'visible' : 'hidden'}
       custom={index}
       whileHover={
-        !isMobile
+        hasHover
           ? {
               scale: 1.01,
               transition: { duration: 0.15 },
@@ -121,7 +94,7 @@ export default function LeaderboardRow({
           {isTop3 ? (
             <motion.div
               className={`flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-linear-to-r ${rankGradient} shadow-lg`}
-              whileHover={!isMobile ? { scale: 1.1, transition: springGentle } : undefined}
+              whileHover={hasHover ? { scale: 1.1, transition: springGentle } : undefined}
               style={glow !== 'none' ? { boxShadow: glow } : undefined}
             >
               <span className="text-white font-extrabold text-base sm:text-lg">{entry.rank}</span>
@@ -232,7 +205,7 @@ export default function LeaderboardRow({
       <div className="relative w-full md:w-auto shrink-0 flex justify-end md:block mt-2 md:mt-0">
         <motion.div
           className="bg-linear-to-r from-emerald-500/25 to-teal-500/25 hover:from-emerald-500/35 hover:to-teal-500/35 border border-emerald-500/40 rounded-xl px-4 md:px-2.5 lg:px-4 py-2.5 flex items-center justify-center gap-2 shadow-md w-full md:w-auto md:min-w-[105px] lg:min-w-[130px]"
-          whileHover={!isMobile ? { scale: 1.05, transition: springGentle } : undefined}
+          whileHover={hasHover ? { scale: 1.05, transition: springGentle } : undefined}
         >
           <span className="text-white font-extrabold text-lg tracking-tight">
             <AnimatedScore value={entry.totalScore} play={playCounter && inView} />
@@ -245,3 +218,10 @@ export default function LeaderboardRow({
     </motion.div>
   );
 }
+
+export default memo(LeaderboardRow, (prev, next) =>
+  prev.entry.totalScore === next.entry.totalScore &&
+  prev.entry.rank === next.entry.rank &&
+  prev.isCurrentUser === next.isCurrentUser &&
+  prev.playCounter === next.playCounter
+);

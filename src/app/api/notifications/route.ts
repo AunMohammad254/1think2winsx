@@ -19,11 +19,10 @@ export async function GET() {
 
     const userId = session.user.id;
 
-    // Fetch user notifications and count
-    const [notifications, unreadCount] = await Promise.all([
-      notificationDb.getUserNotifications(userId),
-      notificationDb.getUnreadCount(userId),
-    ]);
+    // Fetch notifications once and derive the unread count in JS \u2014
+    // avoids a second DB round-trip for a count query.
+    const notifications = await notificationDb.getUserNotifications(userId);
+    const unreadCount = notifications.filter((n) => !n.read).length;
 
     return createSecureJsonResponse({
       success: true,

@@ -55,24 +55,17 @@ export const quizDb = {
 
     async findByIdWithQuestions(id: string) {
         const supabase = await getDb()
-        const { data: quiz, error: quizError } = await supabase
+        // Single joined query — avoids the sequential quiz-then-questions round-trip.
+        const { data, error } = await supabase
             .from('Quiz')
-            .select('*')
+            .select('*, questions:Question(*)')
             .eq('id', id)
             .single()
 
-        if (quizError && quizError.code !== 'PGRST116') throw quizError
-        if (!quiz) return null
+        if (error && error.code !== 'PGRST116') throw error
+        if (!data) return null
 
-        const { data: questions, error: questionsError } = await supabase
-            .from('Question')
-            .select('*')
-            .eq('quizId', id)
-            .order('createdAt', { ascending: true })
-
-        if (questionsError) throw questionsError
-
-        return { ...quiz, questions: questions || [] }
+        return data
     },
 
     async create(quizData: Insertable<'Quiz'>) {
@@ -277,23 +270,17 @@ export const quizAttemptDb = {
 
     async findByIdWithAnswers(id: string) {
         const supabase = await getDb()
-        const { data: attempt, error: attemptError } = await supabase
+        // Single joined query — avoids the sequential attempt-then-answers round-trip.
+        const { data, error } = await supabase
             .from('QuizAttempt')
-            .select('*')
+            .select('*, answers:Answer(*)')
             .eq('id', id)
             .single()
 
-        if (attemptError) throw attemptError
-        if (!attempt) return null
+        if (error) throw error
+        if (!data) return null
 
-        const { data: answers, error: answersError } = await supabase
-            .from('Answer')
-            .select('*')
-            .eq('quizAttemptId', id)
-
-        if (answersError) throw answersError
-
-        return { ...attempt, answers: answers || [] }
+        return data
     },
 
     async create(attemptData: Insertable<'QuizAttempt'>) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
@@ -12,6 +12,9 @@ import QuizAttemptModal from '@/components/quiz/QuizAttemptModal';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 import { createClient } from '@/lib/supabase/client';
+import PaymentModal from '@/components/quiz/PaymentModal';
+import ConfirmationModal from '@/components/quiz/ConfirmationModal';
+import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
 
 interface Quiz {
   id: string;
@@ -270,35 +273,37 @@ export default function QuizzesPage() {
   };
 
   // Filter quizzes based on active filter and search query
-  const filteredQuizzes = quizzes.filter(quiz => {
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      if (!quiz.title.toLowerCase().includes(query) &&
-        !quiz.description?.toLowerCase().includes(query)) {
-        return false;
+  const filteredQuizzes = useMemo(() => {
+    return quizzes.filter(quiz => {
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        if (!quiz.title.toLowerCase().includes(query) &&
+          !quiz.description?.toLowerCase().includes(query)) {
+          return false;
+        }
       }
-    }
 
-    // Tab filter
-    switch (activeFilter) {
-      case 'available':
-        return quiz.status === 'active' && !quiz.isCompleted;
-      case 'completed':
-        return quiz.isCompleted;
-      case 'new':
-        return quiz.hasNewQuestions;
-      default:
-        return true;
-    }
-  });
+      // Tab filter
+      switch (activeFilter) {
+        case 'available':
+          return quiz.status === 'active' && !quiz.isCompleted;
+        case 'completed':
+          return quiz.isCompleted;
+        case 'new':
+          return quiz.hasNewQuestions;
+        default:
+          return true;
+      }
+    });
+  }, [quizzes, searchQuery, activeFilter]);
 
-  const filterTabs: { key: FilterTab; label: string; icon: React.ReactNode; count?: number }[] = [
+  const filterTabs: { key: FilterTab; label: string; icon: React.ReactNode; count?: number }[] = useMemo(() => [
     { key: 'all', label: 'All Quizzes', icon: <Filter className="w-4 h-4" />, count: quizzes.length },
     { key: 'available', label: 'Available', icon: <Clock className="w-4 h-4" />, count: quizzes.filter(q => q.status === 'active' && !q.isCompleted).length },
     { key: 'completed', label: 'Completed', icon: <CheckCircle className="w-4 h-4" />, count: quizzes.filter(q => q.isCompleted).length },
     { key: 'new', label: 'New Questions', icon: <Sparkles className="w-4 h-4" />, count: quizzes.filter(q => q.hasNewQuestions).length },
-  ];
+  ], [quizzes]);
 
   if (isLoading) {
     return (
@@ -481,195 +486,36 @@ export default function QuizzesPage() {
         )}
 
         {/* Payment Modal */}
-        {showPaymentModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="relative w-full max-w-md bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl border border-white/10 p-8">
-              {/* Close button */}
-              <button
-                onClick={() => setShowPaymentModal(false)}
-                className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <span className="text-xl">×</span>
-              </button>
-
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                  <Sparkles className="w-8 h-8 text-white" />
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-2">Get 24-Hour Access</h3>
-                <p className="text-gray-400">
-                  Unlock unlimited access to all quizzes
-                </p>
-              </div>
-
-              <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 rounded-2xl p-6 mb-6">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-gray-300">24-Hour Full Access</span>
-                  <span className="text-3xl font-bold text-white">{accessPrice} PKR</span>
-                </div>
-                <ul className="text-sm text-gray-400 space-y-2">
-                  <li className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-400" />
-                    Unlimited quiz attempts
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-400" />
-                    Access all active quizzes
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-400" />
-                    Compete for prizes
-                  </li>
-                </ul>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowPaymentModal(false)}
-                  className="flex-1 py-3 px-4 rounded-xl font-medium text-gray-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handlePayNowClick}
-                  disabled={paymentLoading}
-                  className="flex-1 py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {paymentLoading ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Checking...
-                    </div>
-                  ) : (
-                    'Pay Now'
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <PaymentModal
+          isOpen={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          accessPrice={accessPrice}
+          paymentLoading={paymentLoading}
+          handlePayNowClick={handlePayNowClick}
+        />
 
         {/* Confirmation Modal - Wallet Deduction */}
-        {showConfirmationModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="relative w-full max-w-md bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl border border-white/10 p-8">
-              {/* Close button */}
-              <button
-                onClick={() => setShowConfirmationModal(false)}
-                className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <span className="text-xl">×</span>
-              </button>
-
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
-                  <Wallet className="w-8 h-8 text-white" />
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-2">Confirm Payment</h3>
-                <p className="text-gray-400">
-                  Deduct from your wallet balance
-                </p>
-              </div>
-
-              <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl p-6 mb-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-300">Current Balance</span>
-                  <span className="text-xl font-bold text-white">{walletBalance.toFixed(2)} PKR</span>
-                </div>
-                <div className="flex items-center justify-between text-red-400">
-                  <span>Amount to Deduct</span>
-                  <span className="font-semibold">- {accessPrice.toFixed(2)} PKR</span>
-                </div>
-                <div className="border-t border-white/10 pt-3 flex items-center justify-between">
-                  <span className="text-gray-300">Remaining Balance</span>
-                  <span className="text-xl font-bold text-green-400">{(walletBalance - accessPrice).toFixed(2)} PKR</span>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowConfirmationModal(false);
-                    setShowPaymentModal(true);
-                  }}
-                  className="flex-1 py-3 px-4 rounded-xl font-medium text-gray-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleConfirmedPayment}
-                  disabled={paymentLoading}
-                  className="flex-1 py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {paymentLoading ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Processing...
-                    </div>
-                  ) : (
-                    'Confirm Payment'
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <ConfirmationModal
+          isOpen={showConfirmationModal}
+          onClose={() => setShowConfirmationModal(false)}
+          walletBalance={walletBalance}
+          accessPrice={accessPrice}
+          paymentLoading={paymentLoading}
+          handleConfirmedPayment={handleConfirmedPayment}
+          onBack={() => {
+            setShowConfirmationModal(false);
+            setShowPaymentModal(true);
+          }}
+        />
 
         {/* Insufficient Balance Modal */}
-        {showInsufficientBalanceModal && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="relative w-full max-w-md bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl border border-white/10 p-8">
-              {/* Close button */}
-              <button
-                onClick={() => setShowInsufficientBalanceModal(false)}
-                className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <span className="text-xl">×</span>
-              </button>
-
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
-                  <AlertTriangle className="w-8 h-8 text-white" />
-                </div>
-                <h3 className="text-2xl font-bold text-white mb-2">Insufficient Balance</h3>
-                <p className="text-gray-400">
-                  Please add funds to your wallet
-                </p>
-              </div>
-
-              <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 rounded-2xl p-6 mb-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-300">Current Balance</span>
-                  <span className="text-xl font-bold text-red-400">{walletBalance.toFixed(2)} PKR</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-300">Required Amount</span>
-                  <span className="text-xl font-bold text-white">{accessPrice.toFixed(2)} PKR</span>
-                </div>
-                <div className="border-t border-white/10 pt-3 flex items-center justify-between">
-                  <span className="text-gray-300">Amount Needed</span>
-                  <span className="text-xl font-bold text-amber-400">{(accessPrice - walletBalance).toFixed(2)} PKR</span>
-                </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowInsufficientBalanceModal(false)}
-                  className="flex-1 py-3 px-4 rounded-xl font-medium text-gray-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleGoToWallet}
-                  className="flex-1 py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 transition-all flex items-center justify-center gap-2"
-                >
-                  <Wallet className="w-5 h-5" />
-                  Manage Wallet
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <InsufficientBalanceModal
+          isOpen={showInsufficientBalanceModal}
+          onClose={() => setShowInsufficientBalanceModal(false)}
+          walletBalance={walletBalance}
+          accessPrice={accessPrice}
+          handleGoToWallet={handleGoToWallet}
+        />
       </div>
     </div>
   );

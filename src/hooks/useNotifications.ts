@@ -2,9 +2,26 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { createClient } from '@/lib/supabase/client';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { toast } from 'sonner';
+import { createClient } from '@/lib/supabase/client';
+
+// Module-level Supabase client singleton — avoids recreating the client on each
+// realtime subscription mount/unmount cycle.
+const supabaseClient = createClient();
+
+// Module-level AudioContext singleton — browsers cap concurrent AudioContext
+// instances (typically at 6). Reusing one instance prevents resource exhaustion.
+let _audioCtx: AudioContext | null = null;
+function getAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return null;
+    _audioCtx = new AudioContextClass();
+  }
+  return _audioCtx;
+}
 
 export interface Notification {
   id: string;
@@ -18,34 +35,39 @@ export interface Notification {
   updatedAt: string;
 }
 
-// Function to play a premium chime sound synthesized on the fly via Web Audio API
+// Function to play a premium chime sound synthesized on the fly via Web Audio API.
+// Reuses the module-level AudioContext singleton to avoid browser resource limits.
 export function playChime() {
   try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    
-    const audioCtx = new AudioContextClass();
-    
+    const audioCtx = getAudioContext();
+    if (!audioCtx) return;
+
+    // Resume context if it was suspended by browser autoplay policy
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+      return;
+    }
+
     const playTone = (freq: number, start: number, duration: number) => {
       const osc = audioCtx.createOscillator();
       const gainNode = audioCtx.createGain();
-      
+
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, start);
-      
+
       gainNode.gain.setValueAtTime(0.12, start);
       gainNode.gain.exponentialRampToValueAtTime(0.001, start + duration);
-      
+
       osc.connect(gainNode);
       gainNode.connect(audioCtx.destination);
-      
+
       osc.start(start);
       osc.stop(start + duration);
     };
 
     const now = audioCtx.currentTime;
-    // Premium soft double chime sound: C5 followed shortly by E5
-    playTone(523.25, now, 0.15); // C5
+    // Premium soft double chime: C5 followed shortly by E5
+    playTone(523.25, now, 0.15);        // C5
     playTone(659.25, now + 0.08, 0.25); // E5
   } catch (err) {
     console.error('AudioContext chime failed', err);
@@ -353,13 +375,12 @@ export function useNotifications() {
     initPush();
   }, [user, subscribeToPush]);
 
-  // Real-time subscription to Notification insertions
+  // Real-time subscription to Notification insertions.
+  // Uses the module-level supabaseClient singleton — no new client per mount.
   useEffect(() => {
     if (!user) return;
 
-    const supabase = createClient();
-    
-    const channel = supabase
+    const channel = supabaseClient
       .channel(`user-notifications-${user.id}`)
       .on('postgres_changes', {
         event: 'INSERT',
@@ -368,7 +389,7 @@ export function useNotifications() {
         filter: `userId=eq.${user.id}`
       }, (payload) => {
         const newNotif = payload.new as Notification;
-        
+
         toast(newNotif.title, {
           description: newNotif.message,
           action: newNotif.link ? {
@@ -390,7 +411,7 @@ export function useNotifications() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabaseClient.removeChannel(channel);
     };
   }, [user]);
 

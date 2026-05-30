@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { memo } from 'react';
 import { motion } from 'framer-motion';
 import {
     Target, Link2, LifeBuoy, Phone, Mail,
@@ -34,7 +35,7 @@ const socialLinks = [
     { name: 'Instagram', icon: Camera, color: 'hover:text-pink-400' }
 ];
 
-export default function Footer() {
+const Footer = memo(function Footer() {
     return (
         <div className="relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-t from-gray-900/90 via-blue-900/60 to-transparent"></div>
@@ -247,4 +248,7 @@ export default function Footer() {
             </footer>
         </div>
     );
-}
+});
+
+Footer.displayName = 'Footer';
+export default Footer;
