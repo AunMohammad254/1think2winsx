@@ -50,12 +50,12 @@ const SUBHEADS = ["Test your Cricket IQ", "Win real prizes", "Beat the world"];
 
 function HeroVisual() {
   return (
-    <div className="relative mx-auto max-w-md">
-      <div className="absolute -inset-6 -z-10 rounded-[2.5rem] bg-gradient-to-br from-emerald-500/30 via-amber-400/20 to-transparent blur-2xl" />
+    <div className="relative mx-auto max-w-md" style={{ backfaceVisibility: "hidden" }}>
+      <div className="absolute -inset-6 -z-10 rounded-[2.5rem] bg-gradient-to-br from-emerald-500/30 via-amber-400/20 to-transparent blur-2xl" style={{ backfaceVisibility: "hidden" }} />
       <div className="absolute -top-12 -right-6 h-28 w-28 anim-float">
         <div className="anim-ball h-full w-full"><CricketBall className="h-full w-full" /></div>
       </div>
-      <div className="absolute -bottom-6 -left-6 grid h-20 w-20 place-items-center rounded-2xl border border-amber-300/40 bg-gradient-to-br from-amber-300/30 to-orange-500/30 backdrop-blur-xl anim-float-soft glow-trophy">
+      <div className="absolute -bottom-6 -left-6 grid h-20 w-20 place-items-center rounded-2xl border border-amber-300/40 bg-gradient-to-br from-amber-300/30 to-orange-500/30 backdrop-blur-xl anim-float-soft glow-trophy" style={{ backfaceVisibility: "hidden" }}>
         <span className="text-3xl">🏆</span>
       </div>
       <div className="glass relative rounded-3xl p-6 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)]">
@@ -92,7 +92,7 @@ function HeroVisual() {
           ].map((opt, i) => (
             <div
               key={opt.letter}
-              className={`group flex items-center gap-3 rounded-xl border px-4 py-3 transition-all duration-300 ${
+              className={`group flex items-center gap-3 rounded-xl border px-4 py-3 transition-[transform,opacity,border-color,background-color] duration-300 ${
                 opt.state === "correct"
                   ? "border-emerald-400/60 bg-emerald-500/10"
                   : "border-white/10 bg-white/[0.04] hover:border-white/20 hover:bg-white/[0.08]"
@@ -151,7 +151,7 @@ export default function Hero() {
   const { ref: heroRef, isVisible } = useScrollReveal<HTMLDivElement>({ once: true, threshold: 0.05 });
 
   return (
-    <section id="top" ref={heroRef} className="relative isolate flex min-h-[90svh] items-center overflow-hidden pt-12 pb-20">
+    <section id="top" ref={heroRef} className="relative isolate contain-paint flex min-h-[90svh] items-center overflow-hidden pt-12 pb-20">
       <div className="absolute inset-0 -z-20 bg-gradient-to-b from-ink-950 via-ink-900 to-ink-950" />
       <div className="absolute inset-0 -z-20 bg-grid opacity-60" />
       <Particles />

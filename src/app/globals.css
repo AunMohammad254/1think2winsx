@@ -627,6 +627,7 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateY(30px) translateZ(0);
   transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 .reveal-left {
   transform: translateX(-40px) translateZ(0);
@@ -683,6 +684,8 @@ h1, h2, h3, h4, h5, h6 {
 .anim-orb {
   animation: orb-animation 25s ease-in-out infinite;
   will-change: transform, opacity;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 @keyframes float-badge {
@@ -692,6 +695,8 @@ h1, h2, h3, h4, h5, h6 {
 .anim-float {
   animation: float-badge 6s ease-in-out infinite;
   will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 @keyframes float-soft-badge {
@@ -701,6 +706,20 @@ h1, h2, h3, h4, h5, h6 {
 .anim-float-soft {
   animation: float-soft-badge 8s ease-in-out infinite;
   will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+/* Bounce soft for scroll indicator */
+@keyframes bounce-soft {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -6px, 0); }
+}
+.anim-bounce-soft {
+  animation: bounce-soft 2s ease-in-out infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 @keyframes ball-spin {
@@ -710,6 +729,8 @@ h1, h2, h3, h4, h5, h6 {
 .anim-ball {
   animation: ball-spin 12s linear infinite;
   will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 /* Card Hover Glows */
@@ -728,18 +749,21 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 0 40px -5px rgba(245, 158, 11, 0.3);
 }
 
-/* Glass Card */
+/* Glass Card — backdrop-filter is static (not animated) so it just needs its own compositor layer */
 .glass {
   background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  transform: translateZ(0);
 }
 
 /* Lift Card Hover */
 .lift {
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease, border-color 0.3s ease;
   will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 .lift:hover {
   transform: translateY(-6px) scale(1.01) translateZ(0);
@@ -766,9 +790,11 @@ h1, h2, h3, h4, h5, h6 {
     rgba(255, 255, 255, 0.25),
     transparent
   );
-  transform: translateX(-100%) skewX(-15deg);
+  transform: translateX(-100%) skewX(-15deg) translateZ(0);
   pointer-events: none;
   z-index: 5;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 .btn-shine:hover::before {
   animation: shine-sweep 1.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -784,6 +810,8 @@ h1, h2, h3, h4, h5, h6 {
   width: max-content;
   animation: marquee 25s linear infinite;
   will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 .marquee-pause:hover .marquee-track {
   animation-play-state: paused;
@@ -815,6 +843,8 @@ h1, h2, h3, h4, h5, h6 {
 .anim-particle {
   animation: particle-drift 8s ease-in-out infinite;
   will-change: transform, opacity;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 /* Typing cursor blink */
@@ -824,6 +854,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 .anim-cursor {
   animation: cursor-blink 1s step-end infinite;
+  will-change: opacity;
+  backface-visibility: hidden;
 }
 
 /* Radial progress ring fill */
@@ -862,6 +894,9 @@ h1, h2, h3, h4, h5, h6 {
 }
 .anim-ticker {
   animation: ticker-scroll 20s linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 /* Radial progress wrapper */
@@ -882,8 +917,21 @@ h1, h2, h3, h4, h5, h6 {
   .anim-cursor,
   .anim-ticker,
   .anim-float,
-  .anim-skeleton {
+  .anim-skeleton,
+  .anim-orb,
+  .anim-ball,
+  .anim-float-soft,
+  .animate-success-scale {
     animation: none !important;
   }
+  
+  .marquee-track {
+    animation-play-state: paused !important;
+  }
+}
+
+/* Contain paint/layout for sections with heavy animations — prevents paint spill to rest of page */
+.contain-paint {
+  contain: layout style paint;
 }
 
