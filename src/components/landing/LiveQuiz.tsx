@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Section, Eyebrow, Reveal, Button } from "./Primitives";
+import { Section, Eyebrow, Reveal, Button, useScrollReveal } from "./Primitives";
 import Link from "next/link";
 
 const QUIZ_DATA = [
@@ -21,9 +21,16 @@ export default function LiveQuiz() {
   const isLoggedIn = !!user;
 
   const [active, setActive] = useState(0);
-  useEffect(() => { const id = setInterval(() => setActive((a) => (a + 1) % QUIZ_DATA.length), 4200); return () => clearInterval(id); }, []);
+  const { ref, isVisible } = useScrollReveal({ threshold: 0.1, once: false });
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const id = setInterval(() => setActive((a) => (a + 1) % QUIZ_DATA.length), 4200);
+    return () => clearInterval(id);
+  }, [isVisible]);
+
   return (
-    <Section id="live" className="relative overflow-hidden">
+    <Section id="live" ref={ref as React.RefObject<HTMLDivElement>} className="relative overflow-hidden">
       <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
         <div>
           <Reveal><Eyebrow tone="live">Live arena</Eyebrow></Reveal>

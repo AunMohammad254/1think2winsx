@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, CSSProperties, ReactNode } from "react";
+import { useEffect, useState, useRef, CSSProperties, ReactNode, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -43,31 +43,40 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(
 }
 
 export function useCountUp(target: number, duration = 1800, startWhen = true) {
-  const [value, setValue] = useState(0);
+  const ref = useRef<HTMLElement>(null);
   const startedRef = useRef(false);
 
   useEffect(() => {
-    if (!startWhen || startedRef.current) return;
+    if (!startWhen || startedRef.current || !ref.current) return;
     startedRef.current = true;
+
+    const formatNumber = (n: number) => n >= 1000 ? n.toLocaleString() : n.toString();
+
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setValue(target);
+      ref.current.textContent = formatNumber(target);
       return;
     }
+
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
       const elapsed = now - start;
       const progress = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
-      setValue(Math.floor(target * eased));
+      const current = Math.floor(target * eased);
+      
+      if (ref.current) {
+        ref.current.textContent = formatNumber(current);
+      }
+      
       if (progress < 1) raf = requestAnimationFrame(tick);
-      else setValue(target);
+      else if (ref.current) ref.current.textContent = formatNumber(target);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [target, duration, startWhen]);
 
-  return value;
+  return ref;
 }
 
 export function useParallaxPointer(strength = 12) {
@@ -77,21 +86,38 @@ export function useParallaxPointer(strength = 12) {
     if (!node) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     if (window.matchMedia("(pointer: coarse)").matches) return;
+    
     let raf = 0;
+    let rect: DOMRect | null = null;
+    
+    const onMouseEnter = () => {
+      rect = node.getBoundingClientRect();
+    };
+
     const onMove = (e: MouseEvent) => {
+      if (!rect) {
+        rect = node.getBoundingClientRect();
+      }
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        const rect = node.getBoundingClientRect();
-        const x = (e.clientX - rect.left) / rect.width - 0.5;
-        const y = (e.clientY - rect.top) / rect.height - 0.5;
+        const x = (e.clientX - rect!.left) / rect!.width - 0.5;
+        const y = (e.clientY - rect!.top) / rect!.height - 0.5;
         node.style.transform = `translate3d(${x * strength}px, ${y * strength}px, 0)`;
       });
     };
-    const reset = () => { node.style.transform = "translate3d(0,0,0)"; };
+    
+    const reset = () => { 
+      node.style.transform = "translate3d(0,0,0)"; 
+      rect = null;
+    };
+    
     const parent = node.parentElement ?? window;
+    parent.addEventListener("mouseenter", onMouseEnter, { passive: true });
     parent.addEventListener("mousemove", onMove as EventListener, { passive: true });
     parent.addEventListener("mouseleave", reset as EventListener);
+    
     return () => {
+      parent.removeEventListener("mouseenter", onMouseEnter);
       parent.removeEventListener("mousemove", onMove as EventListener);
       parent.removeEventListener("mouseleave", reset as EventListener);
       cancelAnimationFrame(raf);
@@ -111,13 +137,17 @@ export interface SectionProps {
   containerClassName?: string;
 }
 
-export function Section({ id, children, className, containerClassName }: SectionProps) {
-  return (
-    <section id={id} className={cn("relative w-full py-20 sm:py-28 lg:py-32", className)}>
-      <div className={cn("mx-auto w-full max-w-7xl px-5 sm:px-8", containerClassName)}>{children}</div>
-    </section>
-  );
-}
+export const Section = forwardRef<HTMLElement, SectionProps>(
+  ({ id, children, className, containerClassName }, ref) => {
+    return (
+      <section id={id} ref={ref} className={cn("relative w-full py-20 sm:py-28 lg:py-32", className)}>
+        <div className={cn("mx-auto w-full max-w-7xl px-5 sm:px-8", containerClassName)}>{children}</div>
+      </section>
+    );
+  }
+);
+
+Section.displayName = "Section";
 
 export function Eyebrow({ children, tone = "pitch", className }: { children: ReactNode; tone?: "pitch" | "trophy" | "live"; className?: string }) {
   const tones = {

@@ -9,8 +9,8 @@ import { Suspense } from "react";
 import dynamic from "next/dynamic";
 
 const Footer = dynamic(() => import("@/components/Footer"));
-import ChatbotLoader from "@/components/chatbot/ChatbotLoader";
-import InstallPromptBanner from "@/components/InstallPromptBanner";
+const ChatbotLoader = dynamic(() => import("@/components/chatbot/ChatbotLoader"));
+const InstallPromptBanner = dynamic(() => import("@/components/InstallPromptBanner"));
 
 
 

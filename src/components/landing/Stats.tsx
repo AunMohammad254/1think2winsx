@@ -11,15 +11,14 @@ const STATS: Stat[] = [
 ];
 
 function StatCard({ stat, index, visible }: { stat: Stat; index: number; visible: boolean }) {
-  const value = useCountUp(stat.value, 1800, visible);
-  const formatNumber = (n: number) => n >= 1000 ? n.toLocaleString() : n.toString();
+  const countRef = useCountUp(stat.value, 1800, visible);
   return (
     <div className="reveal is-visible group relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-transparent p-6 backdrop-blur-xl lift" style={{ transitionDelay: `${index * 80}ms` }}>
       <div className={`pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-gradient-to-br ${stat.color} opacity-15 blur-2xl transition-opacity duration-500 group-hover:opacity-30`} />
       <div className="relative flex items-start justify-between">
         <div>
           <div className="font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
-            {stat.prefix ?? ""}<span className="tabular-nums">{formatNumber(value)}</span>
+            {stat.prefix ?? ""}<span ref={countRef as React.RefObject<HTMLSpanElement>} className="tabular-nums">0</span>
             <span className={`bg-gradient-to-r ${stat.color} bg-clip-text text-transparent`}>{stat.suffix}</span>
           </div>
           <p className="mt-2 text-sm font-medium uppercase tracking-[0.16em] text-white/55">{stat.label}</p>

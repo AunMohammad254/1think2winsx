@@ -788,3 +788,16 @@ h1, h2, h3, h4, h5, h6 {
 .marquee-pause:hover .marquee-track {
   animation-play-state: paused;
 }
+
+/* Fade Up Keyframe Animation - GPU accelerated */
+@keyframes fade-up {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 15px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+

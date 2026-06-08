@@ -22,7 +22,7 @@ function Stars({ count }: { count: number }) {
 
 function ReviewCard({ r }: { r: (typeof REVIEWS)[number] }) {
   return (
-    <article className="lift mx-2 w-[320px] shrink-0 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-6 backdrop-blur-xl sm:w-[360px]">
+    <article className="lift mx-2 w-[320px] shrink-0 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.03] p-6 sm:w-[360px]">
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className={`grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br ${r.avatar} text-sm font-bold text-white`}>{r.name.split(" ").map((n) => n[0]).join("")}</div>

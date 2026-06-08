@@ -19,32 +19,23 @@ export default function LazySection({
   fallback,
   delay = 0,
 }: LazySectionProps) {
-  const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const sectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setIsVisible(true);
-          
-          // Add delay if specified
           if (delay > 0) {
-            setTimeout(() => {
-              setShouldRender(true);
-            }, delay);
+            setTimeout(() => setShouldRender(true), delay);
           } else {
             setShouldRender(true);
           }
-          
           observer.disconnect();
         }
       },
-      {
-        threshold,
-        rootMargin,
-      }
+      { threshold, rootMargin }
     );
 
     if (sectionRef.current) {
@@ -54,12 +45,20 @@ export default function LazySection({
     return () => observer.disconnect();
   }, [threshold, rootMargin, delay]);
 
+  useEffect(() => {
+    if (shouldRender) {
+      // Trigger fade-in after mount
+      const raf = requestAnimationFrame(() => setIsMounted(true));
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [shouldRender]);
+
   return (
     <div ref={sectionRef} className={className}>
       {shouldRender ? (
         <div
-          className={`transition-opacity duration-500 ${
-            isVisible ? 'opacity-100' : 'opacity-0'
+          className={`transition-opacity duration-700 ease-out ${
+            isMounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
           }`}
         >
           {children}
@@ -67,7 +66,7 @@ export default function LazySection({
       ) : (
         fallback || (
           <div className="min-h-[200px] flex items-center justify-center">
-            <div className="animate-pulse bg-gradient-to-r from-gray-200 to-gray-300 rounded-lg w-full h-32" />
+            <div className="animate-pulse bg-white/5 rounded-lg w-full h-32" />
           </div>
         )
       )}
