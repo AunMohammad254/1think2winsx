@@ -1,0 +1,37 @@
+"use client";
+
+import { Section, SectionHeading, Reveal } from "./Primitives";
+
+const STEPS = [
+  { n: "01", icon: "📝", title: "Create your account", desc: "Sign up in under 30 seconds. No credit card required — just your name, email and a passion for cricket.", color: "from-emerald-400 to-cyan-400" },
+  { n: "02", icon: "🎯", title: "Pick your quiz", desc: "Choose from live tournaments, daily challenges, or solo practice rooms across every cricket format.", color: "from-violet-400 to-pink-400" },
+  { n: "03", icon: "⚡", title: "Answer fast, score big", desc: "Speed matters. Faster correct answers earn streak multipliers — chain them to climb the leaderboard.", color: "from-amber-400 to-orange-500" },
+  { n: "04", icon: "💸", title: "Win & withdraw", desc: "Cash, gift cards, signed merchandise — winners are paid out instantly via UPI within 5 minutes.", color: "from-rose-400 to-red-500" },
+];
+
+export default function HowItWorks() {
+  return (
+    <Section id="how" className="relative">
+      <div className="absolute inset-0 -z-10 bg-dots opacity-30" />
+      <SectionHeading eyebrow="Get started in 4 steps" title={<>From sign-up to <span className="text-gradient-trophy">payout in minutes.</span></>} description="A frictionless flow built for one thing: getting you into the game and rewarded fast." />
+      <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {STEPS.map((step, i) => (
+          <Reveal key={step.n} delay={i * 120} variant="up">
+            <div className="group relative h-full">
+              {i < STEPS.length - 1 && <div className="pointer-events-none absolute left-full top-12 hidden h-px w-full -translate-x-4 lg:block"><svg viewBox="0 0 100 4" className="h-1 w-full" preserveAspectRatio="none"><line x1="0" y1="2" x2="100" y2="2" stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" /></svg></div>}
+              <div className="lift relative h-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-6">
+                <div className="flex items-start justify-between">
+                  <span className={`bg-gradient-to-br ${step.color} bg-clip-text font-display text-5xl font-bold text-transparent`}>{step.n}</span>
+                  <span className="grid h-12 w-12 place-items-center rounded-xl border border-white/10 bg-white/5 text-2xl transition-transform duration-500 group-hover:scale-110 group-hover:-rotate-6">{step.icon}</span>
+                </div>
+                <h3 className="mt-6 font-display text-lg font-semibold text-white">{step.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-white/60">{step.desc}</p>
+                <div className={`absolute inset-x-0 bottom-0 h-1 origin-left scale-x-0 bg-gradient-to-r ${step.color} transition-transform duration-500 group-hover:scale-x-100`} />
+              </div>
+            </div>
+          </Reveal>
+        ))}
+      </div>
+    </Section>
+  );
+}
