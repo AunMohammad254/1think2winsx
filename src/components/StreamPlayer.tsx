@@ -107,6 +107,19 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
     fetchStreamData();
   }, [fetchStreamData]);
 
+  // Memoized embed source — must be declared before any early returns to satisfy
+  // the Rules of Hooks (hooks must always be called in the same order).
+  const embedSrc = useMemo(() => {
+    if (!streamData) return '';
+    const ytId = isYouTubeContent(streamData.embedHtml)
+      ? getYouTubeVideoId(streamData.embedHtml)
+      : null;
+    if (ytId) {
+      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1`;
+    }
+    return buildEmbedDataUri(streamData.embedHtml);
+  }, [streamData]);
+
   if (loading) {
     return (
       <div className={`flex items-center justify-center bg-gray-900 rounded-lg ${className}`} role="status" aria-live="polite">
@@ -134,17 +147,6 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
       </div>
     );
   }
-  // Memoized embed source — avoids recalculating the iframe src on every render.
-  const embedSrc = useMemo(() => {
-    if (!streamData) return '';
-    const ytId = isYouTubeContent(streamData.embedHtml)
-      ? getYouTubeVideoId(streamData.embedHtml)
-      : null;
-    if (ytId) {
-      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1`;
-    }
-    return buildEmbedDataUri(streamData.embedHtml);
-  }, [streamData]);
 
   // For YouTube, render iframe directly (avoids Error 153)
   const renderStreamContent = () => {
