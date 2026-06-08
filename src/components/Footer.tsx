@@ -2,306 +2,255 @@
 
 import Link from 'next/link';
 import { memo, useState } from 'react';
-import { motion } from 'framer-motion';
-import {
-    Target, Link2, LifeBuoy, Phone, Mail,
-    ExternalLink, MessageCircle, Camera, Send, Bell,
-    ChevronRight, Heart
-} from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFHeaders } from '@/lib/csrf';
-
-const staggerCol = (delay: number) => ({
-    hidden: { opacity: 0, y: 30 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5, delay } }
-});
+import { Reveal } from '@/components/landing/Primitives';
 
 const quickLinks = [
-    { href: '/', label: 'Home' },
-    { href: '/quizzes', label: 'Quizzes' },
-    { href: '/prizes', label: 'Prizes' },
-    { href: '/leaderboard', label: 'Leaderboard' }
+  { href: '/', label: 'Home' },
+  { href: '/quizzes', label: 'Quizzes' },
+  { href: '/prizes', label: 'Prizes' },
+  { href: '/leaderboard', label: 'Leaderboard' },
 ];
 
 const supportLinks = [
-    { href: '/faq', label: 'FAQ' },
-    { href: '/contact', label: 'Contact Us' },
-    { href: '/disclaimer', label: 'Disclaimer' },
-    { href: '/terms', label: 'Terms of Service' },
-    { href: '/privacy', label: 'Privacy Policy' }
-];
-
-const socialLinks = [
-    { name: 'Facebook', icon: ExternalLink, color: 'hover:text-blue-400' },
-    { name: 'Twitter', icon: MessageCircle, color: 'hover:text-sky-400' },
-    { name: 'Instagram', icon: Camera, color: 'hover:text-pink-400' }
+  { href: '/faq', label: 'FAQ' },
+  { href: '/contact', label: 'Contact Us' },
+  { href: '/disclaimer', label: 'Disclaimer' },
+  { href: '/terms', label: 'Terms of Service' },
+  { href: '/privacy', label: 'Privacy Policy' },
 ];
 
 const Footer = memo(function Footer() {
-    const [email, setEmail] = useState('');
-    const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
 
-    const handleSubscribe = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!email) {
-            toast.error('Please enter your email address');
-            return;
-        }
+  const handleSubscribe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) {
+      toast.error('Please enter your email address');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    setLoading(true);
+    try {
+      const csrfHeaders = await getCSRFHeaders();
+      const res = await fetch('/api/newsletter/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || 'Subscribed successfully!');
+        setEmail('');
+      } else {
+        toast.error(data.message || 'Failed to subscribe');
+      }
+    } catch {
+      toast.error('An error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email.trim())) {
-            toast.error('Please enter a valid email address');
-            return;
-        }
+  return (
+    <footer className="relative overflow-hidden border-t border-white/5 bg-ink-950">
+      <div className="pointer-events-none absolute inset-0 -z-10">
+        <div className="absolute -top-40 left-1/4 h-80 w-80 rounded-full bg-emerald-500/10 blur-[120px]" />
+        <div className="absolute -bottom-40 right-1/4 h-80 w-80 rounded-full bg-amber-400/10 blur-[120px]" />
+        <div className="absolute left-1/2 top-1/2 h-60 w-60 -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-500/10 blur-[100px]" />
+      </div>
+      <div className="pointer-events-none absolute inset-0 -z-10 bg-grid opacity-20" />
 
-        setLoading(true);
-        try {
-            const csrfHeaders = await getCSRFHeaders();
-            const res = await fetch('/api/newsletter/subscribe', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...csrfHeaders
-                },
-                body: JSON.stringify({ email: email.trim() })
-            });
-
-            const data = await res.json();
-            if (res.ok && data.success) {
-                toast.success(data.message || 'Subscribed successfully!');
-                setEmail('');
-            } else {
-                toast.error(data.message || 'Failed to subscribe');
-            }
-        } catch (error) {
-            toast.error('An error occurred. Please try again.');
-            console.error('Subscription error:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-t from-gray-900/90 via-blue-900/60 to-transparent"></div>
-            <div className="absolute top-0 left-0 w-full h-full hidden md:block">
-                <div className="absolute top-0 left-1/4 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl md:animate-pulse"></div>
-                <div className="absolute bottom-0 right-1/4 w-40 h-40 bg-purple-500/10 rounded-full blur-3xl md:animate-pulse" style={{ animationDelay: '1s' }}></div>
-                <div className="absolute top-1/2 left-1/2 w-24 h-24 bg-blue-400/10 rounded-full blur-2xl hidden lg:block lg:animate-bounce" style={{ animationDuration: '4s' }}></div>
-            </div>
-
-            <footer className="relative bg-gray-900/80 md:backdrop-blur-xl md:bg-gradient-to-t md:from-gray-900/80 md:via-blue-900/40 md:to-gray-900/60 border-t border-white/10 shadow-lg md:shadow-2xl">
-                <div className="container mx-auto px-4 py-12">
-
-                    {/* Main Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
-
-                        {/* Company Info */}
-                        <motion.div variants={staggerCol(0)} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-                            <div className="group">
-                                <div className="flex items-center space-x-3 mb-4">
-                                    <div className="relative">
-                                        <div className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full opacity-0 md:group-hover:opacity-50 transition-opacity duration-300 md:blur-lg"></div>
-                                        <div className="relative bg-gradient-to-r from-blue-600 to-purple-700 p-3 rounded-full border border-white/20 shadow-md md:shadow-lg">
-                                            <Target className="w-6 h-6 text-white" />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <h3 className="text-xl font-bold bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
-                                            1Think 2Win
-                                        </h3>
-                                        <p className="text-xs text-gray-400">Think Smart, Win Big</p>
-                                    </div>
-                                </div>
-                                <div className="bg-white/5 md:backdrop-blur-sm border border-white/10 rounded-lg p-4">
-                                    <p className="text-gray-300 text-sm leading-relaxed">
-                                        Test your cricket knowledge and win amazing prizes in our innovative quiz competition.
-                                        Join thousands of smart thinkers in this exciting journey of knowledge and rewards!
-                                    </p>
-                                </div>
-                            </div>
-                        </motion.div>
-
-                        {/* Quick Links */}
-                        <motion.div variants={staggerCol(0.1)} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-                            <h4 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
-                                <Link2 className="w-5 h-5 text-blue-400" />
-                                <span>Quick Links</span>
-                            </h4>
-                            <div className="bg-white/5 md:backdrop-blur-sm border border-white/10 rounded-lg p-4">
-                                <ul className="space-y-3">
-                                    {quickLinks.map((item) => (
-                                        <li key={item.href}>
-                                            <Link
-                                                href={item.href}
-                                                className="group/link flex items-center gap-3 text-gray-300 hover:text-white transition-colors duration-200 p-2 rounded-md hover:bg-white/10"
-                                            >
-                                                <span className="text-sm font-medium">{item.label}</span>
-                                                <ChevronRight className="w-3.5 h-3.5 ml-auto text-blue-400 opacity-0 group-hover/link:opacity-100 transition-all duration-200 group-hover/link:translate-x-1" />
-                                            </Link>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        </motion.div>
-
-                        {/* Support */}
-                        <motion.div variants={staggerCol(0.2)} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-                            <h4 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
-                                <LifeBuoy className="w-5 h-5 text-green-400" />
-                                <span>Support</span>
-                            </h4>
-                            <div className="bg-white/5 md:backdrop-blur-sm border border-white/10 rounded-lg p-4">
-                                <ul className="space-y-3">
-                                    {supportLinks.map((item) => (
-                                        <li key={item.href}>
-                                            <Link
-                                                href={item.href}
-                                                className="group/link flex items-center gap-3 text-gray-300 hover:text-white transition-colors duration-200 p-2 rounded-md hover:bg-white/10"
-                                            >
-                                                <span className="text-sm font-medium">{item.label}</span>
-                                                <ChevronRight className="w-3.5 h-3.5 ml-auto text-green-400 opacity-0 group-hover/link:opacity-100 transition-all duration-200 group-hover/link:translate-x-1" />
-                                            </Link>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        </motion.div>
-
-                        {/* Contact */}
-                        <motion.div variants={staggerCol(0.3)} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-                            <h4 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
-                                <Phone className="w-5 h-5 text-purple-400" />
-                                <span>Contact</span>
-                            </h4>
-                            <div className="bg-white/5 md:backdrop-blur-sm border border-white/10 rounded-lg p-4 space-y-4">
-                                <div className="space-y-3">
-                                    <div className="flex items-start gap-3 p-2 rounded-md hover:bg-white/5 transition-colors duration-200">
-                                        <Mail className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs text-gray-400">Email</p>
-                                            <p className="text-sm text-white font-medium break-all">support@1think2win.com</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-start gap-3 p-2 rounded-md hover:bg-white/5 transition-colors duration-200">
-                                        <Phone className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs text-gray-400">Phone</p>
-                                            <p className="text-sm text-white font-medium">+92 XXX XXXXXXX</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Social Links */}
-                                <div className="border-t border-white/10 pt-4">
-                                    <p className="text-xs text-gray-400 mb-3">Follow Us</p>
-                                    <div className="flex gap-3">
-                                        {socialLinks.map((social) => (
-                                            <motion.a
-                                                key={social.name}
-                                                href="#"
-                                                className={`group p-2 rounded-lg bg-white/5 border border-white/10 text-gray-300 ${social.color} transition-colors duration-200 hover:bg-white/10 hover:border-white/20`}
-                                                title={social.name}
-                                                whileHover={{ scale: 1.15, y: -2 }}
-                                                whileTap={{ scale: 0.95 }}
-                                                transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                                            >
-                                                <social.icon className="w-5 h-5" />
-                                            </motion.a>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        </motion.div>
-                    </div>
-
-                    {/* Newsletter */}
-                    <motion.div
-                        className="mb-8"
-                        initial={{ opacity: 0, y: 30 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.5, delay: 0.4 }}
-                    >
-                        <div className="bg-blue-500/10 md:backdrop-blur-sm border border-blue-400/20 rounded-xl p-6 text-center">
-                            <h3 className="text-xl font-bold text-white mb-2 flex items-center justify-center gap-2">
-                                <Bell className="w-5 h-5 text-blue-400" />
-                                <span>Stay Updated</span>
-                            </h3>
-                            <p className="text-gray-300 text-sm mb-4">
-                                Get the latest quiz updates, cricket news, and exclusive prizes delivered to your inbox!
-                            </p>
-                            <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-                                <input
-                                    suppressHydrationWarning
-                                    type="email"
-                                    placeholder="Enter your email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    disabled={loading}
-                                    className="flex-1 px-4 py-2 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all duration-200 disabled:opacity-50"
-                                />
-                                <motion.button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg shadow-md md:shadow-lg border border-white/20 flex items-center justify-center gap-2 disabled:opacity-50"
-                                    whileHover={loading ? {} : { scale: 1.03, boxShadow: '0 0 20px rgba(59,130,246,0.4)' }}
-                                    whileTap={loading ? {} : { scale: 0.97 }}
-                                    transition={{ type: "spring", stiffness: 400, damping: 17 }}
-                                >
-                                    {loading ? (
-                                        <div className="w-4.5 h-4.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                        <Send className="w-4 h-4" />
-                                    )}
-                                    Subscribe
-                                </motion.button>
-                            </form>
-                        </div>
-                    </motion.div>
-
-                    {/* Bottom Bar */}
-                    <motion.div
-                        className="border-t border-white/10 pt-8"
-                        initial={{ opacity: 0 }}
-                        whileInView={{ opacity: 1 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.5, delay: 0.6 }}
-                    >
-                        <div className="bg-white/5 md:backdrop-blur-sm border border-white/10 rounded-lg p-6">
-                            <div className="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-                                <div className="text-center md:text-left">
-                                    <p className="text-gray-300 text-sm">
-                                        &copy; 2024 <span className="font-semibold text-white">1Think 2Win</span>. All rights reserved.
-                                    </p>
-                                    <p className="text-xs text-gray-400 mt-1 flex items-center justify-center md:justify-start gap-1">
-                                        Crafted with <Heart className="w-3 h-3 text-red-400 fill-red-400" /> for cricket enthusiasts worldwide
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-4">
-                                    <motion.div
-                                        className="flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/20 border border-green-400/30"
-                                        whileHover={{ scale: 1.05 }}
-                                        transition={{ type: "spring", stiffness: 400 }}
-                                    >
-                                        <motion.div
-                                            className="w-2 h-2 bg-green-400 rounded-full"
-                                            animate={{ opacity: [1, 0.3, 1] }}
-                                            transition={{ duration: 2, repeat: Infinity }}
-                                        />
-                                        <span className="text-green-400 text-xs font-medium">Live</span>
-                                    </motion.div>
-                                    <div className="text-xs text-gray-400">
-                                        Made with <Heart className="w-3 h-3 text-red-400 fill-red-400 inline-block animate-pulse" /> by Antilights
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </motion.div>
+      <div className="mx-auto max-w-7xl px-5 py-16 sm:px-8">
+        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-12 lg:gap-12">
+          {/* Brand */}
+          <Reveal delay={0} className="sm:col-span-2 md:col-span-3 lg:col-span-4">
+            <div className="glass relative overflow-hidden rounded-2xl p-6">
+              <div className="flex items-center gap-3">
+                <span className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-emerald-400 to-amber-400 text-xl shadow-lg">
+                  🏏
+                </span>
+                <div>
+                  <h3 className="font-display text-lg font-bold text-white">1Think 2Win</h3>
+                  <p className="text-xs text-emerald-400/80">Think Smart, Win Big</p>
                 </div>
-            </footer>
+              </div>
+              <p className="mt-5 text-sm leading-relaxed text-white/55">
+                Test your cricket knowledge and win amazing prizes in our innovative quiz competition.
+                Join thousands of smart thinkers in this exciting journey of knowledge and rewards!
+              </p>
+              <div className="mt-5 flex items-center gap-2 text-xs text-white/40">
+                <span className="flex h-2 w-2 rounded-full bg-emerald-400" />
+                <span>Trusted by <span className="font-semibold text-white/70">10,000+</span> players</span>
+              </div>
+            </div>
+          </Reveal>
+
+          {/* Quick Links */}
+          <Reveal delay={100} className="sm:col-span-1 md:col-span-1.5 lg:col-span-2">
+            <h4 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-emerald-400">
+              <span>⚡</span> Quick Links
+            </h4>
+            <ul className="space-y-1.5">
+              {quickLinks.map((item) => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 transition-all duration-200 hover:bg-white/[0.04] hover:text-white"
+                  >
+                    <span className="text-[10px] text-white/20 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-emerald-400">▸</span>
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
+
+          {/* Support */}
+          <Reveal delay={200} className="sm:col-span-1 md:col-span-1.5 lg:col-span-2">
+            <h4 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-emerald-400">
+              <span>🛟</span> Support
+            </h4>
+            <ul className="space-y-1.5">
+              {supportLinks.map((item) => (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 transition-all duration-200 hover:bg-white/[0.04] hover:text-white"
+                  >
+                    <span className="text-[10px] text-white/20 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-emerald-400">▸</span>
+                    {item.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
+
+          {/* Contact */}
+          <Reveal delay={300} className="sm:col-span-2 md:col-span-3 lg:col-span-4">
+            <h4 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-emerald-400">
+              <span>📞</span> Contact
+            </h4>
+            <div className="glass relative overflow-hidden rounded-2xl p-5">
+              <div className="space-y-4">
+                <a
+                  href="mailto:support@1think2win.com"
+                  className="group flex items-start gap-3 rounded-lg p-2 transition-colors hover:bg-white/[0.04]"
+                >
+                  <span className="mt-0.5 text-lg">✉️</span>
+                  <div>
+                    <p className="text-xs text-white/40">Email</p>
+                    <p className="text-sm font-medium text-white transition-colors group-hover:text-emerald-400">support@1think2win.com</p>
+                  </div>
+                </a>
+                <div className="flex items-start gap-3 rounded-lg p-2">
+                  <span className="mt-0.5 text-lg">📱</span>
+                  <div>
+                    <p className="text-xs text-white/40">Phone</p>
+                    <p className="text-sm font-medium text-white">+92 XXX XXXXXXX</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 border-t border-white/10 pt-4">
+                <p className="mb-3 text-xs text-white/40">Follow Us</p>
+                <div className="flex gap-2.5">
+                  {[
+                    { name: 'Facebook', icon: '📘', href: '#' },
+                    { name: 'Twitter', icon: '🐦', href: '#' },
+                    { name: 'Instagram', icon: '📸', href: '#' },
+                  ].map((social) => (
+                    <a
+                      key={social.name}
+                      href={social.href}
+                      className="group grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-base transition-all duration-300 hover:scale-110 hover:border-emerald-400/30 hover:bg-emerald-500/10 hover:shadow-[0_0_20px_-5px_rgba(16,185,129,0.3)]"
+                      title={social.name}
+                    >
+                      {social.icon}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </Reveal>
         </div>
-    );
+
+        {/* Newsletter */}
+        <Reveal delay={400}>
+          <div className="relative mt-12 overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.06] to-amber-400/[0.04] p-4 sm:p-6 md:p-8">
+            <div className="pointer-events-none absolute -right-20 -top-20 h-40 w-40 rounded-full bg-emerald-500/20 blur-[80px]" />
+            <div className="pointer-events-none absolute -bottom-20 -left-20 h-40 w-40 rounded-full bg-amber-400/20 blur-[80px]" />
+            <div className="relative mx-auto max-w-lg text-center">
+              <h3 className="flex items-center justify-center gap-2 font-display text-xl font-bold text-white">
+                <span>🔔</span>
+                <span>Stay Updated</span>
+              </h3>
+              <p className="mt-2 text-sm text-white/55">
+                Get the latest quiz updates, cricket news, and exclusive prizes delivered to your inbox!
+              </p>
+              <form onSubmit={handleSubscribe} className="mt-6 flex flex-col gap-2 sm:gap-3 md:flex-row">
+                <input
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={loading}
+                  className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm sm:px-4 sm:py-2.5 text-white placeholder-white/40 outline-none transition-all duration-200 focus:border-emerald-400/40 focus:bg-white/[0.06] focus:ring-1 focus:ring-emerald-400/30 disabled:opacity-50 md:flex-1"
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="btn-shine group inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 via-emerald-400 to-amber-400 px-4 py-2 text-sm font-semibold sm:px-6 sm:py-2.5 text-ink-950 shadow-[0_10px_40px_-10px_rgba(16,185,129,0.6)] transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 md:w-auto"
+                >
+                  {loading ? (
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-ink-950 border-t-transparent" />
+                  ) : (
+                    <>
+                      <span>Subscribe</span>
+                      <span className="text-base transition-transform duration-300 group-hover:translate-x-0.5">→</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
+        </Reveal>
+
+        {/* Bottom Bar */}
+        <Reveal delay={500}>
+          <div className="mt-12 border-t border-white/10 pt-8">
+            <div className="glass relative overflow-hidden rounded-2xl p-6">
+              <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
+                <div className="text-center md:text-left">
+                  <p className="text-sm text-white/55">
+                    &copy; 2025 <span className="font-semibold text-white">1Think 2Win</span>. All rights reserved.
+                  </p>
+                  <p className="mt-1 flex items-center justify-center gap-1 text-xs text-white/35 md:justify-start">
+                    Crafted for cricket enthusiasts worldwide
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    </span>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">Live</span>
+                  </div>
+                  <span className="text-xs text-white/35">Made with passion</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Reveal>
+      </div>
+    </footer>
+  );
 });
 
 Footer.displayName = 'Footer';

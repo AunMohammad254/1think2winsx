@@ -66,7 +66,7 @@ export default function CTA() {
   return (
     <Section id="cta" className="relative">
       <Reveal variant="scale">
-        <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-ink-800 via-ink-900 to-ink-950 p-10 sm:p-16 lg:p-20">
+        <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-ink-800 via-ink-900 to-ink-950 p-6 sm:p-10 md:p-16 lg:p-20">
           <div
             className="pointer-events-none absolute inset-0 opacity-60"
             style={{
@@ -75,15 +75,15 @@ export default function CTA() {
             }}
           />
           <div className="absolute inset-0 bg-grid opacity-30" />
-          <span className="absolute left-[6%] top-[14%] text-4xl opacity-50 anim-float">🏏</span>
-          <span className="absolute right-[8%] top-[20%] text-3xl opacity-50 anim-float" style={{ animationDelay: "-3s" }}>🏆</span>
-          <span className="absolute left-[10%] bottom-[18%] text-3xl opacity-40 anim-float" style={{ animationDelay: "-5s" }}>⚡</span>
-          <span className="absolute right-[10%] bottom-[22%] text-3xl opacity-40 anim-float" style={{ animationDelay: "-2s" }}>🎯</span>
+          <span className="absolute left-[6%] top-[14%] hidden text-4xl opacity-50 anim-float lg:block">🏏</span>
+          <span className="absolute right-[8%] top-[20%] hidden text-3xl opacity-50 anim-float lg:block" style={{ animationDelay: "-3s" }}>🏆</span>
+          <span className="absolute left-[10%] bottom-[18%] hidden text-3xl opacity-40 anim-float lg:block" style={{ animationDelay: "-5s" }}>⚡</span>
+          <span className="absolute right-[10%] bottom-[22%] hidden text-3xl opacity-40 anim-float lg:block" style={{ animationDelay: "-2s" }}>🎯</span>
 
           <div className="relative mx-auto max-w-3xl text-center">
             <Ticker />
             <Eyebrow tone="trophy">Limited slots open</Eyebrow>
-            <h2 className="mt-6 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl">
+            <h2 className="mt-6 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-6xl">
               Ready to test your <span className="text-gradient-trophy">cricket knowledge?</span>
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-base text-white/65 sm:text-lg">

@@ -881,6 +881,7 @@ h1, h2, h3, h4, h5, h6 {
   .anim-particle,
   .anim-cursor,
   .anim-ticker,
+  .anim-float,
   .anim-skeleton {
     animation: none !important;
   }
