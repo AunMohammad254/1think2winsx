@@ -126,6 +126,70 @@ export function useParallaxPointer(strength = 12) {
   return ref;
 }
 
+export function useActiveSection(sectionIds: string[], rootMargin = "-40% 0px -55% 0px") {
+  const [activeId, setActiveId] = useState(sectionIds[0]);
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveId(entry.target.id);
+          }
+        }
+      },
+      { rootMargin, threshold: 0 }
+    );
+    sectionIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, [sectionIds.join(","), rootMargin]);
+  return activeId;
+}
+
+export function useTypewriter(words: string[], { typeSpeed = 60, deleteSpeed = 35, pause = 2000 } = {}) {
+  const [text, setText] = useState(words[0]);
+  const [wordIndex, setWordIndex] = useState(0);
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const currentWord = words[wordIndex];
+    const isDeleting = text !== currentWord && !currentWord.startsWith(text);
+    if (text !== currentWord) {
+      if (isDeleting) {
+        timeout = setTimeout(() => setText((p) => p.slice(0, -1)), deleteSpeed);
+      } else {
+        timeout = setTimeout(() => setText(currentWord.slice(0, text.length + 1)), typeSpeed);
+      }
+    } else {
+      timeout = setTimeout(() => {
+        setWordIndex((i) => (i + 1) % words.length);
+        setText((p) => p.slice(0, -1));
+      }, pause);
+    }
+    return () => clearTimeout(timeout);
+  }, [text, wordIndex, words, typeSpeed, deleteSpeed, pause]);
+  return text;
+}
+
+export function useAnimatedCounter(target: number, duration = 1500) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    if (target <= 0) return;
+    let raf: number;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setValue(Math.floor(target * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return value;
+}
+
 /* ============================
    UI PRIMITIVES
    ============================ */
