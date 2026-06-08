@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
@@ -9,22 +9,25 @@ import LeaderboardRow from './components/LeaderboardRow';
 import { Trophy, HelpCircle, Target, Award, Sparkles, ArrowUpRight } from 'lucide-react';
 import { useLeaderboard } from '@/hooks/useLeaderboard';
 import { calculateAccuracy, getUserDisplayName } from '@/utils/quiz';
+import { useHasHover } from '@/hooks/useHasHover';
 import {
-  staggerContainer,
   fadeInUp,
-  scaleIn,
   letterReveal,
-  softPulse,
   errorShake,
-  slideInError,
   backToTopVariants,
-  skeletonShimmer,
   springGentle,
   inViewOptions,
 } from './animations';
 
 // Pre-split title characters outside component to prevent array allocation on every render
 const TITLE_CHARS = 'Leaderboard'.split('');
+
+// Timeframe tabs array — hoisted to module level to avoid recreation on every render
+const TABS: { key: 'weekly' | 'monthly' | 'allTime'; label: string }[] = [
+  { key: 'weekly', label: 'Weekly' },
+  { key: 'monthly', label: 'Monthly' },
+  { key: 'allTime', label: 'All Time' },
+];
 
 function FloatingBackground() {
   return (
@@ -43,7 +46,9 @@ function FloatingBackground() {
   );
 }
 
-function HeroSection({ lastUpdated }: { lastUpdated: string }) {
+// Memoized: only re-renders when lastUpdated changes, preventing the letter
+// animation from replaying on every data refresh.
+const HeroSection = memo(function HeroSection({ lastUpdated }: { lastUpdated: string }) {
   const ref = useRef<HTMLDivElement>(null);
 
   return (
@@ -98,7 +103,7 @@ function HeroSection({ lastUpdated }: { lastUpdated: string }) {
       )}
     </motion.div>
   );
-}
+});
 
 function TimeframeTabs({
   timeframe,
@@ -107,22 +112,12 @@ function TimeframeTabs({
   timeframe: 'weekly' | 'monthly' | 'allTime';
   setTimeframe: (t: 'weekly' | 'monthly' | 'allTime') => void;
 }) {
-  const [hasHover, setHasHover] = useState(false);
-
-  useEffect(() => {
-    setHasHover(window.matchMedia('(hover: hover)').matches);
-  }, []);
-
-  const tabs: { key: 'weekly' | 'monthly' | 'allTime'; label: string }[] = [
-    { key: 'weekly', label: 'Weekly' },
-    { key: 'monthly', label: 'Monthly' },
-    { key: 'allTime', label: 'All Time' },
-  ];
+  const hasHover = useHasHover();
 
   return (
     <div className="bg-slate-800/90 md:backdrop-blur-xl md:bg-white/5 border border-white/10 rounded-2xl p-1.5 sm:p-2 shadow-xl overflow-hidden relative">
       <div className="grid grid-cols-3 gap-2 relative z-10">
-        {tabs.map(({ key, label }) => (
+        {TABS.map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setTimeframe(key)}
@@ -198,18 +193,15 @@ function LeaderboardSkeleton() {
 }
 
 function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) {
-  const [hasHover, setHasHover] = useState(false);
+  const hasHover = useHasHover();
   const [showRetryGlow, setShowRetryGlow] = useState(false);
-
-  useEffect(() => {
-    setHasHover(window.matchMedia('(hover: hover)').matches);
-  }, []);
 
   return (
     <motion.div
       variants={errorShake}
       initial="hidden"
-      animate="visible"
+      // Fix: errorShake uses the key 'animate' so we target it directly
+      animate="animate"
       className="flex flex-col items-center justify-center p-8 text-center min-h-[400px] w-full"
     >
       <div className="bg-red-500/10 border border-red-500/30 md:backdrop-blur-xl rounded-3xl p-8 shadow-2xl max-w-md w-full">
@@ -267,11 +259,7 @@ function EmptyState() {
 }
 
 function CallToAction() {
-  const [hasHover, setHasHover] = useState(false);
-
-  useEffect(() => {
-    setHasHover(window.matchMedia('(hover: hover)').matches);
-  }, []);
+  const hasHover = useHasHover();
 
   return (
     <motion.div
@@ -315,19 +303,15 @@ function CallToAction() {
 
 function BackToTop() {
   const [isVisible, setIsVisible] = useState(false);
-  const [hasHover, setHasHover] = useState(false);
+  const hasHover = useHasHover();
 
   useEffect(() => {
-    setHasHover(window.matchMedia('(hover: hover)').matches);
-
     const toggleVisibility = () => {
-      if (window.scrollY > 400) {
-        setIsVisible(true);
-      } else {
-        setIsVisible(false);
-      }
+      setIsVisible(window.scrollY > 400);
     };
-    window.addEventListener('scroll', toggleVisibility);
+    // passive: true tells the browser this handler never calls preventDefault(),
+    // allowing it to optimise scroll handling on the main thread.
+    window.addEventListener('scroll', toggleVisibility, { passive: true });
     return () => window.removeEventListener('scroll', toggleVisibility);
   }, []);
 
@@ -387,8 +371,6 @@ export default function LeaderboardPage() {
     return userName ? leaderboard.find((e) => e.userName === userName) : null;
   }, [userName, leaderboard]);
 
-  // Determine if it has been loaded
-  const isLoaded = dataLoaded && !loading;
 
   return (
     <div className="min-h-screen bg-linear-to-br from-slate-950 via-emerald-950/20 to-blue-950 text-white relative overflow-x-hidden">

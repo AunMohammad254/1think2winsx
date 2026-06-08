@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useRef, useEffect, useState, memo } from 'react';
+import React, { useRef, useState, useEffect, memo } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { rowVariants, getRankGradient, getRankIcon, getRankGlow, springGentle } from '../animations';
 import { Trophy, HelpCircle, Target, Award } from 'lucide-react';
 import { LeaderboardEntry, PrevData } from '../types';
 import AnimatedScore from './AnimatedScore';
+import { useHasHover } from '@/hooks/useHasHover';
+import { calculateAccuracy } from '@/utils/quiz';
 
 function ScoreFlash({ show }: { show: boolean }) {
   if (!show) return null;
@@ -35,11 +37,7 @@ function LeaderboardRow({
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-30px' });
   const [scoreFlash, setScoreFlash] = useState(false);
-  const [hasHover, setHasHover] = useState(false);
-
-  useEffect(() => {
-    setHasHover(window.matchMedia('(hover: hover)').matches);
-  }, []);
+  const hasHover = useHasHover();
 
   const prev = prevData.get(entry.userName);
   const rankChanged = prev && prev.rank !== entry.rank;
@@ -60,10 +58,8 @@ function LeaderboardRow({
   const glow = getRankGlow(entry.rank);
   const isTop3 = entry.rank <= 3;
 
-  // Accuracy calculation based on correct answers and total quizzes (assuming 10 questions/quiz on average)
-  const accuracy = entry.quizzesTaken > 0 
-    ? Math.round((entry.correctAnswers / (entry.quizzesTaken * 10)) * 100) 
-    : 0;
+  // Accuracy — delegate to the shared utility (avoids hardcoded ×10 assumption)
+  const accuracy = calculateAccuracy(entry.correctAnswers, entry.quizzesTaken);
 
   const rowBase = 'bg-slate-950/40 border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4 transition-all duration-300';
   const highlightClass = isCurrentUser

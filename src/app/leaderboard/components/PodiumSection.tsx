@@ -1,11 +1,13 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { podiumCardVariants, springGentle, getRankGlow } from '../animations';
 import { Trophy, HelpCircle, Award } from 'lucide-react';
 import { LeaderboardEntry } from '../types';
 import AnimatedScore from './AnimatedScore';
+import { useHasHover } from '@/hooks/useHasHover';
+import { calculateAccuracy } from '@/utils/quiz';
 
 function ShimmerOverlay() {
   return (
@@ -55,11 +57,7 @@ export default function PodiumSection({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-50px' });
-  const [hasHover, setHasHover] = useState(false);
-
-  useEffect(() => {
-    setHasHover(window.matchMedia('(hover: hover)').matches);
-  }, []);
+  const hasHover = useHasHover();
 
   if (!entries || entries.length === 0) return null;
 
@@ -67,10 +65,10 @@ export default function PodiumSection({
   const second = entries[1];
   const third = entries[2];
 
-  // Accuracy calculations
-  const firstAccuracy = first && first.quizzesTaken > 0 ? Math.round((first.correctAnswers / (first.quizzesTaken * 10)) * 100) : 0;
-  const secondAccuracy = second && second.quizzesTaken > 0 ? Math.round((second.correctAnswers / (second.quizzesTaken * 10)) * 100) : 0;
-  const thirdAccuracy = third && third.quizzesTaken > 0 ? Math.round((third.correctAnswers / (third.quizzesTaken * 10)) * 100) : 0;
+  // Accuracy — delegate to the shared utility (avoids hardcoded ×10 assumption)
+  const firstAccuracy = first ? calculateAccuracy(first.correctAnswers, first.quizzesTaken) : 0;
+  const secondAccuracy = second ? calculateAccuracy(second.correctAnswers, second.quizzesTaken) : 0;
+  const thirdAccuracy = third ? calculateAccuracy(third.correctAnswers, third.quizzesTaken) : 0;
 
   return (
     <motion.div
