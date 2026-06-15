@@ -20,7 +20,6 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
         setError('');
         setSuccess(false);
 
-        // Validation
         const amountNum = parseFloat(amount);
         if (isNaN(amountNum) || amountNum < MIN_DEPOSIT_AMOUNT) {
             setError(`Minimum deposit amount is ${MIN_DEPOSIT_AMOUNT} PKR`);
@@ -32,7 +31,6 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
             return;
         }
 
-        // Create FormData
         const formData = new FormData();
         formData.append('amount', amount);
         formData.append('paymentMethod', paymentMethod);
@@ -55,30 +53,30 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                 return ADMIN_BANK_DETAILS.easypaisa ? (
                     <div className="space-y-2">
                         <p className="text-sm"><span className="text-slate-400">Account Name:</span> <span className="text-white font-medium">{ADMIN_BANK_DETAILS.easypaisa.accountName}</span></p>
-                        <p className="text-sm"><span className="text-slate-400">Account Number:</span> <span className="text-white font-medium">{ADMIN_BANK_DETAILS.easypaisa.accountNumber}</span></p>
+                        <p className="text-sm"><span className="text-slate-400">Account Number:</span> <span className="text-white font-medium tabular-nums">{ADMIN_BANK_DETAILS.easypaisa.accountNumber}</span></p>
                     </div>
                 ) : null;
             case 'Jazzcash':
                 return ADMIN_BANK_DETAILS.jazzcash ? (
                     <div className="space-y-2">
                         <p className="text-sm"><span className="text-slate-400">Account Name:</span> <span className="text-white font-medium">{ADMIN_BANK_DETAILS.jazzcash.accountName}</span></p>
-                        <p className="text-sm"><span className="text-slate-400">Account Number:</span> <span className="text-white font-medium">{ADMIN_BANK_DETAILS.jazzcash.accountNumber}</span></p>
+                        <p className="text-sm"><span className="text-slate-400">Account Number:</span> <span className="text-white font-medium tabular-nums">{ADMIN_BANK_DETAILS.jazzcash.accountNumber}</span></p>
                     </div>
                 ) : (
-                    <p className="text-amber-400 text-sm">Jazzcash details not available yet. Please use Easypaisa.</p>
+                    <p className="text-amber-300 text-sm">Jazzcash details not available yet. Please use Easypaisa.</p>
                 );
             case 'Bank':
                 return ADMIN_BANK_DETAILS.bank ? (
                     <div className="space-y-2">
                         <p className="text-sm"><span className="text-slate-400">Bank:</span> <span className="text-white font-medium">{ADMIN_BANK_DETAILS.bank.bankName}</span></p>
                         <p className="text-sm"><span className="text-slate-400">Account Name:</span> <span className="text-white font-medium">{ADMIN_BANK_DETAILS.bank.accountName}</span></p>
-                        <p className="text-sm"><span className="text-slate-400">Account Number:</span> <span className="text-white font-medium">{ADMIN_BANK_DETAILS.bank.accountNumber}</span></p>
+                        <p className="text-sm"><span className="text-slate-400">Account Number:</span> <span className="text-white font-medium tabular-nums">{ADMIN_BANK_DETAILS.bank.accountNumber}</span></p>
                         {ADMIN_BANK_DETAILS.bank.iban && (
-                            <p className="text-sm"><span className="text-slate-400">IBAN:</span> <span className="text-white font-medium">{ADMIN_BANK_DETAILS.bank.iban}</span></p>
+                            <p className="text-sm"><span className="text-slate-400">IBAN:</span> <span className="text-white font-medium tabular-nums">{ADMIN_BANK_DETAILS.bank.iban}</span></p>
                         )}
                     </div>
                 ) : (
-                    <p className="text-amber-400 text-sm">Bank transfer details not available yet. Please use Easypaisa.</p>
+                    <p className="text-amber-300 text-sm">Bank transfer details not available yet. Please use Easypaisa.</p>
                 );
             default:
                 return null;
@@ -89,71 +87,87 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
         <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
             <div className="p-6 border-b border-white/10">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div
+                        className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full flex items-center justify-center"
+                        aria-hidden="true"
+                    >
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                     </div>
-                    <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                    <h2 className="text-xl font-bold text-white">
                         Deposit Funds
                     </h2>
                 </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                {/* Success Message */}
+            <form onSubmit={handleSubmit} className="p-6 space-y-6" aria-label="Deposit form">
                 {success && (
-                    <div className="p-4 bg-emerald-500/20 border border-emerald-500/30 rounded-xl">
+                    <div
+                        className="p-4 bg-emerald-500/20 border border-emerald-400/30 rounded-xl"
+                        role="status"
+                        aria-live="polite"
+                    >
                         <div className="flex items-center gap-3">
-                            <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
-                            <p className="text-emerald-300 font-medium">Deposit request submitted successfully!</p>
+                            <p className="text-emerald-100 font-medium">Deposit request submitted successfully!</p>
                         </div>
-                        <p className="text-emerald-200/70 text-sm mt-2">
+                        <p className="text-emerald-200/80 text-sm mt-2">
                             Your request is pending admin approval. You&apos;ll receive credits once approved.
                         </p>
                     </div>
                 )}
 
-                {/* Error Message */}
                 {error && (
-                    <div className="p-4 bg-red-500/20 border border-red-500/30 rounded-xl">
+                    <div
+                        className="p-4 bg-rose-500/20 border border-rose-400/30 rounded-xl"
+                        role="alert"
+                    >
                         <div className="flex items-center gap-3">
-                            <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5 text-rose-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            <p className="text-red-300 font-medium">{error}</p>
+                            <p className="text-rose-100 font-medium">{error}</p>
                         </div>
                     </div>
                 )}
 
-                {/* Payment Method Selection */}
-                <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-3">
+                <fieldset>
+                    <legend className="block text-sm font-medium text-slate-200 mb-3">
                         Select Payment Method
-                    </label>
-                    <div className="grid grid-cols-3 gap-3">
-                        {(['Easypaisa', 'Jazzcash', 'Bank'] as PaymentMethod[]).map((method) => (
-                            <button
-                                key={method}
-                                type="button"
-                                onClick={() => setPaymentMethod(method)}
-                                className={`p-3 rounded-xl border text-sm font-medium transition-all duration-200 ${paymentMethod === method
-                                        ? 'bg-gradient-to-r from-blue-500/30 to-purple-500/30 border-blue-500/50 text-white'
-                                        : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                    </legend>
+                    <div
+                        className="grid grid-cols-3 gap-3"
+                        role="radiogroup"
+                        aria-label="Payment method"
+                    >
+                        {(['Easypaisa', 'Jazzcash', 'Bank'] as PaymentMethod[]).map((method) => {
+                            const selected = paymentMethod === method;
+                            return (
+                                <button
+                                    key={method}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={selected}
+                                    onClick={() => setPaymentMethod(method)}
+                                    className={`p-3 rounded-xl border text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
+                                        selected
+                                            ? 'bg-gradient-to-r from-emerald-500/25 to-teal-600/25 border-emerald-400/50 text-white shadow-lg shadow-emerald-900/20'
+                                            : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
                                     }`}
-                            >
-                                {method}
-                            </button>
-                        ))}
+                                >
+                                    {method}
+                                </button>
+                            );
+                        })}
                     </div>
-                </div>
+                </fieldset>
 
-                {/* Bank Details Display */}
-                <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-                    <h3 className="text-sm font-medium text-blue-300 mb-3 flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="p-4 bg-blue-700/10 border border-blue-500/20 rounded-xl">
+                    <h3 className="text-sm font-medium text-blue-200 mb-3 flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         Send payment to this account:
@@ -161,58 +175,58 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                     {getBankDetails()}
                 </div>
 
-                {/* Amount Input */}
                 <div>
-                    <label htmlFor="amount" className="block text-sm font-medium text-slate-300 mb-2">
+                    <label htmlFor="deposit-amount" className="block text-sm font-medium text-slate-200 mb-2">
                         Amount (PKR)
                     </label>
                     <div className="relative">
                         <input
                             type="number"
-                            id="amount"
+                            id="deposit-amount"
                             value={amount}
                             onChange={(e) => setAmount(e.target.value)}
                             placeholder={`Minimum ${MIN_DEPOSIT_AMOUNT} PKR`}
                             min={MIN_DEPOSIT_AMOUNT}
                             step="1"
-                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all duration-200"
+                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/40 transition-all duration-200"
                             required
+                            aria-describedby="deposit-amount-help"
                         />
-                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm">PKR</span>
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm" aria-hidden="true">PKR</span>
                     </div>
                 </div>
 
-                {/* Transaction ID Input */}
                 <div>
-                    <label htmlFor="transactionId" className="block text-sm font-medium text-slate-300 mb-2">
+                    <label htmlFor="deposit-transaction-id" className="block text-sm font-medium text-slate-200 mb-2">
                         Transaction ID / Reference Number
                     </label>
                     <input
                         type="text"
-                        id="transactionId"
+                        id="deposit-transaction-id"
                         value={transactionId}
                         onChange={(e) => setTransactionId(e.target.value)}
                         placeholder="Enter the reference number from your payment app"
-                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all duration-200"
+                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/40 transition-all duration-200"
                         required
+                        aria-describedby="deposit-tx-help"
                     />
-                    <p className="text-slate-400 text-xs mt-2">
+                    <p id="deposit-tx-help" className="text-slate-400 text-xs mt-2">
                         This is the unique ID shown in your payment confirmation
                     </p>
                 </div>
 
-                {/* Submit Button */}
                 <button
                     type="submit"
                     disabled={isSubmitting}
-                    className={`w-full py-4 rounded-xl font-semibold text-white transition-all duration-200 ${isSubmitting
+                    className={`w-full py-4 rounded-xl font-semibold text-white transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
+                        isSubmitting
                             ? 'bg-slate-600 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 shadow-lg hover:shadow-blue-500/25'
-                        }`}
+                            : 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-lg hover:shadow-emerald-500/25'
+                    }`}
                 >
                     {isSubmitting ? (
                         <span className="flex items-center justify-center gap-2">
-                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                             </svg>
@@ -223,7 +237,6 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                     )}
                 </button>
 
-                {/* Info Note */}
                 <p className="text-slate-400 text-xs text-center">
                     After submission, your deposit will be reviewed by admin. Credits will be added upon approval.
                 </p>

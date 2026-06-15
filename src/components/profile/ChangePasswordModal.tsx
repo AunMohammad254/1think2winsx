@@ -213,42 +213,56 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="change-password-title"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        >
             {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/70 backdrop-blur-sm"
                 onClick={onClose}
+                aria-hidden="true"
             />
 
             {/* Modal */}
             <div className="relative w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
                 {/* Glassmorphism Card */}
                 <div className="relative backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl shadow-2xl overflow-hidden">
-                    {/* Gradient overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 via-pink-500/5 to-blue-500/10 pointer-events-none" />
+                    {/* Gradient overlay - theme-aligned deep blue */}
+                    <div
+                        aria-hidden="true"
+                        className="absolute inset-0 bg-linear-to-brrom-blue-700/15 via-blue-500/5 to-teal-600/10 pointer-events-none"
+                    />
 
                     {/* Content */}
                     <div className="relative z-10 p-6">
                         {/* Header */}
                         <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
+                                <div
+                                    className="w-10 h-10 bg-linear-to-br from-blue-600 to-blue-800 rounded-xl flex items-center justify-center"
+                                    aria-hidden="true"
+                                >
                                     <KeyRound className="w-5 h-5 text-white" />
                                 </div>
-                                <h2 className="text-xl font-bold text-white">Change Password</h2>
+                                <h2 id="change-password-title" className="text-xl font-bold text-white">Change Password</h2>
                             </div>
                             <button
+                                type="button"
                                 onClick={onClose}
-                                className="w-8 h-8 bg-white/5 hover:bg-white/10 rounded-full flex items-center justify-center transition-all duration-200 group"
+                                aria-label="Close change password dialog"
+                                className="w-8 h-8 bg-white/5 hover:bg-white/10 rounded-full flex items-center justify-center transition-all duration-200 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                             >
-                                <X className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />
+                                <X className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" aria-hidden="true" />
                             </button>
                         </div>
 
                         {/* Loading State */}
                         {isCheckingAuth && (
                             <div className="text-center py-8">
-                                <Loader2 className="w-8 h-8 text-purple-400 animate-spin mx-auto mb-3" />
+                                <Loader2 className="w-8 h-8 text-blue-400 animate-spin mx-auto mb-3" aria-hidden="true" />
                                 <p className="text-slate-400 text-sm">Checking account status...</p>
                             </div>
                         )}
@@ -262,7 +276,7 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                                 <h3 className="text-lg font-semibold text-white mb-2">Password Change Not Available</h3>
                                 <p className="text-slate-300 text-sm mb-4">
                                     Your account was created using{' '}
-                                    <span className="font-semibold text-purple-400">
+                                    <span className="font-semibold text-blue-300">
                                         {authMethods.oAuthProviders.map(getProviderDisplayName).join(' and ')}
                                     </span>
                                     {' '}sign-in.
@@ -282,18 +296,18 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                                         Current Password
                                     </label>
                                     <div className="relative group">
-                                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-purple-400 transition-colors" />
+                                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-400 transition-colors" />
                                         <input
                                             id="currentPassword"
                                             type={showCurrentPassword ? 'text' : 'password'}
                                             {...register('currentPassword')}
-                                            className="w-full pl-11 pr-11 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 hover:bg-white/[0.07]"
+                                            className="w-full pl-11 pr-11 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all duration-200 hover:bg-white/[0.07]"
                                             placeholder="Enter current password"
                                         />
                                         <button
                                             type="button"
                                             onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-purple-400 transition-colors"
+                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-400 transition-colors"
                                         >
                                             {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                         </button>
@@ -312,18 +326,18 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                                         New Password
                                     </label>
                                     <div className="relative group">
-                                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-purple-400 transition-colors" />
+                                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-400 transition-colors" />
                                         <input
                                             id="newPassword"
                                             type={showNewPassword ? 'text' : 'password'}
                                             {...register('newPassword')}
-                                            className="w-full pl-11 pr-11 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 hover:bg-white/[0.07]"
+                                            className="w-full pl-11 pr-11 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all duration-200 hover:bg-white/[0.07]"
                                             placeholder="Enter new password"
                                         />
                                         <button
                                             type="button"
                                             onClick={() => setShowNewPassword(!showNewPassword)}
-                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-purple-400 transition-colors"
+                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-400 transition-colors"
                                         >
                                             {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                         </button>
@@ -380,18 +394,18 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                                         Confirm New Password
                                     </label>
                                     <div className="relative group">
-                                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-purple-400 transition-colors" />
+                                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-blue-400 transition-colors" />
                                         <input
                                             id="confirmNewPassword"
                                             type={showConfirmPassword ? 'text' : 'password'}
                                             {...register('confirmNewPassword')}
-                                            className="w-full pl-11 pr-11 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all duration-200 hover:bg-white/[0.07]"
+                                            className="w-full pl-11 pr-11 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all duration-200 hover:bg-white/[0.07]"
                                             placeholder="Confirm new password"
                                         />
                                         <button
                                             type="button"
                                             onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-purple-400 transition-colors"
+                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-blue-400 transition-colors"
                                         >
                                             {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                         </button>
@@ -416,7 +430,7 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                                     <button
                                         type="submit"
                                         disabled={isSubmitting}
-                                        className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-white font-semibold hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+                                        className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl text-white font-semibold hover:from-blue-700 hover:to-blue-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                                     >
                                         {isSubmitting ? (
                                             <>

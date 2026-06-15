@@ -27,6 +27,12 @@ export default function ProfileAvatar({
         lg: 'text-4xl'
     };
 
+    const ringClasses = {
+        sm: 'ring-2 ring-emerald-400/40',
+        md: 'ring-2 ring-emerald-400/40',
+        lg: 'ring-4 ring-emerald-400/30'
+    };
+
     const getInitials = (name: string) => {
         return name
             .split(' ')
@@ -38,8 +44,11 @@ export default function ProfileAvatar({
 
     return (
         <div className="flex flex-col items-center text-center">
-            {/* Avatar Circle */}
-            <div className={`${sizeClasses[size]} rounded-full overflow-hidden bg-gradient-to-br from-purple-500 to-blue-500 shadow-2xl shadow-purple-500/25 border-4 border-white/10`}>
+            <div
+                className={`${sizeClasses[size]} ${ringClasses[size]} rounded-full overflow-hidden bg-linear-to-br from-emerald-500 to-teal-600 shadow-xl shadow-emerald-900/30`}
+                role="img"
+                aria-label={`${name}'s profile avatar`}
+            >
                 {imageSrc ? (
                     <Image
                         src={imageSrc}
@@ -49,18 +58,19 @@ export default function ProfileAvatar({
                         className="w-full h-full object-cover"
                     />
                 ) : (
-                    <div className={`w-full h-full flex items-center justify-center text-white font-bold ${textSizeClasses[size]}`}>
+                    <div
+                        className={`w-full h-full flex items-center justify-center text-white font-bold ${textSizeClasses[size]}`}
+                        aria-hidden="true"
+                    >
                         {getInitials(name)}
                     </div>
                 )}
             </div>
 
-            {/* Name */}
             <h2 className="mt-4 text-2xl font-bold text-white">{name}</h2>
 
-            {/* User ID */}
             {userId && (
-                <p className="mt-1 text-slate-400 text-sm">@{userId}</p>
+                <p className="mt-1 text-slate-400 text-sm font-mono">@{userId}</p>
             )}
         </div>
     );
