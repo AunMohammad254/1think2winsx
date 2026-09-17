@@ -229,6 +229,12 @@ export const rateLimiters = {
   passwordChange: new RateLimiter({
     windowMs: 15 * 60 * 1000, // 15 minutes
     maxRequests: 5 // 5 password change attempts per 15 minutes
+  }),
+
+  // Deposit requests
+  deposit: new RateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    maxRequests: 5 // 5 deposit requests per hour
   })
 };
 

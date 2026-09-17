@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { MIN_DEPOSIT_AMOUNT, DepositRequestResponse, WalletBalanceResponse, TransactionHistoryResponse, PaymentMethod } from '@/types/wallet';
 import { revalidatePath } from 'next/cache';
+import { rateLimiters } from '@/lib/rate-limiter';
 
 /**
  * Submit a new deposit request
@@ -14,6 +15,18 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
 
         if (authError || !user) {
             return { success: false, error: 'You must be logged in to submit a deposit request' };
+        }
+
+        // Apply rate limiting (Strategy 2)
+        // Pass a mock request object since we only need the userId for the key generator
+        const rateLimitResult = await rateLimiters.deposit.checkLimit(
+            { headers: { get: () => null } } as any, 
+            user.id, 
+            'deposit'
+        );
+        
+        if (!rateLimitResult.success) {
+            return { success: false, error: 'Too many deposit requests. Please try again later.' };
         }
 
         // Parse form data
@@ -36,6 +49,27 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
         // Validate transaction ID
         if (!transactionId || transactionId.trim().length === 0) {
             return { success: false, error: 'Transaction ID is required' };
+        }
+
+        // Check for existing pending deposits (Strategy 1)
+        const MAX_PENDING_DEPOSITS = 2;
+        const { count, error: countError } = await supabase
+            .from('WalletTransaction')
+            .select('*', { count: 'exact', head: true })
+            .eq('userId', user.id)
+            .eq('status', 'pending')
+            .gt('amount', 0); // Deposits are positive amounts
+
+        if (countError) {
+            console.error('Error checking pending transactions:', countError);
+            return { success: false, error: 'Failed to validate request. Please try again.' };
+        }
+
+        if (count !== null && count >= MAX_PENDING_DEPOSITS) {
+            return { 
+                success: false, 
+                error: `You already have ${count} pending deposit requests. Please wait for them to be processed before submitting a new one.` 
+            };
         }
 
         // Call Supabase RPC function
