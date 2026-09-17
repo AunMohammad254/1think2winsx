@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { quizDb, questionDb, answerDb, quizAttemptDb, getDb } from '@/lib/supabase/db';
+import { questionDb, quizAttemptDb, getDb } from '@/lib/supabase/db';
 import { executeCriticalTransaction } from '@/lib/transaction-manager';
 import { z } from 'zod';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -7,6 +7,7 @@ import { requireAuth } from '@/lib/auth-middleware';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
+import logger from '@/lib/logger';
 
 const evaluationSchema = z.object({
   quizId: z.string().min(1, 'Quiz ID is required'),
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
       }
 
       const attemptList = attempts || [];
-      console.log(`[QUIZ_EVALUATION] Starting evaluation for quiz ${quizId} with ${attemptList.length} attempts`);
+      logger.log(`[QUIZ_EVALUATION] Starting evaluation for quiz ${quizId} with ${attemptList.length} attempts`);
 
       if (attemptList.length === 0) return [];
 
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
 
         const userRaw = attempt.User;
         const user = Array.isArray(userRaw) ? userRaw[0] : userRaw;
-        console.log(`[QUIZ_EVALUATION] Evaluating attempt ${attempt.id} for user ${user?.email}`);
+        logger.log(`[QUIZ_EVALUATION] Evaluating attempt ${attempt.id} for user ${user?.email}`);
 
         for (const answer of answerData) {
           const correctOption = correctAnswers[answer.questionId];
@@ -154,7 +155,7 @@ export async function POST(request: NextRequest) {
         }
 
         const scorePercentage = Math.round((score / questionIds.length) * 100);
-        console.log(`[QUIZ_EVALUATION] User ${user?.email} scored ${score}/${questionIds.length} (${scorePercentage}%)`);
+        logger.log(`[QUIZ_EVALUATION] User ${user?.email} scored ${score}/${questionIds.length} (${scorePercentage}%)`);
 
         await quizAttemptDb.update(attempt.id, { score: scorePercentage, isEvaluated: true });
         evaluatedAttempts.push({ userId: attempt.userId, userEmail: user?.email, score, totalQuestions: questionIds.length, percentage: scorePercentage });
@@ -170,7 +171,7 @@ export async function POST(request: NextRequest) {
           : Promise.resolve(),
       ]);
 
-      console.log(`[QUIZ_EVALUATION] Completed evaluation for ${evaluatedAttempts.length} attempts`);
+      logger.log(`[QUIZ_EVALUATION] Completed evaluation for ${evaluatedAttempts.length} attempts`);
       return evaluatedAttempts;
     }, {
       context: 'quiz_evaluation',

@@ -1,3 +1,5 @@
+import logger from '@/lib/logger';
+
 interface PaymentInfo {
   id: string;
   expiresAt: Date;
@@ -43,7 +45,7 @@ class QuizListCache {
   }
 
   clear(): void {
-    console.log('[Cache] Clearing quiz list cache');
+    logger.log('[Cache] Clearing quiz list cache');
     this.store.clear();
   }
 

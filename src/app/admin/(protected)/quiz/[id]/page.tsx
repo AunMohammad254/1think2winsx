@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import logger from '@/lib/logger';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -251,7 +252,7 @@ export default function QuizManagementPage() {
                     quizId={quiz.id}
                     onQuestionsChange={(questions) => {
                       // Optional: Handle questions change if needed
-                      console.log('Questions updated:', questions.length);
+                      logger.log('Questions updated:', questions.length);
                     }}
                   />
                 )}

@@ -21,7 +21,7 @@ const defaultActions: QuickAction[] = [
     {
         id: 'deposit',
         label: 'Deposit',
-        gradient: 'from-emerald-500 to-teal-600',
+        gradient: 'from-emerald-700 to-teal-700',
         href: '/profile/wallet',
         icon: (
             <svg

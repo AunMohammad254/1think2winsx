@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { securityMonitor } from './security-monitoring';
+import logger from '@/lib/logger';
 
 interface SecurityEvent {
   type: 'AUTH_FAILURE' | 'RATE_LIMIT_EXCEEDED' | 'INVALID_INPUT' | 'UNAUTHORIZED_ACCESS' | 'SUSPICIOUS_ACTIVITY' | 'SYSTEM_ERROR' | 'QUIZ_ACCESS' | 'PASSWORD_CHANGE' | 'PROFILE_UPDATE' | 'PRIZE_REDEMPTION' | 'API_ERROR' | 'ADMIN_ACCESS';
@@ -108,7 +109,7 @@ class SecurityLogger {
   }
 
   public logPerformanceMetric(name: string, durationMs: number, endpoint?: string) {
-    console.log('[PERF]', JSON.stringify({ name, durationMs, endpoint, timestamp: new Date().toISOString() }));
+    logger.log('[PERF]', JSON.stringify({ name, durationMs, endpoint, timestamp: new Date().toISOString() }));
     securityMonitor.recordPerfMetric(name, durationMs);
   }
 }

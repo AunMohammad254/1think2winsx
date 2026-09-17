@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import logger from '@/lib/logger';
 
 /**
  * GET /api/profile/can-change-password
@@ -45,7 +46,7 @@ export async function GET() {
             authProvider = oAuthProviders[0]; // Use first OAuth provider
         }
 
-        console.log('[can-change-password] Identity check:', {
+        logger.log('[can-change-password] Identity check:', {
             userId: user.id,
             email: user.email,
             hasEmailIdentity,

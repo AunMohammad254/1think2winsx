@@ -45,7 +45,7 @@ export default function ProfileAvatar({
     return (
         <div className="flex flex-col items-center text-center">
             <div
-                className={`${sizeClasses[size]} ${ringClasses[size]} rounded-full overflow-hidden bg-linear-to-br from-emerald-500 to-teal-600 shadow-xl shadow-emerald-900/30`}
+                className={`${sizeClasses[size]} ${ringClasses[size]} rounded-full overflow-hidden bg-gradient-to-br from-emerald-700 to-teal-700 shadow-xl shadow-emerald-900/30`}
                 role="img"
                 aria-label={`${name}'s profile avatar`}
             >

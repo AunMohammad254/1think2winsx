@@ -7,6 +7,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import logger from '@/lib/logger';
 
 const submitQuizSchema = z.object({
   answers: z.array(z.object({
@@ -183,7 +184,7 @@ export async function POST(
 
     // Fallback: If RPC function doesn't exist, use direct database operations
     // This handles the case where the SQL hasn't been run yet
-    console.log('RPC function not available, using fallback submission method');
+    logger.log('RPC function not available, using fallback submission method');
 
     // Check if user has already completed this quiz
     const existingAttempt = await quizAttemptDb.findByUserAndQuiz(userId, quizId);

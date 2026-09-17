@@ -4,6 +4,7 @@
 
 import { getDb, getAdminDb, generateId } from './shared'
 import webpush from 'web-push'
+import logger from '@/lib/logger'
 
 // Configure web-push with VAPID keys if they are available
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -30,7 +31,17 @@ interface PushPayload {
     renotify?: boolean;
 }
 
-async function sendWebPush(subscription: any, payload: PushPayload) {
+/** Shape of a row from the PushSubscription table */
+interface PushSubscriptionRecord {
+    id: string;
+    userId: string;
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+    createdAt: string;
+}
+
+async function sendWebPush(subscription: PushSubscriptionRecord, payload: PushPayload) {
     try {
         const pushSub = {
             endpoint: subscription.endpoint,
@@ -40,10 +51,11 @@ async function sendWebPush(subscription: any, payload: PushPayload) {
             }
         };
         await webpush.sendNotification(pushSub, JSON.stringify(payload));
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const pushError = error as { statusCode?: number };
         // If the subscription is no longer valid, delete it (HTTP 410 Gone / 404 Not Found)
-        if (error.statusCode === 410 || error.statusCode === 404) {
-            console.log(`[Web Push] Subscription expired/invalid (${error.statusCode}). Deleting subscription with ID ${subscription.id}`);
+        if (pushError.statusCode === 410 || pushError.statusCode === 404) {
+            logger.log(`[Web Push] Subscription expired/invalid (${pushError.statusCode}). Deleting subscription with ID ${subscription.id}`);
             try {
                 const adminDb = getAdminDb();
                 await adminDb
@@ -157,7 +169,7 @@ export const notificationDb = {
                 renotify: true,
             }
             // Trigger web push sending without blocking the main DB insert response
-            Promise.allSettled(subs.map((sub: any) => sendWebPush(sub, payload))).catch(e => {
+            Promise.allSettled(subs.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload))).catch(e => {
                 console.error('[Web Push] Error sending to user subscriptions:', e);
             });
         }
@@ -234,7 +246,7 @@ export const notificationDb = {
             (async () => {
                 for (let i = 0; i < subs.length; i += batchSize) {
                     const batch = subs.slice(i, i + batchSize);
-                    await Promise.allSettled(batch.map((sub: any) => sendWebPush(sub, payload)));
+                    await Promise.allSettled(batch.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload)));
                 }
             })().catch(e => {
                 console.error('[Web Push] Error during broadcast sending:', e);

@@ -195,7 +195,7 @@ export default function LiveStreamManager() {
                         platform,
                         isActive,
                     },
-                    'admin' // TODO: Get actual admin email from session
+                    '' // Admin identity resolved server-side via session
                 );
 
                 if (!result.success) {
@@ -225,7 +225,7 @@ export default function LiveStreamManager() {
         startTransition(async () => {
             try {
                 const newStatus = !isActive;
-                const result = await toggleStreamStatus(newStatus, 'admin');
+                const result = await toggleStreamStatus(newStatus, ''); // Admin identity resolved server-side
 
                 if (!result.success) {
                     toast.error(result.error || 'Failed to toggle status');
@@ -242,7 +242,7 @@ export default function LiveStreamManager() {
                         <PowerOff className="w-5 h-5 text-gray-400" />
                     ),
                 });
-            } catch (err) {
+            } catch {
                 toast.error('Failed to toggle stream status');
             }
         });

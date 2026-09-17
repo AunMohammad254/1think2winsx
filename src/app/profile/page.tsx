@@ -178,7 +178,7 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={() => refreshProfile()}
-              className="w-full px-6 py-3 bg-gradient-to-r from-rose-500 to-red-500 text-white font-semibold rounded-2xl hover:from-rose-600 hover:to-red-600 transform hover:scale-105 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className="w-full px-6 py-3 bg-gradient-to-r from-rose-700 to-red-700 text-white font-semibold rounded-2xl hover:from-rose-800 hover:to-red-800 transform hover:scale-105 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               Try Again
             </button>
@@ -195,7 +195,7 @@ export default function ProfilePage() {
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900" aria-hidden="true"></div>
         <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
           <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-[32px] p-8 text-center max-w-md w-full">
-            <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full flex items-center justify-center">
+            <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-emerald-700 to-teal-700 rounded-full flex items-center justify-center">
               <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
@@ -205,7 +205,7 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={() => refreshProfile()}
-              className="w-full px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-semibold rounded-2xl hover:from-emerald-600 hover:to-teal-700 transform hover:scale-105 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              className="w-full px-6 py-3 bg-gradient-to-r from-emerald-700 to-teal-700 text-white font-semibold rounded-2xl hover:from-emerald-800 hover:to-teal-800 transform hover:scale-105 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
             >
               Refresh Profile
             </button>
@@ -411,7 +411,7 @@ export default function ProfilePage() {
               ) : (
                 <div className="text-center py-8">
                   <div
-                    className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-amber-500/20 to-amber-700/20 rounded-full flex items-center justify-center"
+                    className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-amber-700/30 to-amber-800/30 rounded-full flex items-center justify-center"
                     aria-hidden="true"
                   >
                     <svg className="w-8 h-8 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -422,7 +422,7 @@ export default function ProfilePage() {
                   <p className="text-slate-400 text-sm mb-4">Play quizzes to win rewards!</p>
                   <Link
                     href="/quizzes"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-semibold rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-700 to-teal-700 text-white text-sm font-semibold rounded-xl hover:from-emerald-800 hover:to-teal-800 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                   >
                     Start Playing
                   </Link>
@@ -540,7 +540,7 @@ export default function ProfilePage() {
                   <p className="text-slate-400 text-sm mb-4">Start your quiz journey today!</p>
                   <Link
                     href="/quizzes"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-sm font-semibold rounded-xl hover:from-emerald-600 hover:to-teal-700 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-700 to-teal-700 text-white text-sm font-semibold rounded-xl hover:from-emerald-800 hover:to-teal-800 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                   >
                     Browse Quizzes
                   </Link>

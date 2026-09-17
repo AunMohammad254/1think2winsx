@@ -90,9 +90,9 @@ export default function WalletPage() {
                 <div className="relative z-10 flex items-center justify-center min-h-screen">
                     <div className="text-center">
                         <div className="w-20 h-20 mx-auto mb-6 relative">
-                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full animate-spin" aria-hidden="true"></div>
+                            <div className="absolute inset-0 bg-gradient-to-r from-emerald-700 to-teal-700 rounded-full animate-spin" aria-hidden="true"></div>
                             <div className="absolute inset-2 bg-slate-900 rounded-full flex items-center justify-center">
-                                <div className="w-8 h-8 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full" aria-hidden="true"></div>
+                                <div className="w-8 h-8 bg-gradient-to-r from-emerald-700 to-teal-700 rounded-full" aria-hidden="true"></div>
                             </div>
                         </div>
                         <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-300 to-teal-300 bg-clip-text text-transparent mb-2">
@@ -160,7 +160,7 @@ export default function WalletPage() {
                         <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-[32px] p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60" tabIndex={-1}>
                             <div className="flex items-center gap-2 mb-3">
                                 <div
-                                    className="w-9 h-9 bg-gradient-to-br from-amber-500 to-amber-700 rounded-full flex items-center justify-center"
+                                    className="w-9 h-9 bg-gradient-to-br from-amber-700 to-amber-800 rounded-full flex items-center justify-center"
                                     aria-hidden="true"
                                 >
                                     <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -203,22 +203,13 @@ export default function WalletPage() {
                         />
                     </div>
 
-                    {/* Wallet Detail Card - status badges + tip */}
-                    <div className="backdrop-blur-xl bg-gradient-to-br from-emerald-600/15 via-emerald-500/8 to-teal-600/12 border border-emerald-400/15 rounded-[32px] p-6 shadow-lg">
-                        <WalletDisplay
-                            balance={balance}
-                            pendingDeposits={pendingDeposits}
-                            pendingDeductions={pendingDeductions}
-                            isLoading={isLoading}
-                        />
-                    </div>
 
                     {/* Deposit Form */}
                     <div className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-[32px] overflow-hidden">
                         <div className="p-5 border-b border-white/10">
                             <div className="flex items-center gap-3">
                                 <div
-                                    className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full flex items-center justify-center"
+                                    className="w-10 h-10 bg-gradient-to-r from-emerald-700 to-teal-700 rounded-full flex items-center justify-center"
                                     aria-hidden="true"
                                 >
                                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">

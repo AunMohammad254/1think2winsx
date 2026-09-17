@@ -1,9 +1,10 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import logger from '@/lib/logger';
 
 interface PWAContextType {
-  deferredPrompt: any;
+  deferredPrompt: BeforeInstallPromptEvent | null;
   isInstallable: boolean;
   isInstalled: boolean;
   installApp: () => Promise<string | null>;
@@ -11,10 +12,16 @@ interface PWAContextType {
   isBannerDismissed: boolean;
 }
 
+// BeforeInstallPromptEvent is not yet in the TypeScript DOM lib
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): void;
+  readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+}
+
 const PWAContext = createContext<PWAContextType | undefined>(undefined);
 
 export function PWAProvider({ children }: { children: React.ReactNode }) {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isBannerDismissed, setIsBannerDismissed] = useState(true);
@@ -24,7 +31,7 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then((reg) => {
-          console.log('[PWA Context] Service Worker registered with scope:', reg.scope);
+          logger.log('[PWA Context] Service Worker registered with scope:', reg.scope);
         })
         .catch((err) => {
           console.error('[PWA Context] Service Worker registration failed:', err);
@@ -34,7 +41,7 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     // Check if running in standalone mode (installed)
     const isStandalone = 
       window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as any).standalone === true;
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
     
     setIsInstalled(isStandalone);
 
@@ -53,7 +60,7 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e);
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
       setIsInstallable(true);
     };
 

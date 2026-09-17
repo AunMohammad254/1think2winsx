@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, notificationDb } from '@/lib/supabase/db';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import { revalidatePath } from 'next/cache';
+import logger from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
 
     // 3. Process due scheduled quizzes
     if (!quizzesEmpty) {
-      console.log(`[Cron] Found ${dueQuizzes.length} due scheduled quizzes. Processing...`);
+      logger.log(`[Cron] Found ${dueQuizzes.length} due scheduled quizzes. Processing...`);
       for (const quiz of dueQuizzes) {
         const { error: updateError } = await adminDb
           .from('Quiz')
@@ -88,7 +89,7 @@ export async function GET(request: NextRequest) {
             link: `/quiz/${quiz.id}`
           });
           processedQuizIds.push(quiz.id);
-          console.log(`[Cron] Activated quiz ${quiz.id} and sent notification broadcast.`);
+          logger.log(`[Cron] Activated quiz ${quiz.id} and sent notification broadcast.`);
         } catch (notifErr) {
           console.error(`[Cron] Failed to broadcast notification for quiz ${quiz.id}:`, notifErr);
         }
@@ -105,7 +106,7 @@ export async function GET(request: NextRequest) {
       .gt('startsAt', now);
 
     if (warningQuizzes && warningQuizzes.length > 0) {
-      console.log(`[Cron] Found ${warningQuizzes.length} quizzes starting in the next 10 minutes. Checking warnings...`);
+      logger.log(`[Cron] Found ${warningQuizzes.length} quizzes starting in the next 10 minutes. Checking warnings...`);
       for (const quiz of warningQuizzes) {
         try {
           const { data: alreadySent } = await adminDb
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest) {
               type: 'quiz_starts_soon',
               link: `/quiz/${quiz.id}`
             });
-            console.log(`[Cron] Broadcasted 10-minute warning notification for quiz ${quiz.id}`);
+            logger.log(`[Cron] Broadcasted 10-minute warning notification for quiz ${quiz.id}`);
           }
         } catch (warningErr) {
           console.error(`[Cron] Failed to process warning notification for quiz ${quiz.id}:`, warningErr);
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest) {
 
     // 4. Process due scheduled notifications
     if (!notifsEmpty) {
-      console.log(`[Cron] Found ${dueNotifications.length} due scheduled notifications. Processing...`);
+      logger.log(`[Cron] Found ${dueNotifications.length} due scheduled notifications. Processing...`);
       for (const notif of dueNotifications) {
         const { error: updateError } = await adminDb
           .from('ScheduledNotification')
@@ -152,7 +153,7 @@ export async function GET(request: NextRequest) {
               type: notif.type,
               link: notif.link || undefined,
             });
-            console.log(`[Cron] Sent targeted scheduled notification ${notif.id} to user ${notif.targetUserId}`);
+            logger.log(`[Cron] Sent targeted scheduled notification ${notif.id} to user ${notif.targetUserId}`);
           } else {
             await notificationDb.createBroadcast({
               title: notif.title,
@@ -160,7 +161,7 @@ export async function GET(request: NextRequest) {
               type: notif.type,
               link: notif.link || undefined,
             });
-            console.log(`[Cron] Broadcasted scheduled notification ${notif.id}`);
+            logger.log(`[Cron] Broadcasted scheduled notification ${notif.id}`);
           }
           processedNotifIds.push(notif.id);
         } catch (dispatchErr) {

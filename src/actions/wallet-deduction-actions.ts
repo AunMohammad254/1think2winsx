@@ -1,7 +1,7 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import { userDb, walletTransactionDb, dailyPaymentDb, quizDb, generateId } from '@/lib/supabase/db';
+import { userDb, walletTransactionDb, dailyPaymentDb, quizDb, generateId, getAdminDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 
 export interface WalletDeductionResponse {
@@ -95,7 +95,8 @@ export async function deductWalletForQuizAccess(
         try {
             // 1. Atomic Deduction using RPC
             // This prevents race conditions where a user could spend the same balance twice
-            const { data: rpcResult, error: rpcError } = await supabase.rpc('deduct_wallet_balance', {
+            const adminDb = getAdminDb();
+            const { data: rpcResult, error: rpcError } = await adminDb.rpc('deduct_wallet_balance', {
                 p_user_id: user.id,
                 p_amount: amount
             });

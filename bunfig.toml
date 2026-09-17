@@ -1,0 +1,5 @@
+[install]
+# Skip esbuild's postinstall script - it fails on Node.js v24 + Windows
+# because the binary validation returns empty string (AV/execution blocking).
+# The @esbuild/win32-x64 native package is installed directly instead.
+ignoredBuiltDependencies = ["esbuild"]

@@ -1,5 +1,6 @@
 'use client';
 
+import logger from '@/lib/logger';
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -195,11 +196,11 @@ export default function QuestionManagement({ quizId, onQuestionsChange }: Questi
         (requestBody as CreateQuestionRequest & { correctOption: number }).correctOption = mappedCorrectOption;
       }
 
-      console.log('Sending request body:', requestBody);
-      console.log('Original correctOption:', questionForm.correctOption);
-      console.log('Mapped correctOption:', mappedCorrectOption);
-      console.log('Original options:', questionForm.options);
-      console.log('Valid options:', validOptions);
+      logger.log('Sending request body:', requestBody);
+      logger.log('Original correctOption:', questionForm.correctOption);
+      logger.log('Mapped correctOption:', mappedCorrectOption);
+      logger.log('Original options:', questionForm.options);
+      logger.log('Valid options:', validOptions);
 
       const response = await fetch('/api/admin/questions', {
         method: 'POST',
@@ -210,18 +211,18 @@ export default function QuestionManagement({ quizId, onQuestionsChange }: Questi
         body: JSON.stringify(requestBody),
       });
 
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      logger.log('Response status:', response.status);
+      logger.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
       if (!response.ok) {
         let errorMessage = 'Failed to create question';
         let responseText = '';
         try {
           responseText = await response.text();
-          console.log('Raw response text:', responseText);
+          logger.log('Raw response text:', responseText);
           
           const errorData = JSON.parse(responseText);
-          console.log('Parsed error data:', errorData);
+          logger.log('Parsed error data:', errorData);
           
           if (errorData.error) {
             errorMessage = errorData.error;

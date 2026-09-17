@@ -2,6 +2,7 @@
 
 import { Sparkles, X, Download } from 'lucide-react';
 import { usePWA } from '@/contexts/PWAContext';
+import logger from '@/lib/logger';
 
 export default function InstallPromptBanner() {
   const { isInstallable, isBannerDismissed, installApp, dismissBanner } = usePWA();
@@ -10,7 +11,7 @@ export default function InstallPromptBanner() {
 
   const handleInstallClick = async () => {
     const outcome = await installApp();
-    console.log(`PWA installation outcome: ${outcome}`);
+    logger.log(`PWA installation outcome: ${outcome}`);
   };
 
   const handleDismissClick = () => {

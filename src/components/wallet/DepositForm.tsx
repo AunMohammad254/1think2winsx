@@ -188,7 +188,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                             placeholder={`Minimum ${MIN_DEPOSIT_AMOUNT} PKR`}
                             min={MIN_DEPOSIT_AMOUNT}
                             step="1"
-                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/40 transition-all duration-200"
+                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/40 transition-all duration-200"
                             required
                             aria-describedby="deposit-amount-help"
                         />
@@ -206,7 +206,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                         value={transactionId}
                         onChange={(e) => setTransactionId(e.target.value)}
                         placeholder="Enter the reference number from your payment app"
-                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/40 transition-all duration-200"
+                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/40 transition-all duration-200"
                         required
                         aria-describedby="deposit-tx-help"
                     />
@@ -220,8 +220,8 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                     disabled={isSubmitting}
                     className={`w-full py-4 rounded-xl font-semibold text-white transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
                         isSubmitting
-                            ? 'bg-slate-600 cursor-not-allowed'
-                            : 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-lg hover:shadow-emerald-500/25'
+                        ? 'bg-slate-600 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-800 hover:to-teal-800 shadow-lg hover:shadow-emerald-500/25'
                     }`}
                 >
                     {isSubmitting ? (

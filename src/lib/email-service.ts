@@ -2,6 +2,7 @@
  * Email Dispatch Service
  * Utility for sending emails via Brevo SMTP HTTP API
  */
+import logger from '@/lib/logger';
 
 interface SendEmailParams {
   senderEmail: string;
@@ -75,18 +76,19 @@ export async function sendNewsletterEmail({
     }
 
     const data = await response.json();
-    console.log('Brevo API response:', data);
+    logger.log('[Email] Brevo API response:', data);
 
     return {
       success: true,
       sentCount: recipients.length
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Unknown email dispatch error';
     console.error('Error dispatching newsletter email:', error);
     return {
       success: false,
       sentCount: 0,
-      error: error.message || 'Unknown email dispatch error'
+      error: msg
     };
   }
 }
