@@ -33,6 +33,7 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
         const amountStr = formData.get('amount') as string;
         const paymentMethod = formData.get('paymentMethod') as PaymentMethod;
         const transactionId = formData.get('transactionId') as string;
+        const proofImage = formData.get('proofImage') as File | null;
 
         // Validate amount
         const amount = parseFloat(amountStr);
@@ -72,11 +73,63 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
             };
         }
 
+        // Fraud check: duplicate amount+method within 1 hour (Strategy 3)
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { count: dupeCount, error: dupeError } = await supabase
+            .from('WalletTransaction')
+            .select('*', { count: 'exact', head: true })
+            .eq('userId', user.id)
+            .eq('amount', amount)
+            .eq('paymentMethod', paymentMethod)
+            .eq('status', 'pending')
+            .gte('createdAt', oneHourAgo);
+
+        if (!dupeError && dupeCount !== null && dupeCount > 0) {
+            return {
+                success: false,
+                error: 'A pending deposit for the same amount and payment method was submitted recently. Please wait before submitting again.'
+            };
+        }
+
+        // Require proof image
+        if (!proofImage || proofImage.size === 0) {
+            return { success: false, error: 'Proof of payment screenshot is required. Please upload your transaction screenshot.' };
+        }
+
+        // Handle image upload if present
+        let proofImageUrl = null;
+        if (proofImage && proofImage.size > 0) {
+            if (proofImage.size > 5 * 1024 * 1024) {
+                return { success: false, error: 'Receipt image must be less than 5MB' };
+            }
+            
+            const ext = proofImage.name.split('.').pop() || 'png';
+            const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+            
+            const { data: uploadData, error: uploadError } = await supabase
+                .storage
+                .from('receipts')
+                .upload(fileName, proofImage);
+                
+            if (uploadError) {
+                console.error('Error uploading receipt:', uploadError);
+                return { success: false, error: 'Failed to upload receipt image. Please try again.' };
+            }
+            
+            const { data: { publicUrl } } = supabase
+                .storage
+                .from('receipts')
+                .getPublicUrl(fileName);
+                
+            proofImageUrl = publicUrl;
+        }
+
         // Call Supabase RPC function
         const { data, error } = await supabase.rpc('submit_deposit_request', {
             p_amount: amount,
             p_payment_method: paymentMethod,
-            p_transaction_id: transactionId.trim()
+            p_transaction_id: transactionId.trim(),
+            p_proof_image: proofImageUrl
         });
 
         if (error) {

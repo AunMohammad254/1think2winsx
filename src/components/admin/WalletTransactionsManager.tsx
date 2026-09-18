@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Wallet,
     Search,
@@ -10,10 +10,12 @@ import {
     Clock,
     AlertCircle,
     Filter,
-    Loader2
+    Loader2,
+    FileText,
+    UploadCloud
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { WalletTransaction, TransactionStatus } from '@/types/wallet';
+import { WalletTransaction, TransactionStatus, PaymentMethod } from '@/types/wallet';
 
 // ============================================
 // Status Configuration
@@ -63,6 +65,11 @@ export default function WalletTransactionsManager() {
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [rejectNotes, setRejectNotes] = useState('');
     const [showRejectModal, setShowRejectModal] = useState<string | null>(null);
+    const [filterMethod, setFilterMethod] = useState<'all' | PaymentMethod>('all');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [isProcessingBulk, setIsProcessingBulk] = useState(false);
+    const [isReconciling, setIsReconciling] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // ============================================
     // Data Fetching
@@ -189,10 +196,113 @@ export default function WalletTransactionsManager() {
         }
     };
 
+    const handleBulkProcess = async (action: 'approve' | 'reject') => {
+        if (selectedIds.size === 0 || isProcessingBulk) return;
+        
+        if (action === 'reject' && !rejectNotes) {
+            setShowRejectModal('bulk');
+            return;
+        }
+
+        setIsProcessingBulk(true);
+        try {
+            const response = await fetch('/api/admin/wallet-transactions/bulk-process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    transactionIds: Array.from(selectedIds),
+                    action,
+                    notes: action === 'reject' ? rejectNotes : undefined,
+                }),
+            });
+
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || `Failed to bulk ${action}`);
+            }
+
+            toast.success(data.message);
+            setSelectedIds(new Set());
+            setShowRejectModal(null);
+            setRejectNotes('');
+            await fetchTransactions();
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : `Failed to bulk ${action}`);
+        } finally {
+            setIsProcessingBulk(false);
+        }
+    };
+
+    const handleReconcile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const shouldAutoApprove = window.confirm(
+            'Auto-approve matched transactions?\n\nYes = Matched deposits will be approved instantly (recommended for high-confidence matches).\nNo = Matched deposits will be selected for your review.'
+        );
+
+        setIsReconciling(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('auto_approve', shouldAutoApprove ? 'true' : 'false');
+
+            const response = await fetch('/api/admin/wallet-transactions/reconcile', {
+                method: 'POST',
+                body: formData,
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to reconcile statement');
+            }
+
+            const { matchedIds = [], autoApproved = [], unmatchedPending = [], statementEntriesFound = 0 } = data;
+
+            if (matchedIds.length === 0) {
+                toast.info(`Statement parsed: ${statementEntriesFound} entries found. No matching pending transactions.`);
+            } else if (shouldAutoApprove) {
+                toast.success(
+                    `✅ Statement reconciled: ${autoApproved.length} transaction(s) auto-approved from ${statementEntriesFound} statement entries.`,
+                    { duration: 6000 }
+                );
+                // Refresh to reflect approvals
+                await fetchTransactions();
+            } else {
+                // Select matched for manual review
+                const newSelected = new Set(selectedIds);
+                matchedIds.forEach((id: string) => newSelected.add(id));
+                setSelectedIds(newSelected);
+                toast.success(
+                    `Found ${matchedIds.length} matching transaction(s) from ${statementEntriesFound} statement entries — selected for review.`,
+                    { duration: 5000 }
+                );
+            }
+
+            if (unmatchedPending.length > 0) {
+                toast.warning(
+                    `⚠️ ${unmatchedPending.length} pending deposit(s) could not be matched in the statement — review manually.`,
+                    { duration: 8000 }
+                );
+            }
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Error reconciling statement');
+        } finally {
+            setIsReconciling(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        }
+    };
+
     // ============================================
     // Filtered & Searched Transactions
     // ============================================
     const filteredTransactions = transactions.filter(tx => {
+        const matchesMethod = filterMethod === 'all' || tx.paymentMethod === filterMethod;
+        if (!matchesMethod) return false;
+        
         if (!searchQuery) return true;
         const query = searchQuery.toLowerCase();
         return (
@@ -212,7 +322,7 @@ export default function WalletTransactionsManager() {
         <div className="space-y-6">
             {/* Stats Bar */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-amber-500/10 to-orange-500/10 p-4">
+                <div className="rounded-xl border border-white/10 bg-linear-to-br from-amber-500/10 to-orange-500/10 p-4">
                     <div className="flex items-center gap-3">
                         <div className="p-2 rounded-lg bg-amber-500/20">
                             <Clock className="w-5 h-5 text-amber-400" />
@@ -223,7 +333,7 @@ export default function WalletTransactionsManager() {
                         </div>
                     </div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 p-4">
+                <div className="rounded-xl border border-white/10 bg-linear-to-br from-emerald-500/10 to-teal-500/10 p-4">
                     <div className="flex items-center gap-3">
                         <div className="p-2 rounded-lg bg-emerald-500/20">
                             <CheckCircle className="w-5 h-5 text-emerald-400" />
@@ -236,7 +346,7 @@ export default function WalletTransactionsManager() {
                         </div>
                     </div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 p-4">
+                <div className="rounded-xl border border-white/10 bg-linear-to-br from-blue-500/10 to-indigo-500/10 p-4">
                     <div className="flex items-center gap-3">
                         <div className="p-2 rounded-lg bg-blue-500/20">
                             <Wallet className="w-5 h-5 text-blue-400" />
@@ -266,7 +376,39 @@ export default function WalletTransactionsManager() {
                 </div>
 
                 {/* Filter & Refresh */}
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                    <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        onChange={handleReconcile} 
+                        accept=".pdf,.csv,.md,.txt" 
+                        className="hidden" 
+                    />
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isReconciling}
+                        className="px-4 py-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 hover:bg-purple-500/20 transition-all text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                        title="Reconcile bank statement (PDF/CSV/TXT) — auto-matches and approves deposits"
+                    >
+                        {isReconciling ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+                        <span className="hidden sm:inline">Reconcile Statement</span>
+                    </button>
+
+                    {filteredTransactions.some(tx => tx.status === 'pending') && (
+                        <button
+                            onClick={() => {
+                                const newSelected = new Set(selectedIds);
+                                filteredTransactions.forEach(tx => {
+                                    if (tx.status === 'pending') newSelected.add(tx.id);
+                                });
+                                setSelectedIds(newSelected);
+                            }}
+                            className="px-4 py-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 transition-all text-sm font-medium hidden sm:block"
+                            title="Select all pending on this page"
+                        >
+                            Select All
+                        </button>
+                    )}
                     <div className="relative">
                         <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <select
@@ -281,6 +423,20 @@ export default function WalletTransactionsManager() {
                             <option value="all" className="bg-gray-800 text-white">All</option>
                         </select>
                     </div>
+                    <div className="relative">
+                        <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <select
+                            value={filterMethod}
+                            onChange={(e) => setFilterMethod(e.target.value as PaymentMethod | 'all')}
+                            className="appearance-none pl-9 pr-8 py-3 rounded-xl bg-gray-800 border border-white/10 text-white focus:outline-none focus:border-blue-500/50 cursor-pointer"
+                            style={{ colorScheme: 'dark' }}
+                        >
+                            <option value="all" className="bg-gray-800 text-white">All Methods</option>
+                            <option value="Easypaisa" className="bg-gray-800 text-white">Easypaisa</option>
+                            <option value="Jazzcash" className="bg-gray-800 text-white">Jazzcash</option>
+                            <option value="Bank" className="bg-gray-800 text-white">Bank</option>
+                        </select>
+                    </div>
                     <button
                         onClick={() => fetchTransactions(true)}
                         disabled={isRefreshing}
@@ -291,6 +447,39 @@ export default function WalletTransactionsManager() {
                     </button>
                 </div>
             </div>
+
+            {/* Bulk Actions Bar */}
+            {selectedIds.size > 0 && (
+                <div className="p-4 bg-blue-900/40 border border-blue-500/30 rounded-xl flex items-center justify-between animate-in slide-in-from-top-4">
+                    <div className="flex items-center gap-4">
+                        <span className="text-blue-200 font-medium">{selectedIds.size} selected</span>
+                        <button
+                            onClick={() => setSelectedIds(new Set())}
+                            className="text-sm text-blue-400 hover:text-blue-300"
+                        >
+                            Clear selection
+                        </button>
+                    </div>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => handleBulkProcess('approve')}
+                            disabled={isProcessingBulk}
+                            className="px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-50 flex items-center gap-2"
+                        >
+                            {isProcessingBulk ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                            Approve Selected
+                        </button>
+                        <button
+                            onClick={() => setShowRejectModal('bulk')}
+                            disabled={isProcessingBulk}
+                            className="px-4 py-2 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 disabled:opacity-50 flex items-center gap-2"
+                        >
+                            <XCircle className="w-4 h-4" />
+                            Reject Selected
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Loading State */}
             {isLoading && (
@@ -311,8 +500,8 @@ export default function WalletTransactionsManager() {
 
             {/* Empty State */}
             {!isLoading && filteredTransactions.length === 0 && (
-                <div className="text-center py-16 rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/50 to-gray-800/30">
-                    <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full flex items-center justify-center">
+                <div className="text-center py-16 rounded-2xl border border-white/10 bg-linear-to-br from-gray-900/50 to-gray-800/30">
+                    <div className="w-20 h-20 mx-auto mb-6 bg-linear-to-r from-blue-500/20 to-purple-500/20 rounded-full flex items-center justify-center">
                         {searchQuery ? (
                             <Search className="w-10 h-10 text-gray-400" />
                         ) : (
@@ -350,12 +539,30 @@ export default function WalletTransactionsManager() {
                         return (
                             <div
                                 key={tx.id}
-                                className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/60 to-gray-800/40 p-6 transition-all duration-300 hover:border-white/20 hover:shadow-lg hover:shadow-blue-500/5"
+                                className="rounded-2xl border border-white/10 bg-linear-to-br from-gray-900/60 to-gray-800/40 p-6 transition-all duration-300 hover:border-white/20 hover:shadow-lg hover:shadow-blue-500/5"
                             >
                                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-                                    {/* User Info */}
+                                    {/* User Info & Checkbox */}
                                     <div className="flex items-center gap-4">
-                                        <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
+                                        {tx.status === 'pending' && (
+                                            <div className="shrink-0">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedIds.has(tx.id)}
+                                                    onChange={(e) => {
+                                                        const newSelected = new Set(selectedIds);
+                                                        if (e.target.checked) {
+                                                            newSelected.add(tx.id);
+                                                        } else {
+                                                            newSelected.delete(tx.id);
+                                                        }
+                                                        setSelectedIds(newSelected);
+                                                    }}
+                                                    className="w-5 h-5 rounded border-gray-600 bg-gray-700/50 text-blue-500 focus:ring-blue-500/50 focus:ring-offset-gray-900 cursor-pointer"
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="w-14 h-14 bg-linear-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/20">
                                             <span className="text-white font-bold text-xl">
                                                 {tx.user?.name?.charAt(0) || tx.user?.email?.charAt(0) || '?'}
                                             </span>
@@ -369,7 +576,7 @@ export default function WalletTransactionsManager() {
                                     </div>
 
                                     {/* Transaction Details */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 lg:gap-6">
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 lg:gap-6">
                                         <div>
                                             <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Amount</p>
                                             <p className="text-white font-bold text-xl">PKR {tx.amount.toFixed(0)}</p>
@@ -380,9 +587,19 @@ export default function WalletTransactionsManager() {
                                         </div>
                                         <div>
                                             <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Reference</p>
-                                            <code className="text-sm bg-white/5 px-2 py-1 rounded text-blue-300 inline-block max-w-[120px] truncate">
+                                            <code className="text-sm bg-white/5 px-2 py-1 rounded text-blue-300 inline-block max-w-30 truncate">
                                                 {tx.transactionId}
                                             </code>
+                                        </div>
+                                        <div>
+                                            <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Receipt</p>
+                                            {tx.proofImage ? (
+                                                <a href={tx.proofImage} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 text-sm font-medium hover:underline">
+                                                    View Image
+                                                </a>
+                                            ) : (
+                                                <span className="text-gray-600 text-sm">No receipt</span>
+                                            )}
                                         </div>
                                         <div>
                                             <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Status</p>
@@ -395,7 +612,7 @@ export default function WalletTransactionsManager() {
 
                                     {/* Actions */}
                                     {tx.status === 'pending' && (
-                                        <div className="flex gap-3 flex-shrink-0">
+                                        <div className="flex gap-3 shrink-0">
                                             <button
                                                 onClick={() => handleApprove(tx.id)}
                                                 disabled={processingId === tx.id}
@@ -447,7 +664,7 @@ export default function WalletTransactionsManager() {
                                 {/* Rejection Notes */}
                                 {tx.status === 'rejected' && tx.adminNotes && (
                                     <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex gap-3">
-                                        <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                                        <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                                         <div>
                                             <p className="text-red-300 font-medium text-sm">Rejection Reason</p>
                                             <p className="text-red-200/80 text-sm mt-1">{tx.adminNotes}</p>
@@ -470,7 +687,7 @@ export default function WalletTransactionsManager() {
                     }}
                 >
                     <div
-                        className="bg-gradient-to-br from-gray-900 to-gray-800 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+                        className="bg-linear-to-br from-gray-900 to-gray-800 border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="flex items-center gap-3 mb-4">

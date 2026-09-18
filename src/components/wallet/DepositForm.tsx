@@ -12,6 +12,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
     const [amount, setAmount] = useState<string>('');
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Easypaisa');
     const [transactionId, setTransactionId] = useState<string>('');
+    const [proofImage, setProofImage] = useState<File | null>(null);
     const [error, setError] = useState<string>('');
     const [success, setSuccess] = useState<boolean>(false);
 
@@ -31,10 +32,18 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
             return;
         }
 
+        if (!proofImage) {
+            setError('Please upload a screenshot of your payment as proof');
+            return;
+        }
+
         const formData = new FormData();
         formData.append('amount', amount);
         formData.append('paymentMethod', paymentMethod);
         formData.append('transactionId', transactionId.trim());
+        if (proofImage) {
+            formData.append('proofImage', proofImage);
+        }
 
         const result = await onSubmit(formData);
 
@@ -42,6 +51,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
             setSuccess(true);
             setAmount('');
             setTransactionId('');
+            setProofImage(null);
         } else {
             setError(result.error || 'Failed to submit deposit request');
         }
@@ -88,7 +98,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
             <div className="p-6 border-b border-white/10">
                 <div className="flex items-center gap-3">
                     <div
-                        className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-full flex items-center justify-center"
+                        className="w-10 h-10 bg-linear-to-r from-emerald-500 to-teal-600 rounded-full flex items-center justify-center"
                         aria-hidden="true"
                     >
                         <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -154,7 +164,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                                     onClick={() => setPaymentMethod(method)}
                                     className={`p-3 rounded-xl border text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
                                         selected
-                                            ? 'bg-gradient-to-r from-emerald-500/25 to-teal-600/25 border-emerald-400/50 text-white shadow-lg shadow-emerald-900/20'
+                                            ? 'bg-linear-to-r from-emerald-500/25 to-teal-600/25 border-emerald-400/50 text-white shadow-lg shadow-emerald-900/20'
                                             : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
                                     }`}
                                 >
@@ -173,6 +183,15 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                         Send payment to this account:
                     </h3>
                     {getBankDetails()}
+                </div>
+
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex gap-3 items-start">
+                    <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-sm text-amber-200/90 leading-relaxed">
+                        Deposits typically take <strong>1-2 business days</strong> to reflect in your wallet after admin review.
+                    </p>
                 </div>
 
                 <div>
@@ -215,13 +234,43 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                     </p>
                 </div>
 
+                <div>
+                    <label htmlFor="deposit-proof" className="block text-sm font-medium text-slate-200 mb-2 items-center gap-2">
+                        Proof of Payment (Screenshot) *
+                        {proofImage ? (
+                            <span className="flex items-center gap-1 text-emerald-400 text-xs font-normal">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Selected
+                            </span>
+                        ) : (
+                            <span className="text-rose-400/70 text-xs font-normal">(required)</span>
+                        )}
+                    </label>
+                    <input
+                        type="file"
+                        id="deposit-proof"
+                        accept="image/*"
+                        onChange={(e) => setProofImage(e.target.files?.[0] || null)}
+                        className={`w-full px-4 py-3 bg-white/5 border rounded-xl text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/20 file:text-emerald-300 hover:file:bg-emerald-500/30 transition-all duration-200 ${
+                            proofImage ? 'border-emerald-400/50' : 'border-emerald-400/30'
+                        }`}
+                        required
+                        aria-describedby="deposit-proof-help"
+                    />
+                    <p id="deposit-proof-help" className="text-slate-400 text-xs mt-2">
+                        Required: Upload a clear screenshot of your successful transaction (Max 5MB)
+                    </p>
+                </div>
+
                 <button
                     type="submit"
                     disabled={isSubmitting}
                     className={`w-full py-4 rounded-xl font-semibold text-white transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 ${
                         isSubmitting
                         ? 'bg-slate-600 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-emerald-700 to-teal-700 hover:from-emerald-800 hover:to-teal-800 shadow-lg hover:shadow-emerald-500/25'
+                        : 'bg-linear-to-r from-emerald-700 to-teal-700 hover:from-emerald-800 hover:to-teal-800 shadow-lg hover:shadow-emerald-500/25'
                     }`}
                 >
                     {isSubmitting ? (

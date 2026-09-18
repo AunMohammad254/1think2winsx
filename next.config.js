@@ -15,6 +15,7 @@ const nextConfig = {
     // Disable optimizeCss as it's causing build issues
     // optimizeCss: true,
   },
+  serverExternalPackages: ['pdf-parse'],
 
   // Compiler optimizations
   compiler: {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
-import { getDb } from '@/lib/supabase/db';
+import { getDb, notificationDb } from '@/lib/supabase/db';
 import { TransactionStatus, PaymentMethod } from '@/types/wallet';
 
 /**
@@ -125,6 +125,26 @@ export async function PATCH(request: NextRequest) {
                 });
 
                 if (!error && data?.success) {
+                    // Try to send notification
+                    try {
+                        const { data: txData } = await supabase
+                            .from('WalletTransaction')
+                            .select('userId, amount')
+                            .eq('id', transactionId)
+                            .single();
+                            
+                        if (txData) {
+                            await notificationDb.create(txData.userId, {
+                                title: 'Deposit Approved',
+                                message: `Your deposit of ${txData.amount} PKR has been approved and added to your wallet.`,
+                                type: 'wallet_deposit',
+                                link: '/profile/wallet'
+                            });
+                        }
+                    } catch (notifErr) {
+                        console.error('Failed to send notification:', notifErr);
+                    }
+
                     return NextResponse.json({
                         success: true,
                         message: 'Transaction approved successfully',
@@ -151,6 +171,26 @@ export async function PATCH(request: NextRequest) {
                 });
 
                 if (!error && data?.success) {
+                    // Try to send notification
+                    try {
+                        const { data: txData } = await supabase
+                            .from('WalletTransaction')
+                            .select('userId, amount')
+                            .eq('id', transactionId)
+                            .single();
+                            
+                        if (txData) {
+                            await notificationDb.create(txData.userId, {
+                                title: 'Deposit Rejected',
+                                message: `Your deposit of ${txData.amount} PKR was rejected. Reason: ${notes || 'Not provided'}`,
+                                type: 'wallet_deposit',
+                                link: '/profile/wallet'
+                            });
+                        }
+                    } catch (notifErr) {
+                        console.error('Failed to send notification:', notifErr);
+                    }
+
                     return NextResponse.json({
                         success: true,
                         message: 'Transaction rejected',
@@ -211,6 +251,18 @@ export async function PATCH(request: NextRequest) {
 
             if (updateError) throw updateError;
 
+            // Send notification
+            try {
+                await notificationDb.create(transaction.userId, {
+                    title: 'Deposit Approved',
+                    message: `Your deposit of ${transaction.amount} PKR has been approved and added to your wallet.`,
+                    type: 'wallet_deposit',
+                    link: '/profile/wallet'
+                });
+            } catch (notifErr) {
+                console.error('Failed to send notification:', notifErr);
+            }
+
             return NextResponse.json({
                 success: true,
                 message: 'Transaction approved successfully',
@@ -233,6 +285,18 @@ export async function PATCH(request: NextRequest) {
                 .single();
 
             if (updateError) throw updateError;
+
+            // Send notification
+            try {
+                await notificationDb.create(transaction.userId, {
+                    title: 'Deposit Rejected',
+                    message: `Your deposit of ${transaction.amount} PKR was rejected. Reason: ${notes || 'Not provided'}`,
+                    type: 'wallet_deposit',
+                    link: '/profile/wallet'
+                });
+            } catch (notifErr) {
+                console.error('Failed to send notification:', notifErr);
+            }
 
             return NextResponse.json({
                 success: true,

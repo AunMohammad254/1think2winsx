@@ -170,7 +170,47 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // 5. Revalidate cache if quizzes were processed
+    // 5. Process stale pending wallet transactions (older than 48 hours)
+    const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { data: staleTransactions, error: staleError } = await adminDb
+      .from('WalletTransaction')
+      .select('id, userId, amount')
+      .eq('status', 'pending')
+      .lte('createdAt', fortyEightHoursAgo);
+
+    const processedStaleIds: string[] = [];
+
+    if (!staleError && staleTransactions && staleTransactions.length > 0) {
+      logger.log(`[Cron] Found ${staleTransactions.length} stale wallet transactions. Auto-rejecting...`);
+      for (const tx of staleTransactions) {
+        const { error: rejectError } = await adminDb
+          .from('WalletTransaction')
+          .update({
+            status: 'rejected',
+            adminNotes: 'Automatically expired after 48 hours.',
+            processedAt: now,
+            processedBy: 'system',
+            updatedAt: now
+          })
+          .eq('id', tx.id);
+          
+        if (!rejectError) {
+          processedStaleIds.push(tx.id);
+          try {
+            await notificationDb.create(tx.userId, {
+              title: 'Deposit Expired',
+              message: `Your deposit request for ${tx.amount} PKR has automatically expired because it could not be verified within 48 hours.`,
+              type: 'wallet_deposit',
+              link: '/profile/wallet'
+            });
+          } catch (notifErr) {
+            console.error(`[Cron] Failed to send expiration notification for tx ${tx.id}:`, notifErr);
+          }
+        }
+      }
+    }
+
+    // 6. Revalidate cache if quizzes were processed
     if (processedQuizIds.length > 0) {
       clearQuizListCache();
       revalidatePath('/quizzes');
@@ -182,9 +222,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Processed ${processedQuizIds.length} quizzes and ${processedNotifIds.length} scheduled notifications.`,
+      message: `Processed ${processedQuizIds.length} quizzes, ${processedNotifIds.length} scheduled notifications, and ${processedStaleIds.length} stale deposits.`,
       processedQuizzes: processedQuizIds,
-      processedNotifications: processedNotifIds
+      processedNotifications: processedNotifIds,
+      processedStaleDeposits: processedStaleIds
     }, { status: 200 });
 
   } catch (error) {
