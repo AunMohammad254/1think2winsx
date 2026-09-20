@@ -126,26 +126,47 @@ export function useParallaxPointer(strength = 12) {
   return ref;
 }
 
-export function useActiveSection(sectionIds: string[], rootMargin = "-40% 0px -55% 0px") {
+export function useActiveSection(sectionIds: string[], rootMargin = "-15% 0px -70% 0px") {
   const [activeId, setActiveId] = useState(sectionIds[0]);
+  const isProgrammaticScrollRef = useRef(false);
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            setActiveId(entry.target.id);
-          }
+        // Get all visible entries sorted by position
+        const visibleEntries = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => {
+            const aRect = a.boundingClientRect;
+            const bRect = b.boundingClientRect;
+            return Math.abs(aRect.top) - Math.abs(bRect.top);
+          });
+        
+        if (visibleEntries.length > 0) {
+          setActiveId(visibleEntries[0].target.id);
         }
       },
       { rootMargin, threshold: 0 }
     );
+
     sectionIds.forEach((id) => {
       const el = document.getElementById(id);
       if (el) observer.observe(el);
     });
+
     return () => observer.disconnect();
   }, [sectionIds.join(","), rootMargin]);
-  return activeId;
+  
+  // Prevent observer update immediately after programmatic scroll
+  const handleProgrammaticScroll = (sectionId: string) => {
+    isProgrammaticScrollRef.current = true;
+    setActiveId(sectionId);
+    setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+    }, 500);
+  };
+  
+  return { activeId, setActiveId: handleProgrammaticScroll };
 }
 
 export function useTypewriter(words: string[], { typeSpeed = 60, deleteSpeed = 35, pause = 2000 } = {}) {

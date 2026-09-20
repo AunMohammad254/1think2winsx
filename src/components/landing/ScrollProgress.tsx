@@ -36,7 +36,7 @@ export default function ScrollProgress() {
     <div
       ref={ref}
       aria-hidden="true"
-      className="fixed left-0 top-0 z-[60] h-[2px] origin-left bg-gradient-to-r from-emerald-400 via-amber-300 to-orange-500 w-full"
+      className="fixed left-0 top-0 z-[60] h-[3px] origin-left bg-gradient-to-r from-emerald-400 via-amber-300 to-orange-500 w-full shadow-[0_0_20px_rgba(16,185,129,0.4)]"
       style={{ transform: "scaleX(0)" }}
     />
   );
