@@ -9,17 +9,7 @@ import { securityLogger } from '@/lib/security-logger';
 import { createSecureFileUploadResponse } from '@/lib/security-headers';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { requireCSRFToken } from '@/lib/csrf-protection';
-
-
-// Dynamic import for sharp to avoid build issues
-let sharp: typeof import('sharp') | null = null;
-
-async function getSharp() {
-  if (!sharp) {
-    sharp = (await import('sharp')).default;
-  }
-  return sharp;
-}
+import sharp from 'sharp';
 
 export async function POST(request: NextRequest) {
   try {
@@ -128,9 +118,8 @@ export async function POST(request: NextRequest) {
     const filepath = join(uploadsDir, filename);
 
     try {
-      const sharpInstance = await getSharp();
       // Process image with Sharp - convert to AVIF format
-      const processedBuffer = await sharpInstance(buffer)
+      const processedBuffer = await sharp(buffer)
         .resize(400, 400, {
           fit: 'cover',
           position: 'center'
