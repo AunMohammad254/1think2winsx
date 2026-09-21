@@ -30,6 +30,7 @@
     "@radix-ui/react-dialog": "^1.1.16",
     "@radix-ui/react-label": "^2.1.9",
     "@radix-ui/react-select": "^2.3.0",
+    "@radix-ui/react-slot": "^1.3.3",
     "@radix-ui/react-switch": "^1.3.0",
     "@radix-ui/react-tabs": "^1.1.14",
     "@supabase/ssr": "^0.10.3",
@@ -46,8 +47,8 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.79.0",
+    "sharp": "^0.35.4",
     "sonner": "^2.0.7",
-    "supabase": "^2.106.0",
     "tailwind-merge": "^3.6.0",
     "web-push": "^3.6.7",
     "zod": "^4.4.3"

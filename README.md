@@ -12,12 +12,12 @@
 
 <!-- Animated Badges -->
 <p>
-  <img src="https://img.shields.io/badge/Next.js-15.5-black?style=for-the-badge&logo=next.js&logoColor=white&labelColor=000000" alt="Next.js" />
-  <img src="https://img.shields.io/badge/React-19.1-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React" />
-  <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/Tailwind-4.0-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="TailwindCSS" />
-  <img src="https://img.shields.io/badge/Prisma-5.22-2D3748?style=for-the-badge&logo=prisma&logoColor=white" alt="Prisma" />
-  <img src="https://img.shields.io/badge/MongoDB-Ready-47A248?style=for-the-badge&logo=mongodb&logoColor=white" alt="MongoDB" />
+  <img src="https://img.shields.io/badge/Next.js-16.2-black?style=for-the-badge&logo=next.js&logoColor=white&labelColor=000000" alt="Next.js" />
+  <img src="https://img.shields.io/badge/React-19.2-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-6.0-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Tailwind-4.3-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="TailwindCSS" />
+  <img src="https://img.shields.io/badge/Supabase-0.10-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white" alt="Supabase" />
+  <img src="https://img.shields.io/badge/Bun-1.1-000000?style=for-the-badge&logo=bun&logoColor=white" alt="Bun" />
 </p>
 
 <!-- Status Badges -->
@@ -116,21 +116,18 @@
 mindmap
   root((1Think2Wins))
     Frontend
-      Next.js 15
+      Next.js 16
       React 19
       TailwindCSS 4
       Lucide Icons
     Backend
       Next.js API Routes
-      Prisma ORM
-      NextAuth.js
+      Supabase
     Database
-      MongoDB
-    Payments
-      Stripe Integration
-    Streaming
-      Facebook Live
-      WebSocket
+      PostgreSQL
+    Testing
+      Vitest
+      Playwright
 ```
 
 </div>
@@ -143,7 +140,7 @@ mindmap
 
 ### Prerequisites
 
-<img src="https://skillicons.dev/icons?i=nodejs,bun,mongodb&theme=dark" alt="Prerequisites" />
+<img src="https://skillicons.dev/icons?i=nodejs,bun,supabase&theme=dark" alt="Prerequisites" />
 
 </div>
 
@@ -168,28 +165,23 @@ cp .env.example .env.local
 Create a `.env.local` file with the following:
 
 ```env
-# Database
-DATABASE_URL="mongodb://your-mongodb-url"
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL="your-supabase-url"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
+SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 
-# Authentication
+# Authentication (Optional/Fallback)
 AUTH_SECRET="your-auth-secret"
-
-# Stripe (Optional)
-STRIPE_SECRET_KEY="your-stripe-secret"
-STRIPE_PUBLISHABLE_KEY="your-stripe-public-key"
 ```
 
 ### 🗄️ Database Setup
 
 ```bash
-# Generate Prisma Client
-bunx prisma generate
+# Ensure Supabase CLI is installed and linked to your project
+supabase link --project-ref your-project-ref
 
-# Push schema to database
-bunx prisma db push
-
-# Seed initial data (optional)
-bun run seed
+# Push database schema to your remote database
+supabase db push
 ```
 
 ### 🚀 Run Development Server
@@ -210,9 +202,7 @@ bun run dev
 
 ```
 📦 1think2winsx
-├── 📂 prisma               # Database schema & migrations
-│   ├── 📄 schema.prisma    # Prisma schema
-│   └── 📄 seed.ts          # Database seeding
+├── 📂 e2e                  # Playwright end-to-end tests
 ├── 📂 public               # Static assets
 │   ├── 🖼️ bike.svg
 │   ├── 🖼️ phone.svg
@@ -229,10 +219,11 @@ bun run dev
 │   ├── 📂 components       # Reusable components
 │   ├── 📂 hooks            # Custom React hooks
 │   ├── 📂 lib              # Utility libraries
+│   ├── 📂 tests            # Vitest unit tests
 │   └── 📂 types            # TypeScript types
-├── 📂 tools                # Development tools
-├── 📄 docker-compose.yml   # Docker configuration
-├── 📄 Dockerfile           # Container definition
+├── 📂 scripts              # Development & utility scripts
+├── 📂 SQL                  # Supabase schema definitions
+├── 📄 middleware.ts        # Next.js middleware
 └── 📄 package.json         # Dependencies
 ```
 
@@ -246,6 +237,8 @@ bun run dev
 | `bun run build` | Build for production |
 | `bun run start` | Start production server |
 | `bun run lint` | Run ESLint |
+| `bun run test` | Run Vitest unit tests |
+| `bun run test:e2e` | Run Playwright E2E tests |
 | `bun run cleanup:orphaned` | Clean orphaned database records |
 
 ---
