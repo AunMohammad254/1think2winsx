@@ -1,0 +1,300 @@
+name: 📈 Coverage Reports
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run every day at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  BUN_VERSION: '1.x'
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Job 1: Generate Coverage Report
+  # ──────────────────────────────────────────────
+  generate-coverage:
+    name: 📊 Generate Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://test.supabase.co' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'test-anon-key' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'test-service-key' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for accurate coverage tracking
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run full test suite with coverage
+        run: bun run test:coverage -- --reporter=verbose
+        env:
+          CI: true
+
+      - name: Generate HTML coverage report
+        run: |
+          echo "Coverage report generated in coverage/ directory"
+          ls -la coverage/ || echo "No coverage directory found"
+
+      - name: Coverage summary
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            echo "## 📈 Coverage Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat coverage/coverage-summary.json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          total = data.get('total', {})
+          print(f\"Lines:      {total.get('lines', {}).get('pct', 0):.1f}%\")
+          print(f\"Statements: {total.get('statements', {}).get('pct', 0):.1f}%\")
+          print(f\"Functions:  {total.get('functions', {}).get('pct', 0):.1f}%\")
+          print(f\"Branches:   {total.get('branches', {}).get('pct', 0):.1f}%\")
+          " 2>/dev/null || echo "Coverage data not available"
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload coverage HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-coverage-report
+          path: coverage/
+          retention-days: 30
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/coverage-final.json
+          flags: unittests
+          name: 1think2wins-coverage
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Check coverage thresholds
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            python3 << 'EOF'
+          import json, sys
+
+          with open('coverage/coverage-summary.json') as f:
+              data = json.load(f)
+
+          total = data.get('total', {})
+          thresholds = {
+              'lines': 70,
+              'statements': 70,
+              'functions': 65,
+              'branches': 60,
+          }
+
+          failed = False
+          print("Coverage Threshold Check:")
+          print("=" * 40)
+          for metric, threshold in thresholds.items():
+              actual = total.get(metric, {}).get('pct', 0)
+              status = '✅' if actual >= threshold else '❌'
+              print(f"{status} {metric.capitalize()}: {actual:.1f}% (threshold: {threshold}%)")
+              if actual < threshold:
+                  failed = True
+
+          if failed:
+              print("\n❌ Coverage thresholds not met!")
+              sys.exit(1)
+          else:
+              print("\n✅ All coverage thresholds passed!")
+          EOF
+          else
+            echo "No coverage summary found, skipping threshold check"
+          fi
+
+  # ──────────────────────────────────────────────
+  # Job 2: Generate Coverage Badge
+  # ──────────────────────────────────────────────
+  update-badge:
+    name: 🏅 Update Coverage Badge
+    runs-on: ubuntu-latest
+    needs: generate-coverage
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: html-coverage-report
+          path: coverage/
+
+      - name: Extract coverage percentage
+        id: coverage
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            PCT=$(python3 -c "
+          import json
+          with open('coverage/coverage-summary.json') as f:
+              d = json.load(f)
+          print(round(d.get('total', {}).get('lines', {}).get('pct', 0), 1))
+          ")
+            echo "percentage=$PCT" >> $GITHUB_OUTPUT
+            echo "Coverage: $PCT%"
+          else
+            echo "percentage=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create coverage badge JSON
+        run: |
+          PCT="${{ steps.coverage.outputs.percentage }}"
+          if (( $(echo "$PCT >= 90" | bc -l) )); then
+            COLOR="brightgreen"
+          elif (( $(echo "$PCT >= 80" | bc -l) )); then
+            COLOR="green"
+          elif (( $(echo "$PCT >= 70" | bc -l) )); then
+            COLOR="yellow"
+          elif (( $(echo "$PCT >= 60" | bc -l) )); then
+            COLOR="orange"
+          else
+            COLOR="red"
+          fi
+
+          mkdir -p .github/badges
+          cat > .github/badges/coverage.json << EOF
+          {
+            "schemaVersion": 1,
+            "label": "coverage",
+            "message": "${PCT}%",
+            "color": "${COLOR}"
+          }
+          EOF
+          echo "Badge generated: ${PCT}% (${COLOR})"
+
+      - name: Upload badge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge
+          path: .github/badges/coverage.json
+          retention-days: 90
+
+  # ──────────────────────────────────────────────
+  # Job 3: Publish Coverage Report to GitHub Pages
+  # ──────────────────────────────────────────────
+  publish-coverage:
+    name: 🌐 Publish Coverage Report
+    runs-on: ubuntu-latest
+    needs: generate-coverage
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name != 'pull_request'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: html-coverage-report
+          path: coverage/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+        continue-on-error: true
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        continue-on-error: true
+        with:
+          path: coverage/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+  # ──────────────────────────────────────────────
+  # Job 4: PR Coverage Comment
+  # ──────────────────────────────────────────────
+  pr-coverage-comment:
+    name: 💬 PR Coverage Comment
+    runs-on: ubuntu-latest
+    needs: generate-coverage
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: html-coverage-report
+          path: coverage/
+
+      - name: Generate coverage comment
+        id: coverage-comment
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            COMMENT=$(python3 << 'EOF'
+          import json
+
+          with open('coverage/coverage-summary.json') as f:
+              data = json.load(f)
+
+          total = data.get('total', {})
+          lines = total.get('lines', {}).get('pct', 0)
+          stmts = total.get('statements', {}).get('pct', 0)
+          funcs = total.get('functions', {}).get('pct', 0)
+          branches = total.get('branches', {}).get('pct', 0)
+
+          def emoji(pct):
+              if pct >= 90: return '🟢'
+              if pct >= 70: return '🟡'
+              return '🔴'
+
+          print(f"""## 📈 Coverage Report
+
+          | Metric | Coverage | Status |
+          |--------|----------|--------|
+          | Lines | {lines:.1f}% | {emoji(lines)} |
+          | Statements | {stmts:.1f}% | {emoji(stmts)} |
+          | Functions | {funcs:.1f}% | {emoji(funcs)} |
+          | Branches | {branches:.1f}% | {emoji(branches)} |
+
+          > 🟢 ≥90% | 🟡 ≥70% | 🔴 <70%""")
+          EOF
+          )
+            echo "comment<<EOF" >> $GITHUB_OUTPUT
+            echo "$COMMENT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: coverage-report
+          message: ${{ steps.coverage-comment.outputs.comment }}

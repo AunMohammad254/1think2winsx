@@ -4,10 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { Section, SectionHeading, Reveal } from "./Primitives";
 
 const REVIEWS = [
-  { name: "Aarav Mehta", role: "Top 50 player · Mumbai", quote: "Won my first ₹2,000 within a week. The streak mechanic is addictive — feels like batting a perfect over every time you go on a roll.", avatar: "from-emerald-400 to-cyan-400", rating: 5 },
-  { name: "Priya Iyer", role: "Weekly champion · Bengaluru", quote: "I've tried every cricket app out there. 1Think2Win is the only one with truly competitive players and real, instant payouts.", avatar: "from-violet-500 to-pink-500", rating: 5 },
+  { name: "Aarav Mehta", role: "Top 50 player · Mumbai", quote: "Won my first prize within a week. The streak mechanic is addictive — feels like batting a perfect over every time you go on a roll.", avatar: "from-emerald-400 to-cyan-400", rating: 5 },
+  { name: "Priya Iyer", role: "Weekly champion · Bengaluru", quote: "I've tried every cricket app out there. 1Think2Win is the only one with truly competitive players and real, instant prizes.", avatar: "from-violet-500 to-pink-500", rating: 5 },
   { name: "Rahul Verma", role: "Season finalist · Delhi", quote: "The UI is so smooth and the questions are genuinely tough. You can tell the team are real cricket fans — not just developers.", avatar: "from-amber-400 to-orange-500", rating: 5 },
-  { name: "Saima Khan", role: "Daily player · Lucknow", quote: "I play during my coffee break. 60 seconds, real money, zero stress. Already won enough to cover my month's subscriptions.", avatar: "from-rose-400 to-red-500", rating: 5 },
+  { name: "Saima Khan", role: "Daily player · Lucknow", quote: "I play during my coffee break. 60 seconds, real prizes, zero stress. Already won an amazing smartwatch!", avatar: "from-rose-400 to-red-500", rating: 5 },
   { name: "Dev Singh", role: "Pro tier · Chandigarh", quote: "The leaderboard pressure is real. I've made friends from Pakistan, Australia, even Sri Lanka — all united by our love of the game.", avatar: "from-blue-400 to-violet-500", rating: 5 },
 ];
 

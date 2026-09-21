@@ -95,7 +95,7 @@ export default function LiveQuiz() {
             </h2>
           </Reveal>
           <Reveal delay={200}>
-            <p className="mt-5 text-lg text-white/65">New tournaments drop every hour. Pick your format, secure your spot, and battle real players for instant cash rewards.</p>
+            <p className="mt-5 text-lg text-white/65">New tournaments drop every hour. Pick your format, secure your spot, and battle real players for exciting physical prizes.</p>
           </Reveal>
           <Reveal delay={300}>
             <ul className="mt-8 space-y-3">

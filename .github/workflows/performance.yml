@@ -1,0 +1,321 @@
+name: ⚡ Performance Monitoring
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run every day at 03:00 UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+env:
+  BUN_VERSION: '1.x'
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Job 1: Build & Bundle Analysis
+  # ──────────────────────────────────────────────
+  bundle-analysis:
+    name: 📦 Bundle Size Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://test.supabase.co' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'test-anon-key' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build production bundle
+        run: bun run build
+        env:
+          CI: true
+          ANALYZE: true
+
+      - name: Analyze bundle sizes
+        run: |
+          echo "## 📦 Bundle Size Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d ".next" ]; then
+            echo "### Next.js Build Output" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+
+            # Get JS bundle sizes
+            echo "JavaScript Bundles:" >> $GITHUB_STEP_SUMMARY
+            find .next/static -name "*.js" -not -name "*.map" 2>/dev/null | \
+              xargs ls -lh 2>/dev/null | \
+              awk '{print $5, $9}' | \
+              sort -rh | head -20 >> $GITHUB_STEP_SUMMARY || echo "No JS files found"
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "CSS Bundles:" >> $GITHUB_STEP_SUMMARY
+            find .next/static -name "*.css" 2>/dev/null | \
+              xargs ls -lh 2>/dev/null | \
+              awk '{print $5, $9}' | \
+              sort -rh >> $GITHUB_STEP_SUMMARY || echo "No CSS files found"
+
+            echo '```' >> $GITHUB_STEP_SUMMARY
+
+            # Total sizes
+            JS_SIZE=$(find .next/static -name "*.js" -not -name "*.map" -exec du -sh {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "N/A")
+            CSS_SIZE=$(find .next/static -name "*.css" -exec du -sh {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "N/A")
+            TOTAL_SIZE=$(du -sh .next/static 2>/dev/null | awk '{print $1}' || echo "N/A")
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Bundle Type | Size |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------------|------|" >> $GITHUB_STEP_SUMMARY
+            echo "| JavaScript | $JS_SIZE |" >> $GITHUB_STEP_SUMMARY
+            echo "| CSS | $CSS_SIZE |" >> $GITHUB_STEP_SUMMARY
+            echo "| Total Static | $TOTAL_SIZE |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            .next/
+            !.next/cache
+          retention-days: 7
+
+  # ──────────────────────────────────────────────
+  # Job 2: Lighthouse Performance Audit
+  # ──────────────────────────────────────────────
+  lighthouse:
+    name: 🔦 Lighthouse Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: bundle-analysis
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://test.supabase.co' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'test-anon-key' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Setup Node.js (for Lighthouse)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli@0.14.x
+
+      - name: Build application
+        run: bun run build
+        env:
+          CI: true
+
+      - name: Start production server
+        run: |
+          bun run start &
+          echo "Waiting for server..."
+          sleep 10
+          curl -f http://localhost:3000 || (echo "Server not ready" && exit 1)
+
+      - name: Run Lighthouse CI
+        run: |
+          lhci autorun \
+            --collect.url=http://localhost:3000 \
+            --collect.numberOfRuns=3 \
+            --assert.preset=lighthouse:recommended \
+            --assert.assertions.categories:performance=warn \
+            --assert.assertions.categories:accessibility=error \
+            --assert.assertions.categories:best-practices=warn \
+            --assert.assertions.categories:seo=warn \
+            --output=json \
+            --output-path=./lighthouse-results/ || true
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+      - name: Process Lighthouse results
+        run: |
+          echo "## 🔦 Lighthouse Audit Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d "lighthouse-results" ]; then
+            python3 << 'EOF'
+          import json, os, glob
+
+          reports = glob.glob('lighthouse-results/**/*.json', recursive=True)
+          if not reports:
+              print("No Lighthouse reports found")
+              exit(0)
+
+          # Use the first report
+          with open(reports[0]) as f:
+              data = json.load(f)
+
+          categories = data.get('categories', {})
+
+          def score_emoji(score):
+              if score >= 0.9: return '🟢'
+              if score >= 0.5: return '🟡'
+              return '🔴'
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write("| Category | Score | Status |\n")
+              f.write("|----------|-------|--------|\n")
+              for cat_id, cat_data in categories.items():
+                  score = cat_data.get('score', 0)
+                  title = cat_data.get('title', cat_id)
+                  f.write(f"| {title} | {int(score * 100)} | {score_emoji(score)} |\n")
+
+          print("Lighthouse report processed successfully")
+          EOF
+          fi
+
+      - name: Upload Lighthouse report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-report
+          path: lighthouse-results/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Job 3: Performance E2E Tests
+  # ──────────────────────────────────────────────
+  performance-tests:
+    name: ⚡ Performance E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: bundle-analysis
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://test.supabase.co' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'test-anon-key' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright
+        run: bunx playwright install chromium --with-deps
+
+      - name: Build application
+        run: bun run build
+        env:
+          CI: true
+
+      - name: Run performance E2E tests
+        run: |
+          # Run only tests tagged with @performance if they exist
+          if bunx playwright test --list 2>/dev/null | grep -q "@performance"; then
+            bunx playwright test --grep "@performance" --project=chromium --reporter=html,junit
+          else
+            echo "No @performance tagged tests found, running full E2E suite"
+            bunx playwright test --project=chromium --reporter=html,junit
+          fi
+        env:
+          CI: true
+          PLAYWRIGHT_JUNIT_OUTPUT_NAME: test-results/performance-junit.xml
+        continue-on-error: true
+
+      - name: Upload performance test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-test-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Job 4: Performance Regression Alert
+  # ──────────────────────────────────────────────
+  performance-regression:
+    name: 📉 Regression Check
+    runs-on: ubuntu-latest
+    needs: [bundle-analysis, performance-tests]
+    if: always() && github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const bundleStatus = '${{ needs.bundle-analysis.result }}';
+            const perfStatus = '${{ needs.performance-tests.result }}';
+
+            const statusEmoji = (s) => s === 'success' ? '✅' : s === 'failure' ? '❌' : '⚠️';
+
+            const body = `## ⚡ Performance Analysis
+
+            | Check | Status |
+            |-------|--------|
+            | Bundle Analysis | ${statusEmoji(bundleStatus)} ${bundleStatus} |
+            | Performance Tests | ${statusEmoji(perfStatus)} ${perfStatus} |
+
+            > View detailed results in the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

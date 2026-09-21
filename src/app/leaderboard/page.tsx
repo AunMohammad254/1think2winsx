@@ -283,7 +283,7 @@ function CallToAction() {
                 Ready to Claim Your Throne?
               </h2>
               <p className="text-gray-300 text-sm sm:text-base mt-1">
-                Participate in quizzes, answer correctly, and compete for amazing cash rewards!
+                Participate in quizzes, answer correctly, and compete for amazing prizes!
               </p>
             </div>
           </div>
