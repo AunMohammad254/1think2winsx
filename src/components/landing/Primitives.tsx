@@ -126,9 +126,8 @@ export function useParallaxPointer(strength = 12) {
   return ref;
 }
 
-export function useActiveSection(sectionIds: string[], rootMargin = "-15% 0px -70% 0px") {
+export function useActiveSection(sectionIds: string[], rootMargin = "-50% 0px -50% 0px") {
   const [activeId, setActiveId] = useState(sectionIds[0]);
-  const isProgrammaticScrollRef = useRef(false);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -139,7 +138,9 @@ export function useActiveSection(sectionIds: string[], rootMargin = "-15% 0px -7
           .sort((a, b) => {
             const aRect = a.boundingClientRect;
             const bRect = b.boundingClientRect;
-            return Math.abs(aRect.top) - Math.abs(bRect.top);
+            // Find the section closest to the center of viewport
+            return Math.abs(aRect.top - window.innerHeight / 2) - 
+                   Math.abs(bRect.top - window.innerHeight / 2);
           });
         
         if (visibleEntries.length > 0) {
@@ -157,16 +158,7 @@ export function useActiveSection(sectionIds: string[], rootMargin = "-15% 0px -7
     return () => observer.disconnect();
   }, [sectionIds.join(","), rootMargin]);
   
-  // Prevent observer update immediately after programmatic scroll
-  const handleProgrammaticScroll = (sectionId: string) => {
-    isProgrammaticScrollRef.current = true;
-    setActiveId(sectionId);
-    setTimeout(() => {
-      isProgrammaticScrollRef.current = false;
-    }, 500);
-  };
-  
-  return { activeId, setActiveId: handleProgrammaticScroll };
+  return { activeId, setActiveId };
 }
 
 export function useTypewriter(words: string[], { typeSpeed = 60, deleteSpeed = 35, pause = 2000 } = {}) {
