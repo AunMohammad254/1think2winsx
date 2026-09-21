@@ -13,6 +13,15 @@
 # testing
 /coverage
 test-results.json
+test-results/
+playwright-report/
+.playwright/
+docs/
+
+# Test artifacts
+*.trace
+trace.zip
+
 
 # next.js
 /.next/
@@ -77,12 +86,22 @@ tsc-errors.txt
 tsc-output.txt
 
 #other
-docs/
 test-results
 GEMINI.md
+
+# Ignore temporary documentation files
+CLEANUP_SUMMARY.md
+DEPLOYMENT_SAFETY_REPORT.md
+PHASE_*.md
+TESTING_*.md
+
+# Allow docs/ directory but ignore generated content
+!docs/
+docs/**/*.tmp
+docs/**/*.bak
 
 # graphify
 graphify-out/
 
 # Gemini IDE settings and cache
-.gemini/
+.gemini/
