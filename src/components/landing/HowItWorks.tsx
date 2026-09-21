@@ -17,7 +17,7 @@ const HIGHLIGHTS = [
 
 export default function HowItWorks() {
   return (
-    <Section id="how" className="relative">
+    <Section  className="relative">
       <div className="absolute inset-0 -z-10 bg-dots opacity-30" />
       <SectionHeading
         eyebrow="Get started in 4 steps"
@@ -35,9 +35,9 @@ export default function HowItWorks() {
                   </svg>
                 </div>
               )}
-              <div className="lift relative h-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-6">
+              <div className="lift relative h-full overflow-hidden rounded-2xl border border-white/10 bg-linear-to-b from-white/5 to-transparent p-6">
                 <div className="flex items-start justify-between">
-                  <span className={`bg-gradient-to-br ${step.color} bg-clip-text font-display text-5xl font-bold text-transparent`}>
+                  <span className={`bg-linear-to-br ${step.color} bg-clip-text font-display text-5xl font-bold text-transparent`}>
                     {step.n}
                   </span>
                   <span className="grid h-12 w-12 place-items-center rounded-xl border border-white/10 bg-white/5 text-2xl transition-transform duration-500 group-hover:scale-110 group-hover:-rotate-6">
@@ -46,14 +46,14 @@ export default function HowItWorks() {
                 </div>
                 <h3 className="mt-6 font-display text-lg font-semibold text-white">{step.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-white/60">{step.desc}</p>
-                <div className={`absolute inset-x-0 bottom-0 h-1 origin-left scale-x-0 bg-gradient-to-r ${step.color} transition-transform duration-500 group-hover:scale-x-100`} />
+                <div className={`absolute inset-x-0 bottom-0 h-1 origin-left scale-x-0 bg-linear-to-r ${step.color} transition-transform duration-500 group-hover:scale-x-100`} />
               </div>
             </div>
           </Reveal>
         ))}
       </div>
       <div className="relative mt-20">
-        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+        <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-linear-to-r from-transparent via-white/10 to-transparent" />
         <Reveal delay={200}>
           <p className="relative mb-10 text-center text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
             <span className="relative z-10 bg-ink-950 px-4">Everything you need to win</span>
@@ -63,7 +63,7 @@ export default function HowItWorks() {
           {HIGHLIGHTS.map((h, i) => (
             <Reveal key={h.title} delay={300 + i * 80} variant="up">
               <Card className="h-full text-center">
-                <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${h.gradient} opacity-0 transition-opacity duration-500 group-hover:opacity-100`} />
+                <div className={`pointer-events-none absolute inset-0 bg-linear-to-br ${h.gradient} opacity-0 transition-opacity duration-500 group-hover:opacity-100`} />
                 <div className="relative flex flex-col items-center">
                   <span className="grid h-14 w-14 place-items-center rounded-2xl bg-white/5 text-3xl ring-1 ring-white/10 transition-all duration-500 group-hover:scale-110 group-hover:rotate-6">
                     {h.icon}

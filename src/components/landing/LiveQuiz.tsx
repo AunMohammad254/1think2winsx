@@ -85,7 +85,7 @@ export default function LiveQuiz() {
   );
 
   return (
-    <Section id="live" ref={ref as React.RefObject<HTMLDivElement>} className="relative overflow-hidden">
+    <Section  ref={ref as React.RefObject<HTMLDivElement>} className="relative overflow-hidden">
       <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
         <div>
           <Reveal><Eyebrow tone="live">Live arena</Eyebrow></Reveal>
@@ -132,7 +132,7 @@ export default function LiveQuiz() {
               {QUIZ_DATA.map((q, i) => (
                 <div key={q.title} className="w-full shrink-0 snap-start lg:w-full">
                   <div className="glass relative overflow-hidden rounded-3xl p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)] transition-all duration-500">
-                    <div className={`pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-gradient-to-br ${q.accent} opacity-25 blur-3xl transition-opacity duration-500`} />
+                    <div className={`pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-linear-to-br ${q.accent} opacity-25 blur-3xl transition-opacity duration-500`} />
                     <div className="relative">
                       <div className="flex items-center justify-between">
                         <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-white">{q.badge}</span>
@@ -159,7 +159,7 @@ export default function LiveQuiz() {
                         </div>
                         <Link
                           href={isLoggedIn ? "/quizzes" : "/register"}
-                          className={`group/btn flex items-center gap-1.5 rounded-full bg-gradient-to-r ${q.accent} px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition-transform hover:scale-105`}
+                          className={`group/btn flex items-center gap-1.5 rounded-full bg-linear-to-r ${q.accent} px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition-transform hover:scale-105`}
                         >
                           Join
                           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition-transform group-hover/btn:translate-x-0.5" fill="currentColor">

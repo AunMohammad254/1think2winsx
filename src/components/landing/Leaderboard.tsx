@@ -120,7 +120,7 @@ export default function Leaderboard() {
   }, []);
 
   return (
-    <Section id="leaderboard" className="relative">
+    <Section  className="relative">
       <SectionHeading
         eyebrow="This week's champions"
         title={<>Compete with the <span className="text-gradient-trophy">best in the world.</span></>}

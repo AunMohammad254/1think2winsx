@@ -126,37 +126,45 @@ export function useParallaxPointer(strength = 12) {
   return ref;
 }
 
-export function useActiveSection(sectionIds: string[], rootMargin = "-50% 0px -50% 0px") {
+export function useActiveSection(sectionIds: string[], rootMargin = "0px 0px 0px 0px") {
   const [activeId, setActiveId] = useState(sectionIds[0]);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        // Get all visible entries sorted by position
-        const visibleEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => {
-            const aRect = a.boundingClientRect;
-            const bRect = b.boundingClientRect;
-            // Find the section closest to the center of viewport
-            return Math.abs(aRect.top - window.innerHeight / 2) - 
-                   Math.abs(bRect.top - window.innerHeight / 2);
-          });
-        
-        if (visibleEntries.length > 0) {
-          setActiveId(visibleEntries[0].target.id);
+    let rafId: number;
+    
+    const handleScroll = () => {
+      // Find the section that occupies the space just below the navbar
+      let currentActiveId = sectionIds[0];
+      const triggerY = 150; // 80px navbar + padding
+
+      for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          if (rect.top <= triggerY && rect.bottom >= triggerY) {
+            currentActiveId = id;
+            break;
+          }
         }
-      },
-      { rootMargin, threshold: 0 }
-    );
+      }
 
-    sectionIds.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
-    });
+      setActiveId(currentActiveId);
+    };
 
-    return () => observer.disconnect();
-  }, [sectionIds.join(","), rootMargin]);
+    const onScroll = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(handleScroll);
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    // Initial check
+    handleScroll();
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(rafId);
+    };
+  }, [sectionIds.join(",")]);
   
   return { activeId, setActiveId };
 }

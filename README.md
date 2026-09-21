@@ -22,9 +22,10 @@
 
 <!-- Status Badges -->
 <p>
-  <img src="https://img.shields.io/badge/status-active-success?style=flat-square" alt="Status" />
+  <a href="https://github.com/AunMohammad254/1think2winsx/actions/workflows/tests.yml"><img src="https://github.com/AunMohammad254/1think2winsx/actions/workflows/tests.yml/badge.svg" alt="Test Suite" /></a>
+  <a href="https://github.com/AunMohammad254/1think2winsx/actions/workflows/coverage.yml"><img src="https://github.com/AunMohammad254/1think2winsx/actions/workflows/coverage.yml/badge.svg" alt="Coverage" /></a>
+  <a href="https://github.com/AunMohammad254/1think2winsx/actions/workflows/performance.yml"><img src="https://github.com/AunMohammad254/1think2winsx/actions/workflows/performance.yml/badge.svg" alt="Performance" /></a>
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" />
-  <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" alt="PRs Welcome" />
 </p>
 
 <!-- Divider -->

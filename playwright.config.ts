@@ -14,7 +14,16 @@ export default defineConfig({
     /* Opt out of parallel tests on CI. */
     workers: process.env.CI ? 1 : undefined,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-    reporter: 'list',
+    reporter: process.env.CI
+        ? [
+              ['html', { outputFolder: 'playwright-report', open: 'never' }],
+              ['junit', { outputFile: process.env.PLAYWRIGHT_JUNIT_OUTPUT_NAME ?? 'test-results/e2e-junit.xml' }],
+              ['list'],
+          ]
+        : [['html', { outputFolder: 'playwright-report', open: 'on-failure' }], ['list']],
+
+    /* Output directory for test artifacts (traces, screenshots, videos) */
+    outputDir: 'test-results/',
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {
         /* Base URL to use in actions like `await page.goto('/')`. */

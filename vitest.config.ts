@@ -10,15 +10,26 @@ export default defineConfig({
         setupFiles: ['./vitest.setup.ts'],
         include: ['src/**/*.{test,spec}.{ts,tsx}'],
         exclude: ['node_modules', '.next', 'dist'],
+        // @ts-ignore - Vitest types mismatch in Next.js build
+        environmentMatchGlobs: [
+            // CI pipeline tests run in Node (they use `fs`, no DOM needed)
+            ['src/tests/ci/**', 'node'],
+        ],
+        // In CI, also output JUnit XML for GitHub Actions test reporting
+        reporters: process.env.CI
+            ? ['verbose', ['junit', { outputFile: 'test-results/junit.xml' }]]
+            : ['verbose'],
         coverage: {
             provider: 'v8',
             reporter: ['text', 'json', 'html'],
+            reportsDirectory: './coverage',
             include: ['src/**/*.{ts,tsx}'],
             exclude: [
                 'src/**/*.d.ts',
                 'src/**/*.test.{ts,tsx}',
                 'src/**/*.spec.{ts,tsx}',
                 'src/lib/supabase/database.types.ts',
+                'src/tests/**',
             ],
         },
     },

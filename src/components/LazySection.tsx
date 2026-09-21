@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, ReactNode } from 'react';
 interface LazySectionProps {
   children: ReactNode;
   className?: string;
+  id?: string;
   threshold?: number;
   rootMargin?: string;
   fallback?: ReactNode;
@@ -14,6 +15,7 @@ interface LazySectionProps {
 export default function LazySection({
   children,
   className = '',
+  id,
   threshold = 0.1,
   rootMargin = '100px',
   fallback,
@@ -54,7 +56,7 @@ export default function LazySection({
   }, [shouldRender]);
 
   return (
-    <div ref={sectionRef} className={className}>
+    <div id={id} ref={sectionRef} className={className}>
       {shouldRender ? (
         <div
           className={`transition-opacity duration-700 ease-out ${

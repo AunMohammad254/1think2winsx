@@ -87,7 +87,7 @@ export default function Stats() {
   );
 
   return (
-    <Section id="stats" className="!py-16 sm:!py-20">
+    <Section  className="!py-16 sm:!py-20">
       <Reveal>
         <p className="text-center text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
           Trusted by cricket fans across the globe

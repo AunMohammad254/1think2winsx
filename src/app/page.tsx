@@ -29,14 +29,14 @@ export default function Home() {
       />
       <main>
         <Hero />
-        <LazySection fallback={<DarkFallback />} rootMargin="150px"><Stats /></LazySection>
-        <LazySection fallback={<div className="h-28 w-full bg-white/[0.03] animate-pulse border-y border-white/5" />} rootMargin="150px"><Marquee /></LazySection>
-        <LazySection fallback={<DarkFallback />} rootMargin="150px"><HowItWorks /></LazySection>
-        <LazySection fallback={<DarkFallback />} rootMargin="150px"><LiveQuiz /></LazySection>
-        <LazySection fallback={<DarkFallback />} rootMargin="150px"><Prizes /></LazySection>
-        <LazySection fallback={<DarkFallback />} rootMargin="150px"><Leaderboard /></LazySection>
-        <LazySection fallback={<DarkFallback />} rootMargin="150px"><Testimonials /></LazySection>
-        <LazySection fallback={<DarkFallback />} rootMargin="150px"><CTA /></LazySection>
+        <LazySection id="stats" fallback={<DarkFallback />} rootMargin="150px"><Stats /></LazySection>
+        <LazySection id="marquee" fallback={<div className="h-28 w-full bg-white/[0.03] animate-pulse border-y border-white/5" />} rootMargin="150px"><Marquee /></LazySection>
+        <LazySection id="how" fallback={<DarkFallback />} rootMargin="150px"><HowItWorks /></LazySection>
+        <LazySection id="live" fallback={<DarkFallback />} rootMargin="150px"><LiveQuiz /></LazySection>
+        <LazySection id="prizes" fallback={<DarkFallback />} rootMargin="150px"><Prizes /></LazySection>
+        <LazySection id="leaderboard" fallback={<DarkFallback />} rootMargin="150px"><Leaderboard /></LazySection>
+        <LazySection id="reviews" fallback={<DarkFallback />} rootMargin="150px"><Testimonials /></LazySection>
+        <LazySection id="cta" fallback={<DarkFallback />} rootMargin="150px"><CTA /></LazySection>
       </main>
     </div>
   );

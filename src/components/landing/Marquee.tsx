@@ -45,7 +45,7 @@ function Track({ items, reverse = false }: { items: typeof PARTNERS; reverse?: b
 
 export default function Marquee() {
   return (
-    <section id="marquee" className="relative border-y border-white/5 bg-ink-950/60 py-12">
+    <section  className="relative border-y border-white/5 bg-ink-950/60 py-12">
       <Reveal>
         <p className="mb-7 text-center text-[11px] font-semibold uppercase tracking-[0.3em] text-white/45">
           As featured in

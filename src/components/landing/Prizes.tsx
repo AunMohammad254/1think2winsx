@@ -14,7 +14,7 @@ export default function Prizes() {
   const isLoggedIn = !!user;
 
   return (
-    <Section id="prizes" className="relative">
+    <Section  className="relative">
       <div className="absolute inset-0 -z-10 bg-grid opacity-40" />
       <SectionHeading eyebrow="Prize pools" title={<>Real rewards for <span className="text-gradient-trophy">real cricket smarts.</span></>} description="Whether you play casually or aim for the season crown — there's a prize tier built for you." />
       <div className="mt-16 grid grid-cols-1 gap-6 lg:grid-cols-3">

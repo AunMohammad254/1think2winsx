@@ -44,12 +44,12 @@ function ReviewCard({ r, index }: { r: (typeof REVIEWS)[number]; index: number }
       ref={cardRef}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
-      className="lift mx-2 w-[320px] shrink-0 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.08] to-white/[0.03] p-6 transition-all duration-200 sm:w-[360px]"
+      className="lift mx-2 w-[320px] shrink-0 rounded-2xl border border-white/10 bg-linear-to-b from-white/8 to-white/3 p-6 transition-all duration-200 sm:w-90"
       style={{ animation: `fade-up 0.5s ease-out ${index * 0.08}s both` }}
     >
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <div className={`grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br ${r.avatar} text-sm font-bold text-white`}>
+          <div className={`grid h-10 w-10 place-items-center rounded-full bg-linear-to-br ${r.avatar} text-sm font-bold text-white`}>
             {r.name.split(" ").map((n) => n[0]).join("")}
           </div>
           <div>
@@ -78,7 +78,7 @@ export default function Testimonials() {
   const spotlight = REVIEWS[spotlightIndex];
 
   return (
-    <Section id="reviews" className="relative overflow-hidden">
+    <Section  className="relative overflow-hidden">
       <SectionHeading
         eyebrow="Player love"
         title={<>10,000+ players. <span className="text-gradient-cool">4.9 average rating.</span></>}
@@ -86,8 +86,8 @@ export default function Testimonials() {
       />
       <Reveal delay={150}>
         <div className="relative mt-14">
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-r from-ink-950 to-transparent" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-gradient-to-l from-ink-950 to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-linear-to-r from-ink-950 to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-linear-to-l from-ink-950 to-transparent" />
           <div className="marquee-pause overflow-hidden">
             <div className="marquee-track" style={{ animationDuration: "30s" }}>
               {items.map((r, i) => (
@@ -122,7 +122,7 @@ export default function Testimonials() {
       </Reveal>
       <Reveal delay={450}>
         <div className="mx-auto mt-14 max-w-md">
-          <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.08] to-amber-400/[0.05] p-6 transition-all duration-700">
+          <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-linear-to-br from-emerald-500/8 to-amber-400/5 p-6 transition-all duration-700">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
@@ -131,7 +131,7 @@ export default function Testimonials() {
               Featured review
             </div>
             <div className="mt-4 flex items-center gap-3">
-              <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br ${spotlight.avatar} text-sm font-bold text-white`}>
+              <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-linear-to-br ${spotlight.avatar} text-sm font-bold text-white`}>
                 {spotlight.name.split(" ").map((n) => n[0]).join("")}
               </div>
               <div>

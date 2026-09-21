@@ -37,7 +37,7 @@ function FloatingBackground() {
       <div className="absolute top-[30%] right-[10%] w-96 h-96 bg-yellow-500/8 rounded-full blur-3xl animate-float-medium will-change-transform opacity-[0.1]" />
       <div className="absolute bottom-[20%] left-[15%] w-64 h-64 bg-blue-500/8 rounded-full blur-3xl animate-float-fast will-change-transform opacity-[0.08]" />
       <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full blur-3xl animate-[spin_25s_linear_infinite]"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-125 h-125 rounded-full blur-3xl animate-[spin_25s_linear_infinite]"
         style={{
           background: 'linear-gradient(135deg, rgba(5,150,105,0.06), rgba(59,130,246,0.06))',
         }}
@@ -155,7 +155,7 @@ function LeaderboardSkeleton() {
           {[1, 2, 3].map((i) => (
             <div
               key={i}
-              className={`bg-slate-900/50 border border-white/5 rounded-3xl p-6 w-full sm:w-[240px] md:w-[200px] lg:w-[230px] space-y-4 animate-pulse ${
+              className={`bg-slate-900/50 border border-white/5 rounded-3xl p-6 w-full sm:w-60 md:w-50 lg:w-57.5 space-y-4 animate-pulse ${
                 i === 2 ? 'h-80 md:-mt-4' : 'h-72'
               }`}
             >
@@ -175,7 +175,7 @@ function LeaderboardSkeleton() {
               <div className="flex items-center gap-4 w-full md:w-auto">
                 <div className="w-8 h-8 rounded-full bg-slate-800" />
                 <div className="w-12 h-12 rounded-xl bg-slate-800" />
-                <div className="space-y-2 flex-grow min-w-[120px]">
+                <div className="space-y-2 grow min-w-30">
                   <div className="h-4 bg-slate-800 rounded-sm w-3/4" />
                   <div className="h-3 bg-slate-800 rounded-sm w-1/2" />
                 </div>
@@ -202,7 +202,7 @@ function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) 
       initial="hidden"
       // Fix: errorShake uses the key 'animate' so we target it directly
       animate="animate"
-      className="flex flex-col items-center justify-center p-8 text-center min-h-[400px] w-full"
+      className="flex flex-col items-center justify-center p-8 text-center min-h-100 w-full"
     >
       <div className="bg-red-500/10 border border-red-500/30 md:backdrop-blur-xl rounded-3xl p-8 shadow-2xl max-w-md w-full">
         <motion.div
@@ -240,7 +240,7 @@ function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) 
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center p-8 text-center min-h-[400px] w-full animate-fadeIn">
+    <div className="flex flex-col items-center justify-center p-8 text-center min-h-100 w-full animate-fadeIn">
       <div className="bg-slate-800/90 md:backdrop-blur-xl md:bg-white/5 border border-white/10 rounded-3xl p-8 shadow-2xl max-w-md w-full text-center">
         <div className="text-5xl mb-4 animate-bounce">⚔️</div>
         <h2 className="text-xl font-bold text-white mb-2">No attempts recorded yet</h2>
@@ -412,12 +412,12 @@ export default function LeaderboardPage() {
                   className="w-full max-w-5xl mx-auto animate-fadeIn"
                 >
                   {currentUserEntry ? (
-                    <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900/60 to-teal-950/40 border border-emerald-500/30 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+                    <div className="bg-linear-to-r from-emerald-950/40 via-slate-900/60 to-teal-950/40 border border-emerald-500/30 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
                       <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
                       <div className="absolute -left-10 -top-10 w-40 h-40 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
                       
                       <div className="flex items-center gap-4 w-full md:w-auto relative z-10">
-                        <div className="w-14 h-14 bg-gradient-to-tr from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center font-black text-white shadow-lg text-lg">
+                        <div className="w-14 h-14 bg-linear-to-tr from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center font-black text-white shadow-lg text-lg">
                           {currentUserEntry.userName.charAt(0).toUpperCase()}
                         </div>
                         <div>
@@ -469,7 +469,7 @@ export default function LeaderboardPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-gradient-to-r from-slate-900/80 to-slate-950/80 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+                    <div className="bg-linear-to-r from-slate-900/80 to-slate-950/80 border border-white/10 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
                       <div className="flex items-center gap-4 relative z-10">
                         <div className="w-14 h-14 bg-slate-800 border border-white/10 rounded-2xl flex items-center justify-center font-black text-slate-400 shadow-md text-lg">
                           ?

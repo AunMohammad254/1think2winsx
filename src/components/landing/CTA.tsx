@@ -64,7 +64,7 @@ export default function CTA() {
   const isLoggedIn = !!user;
 
   return (
-    <Section id="cta" className="relative">
+    <Section  className="relative">
       <Reveal variant="scale">
         <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-ink-800 via-ink-900 to-ink-950 p-6 sm:p-10 md:p-16 lg:p-20">
           <div

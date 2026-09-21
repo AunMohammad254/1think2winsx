@@ -15,33 +15,7 @@ const SECTIONS = [
   { id: "cta", label: "Get Started" },
 ];
 
-// Smooth easing function
-const easeInOutCubic = (t: number): number => {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-};
 
-// Custom smooth scroll with better easing
-const smoothScrollTo = (targetY: number, duration: number = 800) => {
-  const startY = window.scrollY;
-  const distance = targetY - startY;
-  const startTime = performance.now();
-  let rafId: number;
-
-  const scroll = (currentTime: number) => {
-    const elapsed = currentTime - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    const ease = easeInOutCubic(progress);
-    const newY = startY + distance * ease;
-
-    window.scrollTo(0, newY);
-
-    if (progress < 1) {
-      rafId = requestAnimationFrame(scroll);
-    }
-  };
-
-  rafId = requestAnimationFrame(scroll);
-};
 
 export default function SectionNav() {
   const { activeId, setActiveId } = useActiveSection(SECTIONS.map((s) => s.id));
@@ -54,23 +28,13 @@ export default function SectionNav() {
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
     }
-    
     // Immediately set active state for instant feedback
     setActiveId(sectionId);
     
     const target = document.getElementById(sectionId);
     if (target) {
-      // Account for fixed navbar height (~80px) when scrolling
-      const navbarOffset = 80;
-      const targetPosition = target.getBoundingClientRect().top + window.scrollY - navbarOffset;
-      
-      // Use custom smooth scroll with easing
-      smoothScrollTo(targetPosition, 800);
-      
-      // Update URL after scroll starts (debounced)
-      scrollTimeoutRef.current = setTimeout(() => {
-        history.pushState(null, '', `#${sectionId}`);
-      }, 100);
+      target.scrollIntoView({ behavior: "smooth" });
+      window.history.pushState(null, "", `#${sectionId}`);
     }
   };
 
