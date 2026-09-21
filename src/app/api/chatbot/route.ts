@@ -5,20 +5,17 @@ import { getAdminDb } from '@/lib/supabase/db';
 // ─────────────────────────────────────────────────────────────
 // Model configuration
 // ─────────────────────────────────────────────────────────────
-const MODELS = {
-  primary: {
-    id: 'gemini-2.5-flash',          // marketed as "Gemini 3.5 Flash"
-    rpm: 4,
-    refillMs: (60 / 4) * 1000,       // 15 000 ms per token
-    label: '3.5 Flash',
-  },
-  fallback: {
-    id: 'gemini-2.0-flash-lite',     // marketed as "Gemini 3.1 Flash Lite"
-    rpm: 14,
-    refillMs: Math.floor((60 / 14) * 1000), // ~4 285 ms per token
-    label: '3.1 Flash Lite',
-  },
-} as const;
+const MODELS = [
+  { id: 'gemini-3.0-flash', label: 'Gemini 3 Flash', rpm: 4 }, // Primary
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', rpm: 14 },
+  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', rpm: 14 },
+  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', rpm: 4 },
+  { id: 'gemini-2.5-flash', label: 'Gemini 3.5 Flash (Legacy)', rpm: 4 },
+  { id: 'gemini-2.0-flash-lite', label: 'Gemini 3.1 Flash Lite (Legacy)', rpm: 14 }
+].map(m => ({
+  ...m,
+  refillMs: Math.floor((60 / m.rpm) * 1000)
+}));
 
 // ─────────────────────────────────────────────────────────────
 // Token-bucket rate limiter (in-memory, per IP, per model)
@@ -28,15 +25,16 @@ interface Bucket {
   lastRefill: number; // epoch ms
 }
 
-const buckets = new Map<string, { primary: Bucket; fallback: Bucket }>();
+const buckets = new Map<string, Record<string, Bucket>>();
 
 function getBucket(ip: string) {
   if (!buckets.has(ip)) {
     const now = Date.now();
-    buckets.set(ip, {
-      primary:  { tokens: MODELS.primary.rpm,  lastRefill: now },
-      fallback: { tokens: MODELS.fallback.rpm, lastRefill: now },
-    });
+    const ipBuckets: Record<string, Bucket> = {};
+    for (const model of MODELS) {
+      ipBuckets[model.id] = { tokens: model.rpm, lastRefill: now };
+    }
+    buckets.set(ip, ipBuckets);
   }
   return buckets.get(ip)!;
 }
@@ -326,46 +324,45 @@ ${activeQuizzesText}
 ${userContextText}
 `;
 
-  // Try primary model (gemini-3.5-flash, 4 RPM)
-  if (consumeToken(ipBuckets.primary, MODELS.primary.rpm, MODELS.primary.refillMs)) {
-    try {
-      const text = await callGemini(MODELS.primary.id, messages, apiKey, finalSystemPrompt);
-      const { clean, redirects } = extractRedirects(text);
-      return NextResponse.json({ message: clean, redirects, model: MODELS.primary.label });
-    } catch (err) {
-      console.error('[Chatbot] Primary model failed:', err);
-      // Fall through to fallback
+  let minRefillMs = Infinity;
+
+  // Try models in order until one succeeds
+  for (const model of MODELS) {
+    const bucket = ipBuckets[model.id];
+    
+    // Check rate limit for this model
+    if (consumeToken(bucket, model.rpm, model.refillMs)) {
+      try {
+        const text = await callGemini(model.id, messages, apiKey, finalSystemPrompt);
+        const { clean, redirects } = extractRedirects(text);
+        return NextResponse.json({ message: clean, redirects, model: model.label });
+      } catch (err) {
+        console.error(`[Chatbot] Model ${model.id} failed:`, err);
+        // Fall through to the next model in the backup chain
+      }
+    } else {
+      // Rate limited on this model, calculate time until next token
+      const refillMs = model.refillMs - (Date.now() - bucket.lastRefill);
+      minRefillMs = Math.min(minRefillMs, refillMs);
     }
   }
 
-  // Try fallback model (gemini-3.1-flash-lite, 14 RPM)
-  if (consumeToken(ipBuckets.fallback, MODELS.fallback.rpm, MODELS.fallback.refillMs)) {
-    try {
-      const text = await callGemini(MODELS.fallback.id, messages, apiKey, finalSystemPrompt);
-      const { clean, redirects } = extractRedirects(text);
-      return NextResponse.json({ message: clean, redirects, model: MODELS.fallback.label });
-    } catch (err) {
-      console.error('[Chatbot] Fallback model failed:', err);
-      return NextResponse.json(
-        { error: 'AI service temporarily unavailable. Please try again shortly.' },
-        { status: 502 },
-      );
-    }
+  // If we get here, all models either failed or were rate-limited.
+  if (minRefillMs !== Infinity) {
+    const refillInSec = Math.max(1, Math.ceil(minRefillMs / 1000));
+    return NextResponse.json(
+      {
+        error: `You're sending messages too fast! Please wait ${refillInSec} second${refillInSec !== 1 ? 's' : ''} before trying again. 🏏`,
+        rateLimited: true,
+        retryAfterMs: minRefillMs,
+      },
+      { status: 429 },
+    );
   }
 
-  // Both rate-limited
-  const refillInMs = Math.min(
-    MODELS.primary.refillMs - (Date.now() - ipBuckets.primary.lastRefill),
-    MODELS.fallback.refillMs - (Date.now() - ipBuckets.fallback.lastRefill),
-  );
-  const refillInSec = Math.max(1, Math.ceil(refillInMs / 1000));
-
+  // All API calls failed (e.g. 500s or network issues)
   return NextResponse.json(
-    {
-      error: `You're sending messages too fast! Please wait ${refillInSec} second${refillInSec !== 1 ? 's' : ''} before trying again. 🏏`,
-      rateLimited: true,
-      retryAfterMs: refillInMs,
-    },
-    { status: 429 },
+    { error: 'AI service temporarily unavailable. Please try again shortly.' },
+    { status: 502 },
   );
 }
