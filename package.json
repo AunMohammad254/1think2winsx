@@ -43,7 +43,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@esbuild/win32-x64": "0.28.0",
     "@eslint/eslintrc": "^3.3.5",
     "@playwright/test": "^1.61.0",
     "@tailwindcss/postcss": "^4.3.1",
