@@ -32,7 +32,15 @@ class QuizListCache {
   private store = new Map<string, CacheEntry>();
 
   get(key: string): CacheEntry | undefined {
-    return this.store.get(key);
+    const entry = this.store.get(key);
+    if (entry) {
+        // Assume 5 min TTL by default if not passed
+        if (Date.now() - entry.timestamp > 5 * 60 * 1000) {
+            this.store.delete(key);
+            return undefined;
+        }
+    }
+    return entry;
   }
 
   set(key: string, entry: CacheEntry): void {

@@ -2,6 +2,7 @@
 
 import { quizDb, questionDb, notificationDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
+import { clearQuizListCache } from '@/lib/quiz-cache';
 import {
     QuizFormSchema,
     CreateQuizInput,
@@ -75,6 +76,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
+        clearQuizListCache();
 
         return {
             success: true,
@@ -161,6 +163,7 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
+        clearQuizListCache();
         revalidatePath(`/quiz/${input.id}`);
 
         return { success: true, message: 'Quiz updated successfully!' };
@@ -179,6 +182,7 @@ export async function deleteQuiz(id: string): Promise<ActionResult> {
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
+        clearQuizListCache();
 
         return { success: true, message: 'Quiz deleted successfully!' };
     } catch (error) {
@@ -216,6 +220,7 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
+        clearQuizListCache();
 
         return { success: true, message: 'Quiz published successfully!' };
     } catch (error) {
@@ -233,6 +238,7 @@ export async function pauseQuiz(id: string): Promise<ActionResult> {
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
+        clearQuizListCache();
 
         return { success: true, message: 'Quiz paused successfully!' };
     } catch (error) {
