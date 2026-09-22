@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
+import Image from 'next/image';
 
 interface QuizResult {
   id: string;
@@ -309,12 +310,12 @@ export default function QuizResultsPage() {
 
           {/* Share Card Preview Image */}
           <div className="relative max-w-xl mx-auto rounded-xl overflow-hidden border border-white/10 shadow-2xl mb-6 bg-slate-950/60 aspect-[1200/630]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src={`/api/quizzes/${quizId}/share-card?score=${result.correctAnswers}&total=${result.totalQuestions}&pct=${result.percentage}&title=${encodeURIComponent(result.quiz.title)}&name=${encodeURIComponent(user?.user_metadata?.name || user?.email?.split('@')[0] || 'Player')}`}
               alt="Quiz Achievement Share Card"
-              className="w-full h-full object-cover"
-              loading="lazy"
+              fill
+              className="object-cover"
+              unoptimized
             />
           </div>
 

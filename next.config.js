@@ -1,3 +1,7 @@
+const withBundleAnalyzer = require('@next/bundle-analyzer')({
+  enabled: process.env.ANALYZE === 'true',
+});
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Standalone output for Docker deployments
@@ -14,6 +18,7 @@ const nextConfig = {
   experimental: {
     // Disable optimizeCss as it's causing build issues
     // optimizeCss: true,
+    optimizePackageImports: ['framer-motion'],
   },
   serverExternalPackages: ['pdf-parse'],
 
@@ -28,6 +33,9 @@ const nextConfig = {
     'lucide-react': {
       transform: 'lucide-react/dist/esm/icons/{{kebabCase member}}',
     },
+    'date-fns': {
+      transform: 'date-fns/{{member}}',
+    }
   },
   // Security headers (additional to middleware)
   async headers() {
@@ -117,4 +125,4 @@ const nextConfig = {
   }
 };
 
-module.exports = nextConfig;
+module.exports = withBundleAnalyzer(nextConfig);
