@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
 import { getDb, notificationDb } from '@/lib/supabase/db';
 import { TransactionStatus, PaymentMethod } from '@/types/wallet';
+import { requireCSRFToken } from '@/lib/csrf-protection';
 
 /**
  * GET /api/admin/wallet-transactions
@@ -102,6 +103,10 @@ export async function PATCH(request: NextRequest) {
         if (!adminSession.valid) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
+
+        // Apply CSRF protection for mutating admin action
+        const csrfValidation = await requireCSRFToken(request);
+        if (csrfValidation) return csrfValidation;
 
         const body = await request.json();
         const { transactionId, action, notes } = body;

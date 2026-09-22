@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
+import { requireCSRFToken } from '@/lib/csrf-protection';
 
 const registerSchema = z.object({
   name: z.string()
@@ -48,6 +49,12 @@ export async function POST(request: NextRequest) {
         rateLimiter: 'auth'
       });
       return rateLimitResponse;
+    }
+
+    // Apply CSRF protection
+    const csrfValidation = await requireCSRFToken(request);
+    if (csrfValidation) {
+      return csrfValidation;
     }
 
     const body = await request.json();

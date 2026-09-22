@@ -34,12 +34,33 @@ class SecurityLogger {
     };
   }
   
+  private sanitizeDetails(details?: Record<string, any>) {
+    if (!details) return undefined;
+    const sanitized = { ...details };
+    const sensitiveKeys = ['password', 'token', 'secret', 'key', 'email', 'phone', 'address', 'authorization', 'cookie', 'session'];
+    
+    const sanitizeObject = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return;
+      for (const key in obj) {
+        if (sensitiveKeys.some(k => key.toLowerCase().includes(k))) {
+          obj[key] = '[REDACTED]';
+        } else if (typeof obj[key] === 'object') {
+          sanitizeObject(obj[key]);
+        }
+      }
+    };
+    
+    sanitizeObject(sanitized);
+    return sanitized;
+  }
+
   public logSecurityEvent(event: Omit<SecurityEvent, 'timestamp'>, request?: NextRequest) {
     const clientInfo = this.getClientInfo(request);
     
     const securityEvent: SecurityEvent = {
       ...event,
       ...clientInfo,
+      details: this.sanitizeDetails(event.details),
       timestamp: new Date(),
     };
     
