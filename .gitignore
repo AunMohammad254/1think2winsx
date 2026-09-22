@@ -9,6 +9,9 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
 # testing
 /coverage
@@ -45,6 +48,7 @@ dev.log
 
 # Python/tooling artifacts (move to scripts/ if needed)
 scripts/contrast-results.txt
+scripts/
 
 
 
