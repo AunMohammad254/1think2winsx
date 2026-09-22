@@ -44,7 +44,7 @@ describe('User Endpoints', () => {
     });
 
     it('should return top leaderboard entries', async () => {
-      const request = buildMockRequest('/api/leaderboard?limit=10&timeframe=allTime', {
+      const _request = buildMockRequest('/api/leaderboard?limit=10&timeframe=allTime', {
         method: 'GET',
       });
 
@@ -61,7 +61,7 @@ describe('User Endpoints', () => {
     });
 
     it('should validate limit parameter', async () => {
-      const request = buildMockRequest('/api/leaderboard?limit=0', {
+      const _request = buildMockRequest('/api/leaderboard?limit=0', {
         method: 'GET',
       });
 
@@ -71,7 +71,7 @@ describe('User Endpoints', () => {
     });
 
     it('should enforce maximum limit of 100', async () => {
-      const request = buildMockRequest('/api/leaderboard?limit=101', {
+      const _request = buildMockRequest('/api/leaderboard?limit=101', {
         method: 'GET',
       });
 
@@ -81,7 +81,7 @@ describe('User Endpoints', () => {
     });
 
     it('should support pagination with default limit', async () => {
-      const request = buildMockRequest('/api/leaderboard', {
+      const _request = buildMockRequest('/api/leaderboard', {
         method: 'GET',
       });
 
@@ -99,7 +99,7 @@ describe('User Endpoints', () => {
       const timeframes = ['weekly', 'monthly', 'allTime'];
 
       for (const timeframe of timeframes) {
-        const request = buildMockRequest(
+        const _request = buildMockRequest(
           `/api/leaderboard?timeframe=${timeframe}`,
           {
             method: 'GET',
@@ -114,7 +114,7 @@ describe('User Endpoints', () => {
     });
 
     it('should reject invalid timeframe', async () => {
-      const request = buildMockRequest('/api/leaderboard?timeframe=invalid', {
+      const _request = buildMockRequest('/api/leaderboard?timeframe=invalid', {
         method: 'GET',
       });
 
@@ -124,7 +124,7 @@ describe('User Endpoints', () => {
     });
 
     it('should rank users by points descending', async () => {
-      const request = buildMockRequest('/api/leaderboard', {
+      const _request = buildMockRequest('/api/leaderboard', {
         method: 'GET',
       });
 
@@ -145,7 +145,7 @@ describe('User Endpoints', () => {
     });
 
     it('should include required leaderboard fields', async () => {
-      const request = buildMockRequest('/api/leaderboard', {
+      const _request = buildMockRequest('/api/leaderboard', {
         method: 'GET',
       });
 
@@ -167,7 +167,7 @@ describe('User Endpoints', () => {
     it('should return empty leaderboard if no users', async () => {
       testState.db.clear();
 
-      const request = buildMockRequest('/api/leaderboard', {
+      const _request = buildMockRequest('/api/leaderboard', {
         method: 'GET',
       });
 
@@ -196,7 +196,7 @@ describe('User Endpoints', () => {
     });
 
     it('should return list of available prizes', async () => {
-      const request = buildMockRequest('/api/prizes', {
+      const _request = buildMockRequest('/api/prizes', {
         method: 'GET',
       });
 
@@ -212,7 +212,7 @@ describe('User Endpoints', () => {
     });
 
     it('should include all required prize fields', async () => {
-      const request = buildMockRequest('/api/prizes', {
+      const _request = buildMockRequest('/api/prizes', {
         method: 'GET',
       });
 
@@ -232,7 +232,7 @@ describe('User Endpoints', () => {
     });
 
     it('should sort prizes by required points ascending', async () => {
-      const request = buildMockRequest('/api/prizes', {
+      const _request = buildMockRequest('/api/prizes', {
         method: 'GET',
       });
 
@@ -254,7 +254,7 @@ describe('User Endpoints', () => {
     });
 
     it('should only return active prizes', async () => {
-      const request = buildMockRequest('/api/prizes', {
+      const _request = buildMockRequest('/api/prizes', {
         method: 'GET',
       });
 
@@ -274,7 +274,7 @@ describe('User Endpoints', () => {
     it('should return empty list if no prizes available', async () => {
       testState.db.clear();
 
-      const request = buildMockRequest('/api/prizes', {
+      const _request = buildMockRequest('/api/prizes', {
         method: 'GET',
       });
 
@@ -309,7 +309,7 @@ describe('User Endpoints', () => {
     });
 
     it('should redeem prize with sufficient points', async () => {
-      const request = buildMockRequest('/api/prize-redemption', {
+      const _request = buildMockRequest('/api/prize-redemption', {
         method: 'POST',
         body: { prizeId: mockPrizeData.id },
         userId: mockUserData.id,
@@ -335,7 +335,7 @@ describe('User Endpoints', () => {
     it('should require authentication', async () => {
       clearAuthContext();
 
-      const request = buildMockRequest('/api/prize-redemption', {
+      const _request = buildMockRequest('/api/prize-redemption', {
         method: 'POST',
         body: { prizeId: mockPrizeData.id },
       });
@@ -346,7 +346,7 @@ describe('User Endpoints', () => {
     });
 
     it('should require CSRF token', async () => {
-      const request = buildMockRequest('/api/prize-redemption', {
+      const _request = buildMockRequest('/api/prize-redemption', {
         method: 'POST',
         body: { prizeId: mockPrizeData.id },
         userId: mockUserData.id,
@@ -370,7 +370,7 @@ describe('User Endpoints', () => {
 
       setAuthContext({ userId: 'user_low_points', role: 'user' });
 
-      const request = buildMockRequest('/api/prize-redemption', {
+      const _request = buildMockRequest('/api/prize-redemption', {
         method: 'POST',
         body: { prizeId: mockPrizeData.id },
         userId: 'user_low_points',
@@ -387,7 +387,7 @@ describe('User Endpoints', () => {
     });
 
     it('should reject invalid prize ID', async () => {
-      const request = buildMockRequest('/api/prize-redemption', {
+      const _request = buildMockRequest('/api/prize-redemption', {
         method: 'POST',
         body: { prizeId: 'invalid_prize_id' },
         userId: mockUserData.id,
@@ -434,7 +434,7 @@ describe('User Endpoints', () => {
     });
 
     it('should return redemption details', async () => {
-      const request = buildMockRequest('/api/prize-redemption', {
+      const _request = buildMockRequest('/api/prize-redemption', {
         method: 'POST',
         body: { prizeId: mockPrizeData.id },
         userId: mockUserData.id,
@@ -469,7 +469,7 @@ describe('User Endpoints', () => {
     });
 
     it('should return user redemption history', async () => {
-      const request = buildMockRequest('/api/user/redemptions', {
+      const _request = buildMockRequest('/api/user/redemptions', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -503,7 +503,7 @@ describe('User Endpoints', () => {
     it('should require authentication', async () => {
       clearAuthContext();
 
-      const request = buildMockRequest('/api/user/redemptions', {
+      const _request = buildMockRequest('/api/user/redemptions', {
         method: 'GET',
       });
 
@@ -513,7 +513,7 @@ describe('User Endpoints', () => {
     });
 
     it('should return empty list if no redemptions', async () => {
-      const request = buildMockRequest('/api/user/redemptions', {
+      const _request = buildMockRequest('/api/user/redemptions', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -526,7 +526,7 @@ describe('User Endpoints', () => {
     });
 
     it('should include all required redemption fields', async () => {
-      const request = buildMockRequest('/api/user/redemptions', {
+      const _request = buildMockRequest('/api/user/redemptions', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -557,7 +557,7 @@ describe('User Endpoints', () => {
     });
 
     it('should sort by creation date descending', async () => {
-      const request = buildMockRequest('/api/user/redemptions', {
+      const _request = buildMockRequest('/api/user/redemptions', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -601,7 +601,7 @@ describe('User Endpoints', () => {
     });
 
     it('should create payment for quiz access', async () => {
-      const request = buildMockRequest('/api/payments', {
+      const _request = buildMockRequest('/api/payments', {
         method: 'POST',
         body: {},
         userId: mockUserData.id,
@@ -628,7 +628,7 @@ describe('User Endpoints', () => {
     it('should require authentication', async () => {
       clearAuthContext();
 
-      const request = buildMockRequest('/api/payments', {
+      const _request = buildMockRequest('/api/payments', {
         method: 'POST',
         body: {},
       });
@@ -639,7 +639,7 @@ describe('User Endpoints', () => {
     });
 
     it('should require CSRF token', async () => {
-      const request = buildMockRequest('/api/payments', {
+      const _request = buildMockRequest('/api/payments', {
         method: 'POST',
         body: {},
         userId: mockUserData.id,
@@ -652,7 +652,7 @@ describe('User Endpoints', () => {
     });
 
     it('should return valid payment ID', async () => {
-      const request = buildMockRequest('/api/payments', {
+      const _request = buildMockRequest('/api/payments', {
         method: 'POST',
         body: {},
         userId: mockUserData.id,
@@ -670,7 +670,7 @@ describe('User Endpoints', () => {
     });
 
     it('should set 24-hour expiration for payment access', async () => {
-      const request = buildMockRequest('/api/payments', {
+      const _request = buildMockRequest('/api/payments', {
         method: 'POST',
         body: {},
         userId: mockUserData.id,

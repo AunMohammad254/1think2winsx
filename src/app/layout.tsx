@@ -42,6 +42,18 @@ export const metadata: Metadata = {
       { rel: 'manifest', url: '/Favicon/site.webmanifest' },
     ],
   },
+  openGraph: {
+    title: "1Think 2Win",
+    description: "1Think 2Win - Test your cricket knowledge and win exciting prizes!",
+    images: [
+      {
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "1Think 2Win OpenGraph Image",
+      }
+    ]
+  },
 };
 
 export default function RootLayout({

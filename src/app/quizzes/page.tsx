@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'rea
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Search, Filter, Clock, CheckCircle, Sparkles, Wallet, AlertTriangle } from 'lucide-react';
+import { Search, Filter, Clock, CheckCircle, Sparkles } from 'lucide-react';
 import QuizCard from '@/components/quiz/QuizCard';
 import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
 import QuizDetailModal from '@/components/quiz/QuizDetailModal';

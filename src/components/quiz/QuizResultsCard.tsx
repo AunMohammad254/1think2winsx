@@ -38,7 +38,7 @@ export default function QuizResultsCard({
 
     const scorePercentage = Math.round((correctAnswers / totalQuestions) * 100);
     const passed = !isPending && scorePercentage >= passingScore;
-    const totalAnswered = correctAnswers + incorrectAnswers;
+    const _totalAnswered = correctAnswers + incorrectAnswers;
 
     // Confetti animation for passing score
     useEffect(() => {

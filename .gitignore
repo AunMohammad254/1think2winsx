@@ -88,6 +88,8 @@ tsc-output.txt
 #other
 test-results
 GEMINI.md
+AGENTS.md
+CLAUDE.md
 
 # Ignore temporary documentation files
 CLEANUP_SUMMARY.md

@@ -39,7 +39,7 @@ describe('Auth API Routes', () => {
         dateOfBirth: '2000-01-15',
       };
 
-      const request = buildMockRequest('/api/register', {
+      const _request = buildMockRequest('/api/register', {
         method: 'POST',
         body: newUser,
       });
@@ -81,7 +81,7 @@ describe('Auth API Routes', () => {
         role: 'user',
       });
 
-      const request = buildMockRequest('/api/register', {
+      const _request = buildMockRequest('/api/register', {
         method: 'POST',
         body: {
           name: 'Another User',
@@ -111,7 +111,7 @@ describe('Auth API Routes', () => {
       ];
 
       for (const name of invalidNames) {
-        const request = buildMockRequest('/api/register', {
+        const _request = buildMockRequest('/api/register', {
           method: 'POST',
           body: {
             name,
@@ -135,7 +135,7 @@ describe('Auth API Routes', () => {
       ];
 
       for (const email of invalidEmails) {
-        const request = buildMockRequest('/api/register', {
+        const _request = buildMockRequest('/api/register', {
           method: 'POST',
           body: {
             name: 'Valid Name',
@@ -160,7 +160,7 @@ describe('Auth API Routes', () => {
       ];
 
       for (const password of weakPasswords) {
-        const request = buildMockRequest('/api/register', {
+        const _request = buildMockRequest('/api/register', {
           method: 'POST',
           body: {
             name: 'Valid Name',
@@ -185,7 +185,7 @@ describe('Auth API Routes', () => {
       ];
 
       for (const phone of invalidPhones) {
-        const request = buildMockRequest('/api/register', {
+        const _request = buildMockRequest('/api/register', {
           method: 'POST',
           body: {
             name: 'Valid Name',
@@ -209,7 +209,7 @@ describe('Auth API Routes', () => {
       ];
 
       for (const date of invalidDates) {
-        const request = buildMockRequest('/api/register', {
+        const _request = buildMockRequest('/api/register', {
           method: 'POST',
           body: {
             name: 'Valid Name',
@@ -228,7 +228,7 @@ describe('Auth API Routes', () => {
       const today = new Date();
       const validDate = new Date(today.getFullYear() - 25, 0, 1);
 
-      const request = buildMockRequest('/api/register', {
+      const _request = buildMockRequest('/api/register', {
         method: 'POST',
         body: {
           name: 'Valid Name',
@@ -252,7 +252,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should trim whitespace from name', async () => {
-      const request = buildMockRequest('/api/register', {
+      const _request = buildMockRequest('/api/register', {
         method: 'POST',
         body: {
           name: '  John Doe  ',
@@ -276,7 +276,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should convert email to lowercase', async () => {
-      const request = buildMockRequest('/api/register', {
+      const _request = buildMockRequest('/api/register', {
         method: 'POST',
         body: {
           name: 'Test User',
@@ -350,7 +350,7 @@ describe('Auth API Routes', () => {
     it('should return CSRF token for authenticated user', async () => {
       setAuthContext({ userId: mockUserData.id, role: 'user' });
 
-      const request = buildMockRequest('/api/csrf-token', {
+      const _request = buildMockRequest('/api/csrf-token', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -370,7 +370,7 @@ describe('Auth API Routes', () => {
     it('should require authentication to get CSRF token', async () => {
       clearAuthContext();
 
-      const request = buildMockRequest('/api/csrf-token', {
+      const _request = buildMockRequest('/api/csrf-token', {
         method: 'GET',
         // No userId = unauthenticated
       });
@@ -385,7 +385,7 @@ describe('Auth API Routes', () => {
     it('should return valid token expiration time', async () => {
       setAuthContext({ userId: mockUserData.id, role: 'user' });
 
-      const request = buildMockRequest('/api/csrf-token', {
+      const _request = buildMockRequest('/api/csrf-token', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -428,7 +428,7 @@ describe('Auth API Routes', () => {
     it('should work for admin users', async () => {
       setAuthContext({ userId: 'admin_001', role: 'admin' });
 
-      const request = buildMockRequest('/api/csrf-token', {
+      const _request = buildMockRequest('/api/csrf-token', {
         method: 'GET',
         userId: 'admin_001',
         isAdmin: true,
@@ -456,7 +456,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should return user profile for authenticated user', async () => {
-      const request = buildMockRequest('/api/profile', {
+      const _request = buildMockRequest('/api/profile', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -481,7 +481,7 @@ describe('Auth API Routes', () => {
     it('should require authentication to view profile', async () => {
       clearAuthContext();
 
-      const request = buildMockRequest('/api/profile', {
+      const _request = buildMockRequest('/api/profile', {
         method: 'GET',
       });
 
@@ -491,7 +491,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should include all required profile fields', async () => {
-      const request = buildMockRequest('/api/profile', {
+      const _request = buildMockRequest('/api/profile', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -509,7 +509,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should not return sensitive fields', async () => {
-      const request = buildMockRequest('/api/profile', {
+      const _request = buildMockRequest('/api/profile', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -542,7 +542,7 @@ describe('Auth API Routes', () => {
         city: 'New City',
       };
 
-      const request = buildMockRequest('/api/profile/update', {
+      const _request = buildMockRequest('/api/profile/update', {
         method: 'PATCH',
         body: updates,
         userId: mockUserData.id,
@@ -559,7 +559,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should require CSRF token for profile updates', async () => {
-      const request = buildMockRequest('/api/profile/update', {
+      const _request = buildMockRequest('/api/profile/update', {
         method: 'PATCH',
         body: { name: 'Hacked' },
         userId: mockUserData.id,
@@ -572,7 +572,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should validate updated email format', async () => {
-      const request = buildMockRequest('/api/profile/update', {
+      const _request = buildMockRequest('/api/profile/update', {
         method: 'PATCH',
         body: { email: 'invalid-email' },
         userId: mockUserData.id,
@@ -594,7 +594,7 @@ describe('Auth API Routes', () => {
         role: 'user',
       });
 
-      const request = buildMockRequest('/api/profile/update', {
+      const _request = buildMockRequest('/api/profile/update', {
         method: 'PATCH',
         body: { email: 'other@example.com' },
         userId: mockUserData.id,
@@ -616,7 +616,7 @@ describe('Auth API Routes', () => {
         city: 'Paris',
       };
 
-      const request = buildMockRequest('/api/profile/update', {
+      const _request = buildMockRequest('/api/profile/update', {
         method: 'PATCH',
         body: updates,
         userId: mockUserData.id,
@@ -658,7 +658,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should change password with correct current password', async () => {
-      const request = buildMockRequest('/api/profile/change-password', {
+      const _request = buildMockRequest('/api/profile/change-password', {
         method: 'POST',
         body: {
           currentPassword: 'OldSecure123!',
@@ -678,7 +678,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should require correct current password', async () => {
-      const request = buildMockRequest('/api/profile/change-password', {
+      const _request = buildMockRequest('/api/profile/change-password', {
         method: 'POST',
         body: {
           currentPassword: 'WrongPassword123!',
@@ -705,7 +705,7 @@ describe('Auth API Routes', () => {
       ];
 
       for (const newPassword of weakPasswords) {
-        const request = buildMockRequest('/api/profile/change-password', {
+        const _request = buildMockRequest('/api/profile/change-password', {
           method: 'POST',
           body: {
             currentPassword: 'OldSecure123!',
@@ -721,7 +721,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should require CSRF token', async () => {
-      const request = buildMockRequest('/api/profile/change-password', {
+      const _request = buildMockRequest('/api/profile/change-password', {
         method: 'POST',
         body: {
           currentPassword: 'OldSecure123!',
@@ -737,7 +737,7 @@ describe('Auth API Routes', () => {
     });
 
     it('should not allow password same as current', async () => {
-      const request = buildMockRequest('/api/profile/change-password', {
+      const _request = buildMockRequest('/api/profile/change-password', {
         method: 'POST',
         body: {
           currentPassword: 'CurrentPass123!',
@@ -787,7 +787,7 @@ describe('Auth API Routes', () => {
 
       assertSuccessResponse(csrfResponse);
       const csrfBody = await parseResponseBody(csrfResponse);
-      const csrfToken = csrfBody.data.csrfToken;
+      const _csrfToken = csrfBody.data.csrfToken;
 
       // Step 3: Update profile using CSRF token
       const updateResponse = MockResponseBuilder.success({
@@ -833,7 +833,7 @@ describe('Auth API Routes', () => {
       setAuthContext({ userId: user.id, role: 'user' });
 
       // Request without CSRF token should fail
-      const noCsrfRequest = buildMockRequest('/api/profile/update', {
+      const _noCsrfRequest = buildMockRequest('/api/profile/update', {
         method: 'PATCH',
         body: { name: 'Hacked' },
         userId: user.id,
@@ -844,7 +844,7 @@ describe('Auth API Routes', () => {
       assertErrorResponse(response, 403);
 
       // Request with CSRF token should succeed
-      const withCsrfRequest = buildMockRequest('/api/profile/update', {
+      const _withCsrfRequest = buildMockRequest('/api/profile/update', {
         method: 'PATCH',
         body: { name: 'Updated' },
         userId: user.id,

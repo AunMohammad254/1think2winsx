@@ -20,7 +20,7 @@ const QuizManagement = dynamic(
 );
 
 const QuestionManagement = dynamic(
-  () => import('@/components/admin/QuestionManagement'),
+  () => import('@/components/admin/questions/QuestionManagement'),
   {
     loading: () => <div className="h-48 bg-white/5 rounded-xl animate-pulse" />,
     ssr: false

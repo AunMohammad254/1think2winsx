@@ -68,7 +68,7 @@ const mockQuizEvaluation = {
     attempts: [],
 };
 
-const mockCSRFToken = { csrfToken: 'test-csrf-token' };
+const _mockCSRFToken = { csrfToken: 'test-csrf-token' };
 
 describe('QuizEvaluationManager Integration', () => {
     beforeEach(() => {

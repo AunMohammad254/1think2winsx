@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { checkPaymentAccess } from '@/lib/payment-middleware';
-import { getDb, quizDb, questionDb, generateId } from '@/lib/supabase/db';
+import { getDb, quizDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';

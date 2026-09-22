@@ -1,7 +1,7 @@
 'use client';
 
 import { formatDistanceToNow } from 'date-fns';
-import { User, Trophy, ArrowRight } from 'lucide-react';
+import { User, Trophy } from 'lucide-react';
 import type { RecentActivity } from '@/actions/dashboard-actions';
 
 interface RecentActivityFeedProps {

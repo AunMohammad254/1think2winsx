@@ -23,7 +23,7 @@ vi.mock('next/navigation', () => ({
 
 // Mock Next.js dynamic import
 vi.mock('next/dynamic', () => ({
-    default: (fn: () => Promise<{ default: React.ComponentType }>) => {
+    default: (_fn: () => Promise<{ default: React.ComponentType }>) => {
         const Component = () => null;
         return Component;
     },

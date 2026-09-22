@@ -3,7 +3,7 @@
  */
 
 import { getDb, generateId } from './shared'
-import type { Insertable, Updatable } from '../database.types'
+import type { Insertable } from '../database.types'
 
 // ============================================================================
 // WALLET TRANSACTION OPERATIONS

@@ -10,7 +10,7 @@ export default defineConfig({
         setupFiles: ['./vitest.setup.ts'],
         include: ['src/**/*.{test,spec}.{ts,tsx}'],
         exclude: ['node_modules', '.next', 'dist'],
-        // @ts-ignore - Vitest types mismatch in Next.js build
+        // @ts-expect-error - Vitest types mismatch in Next.js build
         environmentMatchGlobs: [
             // CI pipeline tests run in Node (they use `fs`, no DOM needed)
             ['src/tests/ci/**', 'node'],

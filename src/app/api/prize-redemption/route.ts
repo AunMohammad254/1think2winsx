@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getDb, userDb, prizeDb, prizeRedemptionDb, generateId } from '@/lib/supabase/db';
+import { getDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';

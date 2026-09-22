@@ -43,7 +43,7 @@ describe('Quiz API Routes', () => {
       });
 
       // Build request
-      const request = buildMockRequest('/api/quizzes', {
+      const _request = buildMockRequest('/api/quizzes', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -66,7 +66,7 @@ describe('Quiz API Routes', () => {
     });
 
     it('should return empty list if no quizzes exist', async () => {
-      const request = buildMockRequest('/api/quizzes', {
+      const _request = buildMockRequest('/api/quizzes', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -82,7 +82,7 @@ describe('Quiz API Routes', () => {
     });
 
     it('should require authentication', async () => {
-      const request = buildMockRequest('/api/quizzes', {
+      const _request = buildMockRequest('/api/quizzes', {
         method: 'GET',
         // No userId = unauthenticated
       });
@@ -104,7 +104,7 @@ describe('Quiz API Routes', () => {
         });
       }
 
-      const request = buildMockRequest('/api/quizzes?limit=2&offset=0', {
+      const _request = buildMockRequest('/api/quizzes?limit=2&offset=0', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -132,7 +132,7 @@ describe('Quiz API Routes', () => {
     it('should return quiz details for valid quiz ID', async () => {
       await testState.db.createQuiz(mockQuizData);
 
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -147,7 +147,7 @@ describe('Quiz API Routes', () => {
     });
 
     it('should return 404 for non-existent quiz', async () => {
-      const request = buildMockRequest('/api/quizzes/invalid_id', {
+      const _request = buildMockRequest('/api/quizzes/invalid_id', {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -195,7 +195,7 @@ describe('Quiz API Routes', () => {
         passingScore: 75,
       };
 
-      const request = buildMockRequest('/api/quizzes', {
+      const _request = buildMockRequest('/api/quizzes', {
         method: 'POST',
         body: newQuiz,
         userId: mockAdminData.id,
@@ -212,7 +212,7 @@ describe('Quiz API Routes', () => {
     });
 
     it('should reject non-admin users', async () => {
-      const request = buildMockRequest('/api/quizzes', {
+      const _request = buildMockRequest('/api/quizzes', {
         method: 'POST',
         body: { title: 'Test' },
         userId: mockUserData.id,
@@ -234,7 +234,7 @@ describe('Quiz API Routes', () => {
         duration: 30,
       };
 
-      const request = buildMockRequest('/api/quizzes', {
+      const _request = buildMockRequest('/api/quizzes', {
         method: 'POST',
         body: invalidQuiz,
         userId: mockAdminData.id,
@@ -257,7 +257,7 @@ describe('Quiz API Routes', () => {
         passingScore: 150, // Exceeds max percentage
       };
 
-      const request = buildMockRequest('/api/quizzes', {
+      const _request = buildMockRequest('/api/quizzes', {
         method: 'POST',
         body: invalidQuiz,
         userId: mockAdminData.id,
@@ -311,7 +311,7 @@ describe('Quiz API Routes', () => {
         timeSpent: 120, // seconds
       };
 
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}/submit`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}/submit`, {
         method: 'POST',
         body: submission,
         userId: mockUserData.id,
@@ -368,7 +368,7 @@ describe('Quiz API Routes', () => {
         ],
       };
 
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}/submit`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}/submit`, {
         method: 'POST',
         body: invalidSubmission,
         userId: mockUserData.id,
@@ -401,7 +401,7 @@ describe('Quiz API Routes', () => {
     it('should return quiz results for completed quiz', async () => {
       await testState.db.createQuiz(mockQuizData);
 
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}/results`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}/results`, {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -425,7 +425,7 @@ describe('Quiz API Routes', () => {
     });
 
     it('should return 404 if quiz not completed', async () => {
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}/results`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}/results`, {
         method: 'GET',
         userId: mockUserData.id,
       });
@@ -452,7 +452,7 @@ describe('Quiz API Routes', () => {
         passingScore: 80,
       };
 
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
         method: 'PATCH',
         body: updates,
         userId: mockAdminData.id,
@@ -471,7 +471,7 @@ describe('Quiz API Routes', () => {
     it('should reject updates from non-admin users', async () => {
       setAuthContext({ userId: mockUserData.id, role: 'user' });
 
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
         method: 'PATCH',
         body: { title: 'Hacked' },
         userId: mockUserData.id,
@@ -494,7 +494,7 @@ describe('Quiz API Routes', () => {
     });
 
     it('should delete quiz with admin role', async () => {
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
         method: 'DELETE',
         userId: mockAdminData.id,
         isAdmin: true,
@@ -514,7 +514,7 @@ describe('Quiz API Routes', () => {
     it('should reject deletion from non-admin users', async () => {
       setAuthContext({ userId: mockUserData.id, role: 'user' });
 
-      const request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
+      const _request = buildMockRequest(`/api/quizzes/${mockQuizData.id}`, {
         method: 'DELETE',
         userId: mockUserData.id,
       });
@@ -525,7 +525,7 @@ describe('Quiz API Routes', () => {
     });
 
     it('should return 404 when deleting non-existent quiz', async () => {
-      const request = buildMockRequest('/api/quizzes/invalid_id', {
+      const _request = buildMockRequest('/api/quizzes/invalid_id', {
         method: 'DELETE',
         userId: mockAdminData.id,
         isAdmin: true,

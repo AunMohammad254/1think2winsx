@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Section, SectionHeading, Reveal, TrophyIcon } from "./Primitives";
 import Link from "next/link";
 
@@ -63,7 +63,7 @@ function PlayerRow({ player, index }: { player: Player; index: number }) {
         <span
           className={`grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br ${rankAccent(
             player.rank
-          )} font-display text-sm font-bold text-ink-950 shadow-md transition-transform duration-300 group-hover:scale-110`}
+          )} font-display text-sm font-bold ${player.rank <= 3 ? 'text-ink-950' : 'text-white'} shadow-md transition-transform duration-300 group-hover:scale-110`}
         >
           {player.rank <= 3 ? <TrophyIcon className="h-5 w-5" /> : player.rank}
         </span>
@@ -98,7 +98,7 @@ function PlayerRow({ player, index }: { player: Player; index: number }) {
         </span>
       </div>
       <div className="col-span-4 text-right sm:col-span-2">
-        <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-sm font-bold text-emerald-300">
+        <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-sm font-bold text-emerald-400">
           {player.won}
         </span>
       </div>
@@ -128,7 +128,7 @@ export default function Leaderboard() {
       />
       <Reveal delay={150}>
         <div className="mt-14 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent backdrop-blur-xl">
-          <div className="hidden grid-cols-12 gap-4 border-b border-white/10 bg-white/[0.02] px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45 sm:grid">
+          <div className="hidden grid-cols-12 gap-4 border-b border-white/10 bg-white/[0.02] px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70 sm:grid">
             <div className="col-span-1">Rank</div>
             <div className="col-span-5">Player</div>
             <div className="col-span-2 text-right">Streak</div>
@@ -141,8 +141,8 @@ export default function Leaderboard() {
             ))}
           </ul>
           <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.02] px-6 py-4">
-            <p className="text-xs text-white/55">
-              Updated <span className="text-white/80">live</span> &middot; Resets every Sunday 00:00 IST
+            <p className="text-xs text-white/70">
+              Updated <span className="text-white">live</span> &middot; Resets every Sunday 00:00 IST
             </p>
             <Link
               href="/leaderboard"

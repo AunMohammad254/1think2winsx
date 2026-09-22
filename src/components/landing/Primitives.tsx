@@ -126,7 +126,7 @@ export function useParallaxPointer(strength = 12) {
   return ref;
 }
 
-export function useActiveSection(sectionIds: string[], rootMargin = "0px 0px 0px 0px") {
+export function useActiveSection(sectionIds: string[], _rootMargin = "0px 0px 0px 0px") {
   const [activeId, setActiveId] = useState(sectionIds[0]);
 
   useEffect(() => {
