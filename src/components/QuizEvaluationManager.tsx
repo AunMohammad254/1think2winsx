@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getCSRFToken } from '@/lib/csrf';
 import {
   type Quiz,
@@ -27,16 +27,36 @@ export default function QuizEvaluationManager() {
   const [correctAnswers, setCorrectAnswers] = useState<Record<string, number>>({});
   const [pointsPerWinner, setPointsPerWinner] = useState(10);
   const [percentageThreshold, setPercentageThreshold] = useState(10);
-  
+
   // Lucky Draw config
   const [numberOfWinners, setNumberOfWinners] = useState(1);
   const [consolationPoints, setConsolationPoints] = useState(0);
-  const [loading, setLoading] = useState(false);
+
+  // Optimization #1: Per-action loading states instead of one shared boolean
   const [loadingQuizzes, setLoadingQuizzes] = useState(true);
+  const [loadingEvaluate, setLoadingEvaluate] = useState(false);
+  const [loadingAllocate, setLoadingAllocate] = useState(false);
+  const [loadingDraw, setLoadingDraw] = useState(false);
+
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set());
   const [winners, setWinners] = useState<Winner[]>([]);
   const [showWinners, setShowWinners] = useState(false);
+
+  // Optimization #4: Cache CSRF token to avoid redundant network requests
+  const csrfRef = useRef<string | null>(null);
+  const getToken = useCallback(async () => {
+    if (!csrfRef.current) csrfRef.current = await getCSRFToken();
+    return csrfRef.current;
+  }, []);
+
+  // Optimization #6: Auto-dismiss success messages after 5 seconds
+  useEffect(() => {
+    if (message?.type === 'success') {
+      const t = setTimeout(() => setMessage(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [message]);
 
   // Memoized current step — avoids recomputing on every render.
   const currentStep = useMemo(() => {
@@ -82,10 +102,10 @@ export default function QuizEvaluationManager() {
     fetchQuizzes();
   }, [fetchQuizzes]);
 
-  // Fetch quiz evaluation
-  const fetchQuizEvaluation = async (quizId: string) => {
+  // Optimization #2: Wrap in useCallback to avoid stale closures & recreation each render
+  const fetchQuizEvaluation = useCallback(async (quizId: string) => {
     try {
-      setLoading(true);
+      setLoadingEvaluate(true);
       const response = await fetch(`/api/admin/quiz-evaluation?quizId=${quizId}`);
       if (response.ok) {
         const data = await response.json();
@@ -113,12 +133,12 @@ export default function QuizEvaluationManager() {
       console.error('Failed to fetch quiz evaluation:', error);
       setMessage({ type: 'error', text: 'Failed to fetch quiz evaluation' });
     } finally {
-      setLoading(false);
+      setLoadingEvaluate(false);
     }
-  };
+  }, []);
 
   // Handle quiz selection
-  const handleQuizSelect = (quizId: string) => {
+  const handleQuizSelect = useCallback((quizId: string) => {
     if (quizId === selectedQuiz) return;
     setSelectedQuiz(quizId);
     setQuizEvaluation(null);
@@ -130,18 +150,19 @@ export default function QuizEvaluationManager() {
     if (quizId) {
       fetchQuizEvaluation(quizId);
     }
-  };
+  }, [selectedQuiz, fetchQuizEvaluation]);
 
-  // Handle answer change
-  const handleCorrectAnswerChange = (questionId: string, optionIndex: number) => {
-    setCorrectAnswers((prev) => ({
-      ...prev,
-      [questionId]: optionIndex,
-    }));
+  // Optimization #5: useCallback with correctAnswers dependency to fix stale closure bug
+  const handleCorrectAnswerChange = useCallback((questionId: string, optionIndex: number) => {
+    setCorrectAnswers((prev) => {
+      const next = { ...prev, [questionId]: optionIndex };
+      return next;
+    });
     // Auto-expand next unanswered question
-    if (quizEvaluation) {
-      const currentIndex = quizEvaluation.questions.findIndex((q) => q.id === questionId);
-      const nextUnanswered = quizEvaluation.questions.find(
+    setQuizEvaluation((eval_) => {
+      if (!eval_) return eval_;
+      const currentIndex = eval_.questions.findIndex((q) => q.id === questionId);
+      const nextUnanswered = eval_.questions.find(
         (q, i) => i > currentIndex && !(q.id in correctAnswers) && q.id !== questionId
       );
       if (nextUnanswered) {
@@ -149,11 +170,12 @@ export default function QuizEvaluationManager() {
       } else {
         setExpandedQuestions(new Set());
       }
-    }
-  };
+      return eval_;
+    });
+  }, [correctAnswers]);
 
   // Toggle question expansion
-  const toggleQuestion = (questionId: string) => {
+  const toggleQuestion = useCallback((questionId: string) => {
     setExpandedQuestions((prev) => {
       const next = new Set(prev);
       if (next.has(questionId)) {
@@ -164,7 +186,7 @@ export default function QuizEvaluationManager() {
       }
       return next;
     });
-  };
+  }, []);
 
   // Evaluate quiz
   const handleEvaluateQuiz = async () => {
@@ -180,8 +202,8 @@ export default function QuizEvaluationManager() {
     }
 
     try {
-      setLoading(true);
-      const csrfToken = await getCSRFToken();
+      setLoadingEvaluate(true);
+      const csrfToken = await getToken();
       if (!csrfToken) {
         setMessage({ type: 'error', text: 'Failed to get security token. Please try again.' });
         return;
@@ -191,7 +213,7 @@ export default function QuizEvaluationManager() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || '',
+          'X-CSRF-Token': csrfToken,
         },
         body: JSON.stringify({
           quizId: selectedQuiz,
@@ -214,7 +236,7 @@ export default function QuizEvaluationManager() {
       console.error('Failed to evaluate quiz:', error);
       setMessage({ type: 'error', text: 'Failed to evaluate quiz' });
     } finally {
-      setLoading(false);
+      setLoadingEvaluate(false);
     }
   };
 
@@ -223,8 +245,8 @@ export default function QuizEvaluationManager() {
     if (!selectedQuiz) return;
 
     try {
-      setLoading(true);
-      const csrfToken = await getCSRFToken();
+      setLoadingAllocate(true);
+      const csrfToken = await getToken();
       if (!csrfToken) {
         setMessage({ type: 'error', text: 'Failed to get security token. Please try again.' });
         return;
@@ -234,7 +256,7 @@ export default function QuizEvaluationManager() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || '',
+          'X-CSRF-Token': csrfToken,
         },
         body: JSON.stringify({
           quizId: selectedQuiz,
@@ -260,7 +282,7 @@ export default function QuizEvaluationManager() {
       console.error('Failed to allocate points:', error);
       setMessage({ type: 'error', text: 'Failed to allocate points' });
     } finally {
-      setLoading(false);
+      setLoadingAllocate(false);
     }
   };
 
@@ -269,8 +291,8 @@ export default function QuizEvaluationManager() {
     if (!selectedQuiz) return;
 
     try {
-      setLoading(true);
-      const csrfToken = await getCSRFToken();
+      setLoadingDraw(true);
+      const csrfToken = await getToken();
       if (!csrfToken) {
         setMessage({ type: 'error', text: 'Failed to get security token. Please try again.' });
         return;
@@ -280,7 +302,7 @@ export default function QuizEvaluationManager() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || '',
+          'X-CSRF-Token': csrfToken,
         },
         body: JSON.stringify({
           numberOfWinners,
@@ -290,29 +312,26 @@ export default function QuizEvaluationManager() {
 
       if (response.ok) {
         const data = await response.json();
-        
+
         let msg = data.message || '🎲 Lucky Draw complete!';
         if (data.consolation && data.consolation.losersAwarded > 0) {
-            msg += ` ${data.consolation.losersAwarded} runner(s) up received ${data.consolation.points} points.`;
+          msg += ` ${data.consolation.losersAwarded} runner(s) up received ${data.consolation.points} points.`;
         }
-        
-        setMessage({
-          type: 'success',
-          text: msg,
-        });
-        
+
+        setMessage({ type: 'success', text: msg });
+
         // Show the winners in the leaderboard section
         if (data.winners && data.winners.length > 0) {
-           setWinners(data.winners.map((w: any) => ({
-             userId: w.userId,
-             userName: w.name || 'Unknown',
-             userEmail: w.email || 'No email',
-             score: w.score || 100,
-             pointsAwarded: 0 // Prize is awarded instead of points
-           })));
-           setShowWinners(true);
+          setWinners(data.winners.map((w: any) => ({
+            userId: w.userId,
+            userName: w.name || 'Unknown',
+            userEmail: w.email || 'No email',
+            score: w.score || 100,
+            pointsAwarded: 0 // Prize is awarded instead of points
+          })));
+          setShowWinners(true);
         }
-        
+
         await fetchQuizEvaluation(selectedQuiz);
       } else {
         const errorData = await response.json();
@@ -322,30 +341,34 @@ export default function QuizEvaluationManager() {
       console.error('Failed to run lucky draw:', error);
       setMessage({ type: 'error', text: 'Failed to run lucky draw' });
     } finally {
-      setLoading(false);
+      setLoadingDraw(false);
     }
   };
 
-  // Calculate allocation metrics
-  const allocationMetrics = quizEvaluation
-    ? {
+  // Optimization #3: useMemo with single Math.ceil calculation (was computed twice before)
+  const allocationMetrics = useMemo(() => {
+    if (!quizEvaluation) return null;
+    const topPercentageCount = Math.max(
+      1,
+      Math.ceil(quizEvaluation.evaluation.totalAttempts * (percentageThreshold / 100))
+    );
+    return {
       totalAttempts: quizEvaluation.evaluation.totalAttempts,
-      topPercentageCount: Math.max(
-        1,
-        Math.ceil(quizEvaluation.evaluation.totalAttempts * (percentageThreshold / 100))
-      ),
-      totalPointsToDistribute:
-        Math.max(
-          1,
-          Math.ceil(quizEvaluation.evaluation.totalAttempts * (percentageThreshold / 100))
-        ) * pointsPerWinner,
-    }
-    : null;
+      topPercentageCount,
+      totalPointsToDistribute: topPercentageCount * pointsPerWinner,
+    };
+  }, [quizEvaluation, percentageThreshold, pointsPerWinner]);
 
   // Calculate answered questions count
   const answeredCount = Object.keys(correctAnswers).length;
   const totalQuestions = quizEvaluation?.questions.length || 0;
   const answerProgress = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0;
+
+  // Optimization #7: useMemo for sliced winners list
+  const visibleWinners = useMemo(() => winners.slice(0, 10), [winners]);
+
+  // Any action is loading
+  const isAnyLoading = loadingEvaluate || loadingAllocate || loadingDraw;
 
   return (
     <div className="space-y-6">
@@ -405,7 +428,7 @@ export default function QuizEvaluationManager() {
       </div>
 
       {/* Loading State */}
-      {loading && !quizEvaluation && (
+      {loadingEvaluate && !quizEvaluation && (
         <div className="rounded-xl bg-white/5 border border-white/10 p-8">
           <div className="flex flex-col items-center justify-center space-y-4">
             <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin" />
@@ -478,7 +501,7 @@ export default function QuizEvaluationManager() {
                     }
                     isExpanded={expandedQuestions.has(question.id)}
                     onToggle={() => toggleQuestion(question.id)}
-                    disabled={loading}
+                    disabled={isAnyLoading}
                   />
                 ))}
               </div>
@@ -486,13 +509,13 @@ export default function QuizEvaluationManager() {
               {/* Evaluate Button */}
               <button
                 onClick={handleEvaluateQuiz}
-                disabled={loading || answeredCount !== totalQuestions}
-                className={`mt-6 w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loading || answeredCount !== totalQuestions
+                disabled={loadingEvaluate || answeredCount !== totalQuestions}
+                className={`mt-6 w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loadingEvaluate || answeredCount !== totalQuestions
                   ? 'bg-white/10 text-gray-500 cursor-not-allowed'
                   : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-500 hover:to-purple-500 hover:shadow-lg hover:shadow-blue-500/30 hover:scale-[1.02]'
                   }`}
               >
-                {loading ? (
+                {loadingEvaluate ? (
                   <span className="flex items-center justify-center gap-2">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Evaluating...
@@ -526,7 +549,7 @@ export default function QuizEvaluationManager() {
                         value={percentageThreshold}
                         onChange={(e) => setPercentageThreshold(parseFloat(e.target.value))}
                         className="flex-1 h-2 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500 [&::-webkit-slider-thumb]:shadow-lg"
-                        disabled={loading}
+                        disabled={loadingAllocate}
                       />
                       <div className="w-20 px-3 py-2 bg-white/10 rounded-lg text-center">
                         <span className="text-white font-bold">{percentageThreshold}%</span>
@@ -549,7 +572,7 @@ export default function QuizEvaluationManager() {
                         value={pointsPerWinner}
                         onChange={(e) => setPointsPerWinner(parseInt(e.target.value))}
                         className="flex-1 h-2 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:shadow-lg"
-                        disabled={loading}
+                        disabled={loadingAllocate}
                       />
                       <div className="w-20 px-3 py-2 bg-white/10 rounded-lg text-center">
                         <span className="text-white font-bold">{pointsPerWinner}</span>
@@ -594,13 +617,13 @@ export default function QuizEvaluationManager() {
 
               <button
                 onClick={handleAllocatePoints}
-                disabled={loading}
-                className={`mt-6 w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loading
+                disabled={loadingAllocate}
+                className={`mt-6 w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loadingAllocate
                   ? 'bg-white/10 text-gray-500 cursor-not-allowed'
                   : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:from-purple-500 hover:to-pink-500 hover:shadow-lg hover:shadow-purple-500/30 hover:scale-[1.02]'
                   }`}
               >
-                {loading ? (
+                {loadingAllocate ? (
                   <span className="flex items-center justify-center gap-2">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Allocating Points...
@@ -618,40 +641,42 @@ export default function QuizEvaluationManager() {
                   <p className="text-sm text-gray-400 mb-6">
                     This quiz is linked to a prize. Run the Lucky Draw to randomly select a winner from the perfect scorers.
                   </p>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">Number of Winners</label>
-                        <input
-                            type="number"
-                            min="1"
-                            max="100"
-                            value={numberOfWinners}
-                            onChange={(e) => setNumberOfWinners(Math.max(1, parseInt(e.target.value) || 1))}
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-yellow-500 outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">Consolation Points (for losers)</label>
-                        <input
-                            type="number"
-                            min="0"
-                            value={consolationPoints}
-                            onChange={(e) => setConsolationPoints(Math.max(0, parseInt(e.target.value) || 0))}
-                            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-yellow-500 outline-none"
-                        />
-                      </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Number of Winners</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={numberOfWinners}
+                        onChange={(e) => setNumberOfWinners(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-yellow-500 outline-none"
+                        disabled={loadingDraw}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Consolation Points (for losers)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={consolationPoints}
+                        onChange={(e) => setConsolationPoints(Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-yellow-500 outline-none"
+                        disabled={loadingDraw}
+                      />
+                    </div>
                   </div>
 
                   <button
                     onClick={handleRunLuckyDraw}
-                    disabled={loading}
-                    className={`w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loading
+                    disabled={loadingDraw}
+                    className={`w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loadingDraw
                       ? 'bg-white/10 text-gray-500 cursor-not-allowed'
                       : 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white hover:from-yellow-400 hover:to-orange-400 hover:shadow-lg hover:shadow-yellow-500/30 hover:scale-[1.02]'
                       }`}
                   >
-                    {loading ? (
+                    {loadingDraw ? (
                       <span className="flex items-center justify-center gap-2">
                         <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         Running Draw...
@@ -688,7 +713,8 @@ export default function QuizEvaluationManager() {
                     </tr>
                   </thead>
                   <tbody>
-                    {winners.slice(0, 10).map((winner, index) => (
+                    {/* Optimization #7: use memoized sliced list */}
+                    {visibleWinners.map((winner, index) => (
                       <WinnerRow key={winner.userId} winner={winner} rank={index + 1} />
                     ))}
                   </tbody>
@@ -728,8 +754,6 @@ export default function QuizEvaluationManager() {
           </ol>
         </div>
       )}
-
-
     </div>
   );
 }

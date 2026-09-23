@@ -66,7 +66,7 @@
 
 | 🎮 **Gaming** | 💰 **Rewards** | 👑 **Competition** |
 |:---:|:---:|:---:|
-| Interactive Quizzes | Real Prizes | Live Leaderboards |
+| Interactive Quizzes | Random Prizes | Live Leaderboards |
 | Timed Challenges | Points System | Global Rankings |
 | Multiple Categories | Prize Redemption | Achievement Badges |
 
@@ -172,6 +172,14 @@ SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 
 # Authentication (Optional/Fallback)
 AUTH_SECRET="your-auth-secret"
+
+# Cron secret for scheduled quiz activation
+CRON_SECRET="your-random-secret"
+
+# 💡 Wallet Feature Toggle
+# Set to 'false' → quizzes are FREE (wallet & payment gate hidden completely)
+# Set to 'true'  → wallet system is active (users pay 2 PKR for 24h quiz access)
+WALLET_FEATURE_ENABLED=true
 ```
 
 ### 🗄️ Database Setup
@@ -270,6 +278,49 @@ docker-compose logs -f
 ```
 
 </div>
+
+---
+
+## 💳 Wallet Feature Toggle
+
+> The wallet system gates quiz access behind a 2 PKR / 24-hour payment. It can be **fully toggled on/off without touching any code** — no data is ever deleted.
+
+<details>
+<summary><b>🔴 Disable Wallet (Free Quiz Access)</b></summary>
+<br/>
+
+Set the following in your environment variables (Hostinger hPanel → Environment Variables):
+
+```env
+WALLET_FEATURE_ENABLED=false
+```
+
+**What gets hidden automatically:**
+
+| Surface | Behaviour |
+|---|---|
+| Quiz page | Users play **free** — no payment prompt |
+| Wallet UI & balance | Hidden completely |
+| Navbar wallet links | Hidden |
+| Deposit form | Hidden |
+| Admin wallet APIs | Return `HTTP 503` (safe) |
+| Database (balances, history) | **Untouched — all data preserved** |
+
+</details>
+
+<details>
+<summary><b>🟢 Re-enable Wallet (Paid Access)</b></summary>
+<br/>
+
+Change the environment variable back to `true` (or remove it entirely):
+
+```env
+WALLET_FEATURE_ENABLED=true
+```
+
+The change propagates within **60 seconds** — no redeploy needed. All user balances and transaction history are instantly restored since no data was ever deleted.
+
+</details>
 
 ---
 

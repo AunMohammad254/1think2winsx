@@ -117,7 +117,7 @@ function AuthPageContent() {
                         <div className="space-y-4 text-left">
                             {[
                                 { emoji: '🎮', text: 'Daily quiz challenges' },
-                                { emoji: '🏆', text: 'Win real prizes' },
+                                { emoji: '🏆', text: 'Win random prizes' },
                                 { emoji: '📊', text: 'Track your progress' },
                                 { emoji: '🌟', text: 'Compete on leaderboards' },
                             ].map((feature, idx) => (

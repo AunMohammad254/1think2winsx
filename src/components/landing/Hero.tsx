@@ -46,7 +46,7 @@ function Particles() {
   );
 }
 
-const SUBHEADS = ["Test your Cricket IQ", "Win real prizes", "Beat the world"];
+const SUBHEADS = ["Test your Cricket IQ", "Win random prizes", "Beat the world"];
 
 function HeroVisual() {
   return (
@@ -176,7 +176,7 @@ export default function Hero() {
               <span className="ml-0.5 inline-block h-[0.08em] w-[3px] rounded bg-emerald-400 align-middle anim-cursor" />
             </span>
             <span className={`block text-gradient-pitch transition-all duration-700 delay-150 ${isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"}`}>
-              & win <span className="text-gradient-trophy">real prizes.</span>
+              & win <span className="text-gradient-trophy">random prizes.</span>
             </span>
           </h1>
           <Reveal delay={500}>

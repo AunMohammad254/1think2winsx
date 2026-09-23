@@ -344,7 +344,7 @@ export async function GET(
               }}
             >
               <span style={{ fontSize: '14px', color: '#64748b' }}>
-                Join the arena &bull; Answer correctly &bull; Win exciting real prizes!
+                Join the arena &bull; Answer correctly &bull; Win exciting random prizes!
               </span>
               <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#ffffff' }}>
                 www.1think2wins.com

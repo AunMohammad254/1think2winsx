@@ -157,7 +157,7 @@ export default function HowToPlayPage() {
             className="text-lg sm:text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto mb-8 sm:mb-12 leading-relaxed"
           >
             Join the ultimate cricket quiz. Test your knowledge, top the leaderboard,
-            and win <span className="text-amber-400 font-semibold">real prizes</span> worth thousands!
+            and win <span className="text-amber-400 font-semibold">random prizes</span> worth thousands!
           </motion.p>
 
           {/* CTA Buttons */}
@@ -540,7 +540,7 @@ export default function HowToPlayPage() {
             </div>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-amber-500" />
-              <span>Real Prizes</span>
+              <span>Random Prizes</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-blue-500" />
