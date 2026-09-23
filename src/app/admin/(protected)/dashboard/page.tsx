@@ -13,7 +13,8 @@ import {
   ChevronRight,
   Bell,
   BarChart3,
-  Mail
+  Mail,
+  Sparkles,
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
@@ -101,6 +102,7 @@ const navItems = [
   { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/admin/quiz', label: 'Quiz Management', icon: FileText },
   { href: '/admin/quiz-evaluation', label: 'Quiz Evaluation', icon: CheckSquare },
+  { href: '/admin/lucky-winner', label: 'Lucky Winner Draw', icon: Sparkles },
   { href: '/admin/prizes', label: 'Prizes', icon: Gift },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet },
   { href: '/admin/claims', label: 'Prize Claims', icon: Trophy },
@@ -115,6 +117,7 @@ const quickActions = [
   { href: '/admin/analytics', label: 'View Analytics', icon: BarChart3, color: 'indigo' },
   { href: '/admin/quiz', label: 'Manage Quizzes', icon: FileText, color: 'blue' },
   { href: '/admin/quiz-evaluation', label: 'Quiz Evaluation', icon: CheckSquare, color: 'purple' },
+  { href: '/admin/lucky-winner', label: 'Lucky Winner Draw', icon: Sparkles, color: 'yellow' },
   { href: '/admin/prizes', label: 'Manage Prizes', icon: Trophy, color: 'green' },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet, color: 'emerald' },
   { href: '/admin/claims', label: 'Prize Claims', icon: Gift, color: 'amber' },

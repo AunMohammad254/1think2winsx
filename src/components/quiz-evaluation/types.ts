@@ -3,6 +3,7 @@
 export type Quiz = {
     id: string;
     title: string;
+    prizeId?: string | null;
     totalQuestions: number;
     questionsWithAnswers: number;
 };
@@ -43,6 +44,7 @@ export type ApiQuizQuestion = {
 export type ApiQuiz = {
     id: string;
     title: string;
+    prizeId?: string | null;
     _count?: {
         questions: number;
     };

@@ -37,25 +37,38 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
         const { questions, ...quizData } = validationResult.data;
 
         // Create the quiz
+        // Ensure startsAt is stored as UTC — datetime-local inputs submit local time,
+        // but the cron compares against new Date().toISOString() (UTC).
+        const startsAtUtc = quizData.startsAt ? new Date(quizData.startsAt).toISOString() : null;
+
         const quiz = await quizDb.create({
             title: quizData.title,
             description: quizData.description || null,
             duration: quizData.duration,
             passingScore: quizData.passingScore,
             status: quizData.status,
-            startsAt: quizData.startsAt || null,
+            startsAt: startsAtUtc,
+            prizeId: quizData.prizeId || null,
+            isBumperPrize: quizData.isBumperPrize ?? false,
+            quizType: quizData.quizType ?? 'normal',
         } as any);
 
         // Create questions for the quiz
         for (const question of questions) {
-            const hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
-            const correctOption = question.options.findIndex(opt => opt.isCorrect);
+            let hasCorrectAnswer = false;
+            let correctOption = null;
+
+            if (quizData.quizType === 'normal') {
+                hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
+                correctOption = question.options.findIndex(opt => opt.isCorrect);
+                if (correctOption === -1) correctOption = null;
+            }
 
             await questionDb.create({
                 quizId: quiz.id,
                 text: question.text,
                 options: JSON.stringify(question.options.map(opt => opt.text)),
-                correctOption: hasCorrectAnswer ? correctOption : null,
+                correctOption,
                 hasCorrectAnswer,
                 status: question.status,
             });
@@ -83,11 +96,11 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             data: { id: quiz.id },
             message: 'Quiz created successfully!'
         };
-    } catch (error) {
+    } catch (error: any) {
         console.error('Create quiz error:', error);
         return {
             success: false,
-            error: 'Failed to create quiz. Please try again.'
+            error: error?.message || 'Failed to create quiz. Please try again.'
         };
     }
 }
@@ -112,13 +125,19 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
         const { questions, id: quizId, ...quizData } = validationResult.data;
 
         // Update quiz basic info
+        // Ensure startsAt is stored as UTC (datetime-local inputs submit local time).
+        const startsAtUtc = quizData.startsAt ? new Date(quizData.startsAt).toISOString() : null;
+
         await quizDb.update(quizId!, {
             title: quizData.title,
             description: quizData.description || null,
             duration: quizData.duration,
             passingScore: quizData.passingScore,
             status: quizData.status,
-            startsAt: quizData.startsAt || null,
+            startsAt: startsAtUtc,
+            prizeId: quizData.prizeId || null,
+            isBumperPrize: quizData.isBumperPrize ?? false,
+            quizType: quizData.quizType ?? 'normal',
         } as any);
 
         // Get existing question IDs to update
@@ -136,15 +155,21 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
 
         // Upsert questions
         for (const question of questions) {
-            const hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
-            const correctOption = question.options.findIndex(opt => opt.isCorrect);
+            let hasCorrectAnswer = false;
+            let correctOption = null;
+
+            if (quizData.quizType === 'normal') {
+                hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
+                correctOption = question.options.findIndex(opt => opt.isCorrect);
+                if (correctOption === -1) correctOption = null;
+            }
 
             if (question.id) {
                 // Update existing question
                 await questionDb.update(question.id, {
                     text: question.text,
                     options: JSON.stringify(question.options.map(opt => opt.text)),
-                    correctOption: hasCorrectAnswer ? correctOption : null,
+                    correctOption,
                     hasCorrectAnswer,
                     status: question.status,
                 });
@@ -154,7 +179,7 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
                     quizId: quizId!,
                     text: question.text,
                     options: JSON.stringify(question.options.map(opt => opt.text)),
-                    correctOption: hasCorrectAnswer ? correctOption : null,
+                    correctOption,
                     hasCorrectAnswer,
                     status: question.status,
                 });

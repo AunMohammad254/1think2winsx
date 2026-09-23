@@ -239,7 +239,7 @@ export async function GET(request: NextRequest) {
     // Get quiz with evaluation status
     const { data: quiz, error: quizError } = await supabase
       .from('Quiz')
-      .select('id, title')
+      .select('id, title, prizeId')
       .eq('id', quizId)
       .single();
 
@@ -274,6 +274,7 @@ export async function GET(request: NextRequest) {
       quiz: {
         id: quiz.id,
         title: quiz.title,
+        prizeId: quiz.prizeId,
         totalQuestions: (questions || []).length,
         questionsWithAnswers
       },

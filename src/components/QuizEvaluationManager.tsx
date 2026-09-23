@@ -27,6 +27,10 @@ export default function QuizEvaluationManager() {
   const [correctAnswers, setCorrectAnswers] = useState<Record<string, number>>({});
   const [pointsPerWinner, setPointsPerWinner] = useState(10);
   const [percentageThreshold, setPercentageThreshold] = useState(10);
+  
+  // Lucky Draw config
+  const [numberOfWinners, setNumberOfWinners] = useState(1);
+  const [consolationPoints, setConsolationPoints] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingQuizzes, setLoadingQuizzes] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -55,6 +59,7 @@ export default function QuizEvaluationManager() {
             quizzesArray.map((quiz: ApiQuiz) => ({
               id: quiz.id,
               title: quiz.title,
+              prizeId: quiz.prizeId,
               totalQuestions: quiz._count?.questions || 0,
               questionsWithAnswers:
                 quiz.questions?.filter((q: ApiQuizQuestion) => q.hasCorrectAnswer).length || 0,
@@ -254,6 +259,68 @@ export default function QuizEvaluationManager() {
     } catch (error) {
       console.error('Failed to allocate points:', error);
       setMessage({ type: 'error', text: 'Failed to allocate points' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Run Lucky Draw
+  const handleRunLuckyDraw = async () => {
+    if (!selectedQuiz) return;
+
+    try {
+      setLoading(true);
+      const csrfToken = await getCSRFToken();
+      if (!csrfToken) {
+        setMessage({ type: 'error', text: 'Failed to get security token. Please try again.' });
+        return;
+      }
+
+      const response = await fetch(`/api/admin/lucky-winner/${selectedQuiz}/draw`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken || '',
+        },
+        body: JSON.stringify({
+          numberOfWinners,
+          consolationPoints
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        let msg = data.message || '🎲 Lucky Draw complete!';
+        if (data.consolation && data.consolation.losersAwarded > 0) {
+            msg += ` ${data.consolation.losersAwarded} runner(s) up received ${data.consolation.points} points.`;
+        }
+        
+        setMessage({
+          type: 'success',
+          text: msg,
+        });
+        
+        // Show the winners in the leaderboard section
+        if (data.winners && data.winners.length > 0) {
+           setWinners(data.winners.map((w: any) => ({
+             userId: w.userId,
+             userName: w.name || 'Unknown',
+             userEmail: w.email || 'No email',
+             score: w.score || 100,
+             pointsAwarded: 0 // Prize is awarded instead of points
+           })));
+           setShowWinners(true);
+        }
+        
+        await fetchQuizEvaluation(selectedQuiz);
+      } else {
+        const errorData = await response.json();
+        setMessage({ type: 'error', text: errorData.error || 'Failed to run lucky draw' });
+      }
+    } catch (error) {
+      console.error('Failed to run lucky draw:', error);
+      setMessage({ type: 'error', text: 'Failed to run lucky draw' });
     } finally {
       setLoading(false);
     }
@@ -542,6 +609,59 @@ export default function QuizEvaluationManager() {
                   `🏆 Allocate Points to Top ${percentageThreshold}%`
                 )}
               </button>
+
+              {quizEvaluation.quiz.prizeId && (
+                <div className="mt-8 border-t border-purple-400/20 pt-6">
+                  <h4 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+                    🎁 Lucky Draw Selection
+                  </h4>
+                  <p className="text-sm text-gray-400 mb-6">
+                    This quiz is linked to a prize. Run the Lucky Draw to randomly select a winner from the perfect scorers.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Number of Winners</label>
+                        <input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={numberOfWinners}
+                            onChange={(e) => setNumberOfWinners(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-yellow-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Consolation Points (for losers)</label>
+                        <input
+                            type="number"
+                            min="0"
+                            value={consolationPoints}
+                            onChange={(e) => setConsolationPoints(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-yellow-500 outline-none"
+                        />
+                      </div>
+                  </div>
+
+                  <button
+                    onClick={handleRunLuckyDraw}
+                    disabled={loading}
+                    className={`w-full py-4 rounded-xl font-semibold text-lg transition-all duration-300 ${loading
+                      ? 'bg-white/10 text-gray-500 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white hover:from-yellow-400 hover:to-orange-400 hover:shadow-lg hover:shadow-yellow-500/30 hover:scale-[1.02]'
+                      }`}
+                  >
+                    {loading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Running Draw...
+                      </span>
+                    ) : (
+                      `🎲 Run Lucky Draw`
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

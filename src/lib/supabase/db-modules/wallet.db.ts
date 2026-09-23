@@ -22,13 +22,16 @@ export const walletTransactionDb = {
         return data || []
     },
 
-    async findPending() {
+    async findPending(options?: { limit?: number; offset?: number }) {
         const supabase = await getDb()
+        const limit = options?.limit ?? 50
+        const offset = options?.offset ?? 0
         const { data, error } = await supabase
             .from('WalletTransaction')
             .select('*')
             .eq('status', 'pending')
             .order('createdAt', { ascending: true })
+            .range(offset, offset + limit - 1)
 
         if (error) throw error
         return data || []

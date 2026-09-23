@@ -22,7 +22,7 @@ interface Quiz {
   description: string;
   duration: number;
   passingScore: number;
-  status: 'active' | 'paused';
+  status: 'active' | 'paused' | 'scheduled';
   questionCount: number;
   hasAccess: boolean;
   createdAt: string;
@@ -62,6 +62,7 @@ export default function QuizzesPage() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [attemptQuizId, setAttemptQuizId] = useState<string | null>(null);
+  const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null); // null = loading
 
   // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
   const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -112,7 +113,7 @@ export default function QuizzesPage() {
     }, 500);
   }, [fetchQuizzesData]);
 
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated, and check wallet feature flag
   useEffect(() => {
     if (isLoading) return;
 
@@ -121,7 +122,20 @@ export default function QuizzesPage() {
       return;
     }
 
-    fetchQuizzesData();
+    // Check wallet feature flag first — if disabled, quizzes are unavailable
+    fetch('/api/settings/wallet-enabled')
+      .then(r => r.json())
+      .then((d: { walletEnabled: boolean }) => {
+        setWalletEnabled(d.walletEnabled);
+        if (d.walletEnabled) {
+          fetchQuizzesData();
+        }
+      })
+      .catch(() => {
+        // If flag check fails, default to enabled to avoid locking users out
+        setWalletEnabled(true);
+        fetchQuizzesData();
+      });
   }, [user, isLoading, router, fetchQuizzesData]);
 
   // Realtime subscription for live quiz updates
@@ -305,11 +319,30 @@ export default function QuizzesPage() {
     { key: 'new', label: 'New Questions', icon: <Sparkles className="w-4 h-4" />, count: quizzes.filter(q => q.hasNewQuestions).length },
   ], [quizzes]);
 
-  if (isLoading) {
+  if (isLoading || walletEnabled === null) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
         <div className="max-w-7xl mx-auto">
           <QuizCardSkeletonGrid count={6} />
+        </div>
+      </div>
+    );
+  }
+
+  // Wallet disabled — quizzes entirely unavailable
+  if (!walletEnabled) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center px-4">
+        <div className="max-w-md w-full text-center">
+          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-3xl border border-white/10 p-12">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-700/40 flex items-center justify-center">
+              <Clock className="w-10 h-10 text-gray-400" />
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-3">Quizzes Unavailable</h2>
+            <p className="text-gray-400">
+              Quiz access is currently unavailable. Please check back later.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -444,7 +477,7 @@ export default function QuizzesPage() {
                 questionCount={quiz.questionCount}
                 attemptCount={quiz.attemptCount}
                 difficulty="medium"
-                status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : quiz.status}
+                status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : (quiz.status as any)}
                 hasAccess={hasAccess}
                 isCompleted={quiz.isCompleted}
                 score={quiz.score}

@@ -67,6 +67,10 @@ export interface Database {
                     passingScore: number
                     accessPrice: number
                     status: string
+                    startsAt: string | null
+                    prizeId: string | null
+                    isBumperPrize: boolean
+                    quizType: string
                     createdAt: string
                     updatedAt: string
                 }
@@ -78,6 +82,10 @@ export interface Database {
                     passingScore?: number
                     accessPrice?: number
                     status?: string
+                    startsAt?: string | null
+                    prizeId?: string | null
+                    isBumperPrize?: boolean
+                    quizType?: string
                     createdAt?: string
                     updatedAt?: string
                 }
@@ -89,6 +97,10 @@ export interface Database {
                     passingScore?: number
                     accessPrice?: number
                     status?: string
+                    startsAt?: string | null
+                    prizeId?: string | null
+                    isBumperPrize?: boolean
+                    quizType?: string
                     createdAt?: string
                     updatedAt?: string
                 }
@@ -337,6 +349,56 @@ export interface Database {
                     quizId?: string
                     prizeId?: string
                     claimed?: boolean
+                    createdAt?: string
+                    updatedAt?: string
+                }
+            }
+            QuizWinner: {
+                Row: {
+                    id: string
+                    quizId: string
+                    prizeId: string
+                    userId: string
+                    score: number
+                    completedAt: string | null
+                    selectionMethod: 'random_draw' | 'auto_single_winner'
+                    selectedBy: string | null
+                    seed: string
+                    selectedAt: string
+                    notificationSent: boolean
+                    prizeRedemptionId: string | null
+                    createdAt: string
+                    updatedAt: string
+                }
+                Insert: {
+                    id?: string
+                    quizId: string
+                    prizeId: string
+                    userId: string
+                    score: number
+                    completedAt?: string | null
+                    selectionMethod: 'random_draw' | 'auto_single_winner'
+                    selectedBy?: string | null
+                    seed: string
+                    selectedAt?: string
+                    notificationSent?: boolean
+                    prizeRedemptionId?: string | null
+                    createdAt?: string
+                    updatedAt?: string
+                }
+                Update: {
+                    id?: string
+                    quizId?: string
+                    prizeId?: string
+                    userId?: string
+                    score?: number
+                    completedAt?: string | null
+                    selectionMethod?: 'random_draw' | 'auto_single_winner'
+                    selectedBy?: string | null
+                    seed?: string
+                    selectedAt?: string
+                    notificationSent?: boolean
+                    prizeRedemptionId?: string | null
                     createdAt?: string
                     updatedAt?: string
                 }
@@ -693,6 +755,7 @@ export type QuestionAttempt = Tables<'QuestionAttempt'>
 export type Payment = Tables<'Payment'>
 export type Prize = Tables<'Prize'>
 export type Winning = Tables<'Winning'>
+export type QuizWinner = Tables<'QuizWinner'>
 export type PrizeRedemption = Tables<'PrizeRedemption'>
 export type RateLimitEntry = Tables<'RateLimitEntry'>
 export type SecurityEvent = Tables<'SecurityEvent'>

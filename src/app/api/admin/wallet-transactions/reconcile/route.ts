@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
 import { getAdminDb, notificationDb } from '@/lib/supabase/db';
 import * as pdfParseModule from 'pdf-parse';
+import { isWalletEnabled } from '@/lib/wallet/service';
 
 // ============================================================================
 // Statement Entry — extracted from bank statement
@@ -284,6 +285,13 @@ export async function POST(request: NextRequest) {
         const adminSession = await validateAdminSession();
         if (!adminSession.valid) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        if (!await isWalletEnabled()) {
+            return NextResponse.json(
+                { error: 'Wallet feature is currently disabled', code: 'WALLET_DISABLED' },
+                { status: 503 }
+            );
         }
 
         const formData = await request.formData();

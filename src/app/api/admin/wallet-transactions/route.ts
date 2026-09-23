@@ -3,6 +3,7 @@ import { validateAdminSession } from '@/lib/admin-session';
 import { getDb, notificationDb } from '@/lib/supabase/db';
 import { TransactionStatus, PaymentMethod } from '@/types/wallet';
 import { requireCSRFToken } from '@/lib/csrf-protection';
+import { isWalletEnabled } from '@/lib/wallet/service';
 
 /**
  * GET /api/admin/wallet-transactions
@@ -14,6 +15,14 @@ export async function GET(request: NextRequest) {
         const adminSession = await validateAdminSession();
         if (!adminSession.valid) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        // Feature flag guard
+        if (!await isWalletEnabled()) {
+            return NextResponse.json(
+                { error: 'Wallet feature is currently disabled', code: 'WALLET_DISABLED' },
+                { status: 503 }
+            );
         }
 
         // Get query params

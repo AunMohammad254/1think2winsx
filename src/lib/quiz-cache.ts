@@ -6,8 +6,28 @@ interface PaymentInfo {
   timeRemaining: number;
 }
 
+/** Shape of each quiz entry returned by /api/quizzes and cached in memory */
+export interface QuizListEntry {
+  id: string;
+  title: string;
+  description: string;
+  duration: number;
+  passingScore: number;
+  status: string;
+  questionCount: number;
+  totalAttempts: number;
+  hasAccess: boolean;
+  isCompleted: boolean;
+  hasNewQuestions: boolean;
+  newQuestionsCount: number;
+  lastAttemptDate: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  questions: Array<{ id: string; text: string; options: string[] }>;
+}
+
 interface QuizListResponse {
-  quizzes: Array<any>;
+  quizzes: QuizListEntry[];
   hasAccess: boolean;
   paymentInfo: PaymentInfo | null;
   accessError: string | null;

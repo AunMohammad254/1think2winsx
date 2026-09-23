@@ -135,6 +135,8 @@ export async function GET(request: NextRequest) {
         duration: quiz.duration,
         passingScore: quiz.passingScore,
         status: quiz.status,
+        startsAt: quiz.startsAt,
+        quizType: quiz.quizType,
         createdAt: quiz.createdAt,
         updatedAt: quiz.updatedAt,
         questions: questions,

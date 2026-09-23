@@ -17,6 +17,7 @@ export default function WalletPage() {
     const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null);
 
     useEffect(() => {
         if (authLoading) return;
@@ -26,7 +27,21 @@ export default function WalletPage() {
             return;
         }
 
-        loadWalletData();
+        // Check wallet feature flag first
+        fetch('/api/settings/wallet-enabled')
+            .then(r => r.json())
+            .then((d: { walletEnabled: boolean }) => {
+                setWalletEnabled(d.walletEnabled);
+                if (d.walletEnabled) {
+                    loadWalletData();
+                } else {
+                    setIsLoading(false);
+                }
+            })
+            .catch(() => {
+                setWalletEnabled(true);
+                loadWalletData();
+            });
     }, [user, authLoading, router]);
 
     const loadWalletData = async () => {
@@ -99,6 +114,25 @@ export default function WalletPage() {
                             Loading Wallet
                         </h2>
                         <p className="text-slate-400">Preparing your wallet data...</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Wallet feature disabled — show unavailable screen
+    if (walletEnabled === false) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center px-4">
+                <div className="max-w-md w-full text-center">
+                    <div className="bg-slate-900/80 backdrop-blur-xl rounded-3xl border border-white/10 p-12">
+                        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-slate-700/40 flex items-center justify-center">
+                            <svg className="w-10 h-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                            </svg>
+                        </div>
+                        <h2 className="text-2xl font-bold text-white mb-3">Service Unavailable</h2>
+                        <p className="text-slate-400">This service is currently unavailable. Please check back later.</p>
                     </div>
                 </div>
             </div>

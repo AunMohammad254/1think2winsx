@@ -22,7 +22,7 @@ export const QuestionSchema = z.object({
     options: z.array(OptionSchema)
         .min(2, 'At least 2 options required')
         .max(6, 'Maximum 6 options allowed'),
-    correctOption: z.number(),
+    correctOption: z.number().nullable().optional(),
     status: z.enum(['active', 'paused']).default('active'),
 });
 
@@ -31,7 +31,7 @@ export type QuestionFormData = z.infer<typeof QuestionSchema>;
 // ============================================
 // Quiz Schema
 // ============================================
-export const QuizFormSchema = z.object({
+export const QuizFormBaseSchema = z.object({
     id: z.string().optional(),
     title: z.string()
         .min(3, 'Title must be at least 3 characters')
@@ -50,16 +50,37 @@ export const QuizFormSchema = z.object({
     difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
     status: z.enum(['draft', 'active', 'paused', 'scheduled']).default('draft'),
     startsAt: z.string().nullable().optional(),
+    // Prize-link fields (optional — non-prize quizzes leave these unset)
+    prizeId: z.string().nullable().optional(),
+    isBumperPrize: z.boolean().default(false),
+    quizType: z.enum(['normal', 'predictable']).default('normal'),
     questions: z.array(QuestionSchema)
         .min(1, 'At least 1 question required'),
 });
+
+const validatePredictableQuiz = (data: { quizType: string, questions: any[] }, ctx: z.RefinementCtx) => {
+    // If it's a normal quiz, ensure every question has a correct option selected
+    if (data.quizType === 'normal') {
+        data.questions.forEach((q, idx) => {
+            if (q.correctOption === null || q.correctOption === undefined || q.correctOption < 0) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'Correct option must be selected for normal quizzes',
+                    path: ['questions', idx, 'correctOption']
+                });
+            }
+        });
+    }
+};
+
+export const QuizFormSchema = QuizFormBaseSchema.superRefine(validatePredictableQuiz);
 
 export type QuizFormData = z.infer<typeof QuizFormSchema>;
 
 // ============================================
 // Server Action Input Schemas
 // ============================================
-export const CreateQuizInputSchema = QuizFormSchema.omit({ id: true });
+export const CreateQuizInputSchema = QuizFormBaseSchema.omit({ id: true }).superRefine(validatePredictableQuiz);
 export const UpdateQuizInputSchema = QuizFormSchema;
 
 export type CreateQuizInput = z.infer<typeof CreateQuizInputSchema>;
@@ -118,7 +139,7 @@ export const defaultQuestion: QuestionFormData = {
         { text: '', isCorrect: false },
         { text: '', isCorrect: false },
     ],
-    correctOption: 0,
+    correctOption: null,
     status: 'active',
 };
 
@@ -131,5 +152,8 @@ export const defaultQuiz: QuizFormData = {
     difficulty: 'medium',
     status: 'draft',
     startsAt: null,
+    prizeId: null,
+    isBumperPrize: false,
+    quizType: 'normal',
     questions: [defaultQuestion],
 };

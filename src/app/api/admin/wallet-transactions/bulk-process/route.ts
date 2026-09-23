@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
 import { getDb, notificationDb } from '@/lib/supabase/db';
+import { isWalletEnabled } from '@/lib/wallet/service';
 
 export async function POST(request: NextRequest) {
     try {
         const adminSession = await validateAdminSession();
         if (!adminSession.valid) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        if (!await isWalletEnabled()) {
+            return NextResponse.json(
+                { error: 'Wallet feature is currently disabled', code: 'WALLET_DISABLED' },
+                { status: 503 }
+            );
         }
 
         const body = await request.json();

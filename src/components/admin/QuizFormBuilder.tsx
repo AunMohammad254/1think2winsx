@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { Plus, Trash2, GripVertical, Check, X, Save, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Check, X, Save, Loader2, ChevronDown, ChevronUp, Trophy } from 'lucide-react';
 import {
     QuizFormSchema,
     QuizFormData,
@@ -35,6 +35,8 @@ const statusOptions = [
 export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: QuizFormBuilderProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [expandedQuestions, setExpandedQuestions] = useState<number[]>([0]);
+    const [showPrizeSection, setShowPrizeSection] = useState(!!initialData?.prizeId);
+    const [prizes, setPrizes] = useState<Array<{ id: string; name: string; description: string | null }>>([]);
 
     const isEditing = !!initialData?.id;
 
@@ -64,6 +66,18 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
 
     const watchedQuestions = watch('questions');
     const watchedStatus = watch('status');
+    const watchedPrizeId = watch('prizeId');
+    const watchedQuizType = watch('quizType');
+
+    // Fetch prizes when prize section is opened
+    useEffect(() => {
+        if (showPrizeSection && prizes.length === 0) {
+            fetch('/api/prizes')
+                .then(r => r.ok ? r.json() : { data: [] })
+                .then(d => setPrizes(d.data || d.prizes || []))
+                .catch(() => {});
+        }
+    }, [showPrizeSection, prizes.length]);
 
     // Toggle question expansion
     const toggleQuestion = useCallback((index: number) => {
@@ -180,7 +194,48 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
             {/* Quiz Basic Info */}
             <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
-                <h2 className="text-xl font-bold text-white mb-6">Quiz Details</h2>
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold text-white">Quiz Details</h2>
+                    
+                    {/* Quiz Type Toggle */}
+                    <Controller
+                        name="quizType"
+                        control={control}
+                        render={({ field }) => (
+                            <div className="flex bg-gray-900/80 border border-white/10 rounded-lg p-1">
+                                <button
+                                    type="button"
+                                    onClick={() => field.onChange('normal')}
+                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                                        field.value === 'normal' 
+                                            ? 'bg-purple-600 text-white shadow' 
+                                            : 'text-gray-400 hover:text-white'
+                                    }`}
+                                >
+                                    Normal
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        field.onChange('predictable');
+                                        // Reset correct options when switching to predictable
+                                        const currentQuestions = watch('questions');
+                                        currentQuestions.forEach((_, idx) => {
+                                            setValue(`questions.${idx}.correctOption`, null as any, { shouldValidate: true });
+                                        });
+                                    }}
+                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                                        field.value === 'predictable' 
+                                            ? 'bg-blue-600 text-white shadow' 
+                                            : 'text-gray-400 hover:text-white'
+                                    }`}
+                                >
+                                    Predictable
+                                </button>
+                            </div>
+                        )}
+                    />
+                </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Title */}
@@ -342,6 +397,82 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                 </div>
             </div>
 
+            {/* Prize Link Section (optional, collapsible) */}
+            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+                <button
+                    type="button"
+                    onClick={() => setShowPrizeSection(prev => !prev)}
+                    className="w-full flex items-center justify-between p-5 hover:bg-white/5 transition-colors"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                            watchedPrizeId ? 'bg-yellow-500/20' : 'bg-gray-700/50'
+                        }`}>
+                            <Trophy className={`w-4 h-4 ${watchedPrizeId ? 'text-yellow-400' : 'text-gray-500'}`} />
+                        </div>
+                        <div className="text-left">
+                            <p className="text-white font-medium text-sm">Link to Prize</p>
+                            <p className="text-gray-500 text-xs">
+                                {watchedPrizeId
+                                    ? `Prize linked: ${prizes.find(p => p.id === watchedPrizeId)?.name ?? watchedPrizeId}`
+                                    : 'Optional — enables Lucky Winner Draw for this quiz'}
+                            </p>
+                        </div>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showPrizeSection ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showPrizeSection && (
+                    <div className="px-5 pb-5 space-y-4 border-t border-white/5">
+                        <div className="pt-4">
+                            <label className="block text-sm font-medium text-gray-300 mb-2">Select Prize</label>
+                            <Controller
+                                name="prizeId"
+                                control={control}
+                                render={({ field }) => (
+                                    <select
+                                        value={field.value ?? ''}
+                                        onChange={e => field.onChange(e.target.value || null)}
+                                        className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-yellow-500/50 focus:ring-1 focus:ring-yellow-500/25 transition-all"
+                                    >
+                                        <option value="">— No prize (regular quiz) —</option>
+                                        {prizes.map(prize => (
+                                            <option key={prize.id} value={prize.id}>{prize.name}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            />
+                            {prizes.length === 0 && (
+                                <p className="text-xs text-gray-500 mt-1">No active prizes found. Create a prize in Prize Management first.</p>
+                            )}
+                        </div>
+
+                        <Controller
+                            name="isBumperPrize"
+                            control={control}
+                            render={({ field }) => (
+                                <label className="flex items-center gap-3 cursor-pointer select-none">
+                                    <div
+                                        onClick={() => field.onChange(!field.value)}
+                                        className={`w-10 h-6 rounded-full transition-all flex-shrink-0 ${
+                                            field.value ? 'bg-yellow-500' : 'bg-gray-700'
+                                        } relative`}
+                                    >
+                                        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                                            field.value ? 'left-5' : 'left-1'
+                                        }`} />
+                                    </div>
+                                    <div>
+                                        <p className="text-white text-sm font-medium">Bumper Prize</p>
+                                        <p className="text-gray-500 text-xs">Mark as a special bumper prize draw</p>
+                                    </div>
+                                </label>
+                            )}
+                        />
+                    </div>
+                )}
+            </div>
+
             {/* Questions Section */}
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -451,25 +582,33 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                                             <label className="text-sm font-medium text-gray-300">
                                                 Answer Options <span className="text-red-400">*</span>
                                             </label>
-                                            <span className="text-xs text-gray-500">
-                                                Click the check to mark correct answer
-                                            </span>
+                                            {watchedQuizType === 'normal' ? (
+                                                <span className="text-xs text-gray-500">
+                                                    Click the check to mark correct answer
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs text-blue-400 font-medium bg-blue-500/10 px-2 py-1 rounded-md">
+                                                    Answers will be evaluated later by Admin
+                                                </span>
+                                            )}
                                         </div>
 
                                         <div className="space-y-3">
                                             {currentQuestion?.options?.map((option, optionIndex) => (
                                                 <div key={optionIndex} className="flex items-center gap-3">
                                                     {/* Correct Answer Toggle */}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setCorrectAnswer(questionIndex, optionIndex)}
-                                                        className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all ${option.isCorrect
-                                                            ? 'bg-green-500 text-white'
-                                                            : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                                                            }`}
-                                                    >
-                                                        <Check className="w-4 h-4" />
-                                                    </button>
+                                                    {watchedQuizType === 'normal' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setCorrectAnswer(questionIndex, optionIndex)}
+                                                            className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all ${option.isCorrect
+                                                                ? 'bg-green-500 text-white'
+                                                                : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                                                                }`}
+                                                        >
+                                                            <Check className="w-4 h-4" />
+                                                        </button>
+                                                    )}
 
                                                     {/* Option Input */}
                                                     <input

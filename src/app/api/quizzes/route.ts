@@ -226,6 +226,23 @@ export async function GET(request: NextRequest) {
     const etag = createHash('sha1').update(JSON.stringify(responseData)).digest('hex');
     const clientETag = request.headers.get('if-none-match');
     securityLogger.logPerformanceMetric('quiz_list', Date.now() - start, '/api/quizzes');
+
+    // Self-healing cron trigger (Hostinger compatibility)
+    // On Hostinger, vercel.json cron schedules never execute. This fire-and-forget
+    // call ensures scheduled quizzes are activated without needing an external scheduler.
+    // It runs AFTER the response is ready and never delays the user.
+    const cronSecret = process.env.CRON_SECRET;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || '';
+    if (cronSecret && siteUrl && !forceFresh) {
+      // Only kick the cron on fresh (non-cache-bust) requests to avoid hammering on every poll.
+      // Use try/catch so any failure is silent — this is a background safety net only.
+      fetch(`${siteUrl}/api/cron/process-scheduled?secret=${encodeURIComponent(cronSecret)}`, {
+        method: 'GET',
+        // Short timeout hint — but fetch on Node.js doesn't support signal here on older runtimes,
+        // so we just fire-and-forget.
+      }).catch(() => { /* intentionally silent — cron kick failure must not surface to users */ });
+    }
+
     if (clientETag === etag) {
       return new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
     }

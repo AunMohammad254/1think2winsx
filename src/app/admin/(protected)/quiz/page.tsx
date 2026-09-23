@@ -257,6 +257,9 @@ export default function AdminQuizManagementPage() {
                 difficulty: 'medium' as const,
                 status: (fullQuiz.status || 'draft') as 'draft' | 'active' | 'paused' | 'scheduled',
                 startsAt: fullQuiz.startsAt || null,
+                prizeId: fullQuiz.prizeId || null,
+                isBumperPrize: fullQuiz.isBumperPrize || false,
+                quizType: fullQuiz.quizType || 'normal',
                 questions: (fullQuiz.questions || []).map((q: { id: string; text: string; options: string | string[]; correctOption?: number; hasCorrectAnswer?: boolean; status?: string }) => ({
                     id: q.id,
                     text: q.text,
@@ -596,8 +599,13 @@ export default function AdminQuizManagementPage() {
 
                                         {/* Status */}
                                         <div className="col-span-3 md:col-span-2">
-                                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${status.color}`}>
+                                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${status.color}`}>
                                                 {status.label}
+                                                {quiz.status === 'scheduled' && quiz.startsAt && (
+                                                    <span className="opacity-80 ml-1">
+                                                        ({new Date(quiz.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                                    </span>
+                                                )}
                                             </span>
                                         </div>
 

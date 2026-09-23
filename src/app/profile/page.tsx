@@ -35,6 +35,7 @@ export default function ProfilePage() {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [walletEnabled, setWalletEnabled] = useState(true); // default true to avoid flicker
 
   const handleImageUpload = async (file: File) => {
     setUploadLoading(true);
@@ -70,6 +71,12 @@ export default function ProfilePage() {
       router.push('/login');
       return;
     }
+
+    // Fetch wallet feature flag — hide BalanceCard if disabled
+    fetch('/api/settings/wallet-enabled')
+      .then(r => r.json())
+      .then((d: { walletEnabled: boolean }) => setWalletEnabled(d.walletEnabled))
+      .catch(() => {}); // on error keep default (true)
   }, [user, isLoading, router]);
 
   // Derive verification status from Supabase auth (no new fields needed).
@@ -325,8 +332,8 @@ export default function ProfilePage() {
             </div>
           </section>
 
-          {/* Balance Card */}
-          <BalanceCard balance={profile.walletBalance || 0} />
+          {/* Balance Card — hidden when wallet feature is disabled */}
+          {walletEnabled && <BalanceCard balance={profile.walletBalance || 0} />}
 
           {/* Quick Actions */}
           <QuickActions onChangePasswordClick={() => setShowPasswordModal(true)} />
