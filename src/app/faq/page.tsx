@@ -24,15 +24,15 @@ export default function FAQPage() {
   const faqs = [
     {
       question: "What is 1Think 2Win?",
-      answer: "1Think 2Win is a skill-based quiz platform focused on cricket knowledge and general awareness. It's designed for entertainment and educational purposes, helping users test and improve their cricket knowledge while having fun."
+      answer: "1Think 2Win is a skill-based quiz platform focused on sports knowledge and general awareness. It's designed for entertainment and educational purposes, helping users test and improve their sports knowledge while having fun."
     },
     {
       question: "How do I participate in quizzes?",
-      answer: "Simply create an account, browse available quizzes, and start playing! Each quiz tests your knowledge on various cricket topics. Your performance is based on your skill and knowledge, not chance."
+      answer: "Simply create an account, browse available quizzes, and start playing! Each quiz tests your knowledge on various sports topics. Your performance is based on your skill and knowledge, not chance."
     },
     {
       question: "Is this a gambling platform?",
-      answer: "No, absolutely not! 1Think 2Win is NOT a gambling platform. It's a skill-based educational and entertainment platform that focuses on cricket knowledge. All outcomes are based on your knowledge and skills, not on chance or luck."
+      answer: "No, absolutely not! 1Think 2Win is NOT a gambling platform. It's a skill-based educational and entertainment platform that focuses on sports knowledge. All outcomes are based on your knowledge and skills, not on chance or luck."
     },
     {
       question: "What age requirement is there?",
@@ -44,15 +44,15 @@ export default function FAQPage() {
     },
     {
       question: "How are quiz results determined?",
-      answer: "Quiz results are determined purely by your knowledge, accuracy, and response time. There are no random elements or games of chance involved. Your performance directly reflects your cricket knowledge and quiz-taking skills."
+      answer: "Quiz results are determined purely by your knowledge, accuracy, and response time. There are no random elements or games of chance involved. Your performance directly reflects your sports knowledge and quiz-taking skills."
     },
     {
-      question: "Can I improve my cricket knowledge through this platform?",
-      answer: "Absolutely! Our platform is designed to be educational. Each quiz helps you learn new facts about cricket, test your existing knowledge, and discover areas where you can improve. It's a great way to enhance your cricket expertise."
+      question: "Can I improve my sports knowledge through this platform?",
+      answer: "Absolutely! Our platform is designed to be educational. Each quiz helps you learn new facts about sports, test your existing knowledge, and discover areas where you can improve. It's a great way to enhance your sports expertise."
     },
     {
       question: "What topics are covered in the quizzes?",
-      answer: "Our quizzes cover a wide range of cricket topics including player statistics, match history, rules and regulations, team information, tournament details, and general cricket trivia. We regularly update our question database."
+      answer: "Our quizzes cover a wide range of sports topics including player statistics, match history, rules and regulations, team information, tournament details, and general sports trivia. We regularly update our question database."
     },
     {
       question: "How do I contact support?",

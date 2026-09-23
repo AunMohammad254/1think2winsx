@@ -352,21 +352,3 @@ export function SectionHeading({ eyebrow, title, description, align = "center", 
   );
 }
 
-export function CricketBall({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 100 100" className={cn("drop-shadow-[0_10px_30px_rgba(220,38,38,0.5)]", className)} aria-hidden="true">
-      <defs>
-        <radialGradient id="ball-grad" cx="35%" cy="35%" r="65%">
-          <stop offset="0%" stopColor="#fca5a5" />
-          <stop offset="35%" stopColor="#dc2626" />
-          <stop offset="80%" stopColor="#7f1d1d" />
-          <stop offset="100%" stopColor="#450a0a" />
-        </radialGradient>
-      </defs>
-      <circle cx="50" cy="50" r="46" fill="url(#ball-grad)" />
-      <path d="M 8 50 Q 50 30 92 50" stroke="rgba(255,255,255,0.85)" strokeWidth="1.5" strokeDasharray="3 3" fill="none" />
-      <path d="M 8 50 Q 50 70 92 50" stroke="rgba(255,255,255,0.85)" strokeWidth="1.5" strokeDasharray="3 3" fill="none" />
-      <circle cx="35" cy="35" r="10" fill="rgba(255,255,255,0.18)" />
-    </svg>
-  );
-}

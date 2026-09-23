@@ -8,7 +8,7 @@ import Link from "next/link";
 const QUIZ_DATA = [
   { badge: "🏏 IPL Mega", title: "IPL 2025 — Ultimate Trivia", prize: 5000, players: 1284, timeLeft: "02h 14m", difficulty: "Pro", accent: "from-amber-400 to-orange-500" },
   { badge: "🌏 World Cup", title: "ODI World Cup Legends", prize: 2500, players: 892, timeLeft: "05h 41m", difficulty: "Intermediate", accent: "from-emerald-400 to-cyan-400" },
-  { badge: "⚡ Daily", title: "60-Second Cricket Sprint", prize: 500, players: 3127, timeLeft: "Live now", difficulty: "Beginner", accent: "from-violet-400 to-pink-500" },
+  { badge: "⚡ Daily", title: "60-Second Sports Sprint", prize: 500, players: 3127, timeLeft: "Live now", difficulty: "Beginner", accent: "from-violet-400 to-pink-500" },
 ];
 
 function Metric({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "trophy" | "live" }) {
@@ -148,7 +148,7 @@ export default function LiveQuiz() {
                       </div>
                       <h3 className="mt-5 font-display text-2xl font-bold text-white">{q.title}</h3>
                       <div className="mt-6 grid grid-cols-3 gap-3">
-                        <Metric label="Prize pool" value={`₹${q.prize.toLocaleString()}`} tone="trophy" />
+                        <Metric label="Prize pool" value={`${q.prize.toLocaleString()} PKR`} tone="trophy" />
                         <Metric label="Players" value={i === active ? livePlayers.toLocaleString() : q.players.toLocaleString()} />
                         <Metric label="Starts in" value={q.timeLeft} tone={q.timeLeft === "Live now" ? "live" : "default"} />
                       </div>

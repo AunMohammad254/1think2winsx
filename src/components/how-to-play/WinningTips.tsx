@@ -93,8 +93,8 @@ export default function WinningTips() {
         },
         {
             icon: Brain,
-            title: "Know Your Cricket",
-            description: "Stay updated with cricket news, stats, and history to boost your quiz performance.",
+            title: "Know Your Sports",
+            description: "Stay updated with sports news, stats, and history to boost your quiz performance.",
             color: 'blue' as const,
         },
     ];

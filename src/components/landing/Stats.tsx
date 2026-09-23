@@ -6,7 +6,7 @@ import { Section, Reveal, useScrollReveal, useCountUp } from "./Primitives";
 type Stat = { value: number; prefix?: string; suffix: string; label: string; icon: string; color: string };
 const STATS: Stat[] = [
   { value: 10000, suffix: "+", label: "Active Players", icon: "👥", color: "from-emerald-400 to-cyan-400" },
-  { value: 50000, prefix: "₹", suffix: "+", label: "Prizes Won", icon: "💰", color: "from-amber-400 to-orange-500" },
+  { value: 50000, prefix: "", suffix: " PKR+", label: "Prizes Won", icon: "💰", color: "from-amber-400 to-orange-500" },
   { value: 500, suffix: "+", label: "Quizzes Live", icon: "🎯", color: "from-violet-400 to-pink-500" },
   { value: 24, suffix: "/7", label: "Always Live", icon: "⚡", color: "from-rose-400 to-amber-400" },
 ];
@@ -90,7 +90,7 @@ export default function Stats() {
     <Section  className="!py-16 sm:!py-20">
       <Reveal>
         <p className="text-center text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
-          Trusted by cricket fans across the globe
+          Trusted by sports fans across the globe
         </p>
       </Reveal>
       <div

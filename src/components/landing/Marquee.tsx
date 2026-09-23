@@ -3,7 +3,7 @@
 import { Reveal } from "./Primitives";
 
 const PARTNERS = [
-  { name: "ICC Cricket", icon: "🏏" },
+  { name: "Global Sports", icon: "🏏" },
   { name: "BCCI Approved", icon: "🇮🇳" },
   { name: "IPL Insider", icon: "🏆" },
   { name: "Cricbuzz Partner", icon: "📊" },

@@ -3,8 +3,8 @@
 import { Section, SectionHeading, Reveal, Card } from "./Primitives";
 
 const STEPS = [
-  { n: "01", icon: "📝", title: "Create your account", desc: "Sign up in under 30 seconds. No credit card required — just your name, email and a passion for cricket.", color: "from-emerald-400 to-cyan-400" },
-  { n: "02", icon: "🎯", title: "Pick your quiz", desc: "Choose from live tournaments, daily challenges, or solo practice rooms across every cricket format.", color: "from-violet-400 to-pink-400" },
+  { n: "01", icon: "📝", title: "Create your account", desc: "Sign up in under 30 seconds. No credit card required — just your name, email and a passion for sports.", color: "from-emerald-400 to-cyan-400" },
+  { n: "02", icon: "🎯", title: "Pick your quiz", desc: "Choose from live tournaments, daily challenges, or solo practice rooms across every sports format.", color: "from-violet-400 to-pink-400" },
   { n: "03", icon: "⚡", title: "Answer fast, score big", desc: "Speed matters. Faster correct answers earn streak multipliers — chain them to climb the leaderboard.", color: "from-amber-400 to-orange-500" },
   { n: "04", icon: "🎁", title: "Win & claim", desc: "Tech gadgets, gift cards, signed merchandise — winners can claim their favorite products instantly with their points.", color: "from-rose-400 to-red-500" },
 ];

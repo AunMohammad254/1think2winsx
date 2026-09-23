@@ -14,8 +14,8 @@ export async function GET(
     let score = searchParams.get('score');
     let total = searchParams.get('total');
     let pct = searchParams.get('pct');
-    let title = searchParams.get('title') || 'Cricket Quiz';
-    let name = searchParams.get('name') || 'Cricket Fan';
+    let title = searchParams.get('title') || 'Sports Quiz';
+    let name = searchParams.get('name') || 'Sports Fan';
 
     // If attemptId is not placeholder, try to load real data from database
     if (attemptId && attemptId !== 'temp') {
@@ -175,7 +175,7 @@ export async function GET(
                   backgroundColor: 'rgba(255, 255, 255, 0.05)',
                 }}
               >
-                CRICKET QUIZ ARENA
+                SPORTS QUIZ ARENA
               </span>
             </div>
 

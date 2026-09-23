@@ -5,16 +5,16 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Section, Eyebrow, Reveal, Button } from "./Primitives";
 
 const WINNERS = [
-  "Aarav from Mumbai won ₹2,000",
-  "Priya from Bengaluru won ₹5,000",
-  "Rahul from Delhi won ₹1,200",
-  "Saima from Lucknow won ₹3,500",
-  "Dev from Chandigarh won ₹7,000",
-  "Ananya from Kolkata won ₹1,800",
-  "Rohit from Pune won ₹4,200",
-  "Neha from Hyderabad won ₹2,800",
-  "Vikram from Jaipur won ₹6,500",
-  "Isha from Chennai won ₹1,500",
+  "Ali from Nazimabad won Ronin Earbuds",
+  "Usman from Lahore won Smartwatch",
+  "Bilal from Islamabad won Power Bank",
+  "Saima from Karachi won Fitness Band",
+  "Ayesha from Multan won Redmi Phone",
+  "Hassan from Faisalabad won Sports Kit",
+  "Zain from Rawalpindi won Wireless Mouse",
+  "Fatima from Peshawar won Gaming Headset",
+  "Omar from Quetta won Cricket Bat",
+  "Sara from Sialkot won Bluetooth Speaker",
 ];
 
 function Ticker() {
@@ -84,10 +84,10 @@ export default function CTA() {
             <Ticker />
             <Eyebrow tone="trophy">Limited slots open</Eyebrow>
             <h2 className="mt-6 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-6xl">
-              Ready to test your <span className="text-gradient-trophy">cricket knowledge?</span>
+              Ready to test your <span className="text-gradient-trophy">sports knowledge?</span>
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-base text-white/65 sm:text-lg">
-              Join thousands of cricket fans competing for amazing prizes. Your first quiz is on us — start your journey today.
+              Join thousands of sports fans competing for amazing prizes. Your first quiz is on us — start your journey today.
             </p>
             <div className="mt-8 flex items-center justify-center gap-2 text-sm text-white/55">
               <span>Next tournament starts in</span>

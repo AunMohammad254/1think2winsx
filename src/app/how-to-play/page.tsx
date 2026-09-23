@@ -30,7 +30,7 @@ import FAQAccordion from '@/components/how-to-play/FAQAccordion';
 // Step Data
 const steps = [
   { step: 1, title: "Register", description: "Create your free account in seconds", icon: UserPlus },
-  { step: 2, title: "Browse Quizzes", description: "Find exciting cricket challenges", icon: Search },
+  { step: 2, title: "Browse Quizzes", description: "Find exciting sports challenges", icon: Search },
   { step: 3, title: "Pay 2 PKR", description: "Tiny fee, huge winning potential", icon: CreditCard },
   { step: 4, title: "Answer", description: "Complete within 10 minutes", icon: HelpCircle },
   { step: 5, title: "Win Big!", description: "Get randomly selected for prizes", icon: Trophy },
@@ -87,7 +87,7 @@ export default function HowToPlayPage() {
           {/* Base Gradient */}
           <div className="absolute inset-0 bg-gradient-to-br from-emerald-950 via-slate-900 to-blue-950" />
 
-          {/* Cricket Field Pattern - Subtle Overlay */}
+          {/* Sports Field Pattern - Subtle Overlay */}
           <div className="absolute inset-0 opacity-[0.03]">
             <div className="absolute inset-0" style={{
               backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%2316a34a' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
@@ -131,7 +131,7 @@ export default function HowToPlayPage() {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/30 mb-6 sm:mb-8"
           >
             <Crown className="w-4 h-4 text-amber-400" />
-            <span className="text-emerald-300 text-sm font-medium">Pakistan&apos;s #1 Cricket Quiz Platform</span>
+            <span className="text-emerald-300 text-sm font-medium">Pakistan&apos;s #1 Sports Quiz Platform</span>
             <Sparkles className="w-4 h-4 text-amber-400" />
           </motion.div>
 
@@ -156,7 +156,7 @@ export default function HowToPlayPage() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="text-lg sm:text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto mb-8 sm:mb-12 leading-relaxed"
           >
-            Join the ultimate cricket quiz. Test your knowledge, top the leaderboard,
+            Join the ultimate sports quiz. Test your knowledge, top the leaderboard,
             and win <span className="text-amber-400 font-semibold">random prizes</span> worth thousands!
           </motion.p>
 
@@ -490,7 +490,7 @@ export default function HowToPlayPage() {
             transition={{ delay: 0.1 }}
             className="text-lg sm:text-xl text-gray-300 max-w-2xl mx-auto mb-8 sm:mb-12"
           >
-            Join thousands of cricket fans competing for amazing prizes.
+            Join thousands of sports fans competing for amazing prizes.
             Your next win could be just <span className="text-amber-400 font-semibold">one quiz</span> away!
           </motion.p>
 

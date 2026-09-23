@@ -72,15 +72,15 @@ export default function DisclaimerPage() {
               </h2>
               <div className="space-y-3 sm:space-y-4 text-gray-200">
                 <p className="text-sm sm:text-base leading-relaxed">
-                  <strong className="text-white">1Think 2Win</strong> is designed and operated exclusively for <strong className="text-blue-400">entertainment and educational purposes</strong>. This platform serves as a skill-based quiz application that tests users&apos; knowledge of cricket and general topics while providing an engaging and fun experience.
+                  <strong className="text-white">1Think 2Win</strong> is designed and operated exclusively for <strong className="text-blue-400">entertainment and educational purposes</strong>. This platform serves as a skill-based quiz application that tests users&apos; knowledge of sports and general topics while providing an engaging and fun experience.
                 </p>
                 <p className="text-sm sm:text-base leading-relaxed">
                   The primary objectives of this platform are to:
                 </p>
                 <ul className="list-disc pl-4 sm:pl-6 space-y-1 sm:space-y-2 text-sm sm:text-base">
-                  <li>Enhance users&apos; cricket knowledge and general awareness</li>
+                  <li>Enhance users&apos; sports knowledge and general awareness</li>
                   <li>Provide an interactive learning environment</li>
-                  <li>Foster healthy competition among cricket enthusiasts</li>
+                  <li>Foster healthy competition among sports enthusiasts</li>
                   <li>Develop cognitive skills through quiz-based challenges</li>
                   <li>Create a community of knowledge seekers and sports lovers</li>
                 </ul>

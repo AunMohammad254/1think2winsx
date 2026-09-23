@@ -39,7 +39,7 @@ export default function Logo() {
           <span className="ml-1 text-white/90">2Win</span>
         </h1>
         <p className="text-[10px] md:text-xs text-white/50 font-medium tracking-wider uppercase -mt-0.5">
-          Cricket Excellence
+          Sports Excellence
         </p>
       </motion.div>
     </Link>

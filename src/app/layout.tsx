@@ -29,7 +29,7 @@ const poppins = Poppins({
 
 export const metadata: Metadata = {
   title: "1Think 2Win",
-  description: "1Think 2Win - Test your cricket knowledge and win exciting prizes!",
+  description: "1Think 2Win - Test your sports knowledge and win exciting prizes!",
   icons: {
     icon: [
       { url: '/Favicon/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "1Think 2Win",
-    description: "1Think 2Win - Test your cricket knowledge and win exciting prizes!",
+    description: "1Think 2Win - Test your sports knowledge and win exciting prizes!",
     images: [
       {
         url: "/og-image.jpg",

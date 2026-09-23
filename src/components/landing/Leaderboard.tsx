@@ -16,11 +16,11 @@ interface Player {
 }
 
 const BASE_LEADERS: Player[] = [
-  { rank: 1, name: "VirenderS_92", country: "India", countryFlag: "🇮🇳", points: 48720, won: "₹12,400", streak: 47, avatar: "from-amber-400 to-orange-500" },
-  { rank: 2, name: "BoundaryKing", country: "Australia", countryFlag: "🇦🇺", points: 46380, won: "₹9,800", streak: 38, avatar: "from-violet-500 to-pink-500" },
-  { rank: 3, name: "YorkerQueen", country: "Pakistan", countryFlag: "🇵🇰", points: 44210, won: "₹7,500", streak: 31, avatar: "from-emerald-400 to-cyan-500" },
-  { rank: 4, name: "CricketPundit", country: "UK", countryFlag: "🇬🇧", points: 41980, won: "₹5,200", streak: 29, avatar: "from-rose-400 to-red-500" },
-  { rank: 5, name: "SpinDoctor", country: "Sri Lanka", countryFlag: "🇱🇰", points: 40150, won: "₹3,800", streak: 24, avatar: "from-blue-400 to-violet-500" },
+  { rank: 1, name: "Tariq_92", country: "Pakistan", countryFlag: "🇵🇰", points: 48720, won: "iPhone 15", streak: 47, avatar: "from-amber-400 to-orange-500" },
+  { rank: 2, name: "BabarAzamFan", country: "UAE", countryFlag: "🇦🇪", points: 46380, won: "PS5", streak: 38, avatar: "from-violet-500 to-pink-500" },
+  { rank: 3, name: "Ali_Raza", country: "Pakistan", countryFlag: "🇵🇰", points: 44210, won: "Smartwatch", streak: 31, avatar: "from-emerald-400 to-cyan-500" },
+  { rank: 4, name: "Fatima_S", country: "UK", countryFlag: "🇬🇧", points: 41980, won: "AirPods Pro", streak: 29, avatar: "from-rose-400 to-red-500" },
+  { rank: 5, name: "Usman_K", country: "Saudi Arabia", countryFlag: "🇸🇦", points: 40150, won: "Sports Kit", streak: 24, avatar: "from-blue-400 to-violet-500" },
 ];
 
 function CountryFlag({ code }: { code: string }) {
@@ -124,7 +124,7 @@ export default function Leaderboard() {
       <SectionHeading
         eyebrow="This week's champions"
         title={<>Compete with the <span className="text-gradient-trophy">best in the world.</span></>}
-        description="Climb the ranks each week. The top 100 split a ₹50,000 prize pool every Sunday."
+        description="Climb the ranks each week. The top 100 split a huge prize pool every Sunday."
       />
       <Reveal delay={150}>
         <div className="mt-14 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent backdrop-blur-xl">

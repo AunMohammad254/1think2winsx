@@ -6,11 +6,12 @@ import {
   Button,
   Reveal,
   Eyebrow,
-  CricketBall,
+
   useTypewriter,
   useScrollReveal,
 } from "./Primitives";
 
+import { SportsBall } from "@/components/hero";
 function Particles() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -46,14 +47,23 @@ function Particles() {
   );
 }
 
-const SUBHEADS = ["Test your Cricket IQ", "Win random prizes", "Beat the world"];
+const SUBHEADS = ["Test your Sports IQ", "Win random prizes", "Beat the world"];
 
 function HeroVisual() {
   return (
     <div className="relative mx-auto max-w-md" style={{ backfaceVisibility: "hidden" }}>
       <div className="absolute -inset-6 -z-10 rounded-[2.5rem] bg-gradient-to-br from-emerald-500/30 via-amber-400/20 to-transparent blur-2xl" style={{ backfaceVisibility: "hidden" }} />
-      <div className="absolute -top-12 -right-6 h-28 w-28 anim-float">
-        <div className="anim-ball h-full w-full"><CricketBall className="h-full w-full" /></div>
+      <div className="absolute -top-12 -right-12 h-24 w-24 anim-float" style={{ animationDelay: '0s' }}>
+        <div className="anim-ball h-full w-full"><SportsBall type="cricket" className="h-full w-full" /></div>
+      </div>
+      <div className="absolute top-12 -right-20 h-20 w-20 anim-float" style={{ animationDelay: '1.2s' }}>
+        <div className="anim-ball h-full w-full"><SportsBall type="football" className="h-full w-full" /></div>
+      </div>
+      <div className="absolute -top-8 -left-10 h-20 w-20 anim-float" style={{ animationDelay: '2.4s' }}>
+        <div className="anim-ball h-full w-full"><SportsBall type="basketball" className="h-full w-full" /></div>
+      </div>
+      <div className="absolute bottom-12 -left-16 h-16 w-16 anim-float" style={{ animationDelay: '3s' }}>
+        <div className="anim-ball h-full w-full"><SportsBall type="tennis" className="h-full w-full" /></div>
       </div>
       <div className="absolute -bottom-6 -left-6 grid h-20 w-20 place-items-center rounded-2xl border border-amber-300/40 bg-gradient-to-br from-amber-300/30 to-orange-500/30 backdrop-blur-xl anim-float-soft glow-trophy" style={{ backfaceVisibility: "hidden" }}>
         <span className="text-3xl">🏆</span>

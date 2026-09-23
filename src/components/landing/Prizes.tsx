@@ -4,9 +4,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Section, SectionHeading, Reveal, Button } from "./Primitives";
 
 const TIERS = [
-  { name: "Daily Win", emoji: "⚡", amount: "₹100 – ₹500", desc: "Quick daily quizzes with instant payouts to your UPI. Free entry — play anytime.", perks: ["Free entry", "Instant payout", "60-second rounds"], accent: "from-emerald-400 to-cyan-400", border: "border-emerald-400/30", glow: "shadow-[0_30px_80px_-30px_rgba(16,185,129,0.5)]", badge: null },
-  { name: "Weekly Mega", emoji: "🏆", amount: "₹5,000 – ₹20,000", desc: "Multi-round weekend tournaments with leaderboards, eliminations and grand finals.", perks: ["Top 100 paid", "Bracket play", "Exclusive merch"], accent: "from-amber-400 to-orange-500", border: "border-amber-400/50", glow: "shadow-[0_30px_100px_-20px_rgba(245,158,11,0.55)]", badge: "Most popular" },
-  { name: "Season Champion", emoji: "👑", amount: "₹50,000 +", desc: "Three-month leagues for the elite. Sponsored prizes, signed gear and travel rewards.", perks: ["Signed merchandise", "Travel rewards", "VIP support"], accent: "from-violet-400 to-pink-500", border: "border-violet-400/30", glow: "shadow-[0_30px_80px_-30px_rgba(167,139,250,0.5)]", badge: null },
+  { name: "Daily Win", emoji: "⚡", amount: "Tech Accessories", desc: "Quick daily quizzes to win earbuds, power banks, and cool accessories.", perks: ["Free entry", "Instant shipping", "60-second rounds"], accent: "from-emerald-400 to-cyan-400", border: "border-emerald-400/30", glow: "shadow-[0_30px_80px_-30px_rgba(16,185,129,0.5)]", badge: null },
+  { name: "Weekly Mega", emoji: "🏆", amount: "Smartphones", desc: "Multi-round weekend tournaments for premium electronics and smartwatches.", perks: ["Top winners get products", "Bracket play", "Exclusive merch"], accent: "from-amber-400 to-orange-500", border: "border-amber-400/50", glow: "shadow-[0_30px_100px_-20px_rgba(245,158,11,0.55)]", badge: "Most popular" },
+  { name: "Season Champion", emoji: "👑", amount: "Bikes & Laptops", desc: "Three-month leagues for the elite. Sponsored high-value physical prizes.", perks: ["Signed merchandise", "Vehicle delivery", "VIP support"], accent: "from-violet-400 to-pink-500", border: "border-violet-400/30", glow: "shadow-[0_30px_80px_-30px_rgba(167,139,250,0.5)]", badge: null },
 ];
 
 export default function Prizes() {
@@ -16,7 +16,7 @@ export default function Prizes() {
   return (
     <Section  className="relative">
       <div className="absolute inset-0 -z-10 bg-grid opacity-40" />
-      <SectionHeading eyebrow="Prize pools" title={<>Real rewards for <span className="text-gradient-trophy">real cricket smarts.</span></>} description="Whether you play casually or aim for the season crown — there's a prize tier built for you." />
+      <SectionHeading eyebrow="Prize pools" title={<>Real rewards for <span className="text-gradient-trophy">real sports smarts.</span></>} description="Whether you play casually or aim for the season crown — there's a prize tier built for you." />
       <div className="mt-16 grid grid-cols-1 gap-6 lg:grid-cols-3">
         {TIERS.map((tier, i) => (
           <Reveal key={tier.name} delay={i * 120} variant="up">
@@ -65,15 +65,7 @@ export default function Prizes() {
         ))}
       </div>
       <Reveal delay={400}>
-        <div className="mt-16 flex flex-col items-center justify-center gap-3 text-center">
-          <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-white/45">
-            <span className="flex items-center gap-1.5">🔒 Secure payouts powered by <span className="font-semibold text-white">UPI</span></span>
-            <span className="hidden text-white/20 sm:inline">·</span>
-            <span className="font-semibold text-white">Stripe</span>
-            <span className="hidden text-white/20 sm:inline">·</span>
-            <span className="font-semibold text-white">Razorpay</span>
-          </div>
-        </div>
+
       </Reveal>
     </Section>
   );
