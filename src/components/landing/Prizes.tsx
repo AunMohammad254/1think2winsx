@@ -64,9 +64,7 @@ export default function Prizes() {
           </Reveal>
         ))}
       </div>
-      <Reveal delay={400}>
 
-      </Reveal>
     </Section>
   );
 }

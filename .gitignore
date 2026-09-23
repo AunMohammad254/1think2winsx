@@ -111,3 +111,7 @@ graphify-out/
 
 # Gemini IDE settings and cache
 .gemini/
+
+# Deployment artifacts
+hostinger-deploy.zip
+hostinger-staging/
