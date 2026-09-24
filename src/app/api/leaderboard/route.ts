@@ -3,9 +3,10 @@ import { getDb } from '@/lib/supabase/db';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { z } from 'zod';
 
-// Simple in-memory cache for leaderboard data
-const leaderboardCache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+import { cacheData } from '@/lib/redis';
+
+// Cache duration 5 minutes
+const CACHE_DURATION_SECONDS = 5 * 60;
 
 // Input validation schema
 const leaderboardQuerySchema = z.object({
@@ -38,60 +39,39 @@ export async function GET(request: NextRequest) {
     // Create cache key based on query parameters
     const cacheKey = `leaderboard_${limit}_${timeframe}_${quizId || 'all'}`;
 
-    // Check cache first
-    const cached = leaderboardCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
-      return createSecureJsonResponse(cached.data, { status: 200 });
-    }
+    const fetchLeaderboardData = async () => {
+      const supabase = await getDb();
 
-    const supabase = await getDb();
+      // Call high-performance server-side aggregation RPC
+      const { data: rankedData, error: rpcError } = await supabase.rpc('get_leaderboard', {
+        p_timeframe: timeframe,
+        p_limit: limit,
+        p_quiz_id: quizId || null
+      });
 
-    // Call high-performance server-side aggregation RPC
-    const { data: rankedData, error: rpcError } = await supabase.rpc('get_leaderboard', {
-      p_timeframe: timeframe,
-      p_limit: limit,
-      p_quiz_id: quizId || null
-    });
+      if (rpcError) {
+        console.error('Leaderboard RPC error:', rpcError);
+        throw new Error('Error fetching leaderboard');
+      }
 
-    if (rpcError) {
-      console.error('Leaderboard RPC error:', rpcError);
-      return NextResponse.json(
-        { message: 'Error fetching leaderboard' },
-        { status: 500 }
-      );
-    }
-
-    const responseData = {
-      users: (rankedData || []).map((user: any) => ({
-        id: user.id,
-        username: user.userName || '',
-        profilePicture: user.profilePicture,
-        totalScore: user.totalScore,
-        quizCount: user.quizzesTaken,
-        averageScore: user.averageScore,
-        lastQuizDate: new Date()
-      })),
-      leaderboard: rankedData || [],
-      total: (rankedData || []).length,
-      timeframe,
-      lastUpdated: new Date().toISOString(),
+      return {
+        users: (rankedData || []).map((user: any) => ({
+          id: user.id,
+          username: user.userName || '',
+          profilePicture: user.profilePicture,
+          totalScore: user.totalScore,
+          quizCount: user.quizzesTaken,
+          averageScore: user.averageScore,
+          lastQuizDate: new Date()
+        })),
+        leaderboard: rankedData || [],
+        total: (rankedData || []).length,
+        timeframe,
+        lastUpdated: new Date().toISOString(),
+      };
     };
 
-    // Store in cache for future requests
-    leaderboardCache.set(cacheKey, {
-      data: responseData,
-      timestamp: Date.now()
-    });
-
-    // Clean up old cache entries periodically
-    if (leaderboardCache.size > 100) {
-      const now = Date.now();
-      for (const [key, value] of leaderboardCache.entries()) {
-        if (now - value.timestamp > CACHE_DURATION) {
-          leaderboardCache.delete(key);
-        }
-      }
-    }
+    const responseData = await cacheData(cacheKey, CACHE_DURATION_SECONDS, fetchLeaderboardData);
 
     return createSecureJsonResponse(responseData, { status: 200 });
   } catch (error) {
