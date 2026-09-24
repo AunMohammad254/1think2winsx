@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     const cacheKey = `quizzes_${userId}_${paymentAccess.hasAccess ? 'access' : 'noaccess'}`;
     if (!forceFresh) {
-      const cached = quizListCache.get(cacheKey);
+      const cached = await quizListCache.get(cacheKey);
       if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
         const etag = createHash('sha1').update(JSON.stringify(cached.data)).digest('hex');
         const clientETag = request.headers.get('if-none-match');
@@ -222,7 +222,7 @@ export async function GET(request: NextRequest) {
       accessError: paymentAccess.error || null
     };
 
-    quizListCache.set(cacheKey, { data: responseData, timestamp: Date.now() });
+    await quizListCache.set(cacheKey, { data: responseData, timestamp: Date.now() });
     const etag = createHash('sha1').update(JSON.stringify(responseData)).digest('hex');
     const clientETag = request.headers.get('if-none-match');
     securityLogger.logPerformanceMetric('quiz_list', Date.now() - start, '/api/quizzes');
@@ -329,7 +329,7 @@ export async function POST(request: NextRequest) {
     ]);
 
     // Clear cache
-    quizListCache.clear();
+    await quizListCache.clear();
 
     recordSecurityEvent('QUIZ_CREATED', request, session.user.id, {
       quizId: quiz.id,

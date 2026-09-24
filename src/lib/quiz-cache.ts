@@ -1,4 +1,5 @@
 import logger from '@/lib/logger';
+import { getRedisClient, clearCachePrefix } from '@/lib/redis';
 
 interface PaymentInfo {
   id: string;
@@ -38,57 +39,35 @@ interface CacheEntry {
   timestamp: number;
 }
 
-const MAX_CACHE_ENTRIES = 500; // cap memory usage on long-lived server processes
-
 /**
- * In-memory quiz list cache with automatic TTL eviction.
- *
- * Note: On serverless deployments (Vercel) each function instance has its own
- * process-level Map, so this cache is NOT shared across instances. For
- * cross-instance caching, configure UPSTASH_REDIS_REST_URL / TOKEN (already
- * wired in rate-limiter.ts) and replace this Map with Redis calls.
+ * Quiz list cache backed by Redis.
  */
 class QuizListCache {
-  private store = new Map<string, CacheEntry>();
-
-  get(key: string): CacheEntry | undefined {
-    const entry = this.store.get(key);
-    if (entry) {
-        // Assume 5 min TTL by default if not passed
-        if (Date.now() - entry.timestamp > 5 * 60 * 1000) {
-            this.store.delete(key);
-            return undefined;
-        }
-    }
-    return entry;
-  }
-
-  set(key: string, entry: CacheEntry): void {
-    // Evict oldest entry when the cap is reached to prevent unbounded growth.
-    if (this.store.size >= MAX_CACHE_ENTRIES) {
-      const oldest = this.store.keys().next().value;
-      if (oldest) this.store.delete(oldest);
-    }
-    this.store.set(key, entry);
-  }
-
-  clear(): void {
-    logger.log('[Cache] Clearing quiz list cache');
-    this.store.clear();
-  }
-
-  /** Remove all entries older than `maxAgeMs` milliseconds. */
-  evictExpired(maxAgeMs: number): void {
-    const now = Date.now();
-    for (const [key, entry] of this.store) {
-      if (now - entry.timestamp > maxAgeMs) {
-        this.store.delete(key);
+  async get(key: string): Promise<CacheEntry | undefined> {
+    try {
+      const redis = await getRedisClient();
+      const cached = await redis.get(key);
+      if (cached) {
+        return JSON.parse(cached) as CacheEntry;
       }
+    } catch (e) {
+      console.error('Redis quiz list get cache error for key', key, e);
+    }
+    return undefined;
+  }
+
+  async set(key: string, entry: CacheEntry): Promise<void> {
+    try {
+      const redis = await getRedisClient();
+      await redis.setEx(key, 5 * 60, JSON.stringify(entry)); // 5 min TTL
+    } catch (e) {
+      console.error('Redis quiz list set cache error for key', key, e);
     }
   }
 
-  get size(): number {
-    return this.store.size;
+  async clear(): Promise<void> {
+    logger.log('[Cache] Clearing quiz list cache');
+    await clearCachePrefix('quizzes_');
   }
 }
 
