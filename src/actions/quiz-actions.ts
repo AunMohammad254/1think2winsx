@@ -1,5 +1,7 @@
 'use server';
 
+import { adminActionGuard } from '@/lib/admin-guard';
+
 import { quizDb, questionDb, notificationDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 import { clearQuizListCache } from '@/lib/quiz-cache';
@@ -24,6 +26,8 @@ type ActionResult<T = undefined> =
  * Create a new quiz with questions
  */
 export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{ id: string }>> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // Validate input
         const validationResult = QuizFormSchema.omit({ id: true }).safeParse(input);
@@ -109,6 +113,8 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
  * Update an existing quiz
  */
 export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         if (!input.id) {
             return { success: false, error: 'Quiz ID is required' };
@@ -202,6 +208,8 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
  * Delete a quiz
  */
 export async function deleteQuiz(id: string): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         await quizDb.delete(id);
 
@@ -220,6 +228,8 @@ export async function deleteQuiz(id: string): Promise<ActionResult> {
  * Publish a quiz (change status from draft to active)
  */
 export async function publishQuiz(id: string): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // Check if quiz has at least one question
         const questions = await questionDb.findByQuizId(id);
@@ -258,6 +268,8 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
  * Pause a quiz
  */
 export async function pauseQuiz(id: string): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         await quizDb.update(id, { status: 'paused' });
 

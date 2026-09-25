@@ -1,4 +1,5 @@
 import logger from '@/lib/logger';
+import { invalidateQuizCatalog } from '@/lib/quiz-catalog';
 
 interface PaymentInfo {
   id: string;
@@ -93,4 +94,7 @@ class QuizListCache {
 }
 
 export const quizListCache = new QuizListCache();
-export const clearQuizListCache = () => quizListCache.clear();
+export const clearQuizListCache = () => {
+  quizListCache.clear();
+  invalidateQuizCatalog();
+};

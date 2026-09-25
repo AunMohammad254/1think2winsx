@@ -1,0 +1,65 @@
+{
+ "conc": 300,
+ "secs": 41.602,
+ "total": 6183,
+ "rps": 148.6,
+ "p50": 2344,
+ "p95": 3496,
+ "p99": 3994,
+ "upstreamCalls": 15084,
+ "upstreamPerReq": 2.44,
+ "scenarios": {
+  "leaderboard": {
+   "n": 1194,
+   "p50": 758,
+   "p95": 1031,
+   "codes": {
+    "200": 1194
+   }
+  },
+  "landing": {
+   "n": 896,
+   "p50": 755,
+   "p95": 1051,
+   "codes": {
+    "200": 896
+   }
+  },
+  "submit": {
+   "n": 651,
+   "p50": 2491,
+   "p95": 3097,
+   "codes": {
+    "200": 388,
+    "400": 263
+   }
+  },
+  "quizDetail": {
+   "n": 949,
+   "p50": 2535,
+   "p95": 3053,
+   "codes": {
+    "200": 536,
+    "403": 413
+   }
+  },
+  "quizList": {
+   "n": 2493,
+   "p50": 2629,
+   "p95": 3856,
+   "codes": {
+    "200": 2493
+   }
+  }
+ },
+ "upstream": {
+  "GET /auth/v1/user": 4093,
+  "GET /rest/v1/Quiz": 4,
+  "POST /rest/v1/rpc": 657,
+  "GET /rest/v1/DailyPayment": 3442,
+  "GET /rest/v1/QuizAttempt": 3442,
+  "GET /rest/v1/QuestionAttempt": 3442,
+  "GET /rest/v1/Question": 3,
+  "GET /rest/v1/ScheduledNotification": 1
+ }
+}

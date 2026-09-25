@@ -80,26 +80,66 @@ interface SecurityEvent {
   details?: Record<string, unknown>;
 }
 
+const RECENT_EVENTS_CAP = 2_000;   // ring buffer for dashboard stats
+const COUNTER_KEYS_CAP = 50_000;   // bound memory under attack / high traffic
+
 /**
- * In-memory security event tracking (in production, use Redis or database)
+ * In-memory security event tracking.
+ *
+ * PERFORMANCE: the previous version pushed every event into an unbounded array and,
+ * on EVERY event, re-filtered the whole last-hour array several times (O(n) per
+ * request, O(n²) overall). With normal traffic (QUIZ_ACCESSED / QUIZ_SUBMITTED are
+ * recorded on every quiz request) that grows to hundreds of thousands of entries per
+ * hour and pins the Node CPU. This version keeps O(1) per-key hourly counters and a
+ * small ring buffer.
  */
 class SecurityMonitor {
-  private events: SecurityEvent[] = [];
+  private recent: SecurityEvent[] = [];
+  private counters = new Map<string, { count: number; windowStart: number }>();
   private alertCooldowns: Map<string, number> = new Map();
   private perf: Map<string, number[]> = new Map();
+
+  private bump(key: string, now: number): number {
+    const c = this.counters.get(key);
+    if (!c || now - c.windowStart > SECURITY_THRESHOLDS.MONITORING_WINDOW) {
+      this.counters.delete(key);
+      this.counters.set(key, { count: 1, windowStart: now });
+      if (this.counters.size > COUNTER_KEYS_CAP) {
+        // evict oldest-inserted keys
+        const it = this.counters.keys();
+        for (let i = 0; i < 1000; i++) {
+          const k = it.next().value;
+          if (k === undefined) break;
+          this.counters.delete(k);
+        }
+      }
+      return 1;
+    }
+    return ++c.count;
+  }
+
+  private peek(key: string, now: number): number {
+    const c = this.counters.get(key);
+    return c && now - c.windowStart <= SECURITY_THRESHOLDS.MONITORING_WINDOW ? c.count : 0;
+  }
 
   /**
    * Record a security event
    */
   recordEvent(event: Omit<SecurityEvent, 'timestamp'>) {
-    const securityEvent: SecurityEvent = {
-      ...event,
-      timestamp: Date.now()
-    };
+    const now = Date.now();
+    const securityEvent: SecurityEvent = { ...event, timestamp: now };
 
-    this.events.push(securityEvent);
-    this.cleanupOldEvents();
-    this.checkThresholds(securityEvent);
+    this.recent.push(securityEvent);
+    if (this.recent.length > RECENT_EVENTS_CAP) this.recent.splice(0, this.recent.length - RECENT_EVENTS_CAP);
+
+    const typeUser = event.userId ? this.bump(`${event.type}:u:${event.userId}`, now) : 0;
+    const typeIp = this.bump(`${event.type}:ip:${event.ip}`, now);
+    if (SUSPICIOUS_TYPES.has(event.type)) {
+      this.bump(`suspicious:ip:${event.ip}`, now);
+      if (event.userId) this.bump(`suspicious:u:${event.userId}`, now);
+    }
+    this.checkThresholds(securityEvent, typeUser, typeIp);
   }
 
   recordPerfMetric(name: string, value: number) {
@@ -117,113 +157,35 @@ class SecurityMonitor {
       const count = sorted.length;
       const avg = sorted.reduce((s, v) => s + v, 0) / count;
       const p = (q: number) => sorted[Math.min(count - 1, Math.max(0, Math.floor(q * count) - 1))];
-      result[name] = {
-        count,
-        avg,
-        p50: p(0.5),
-        p95: p(0.95),
-        p99: p(0.99),
-        last: values[values.length - 1],
-      };
+      result[name] = { count, avg, p50: p(0.5), p95: p(0.95), p99: p(0.99), last: values[values.length - 1] };
     }
     return result;
   }
 
   /**
-   * Clean up events older than monitoring window
+   * Check if security thresholds are exceeded (O(1))
    */
-  private cleanupOldEvents() {
-    const cutoff = Date.now() - SECURITY_THRESHOLDS.MONITORING_WINDOW;
-    this.events = this.events.filter(event => event.timestamp > cutoff);
-  }
-
-  /**
-   * Check if security thresholds are exceeded
-   */
-  private checkThresholds(newEvent: SecurityEvent) {
-    const now = Date.now();
-    const windowStart = now - SECURITY_THRESHOLDS.MONITORING_WINDOW;
-    
-    // Check rate limit violations
-    if (newEvent.type === 'RATE_LIMIT_EXCEEDED' && newEvent.userId) {
-      const userViolations = this.events.filter(
-        e => e.type === 'RATE_LIMIT_EXCEEDED' && 
-            e.userId === newEvent.userId && 
-            e.timestamp > windowStart
-      ).length;
-
-      if (userViolations >= SECURITY_THRESHOLDS.RATE_LIMIT_VIOLATIONS_PER_HOUR) {
-        this.triggerAlert('EXCESSIVE_RATE_LIMIT_VIOLATIONS', {
-          userId: newEvent.userId,
-          violationCount: userViolations,
-          timeWindow: '1 hour'
-        });
+  private checkThresholds(e: SecurityEvent, typeUserCount: number, typeIpCount: number) {
+    if (e.type === 'RATE_LIMIT_EXCEEDED' && e.userId && typeUserCount >= SECURITY_THRESHOLDS.RATE_LIMIT_VIOLATIONS_PER_HOUR) {
+      this.triggerAlert('EXCESSIVE_RATE_LIMIT_VIOLATIONS', { userId: e.userId, violationCount: typeUserCount, timeWindow: '1 hour' });
+    }
+    if (e.type === 'FAILED_LOGIN' && typeIpCount >= SECURITY_THRESHOLDS.FAILED_LOGINS_PER_IP_PER_HOUR) {
+      this.triggerAlert('BRUTE_FORCE_DETECTED', { ip: e.ip, failureCount: typeIpCount, timeWindow: '1 hour' });
+    }
+    if (FILE_TYPES.has(e.type) && e.userId) {
+      const n = this.bump(`file:u:${e.userId}`, e.timestamp);
+      if (n >= SECURITY_THRESHOLDS.INVALID_FILE_UPLOADS_PER_HOUR) {
+        this.triggerAlert('SUSPICIOUS_FILE_UPLOAD_ACTIVITY', { userId: e.userId, violationCount: n, timeWindow: '1 hour' });
       }
     }
-
-    // Check failed login attempts per IP
-    if (newEvent.type === 'FAILED_LOGIN') {
-      const ipFailures = this.events.filter(
-        e => e.type === 'FAILED_LOGIN' && 
-            e.ip === newEvent.ip && 
-            e.timestamp > windowStart
-      ).length;
-
-      if (ipFailures >= SECURITY_THRESHOLDS.FAILED_LOGINS_PER_IP_PER_HOUR) {
-        this.triggerAlert('BRUTE_FORCE_DETECTED', {
-          ip: newEvent.ip,
-          failureCount: ipFailures,
-          timeWindow: '1 hour'
-        });
-      }
+    if (e.type === 'CSRF_TOKEN_VIOLATION' && e.userId && typeUserCount >= SECURITY_THRESHOLDS.CSRF_VIOLATIONS_PER_HOUR) {
+      this.triggerAlert('CSRF_ATTACK_DETECTED', { userId: e.userId, violationCount: typeUserCount, timeWindow: '1 hour' });
     }
-
-    // Check file upload violations
-    if (['INVALID_FILE_TYPE', 'FILE_SIZE_EXCEEDED', 'INVALID_FILE_MAGIC_BYTES'].includes(newEvent.type) && newEvent.userId) {
-      const fileViolations = this.events.filter(
-        e => ['INVALID_FILE_TYPE', 'FILE_SIZE_EXCEEDED', 'INVALID_FILE_MAGIC_BYTES'].includes(e.type) && 
-            e.userId === newEvent.userId && 
-            e.timestamp > windowStart
-      ).length;
-
-      if (fileViolations >= SECURITY_THRESHOLDS.INVALID_FILE_UPLOADS_PER_HOUR) {
-        this.triggerAlert('SUSPICIOUS_FILE_UPLOAD_ACTIVITY', {
-          userId: newEvent.userId,
-          violationCount: fileViolations,
-          timeWindow: '1 hour'
-        });
-      }
-    }
-
-    // Check CSRF violations
-    if (newEvent.type === 'CSRF_TOKEN_VIOLATION' && newEvent.userId) {
-      const csrfViolations = this.events.filter(
-        e => e.type === 'CSRF_TOKEN_VIOLATION' && 
-            e.userId === newEvent.userId && 
-            e.timestamp > windowStart
-      ).length;
-
-      if (csrfViolations >= SECURITY_THRESHOLDS.CSRF_VIOLATIONS_PER_HOUR) {
-        this.triggerAlert('CSRF_ATTACK_DETECTED', {
-          userId: newEvent.userId,
-          violationCount: csrfViolations,
-          timeWindow: '1 hour'
-        });
-      }
-    }
-
-    // Check for suspicious activity patterns
-    if (newEvent.userId) {
-      const userEvents = this.events.filter(
-        e => e.userId === newEvent.userId && e.timestamp > windowStart
-      ).length;
-
-      if (userEvents >= SECURITY_THRESHOLDS.SUSPICIOUS_ACTIVITY_THRESHOLD) {
-        this.triggerAlert('SUSPICIOUS_USER_ACTIVITY', {
-          userId: newEvent.userId,
-          eventCount: userEvents,
-          timeWindow: '1 hour'
-        });
+    // Only count genuinely suspicious events (not normal QUIZ_ACCESSED traffic)
+    if (e.userId && SUSPICIOUS_TYPES.has(e.type)) {
+      const n = this.peek(`suspicious:u:${e.userId}`, e.timestamp);
+      if (n >= SECURITY_THRESHOLDS.SUSPICIOUS_ACTIVITY_THRESHOLD) {
+        this.triggerAlert('SUSPICIOUS_USER_ACTIVITY', { userId: e.userId, eventCount: n, timeWindow: '1 hour' });
       }
     }
   }
@@ -234,28 +196,17 @@ class SecurityMonitor {
   private triggerAlert(alertType: string, details: Record<string, unknown>) {
     const alertKey = `${alertType}:${details.userId || details.ip || 'global'}`;
     const now = Date.now();
-    
-    // Check if alert is in cooldown
     const lastAlert = this.alertCooldowns.get(alertKey);
     if (lastAlert && (now - lastAlert) < SECURITY_THRESHOLDS.ALERT_COOLDOWN) {
-      return; // Skip alert due to cooldown
+      return;
     }
-
-    // Set cooldown
     this.alertCooldowns.set(alertKey, now);
+    if (this.alertCooldowns.size > COUNTER_KEYS_CAP) this.alertCooldowns.clear();
 
-    // Log high-priority security alert
     securityLogger.logSecurityEvent({
       type: 'SUSPICIOUS_ACTIVITY',
-      details: {
-        alertType,
-        severity: 'HIGH',
-        timestamp: new Date().toISOString(),
-        ...details
-      }
+      details: { alertType, severity: 'HIGH', timestamp: new Date().toISOString(), ...details }
     });
-
-    // In production, send to monitoring service (e.g., Slack, email, PagerDuty)
     this.sendAlert(alertType, details);
   }
 
@@ -264,28 +215,18 @@ class SecurityMonitor {
    */
   private async sendAlert(alertType: string, details: Record<string, unknown>) {
     try {
-      // In production, implement actual alerting (email, Slack, etc.)
-      console.error(`🚨 SECURITY ALERT: ${alertType}`, details);
-      
-      // Example: Send to webhook or monitoring service
-      // await fetch(process.env.SECURITY_WEBHOOK_URL, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ alertType, details, timestamp: new Date().toISOString() })
-      // });
+      console.error(`SECURITY ALERT: ${alertType}`, details);
     } catch (error) {
       console.error('Failed to send security alert:', error);
     }
   }
 
   /**
-   * Get security statistics for dashboard
+   * Get security statistics for dashboard (from the recent-events ring buffer)
    */
   getSecurityStats() {
-    const now = Date.now();
-    const windowStart = now - SECURITY_THRESHOLDS.MONITORING_WINDOW;
-    const recentEvents = this.events.filter(e => e.timestamp > windowStart);
-
+    const windowStart = Date.now() - SECURITY_THRESHOLDS.MONITORING_WINDOW;
+    const recentEvents = this.recent.filter(e => e.timestamp > windowStart);
     const stats = {
       totalEvents: recentEvents.length,
       eventsByType: {} as Record<string, number>,
@@ -293,20 +234,11 @@ class SecurityMonitor {
       topUsers: {} as Record<string, number>,
       timeWindow: '1 hour'
     };
-
     recentEvents.forEach(event => {
-      // Count by type
       stats.eventsByType[event.type] = (stats.eventsByType[event.type] || 0) + 1;
-      
-      // Count by IP
       stats.topIPs[event.ip] = (stats.topIPs[event.ip] || 0) + 1;
-      
-      // Count by user
-      if (event.userId) {
-        stats.topUsers[event.userId] = (stats.topUsers[event.userId] || 0) + 1;
-      }
+      if (event.userId) stats.topUsers[event.userId] = (stats.topUsers[event.userId] || 0) + 1;
     });
-
     return stats;
   }
 
@@ -315,40 +247,24 @@ class SecurityMonitor {
    */
   shouldBlockIP(ip: string): boolean {
     const now = Date.now();
-    const windowStart = now - SECURITY_THRESHOLDS.MONITORING_WINDOW;
-    
-    const ipEvents = this.events.filter(
-      e => e.ip === ip && e.timestamp > windowStart
-    );
-
-    // Block if too many failed logins
-    const failedLogins = ipEvents.filter(e => e.type === 'FAILED_LOGIN').length;
-    if (failedLogins >= SECURITY_THRESHOLDS.FAILED_LOGINS_PER_IP_PER_HOUR) {
-      return true;
-    }
-
-    // Block if too many suspicious activities
-    const suspiciousEvents = ipEvents.filter(e => 
-      ['RATE_LIMIT_EXCEEDED', 'CSRF_TOKEN_VIOLATION', 'UNAUTHORIZED_ACCESS'].includes(e.type)
-    ).length;
-    
-    return suspiciousEvents >= 10; // Threshold for IP blocking
+    if (this.peek(`FAILED_LOGIN:ip:${ip}`, now) >= SECURITY_THRESHOLDS.FAILED_LOGINS_PER_IP_PER_HOUR) return true;
+    return this.peek(`suspicious:ip:${ip}`, now) >= 10;
   }
 
   /**
    * Check if user should be flagged for review
    */
   shouldFlagUser(userId: string): boolean {
-    const now = Date.now();
-    const windowStart = now - SECURITY_THRESHOLDS.MONITORING_WINDOW;
-    
-    const userEvents = this.events.filter(
-      e => e.userId === userId && e.timestamp > windowStart
-    );
-
-    return userEvents.length >= SECURITY_THRESHOLDS.SUSPICIOUS_ACTIVITY_THRESHOLD;
+    return this.peek(`suspicious:u:${userId}`, Date.now()) >= SECURITY_THRESHOLDS.SUSPICIOUS_ACTIVITY_THRESHOLD;
   }
 }
+
+const SUSPICIOUS_TYPES = new Set<string>([
+  'RATE_LIMIT_EXCEEDED', 'CSRF_TOKEN_VIOLATION', 'UNAUTHORIZED_ACCESS', 'FAILED_LOGIN',
+  'SUSPICIOUS_ACTIVITY', 'BRUTE_FORCE_ATTEMPT', 'SESSION_HIJACK_ATTEMPT', 'INVALID_PASSWORD_ATTEMPT',
+  'INVALID_FILE_TYPE', 'FILE_SIZE_EXCEEDED', 'INVALID_FILE_MAGIC_BYTES',
+]);
+const FILE_TYPES = new Set<string>(['INVALID_FILE_TYPE', 'FILE_SIZE_EXCEEDED', 'INVALID_FILE_MAGIC_BYTES']);
 
 // Export singleton instance
 export const securityMonitor = new SecurityMonitor();

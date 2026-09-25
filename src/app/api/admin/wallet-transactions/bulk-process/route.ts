@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
-import { getDb, notificationDb } from '@/lib/supabase/db';
+import { getAdminDb, notificationDb } from '@/lib/supabase/db';
 import { isWalletEnabled } from '@/lib/wallet/service';
 
 export async function POST(request: NextRequest) {
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Invalid action. Must be "approve" or "reject"' }, { status: 400 });
         }
 
-        const supabase = await getDb();
+        const supabase = getAdminDb();
         const results = {
             success: 0,
             failed: 0,

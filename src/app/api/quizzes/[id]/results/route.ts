@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { quizAttemptDb, answerDb, questionDb, getDb } from '@/lib/supabase/db';
+import { quizAttemptDb, answerDb, questionDb, getDb, getAdminDb } from '@/lib/supabase/db';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -67,11 +67,26 @@ export async function GET(
       .from('Answer')
       .select(`
         id, questionId, selectedOption, isCorrect,
-        Question:questionId (id, text, options, correctOption)
+        Question:questionId (id, text, options, hasCorrectAnswer)
       `)
       .eq('quizAttemptId', quizAttempt.id);
 
     if (answersError) throw answersError;
+
+    // The answer key is not readable by users; fetch it server-side (service role)
+    // and only for questions whose answer has already been published.
+    const revealedIds = (answers || [])
+      .map((a: any) => (Array.isArray(a.Question) ? a.Question[0] : a.Question))
+      .filter((q: any) => q?.hasCorrectAnswer)
+      .map((q: any) => q.id);
+    const correctById = new Map<string, number | null>();
+    if (revealedIds.length > 0) {
+      const { data: keys } = await getAdminDb()
+        .from('Question')
+        .select('id, correctOption')
+        .in('id', revealedIds);
+      for (const k of keys || []) correctById.set(k.id, k.correctOption);
+    }
 
     // Format the results
     const answerDetails = (answers || []).map((answer: any) => {
@@ -84,7 +99,7 @@ export async function GET(
         questionText: question?.text || '',
         options: question?.options ? JSON.parse(question.options) : [],
         selectedOption: answer.selectedOption,
-        correctOption: question?.correctOption,
+        correctOption: question ? (correctById.get(question.id) ?? null) : null,
         isCorrect: answer.isCorrect,
       };
     });

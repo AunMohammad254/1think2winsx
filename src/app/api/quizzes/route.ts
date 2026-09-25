@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { checkPaymentAccess } from '@/lib/payment-middleware';
-import { getDb, quizDb } from '@/lib/supabase/db';
+import { getDb, getAdminDb, quizDb, dailyPaymentDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -9,7 +8,8 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { createHash } from 'crypto';
 import { securityLogger } from '@/lib/security-logger';
-// User creation is now handled by database trigger
+import { getActiveQuizCatalog } from '@/lib/quiz-catalog';
+import { quizListCache } from '@/lib/quiz-cache';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -18,245 +18,121 @@ const createQuizSchema = z.object({
   passingScore: z.number().min(0).max(100).default(70), // 0-100%
 });
 
-interface PaymentInfo {
-  id: string;
-  expiresAt: Date;
-  timeRemaining: number;
+// Self-healing cron trigger (Hostinger has no scheduler). Previously fired an extra
+// HTTP request back into this server on EVERY uncached quiz-list request, roughly
+// doubling load. Now at most once per minute per process.
+const CRON_KICK_INTERVAL_MS = 60_000;
+let lastCronKick = 0;
+function maybeKickCron() {
+  const cronSecret = process.env.CRON_SECRET;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || '';
+  const now = Date.now();
+  if (!cronSecret || !siteUrl || now - lastCronKick < CRON_KICK_INTERVAL_MS) return;
+  lastCronKick = now;
+  fetch(`${siteUrl}/api/cron/process-scheduled`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${cronSecret}` },
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => { /* background safety net only */ });
 }
 
-interface QuizListResponse {
-  quizzes: Array<{
-    id: string;
-    title: string;
-    description: string;
-    duration: number;
-    passingScore: number;
-    status: string;
-    questionCount: number;
-    totalAttempts: number;
-    hasAccess: boolean;
-    isCompleted: boolean;
-    hasNewQuestions: boolean;
-    newQuestionsCount: number;
-    lastAttemptDate: Date | null;
-    createdAt: Date;
-    updatedAt: Date;
-    questions: Array<{
-      id: string;
-      text: string;
-      options: string[];
-    }>;
-  }>;
-  hasAccess: boolean;
-  paymentInfo: PaymentInfo | null;
-  accessError: string | null;
-}
-
-import { quizListCache } from '@/lib/quiz-cache';
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
-// GET /api/quizzes - Get all active quizzes with access status
+/**
+ * GET /api/quizzes - Active quizzes with the caller's access/progress status.
+ *
+ * PERFORMANCE (before -> after, per request):
+ *   ~11 sequential Supabase calls (auth, 3x rate-limit table, payment, quizzes,
+ *   questions, own attempts, question attempts, ALL attempts of every quiz, plus a
+ *   self-HTTP cron call)  ->  auth + 3 parallel per-user queries; the shared
+ *   catalogue (quizzes, questions, attempt counts) comes from a 15 s process cache.
+ */
 export async function GET(request: NextRequest) {
   try {
     const start = Date.now();
-    const authResult = await requireAuth({
-      context: 'quiz_list',
-    });
+    const authResult = await requireAuth({ context: 'quiz_list' });
+    if (authResult instanceof NextResponse) return authResult;
+    const userId = authResult.session.user.id;
 
-    if (authResult instanceof NextResponse) {
-      return authResult;
-    }
-
-    const { session } = authResult;
-    const userId = session.user.id;
-
-    const rateLimitResponse = await applyRateLimit(
-      rateLimiters.general,
-      request,
-      userId,
-      '/api/quizzes'
-    );
-    if (rateLimitResponse) {
-      return rateLimitResponse;
-    }
-
-    const paymentAccess = await checkPaymentAccess(userId, request);
-
-    // Support cache-busting for realtime re-fetches via ?fresh=1
-    const url = new URL(request.url);
-    const forceFresh = url.searchParams.get('fresh') === '1';
-
-    const cacheKey = `quizzes_${userId}_${paymentAccess.hasAccess ? 'access' : 'noaccess'}`;
-    if (!forceFresh) {
-      const cached = quizListCache.get(cacheKey);
-      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-        const etag = createHash('sha1').update(JSON.stringify(cached.data)).digest('hex');
-        const clientETag = request.headers.get('if-none-match');
-        securityLogger.logPerformanceMetric('quiz_list_cache_hit', Date.now() - start, '/api/quizzes');
-        if (clientETag === etag) {
-          return new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
-        }
-        return createSecureJsonResponse(cached.data, { status: 200, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
-      }
-    }
+    const rateLimitResponse = await applyRateLimit(rateLimiters.general, request, userId, '/api/quizzes');
+    if (rateLimitResponse) return rateLimitResponse;
 
     const supabase = await getDb();
+    const catalog = await getActiveQuizCatalog();
+    const quizIds = catalog.map(q => q.id);
 
-    // Get all active quizzes
-    const { data: quizzes, error: quizzesError } = await supabase
-      .from('Quiz')
-      .select('*')
-      .eq('status', 'active')
-      .order('createdAt', { ascending: false });
+    const [payment, attemptsRes, questionAttemptsRes] = await Promise.all([
+      dailyPaymentDb.findFirstActive(userId).catch(() => null),
+      quizIds.length
+        ? supabase.from('QuizAttempt').select('quizId, completedAt').eq('userId', userId).eq('isCompleted', true).in('quizId', quizIds)
+        : Promise.resolve({ data: [] as Array<{ quizId: string; completedAt: string | null }> }),
+      quizIds.length
+        ? supabase.from('QuestionAttempt').select('quizId, questionId').eq('userId', userId).in('quizId', quizIds)
+        : Promise.resolve({ data: [] as Array<{ quizId: string; questionId: string }> }),
+    ]);
 
-    if (quizzesError) throw quizzesError;
+    const now = Date.now();
+    const expiresAt = payment ? new Date(payment.expiresAt).getTime() : 0;
+    const hasAccess = !!payment && expiresAt > now;
+    const paymentInfo = hasAccess
+      ? { id: payment!.id, expiresAt: new Date(expiresAt), timeRemaining: Math.floor((expiresAt - now) / 1000) }
+      : null;
 
-    // Batch fetch all related data instead of N+1 queries per quiz
-    const quizIds = (quizzes || []).map((q: any) => q.id);
-
-    // Fetch all questions for all quizzes at once
-    const { data: allQuestions } = quizIds.length > 0
-      ? await supabase
-        .from('Question')
-        .select('id, quizId, text, options')
-        .in('quizId', quizIds)
-        .eq('status', 'active')
-      : { data: [] };
-
-    // Fetch user's latest completed attempt per quiz
-    const { data: allUserAttempts } = quizIds.length > 0
-      ? await supabase
-        .from('QuizAttempt')
-        .select('id, quizId, score, completedAt')
-        .in('quizId', quizIds)
-        .eq('userId', userId)
-        .eq('isCompleted', true)
-        .order('completedAt', { ascending: false })
-      : { data: [] };
-
-    // Fetch user's question attempts for all quizzes at once
-    const { data: allQuestionAttempts } = quizIds.length > 0
-      ? await supabase
-        .from('QuestionAttempt')
-        .select('quizId, questionId')
-        .in('quizId', quizIds)
-        .eq('userId', userId)
-      : { data: [] };
-
-    // Fetch total attempt counts per quiz
-    const { data: allAttemptCounts } = quizIds.length > 0
-      ? await supabase
-        .from('QuizAttempt')
-        .select('quizId')
-        .in('quizId', quizIds)
-      : { data: [] };
-
-    // Group data by quizId in-memory
-    const questionsByQuiz = new Map<string, any[]>();
-    for (const q of (allQuestions || [])) {
-      if (!questionsByQuiz.has(q.quizId)) questionsByQuiz.set(q.quizId, []);
-      questionsByQuiz.get(q.quizId)!.push(q);
+    const attemptByQuiz = new Map<string, { completedAt: string | null }>();
+    for (const a of attemptsRes.data || []) attemptByQuiz.set(a.quizId, a);
+    const answeredByQuiz = new Map<string, Set<string>>();
+    for (const qa of questionAttemptsRes.data || []) {
+      const set = answeredByQuiz.get(qa.quizId) || new Set<string>();
+      set.add(qa.questionId);
+      answeredByQuiz.set(qa.quizId, set);
     }
 
-    // Get latest attempt per quiz (first one per quizId since ordered desc)
-    const latestAttemptByQuiz = new Map<string, any>();
-    for (const a of (allUserAttempts || [])) {
-      if (!latestAttemptByQuiz.has(a.quizId)) {
-        latestAttemptByQuiz.set(a.quizId, a);
-      }
-    }
-
-    const questionAttemptsByQuiz = new Map<string, Set<string>>();
-    for (const qa of (allQuestionAttempts || [])) {
-      if (!questionAttemptsByQuiz.has(qa.quizId)) questionAttemptsByQuiz.set(qa.quizId, new Set());
-      questionAttemptsByQuiz.get(qa.quizId)!.add(qa.questionId);
-    }
-
-    const attemptCountByQuiz = new Map<string, number>();
-    for (const a of (allAttemptCounts || [])) {
-      attemptCountByQuiz.set(a.quizId, (attemptCountByQuiz.get(a.quizId) || 0) + 1);
-    }
-
-    // Build enriched quiz objects
-    const formattedQuizzes = (quizzes || []).map((quiz: any) => {
-      const questions = questionsByQuiz.get(quiz.id) || [];
-      const userAttempt = latestAttemptByQuiz.get(quiz.id);
-      const attemptedQuestionIds = questionAttemptsByQuiz.get(quiz.id) || new Set();
-      const totalQuestions = questions.length;
-      const attemptedQuestionsCount = attemptedQuestionIds.size;
-      const newQuestionsCount = totalQuestions - attemptedQuestionsCount;
-
-      const isCompleted = !!userAttempt;
+    const quizzes = catalog.map(quiz => {
+      const attempt = attemptByQuiz.get(quiz.id);
+      const answered = answeredByQuiz.get(quiz.id);
+      const newQuestionsCount = quiz.questions.filter(q => !answered?.has(q.id)).length;
+      const isCompleted = !!attempt;
       const hasNewQuestions = isCompleted && newQuestionsCount > 0;
-
       return {
         id: quiz.id,
         title: quiz.title,
-        description: quiz.description || '',
+        description: quiz.description,
         duration: quiz.duration,
         passingScore: quiz.passingScore,
         status: quiz.status,
-        questionCount: totalQuestions,
-        totalAttempts: attemptCountByQuiz.get(quiz.id) || 0,
-        hasAccess: paymentAccess.hasAccess,
+        questionCount: quiz.questions.length,
+        totalAttempts: quiz.totalAttempts,
+        hasAccess,
         isCompleted,
         hasNewQuestions,
         newQuestionsCount: hasNewQuestions ? newQuestionsCount : 0,
-        lastAttemptDate: userAttempt?.completedAt ? new Date(userAttempt.completedAt) : null,
+        lastAttemptDate: attempt?.completedAt ? new Date(attempt.completedAt) : null,
         createdAt: new Date(quiz.createdAt),
         updatedAt: new Date(quiz.updatedAt),
-        questions: paymentAccess.hasAccess
-          ? questions.map((q: any) => ({
-            id: q.id,
-            text: q.text,
-            options: JSON.parse(q.options),
-          }))
-          : []
+        questions: hasAccess ? quiz.questions : [],
       };
     });
 
     const responseData = {
-      quizzes: formattedQuizzes,
-      hasAccess: paymentAccess.hasAccess,
-      paymentInfo: paymentAccess.payment || null,
-      accessError: paymentAccess.error || null
+      quizzes,
+      hasAccess,
+      paymentInfo,
+      accessError: hasAccess ? null : 'No active payment found. Please make a payment to access quizzes.',
     };
 
-    quizListCache.set(cacheKey, { data: responseData, timestamp: Date.now() });
-    const etag = createHash('sha1').update(JSON.stringify(responseData)).digest('hex');
-    const clientETag = request.headers.get('if-none-match');
     securityLogger.logPerformanceMetric('quiz_list', Date.now() - start, '/api/quizzes');
+    maybeKickCron();
 
-    // Self-healing cron trigger (Hostinger compatibility)
-    // On Hostinger, vercel.json cron schedules never execute. This fire-and-forget
-    // call ensures scheduled quizzes are activated without needing an external scheduler.
-    // It runs AFTER the response is ready and never delays the user.
-    const cronSecret = process.env.CRON_SECRET;
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || '';
-    if (cronSecret && siteUrl && !forceFresh) {
-      // Only kick the cron on fresh (non-cache-bust) requests to avoid hammering on every poll.
-      // Use try/catch so any failure is silent — this is a background safety net only.
-      fetch(`${siteUrl}/api/cron/process-scheduled?secret=${encodeURIComponent(cronSecret)}`, {
-        method: 'GET',
-        // Short timeout hint — but fetch on Node.js doesn't support signal here on older runtimes,
-        // so we just fire-and-forget.
-      }).catch(() => { /* intentionally silent — cron kick failure must not surface to users */ });
+    const etag = '"' + createHash('sha1').update(JSON.stringify(responseData)).digest('base64url') + '"';
+    const headers = { ETag: etag, 'Cache-Control': 'private, no-cache' };
+    if (request.headers.get('if-none-match') === etag) {
+      return new Response(null, { status: 304, headers });
     }
-
-    if (clientETag === etag) {
-      return new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
-    }
-    return createSecureJsonResponse(responseData, { status: 200, headers: { 'ETag': etag, 'Cache-Control': 'private, max-age=30' } });
-
+    return createSecureJsonResponse(responseData, { status: 200, headers });
   } catch (error) {
     console.error('Quiz list error:', error);
     recordSecurityEvent('QUIZ_LIST_ERROR', request, undefined, {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
-    return NextResponse.json(
-      { error: 'Failed to fetch quizzes' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch quizzes' }, { status: 500 });
   }
 }
 
@@ -311,7 +187,7 @@ export async function POST(request: NextRequest) {
 
     const { title, description, duration, passingScore } = validationResult.data;
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Create the quiz
     const quiz = await quizDb.create({

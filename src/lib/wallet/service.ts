@@ -17,7 +17,8 @@
  *   and wallet API routes return 503 WALLET_DISABLED.
  */
 
-import { getAdminDb, walletTransactionDb, dailyPaymentDb, userDb, quizDb, generateId } from '@/lib/supabase/db';
+import { getAdminDb, userDb, quizDb } from '@/lib/supabase/db';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 // ============================================================================
 // FEATURE FLAG
@@ -132,86 +133,53 @@ export interface DeductionResult {
 /**
  * Atomically deduct wallet balance and grant 24-hour quiz access.
  *
- * @param authUserId  - Supabase auth user ID (from session)
- * @param userEmail   - Email for looking up the DB user record
- * @param amount      - Amount to deduct in PKR
- * @param quizId      - Optional quiz ID for the transaction audit note
+ * SECURITY: the price is decided by the database (`pay_quiz_access` reads the
+ * quiz's accessPrice). The `amount` argument is kept only for backwards
+ * compatibility and is ignored — it used to come straight from the browser, so a
+ * user could buy 24h access for 0.01 PKR. Balance deduction, the transaction
+ * record and the DailyPayment row are written in ONE transaction (previously three
+ * separate requests: a failure after the deduction charged the user without
+ * granting access).
+ *
+ * Must be called in a request context that carries the user's Supabase session.
  */
 export async function deductForQuizAccess(
-    authUserId: string,
-    userEmail: string,
-    amount: number,
+    _authUserId: string,
+    _userEmail: string,
+    _amount: number,
     quizId?: string
 ): Promise<DeductionResult> {
-    if (amount <= 0) return { success: false, error: 'Invalid amount' };
-
     try {
-        const dbUser = await userDb.findByEmail(userEmail);
-        if (!dbUser) {
-            return { success: false, error: 'User not found. Please try logging out and back in.' };
+        const supabase = await createServerClient();
+        const { data, error } = await supabase.rpc('pay_quiz_access', { p_quiz_id: quizId ?? null });
+
+        if (error || !data) {
+            console.error('[wallet/service] pay_quiz_access failed:', error);
+            return { success: false, error: 'Failed to process payment. Please try again.' };
         }
 
-        if (dbUser.walletBalance < amount) {
+        const r = data as {
+            success: boolean; error?: string; alreadyActive?: boolean; paymentId?: string;
+            newBalance?: number; insufficientBalance?: boolean; requiredAmount?: number; currentBalance?: number;
+        };
+
+        if (!r.success) {
             return {
                 success: false,
-                error: 'Insufficient wallet balance',
-                insufficientBalance: true,
-                requiredAmount: amount,
-                currentBalance: dbUser.walletBalance,
+                error: r.error || 'Payment failed',
+                insufficientBalance: !!r.insufficientBalance,
+                requiredAmount: r.requiredAmount,
+                currentBalance: r.currentBalance,
             };
-        }
-
-        const adminDb = getAdminDb();
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-        // 1. Atomic deduction via RPC (prevents race conditions)
-        const { data: rpcResult, error: rpcError } = await adminDb.rpc('deduct_wallet_balance', {
-            p_user_id: authUserId,
-            p_amount: amount,
-        });
-
-        if (rpcError || !rpcResult || !rpcResult.success) {
-            console.error('[wallet/service] Deduction RPC failed:', rpcError || rpcResult?.error);
-            return {
-                success: false,
-                error: (rpcResult?.error as string) || 'Insufficient balance or transaction failed',
-                insufficientBalance: rpcResult?.error === 'Insufficient funds',
-            };
-        }
-
-        const newBalance = rpcResult.new_balance as number;
-
-        // 2. Record transaction history + daily payment (best-effort — deduction already happened)
-        try {
-            await walletTransactionDb.create({
-                userId: dbUser.id,
-                amount: -amount,
-                paymentMethod: 'QuizAccess',
-                transactionId: `quiz_access_${Date.now()}_${dbUser.id}`,
-                status: 'approved',
-                adminNotes: quizId ? `Quiz access payment for quiz: ${quizId}` : '24-hour quiz access payment',
-                processedAt: now.toISOString(),
-            });
-
-            await dailyPaymentDb.create({
-                userId: dbUser.id,
-                amount,
-                status: 'completed',
-                paymentMethod: 'wallet',
-                transactionId: `wallet_${Date.now()}_${dbUser.id}`,
-                expiresAt: expiresAt.toISOString(),
-            });
-        } catch (logError) {
-            // Non-fatal — deduction occurred. Log for ops team but don't surface to user.
-            console.error('[wallet/service] Failed to log transaction history (deduction already succeeded):', logError);
         }
 
         return {
             success: true,
-            message: 'Payment successful! You now have 24-hour quiz access.',
-            newBalance,
-            paymentId: `wallet_${Date.now()}_${dbUser.id}`,
+            message: r.alreadyActive
+                ? 'You already have active quiz access.'
+                : 'Payment successful! You now have 24-hour quiz access.',
+            newBalance: r.newBalance,
+            paymentId: r.paymentId,
         };
     } catch (err) {
         console.error('[wallet/service] deductForQuizAccess error:', err);

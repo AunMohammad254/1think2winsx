@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getDb } from '@/lib/supabase/db';
+import { getAdminDb } from '@/lib/supabase/db';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
         startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     }
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Get security events from the database
     const { data: securityEvents, error } = await supabase

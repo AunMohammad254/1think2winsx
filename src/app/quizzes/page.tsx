@@ -33,6 +33,7 @@ interface Quiz {
   lastAttemptDate?: string;
   score?: number;
   attemptCount?: number;
+  totalAttempts?: number;
 }
 
 interface PaymentInfo {
@@ -108,9 +109,12 @@ export default function QuizzesPage() {
     if (realtimeDebounceRef.current) {
       clearTimeout(realtimeDebounceRef.current);
     }
+    // Spread re-fetches over 2-15 s: a single admin edit is broadcast to every
+    // connected player at once, and a fixed 500 ms delay turned it into a
+    // synchronized stampede of thousands of simultaneous /api/quizzes calls.
     realtimeDebounceRef.current = setTimeout(() => {
       fetchQuizzesData(true);
-    }, 500);
+    }, 2000 + Math.random() * 13000);
   }, [fetchQuizzesData]);
 
   // Redirect to login if not authenticated, and check wallet feature flag
@@ -475,7 +479,7 @@ export default function QuizzesPage() {
                 description={quiz.description}
                 duration={quiz.duration}
                 questionCount={quiz.questionCount}
-                attemptCount={quiz.attemptCount}
+                attemptCount={quiz.attemptCount ?? quiz.totalAttempts}
                 difficulty="medium"
                 status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : (quiz.status as any)}
                 hasAccess={hasAccess}

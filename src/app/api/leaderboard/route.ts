@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/supabase/db';
+import { getAdminDb } from '@/lib/supabase/db';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { z } from 'zod';
 
-// Simple in-memory cache for leaderboard data
+// In-process cache + single-flight: concurrent cache misses share ONE database call.
 const leaderboardCache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+const inflight = new Map<string, Promise<any>>();
+const CACHE_DURATION = 60 * 1000; // 1 minute (the DB side is refreshed every 5 minutes)
+// Public, identical for every visitor -> let the CDN / reverse proxy / browser cache it.
+const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=300' };
 
 // Input validation schema
 const leaderboardQuerySchema = z.object({
@@ -41,10 +44,31 @@ export async function GET(request: NextRequest) {
     // Check cache first
     const cached = leaderboardCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
-      return createSecureJsonResponse(cached.data, { status: 200 });
+      return createSecureJsonResponse(cached.data, { status: 200, headers: CACHE_HEADERS });
     }
 
-    const supabase = await getDb();
+    let pending = inflight.get(cacheKey);
+    if (!pending) {
+      pending = loadLeaderboard(cacheKey, limit, timeframe, quizId || null).finally(() => inflight.delete(cacheKey));
+      inflight.set(cacheKey, pending);
+    }
+    const responseData = await pending;
+    if (!responseData) {
+      return NextResponse.json({ message: 'Error fetching leaderboard' }, { status: 500 });
+    }
+    return createSecureJsonResponse(responseData, { status: 200, headers: CACHE_HEADERS });
+  } catch (error) {
+    console.error('Error fetching leaderboard:', error);
+    return NextResponse.json(
+      { message: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+async function loadLeaderboard(cacheKey: string, limit: number, timeframe: string, quizId: string | null) {
+    // get_leaderboard is SECURITY DEFINER and now only executable by the service role.
+    const supabase = getAdminDb();
 
     // Call high-performance server-side aggregation RPC
     const { data: rankedData, error: rpcError } = await supabase.rpc('get_leaderboard', {
@@ -55,10 +79,7 @@ export async function GET(request: NextRequest) {
 
     if (rpcError) {
       console.error('Leaderboard RPC error:', rpcError);
-      return NextResponse.json(
-        { message: 'Error fetching leaderboard' },
-        { status: 500 }
-      );
+      return null;
     }
 
     const responseData = {
@@ -93,12 +114,5 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return createSecureJsonResponse(responseData, { status: 200 });
-  } catch (error) {
-    console.error('Error fetching leaderboard:', error);
-    return NextResponse.json(
-      { message: 'Internal server error' },
-      { status: 500 }
-    );
-  }
+    return responseData;
 }
