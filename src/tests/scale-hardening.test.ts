@@ -37,9 +37,11 @@ describe('RateLimiter (in-memory, no DB)', () => {
 
 describe('SecurityMonitor stays O(1) and bounded', () => {
   it('records 50k events quickly and keeps stats bounded', () => {
+    // Build requests up front so the timer measures the monitor, not NextRequest construction
+    const reqs = Array.from({ length: 250 }, (_, i) => req({ 'x-forwarded-for': `10.0.${i}.1` }, 'GET'));
     const t = performance.now();
     for (let i = 0; i < 50_000; i++) {
-      recordSecurityEvent('QUIZ_ACCESSED', req({ 'x-forwarded-for': `10.0.${i % 250}.1` }, 'GET'), `user-${i % 5000}`);
+      recordSecurityEvent('QUIZ_ACCESSED', reqs[i % 250], `user-${i % 5000}`);
     }
     expect(performance.now() - t).toBeLessThan(3_000);
     expect(securityMonitor.getSecurityStats().totalEvents).toBeLessThanOrEqual(2_000);
