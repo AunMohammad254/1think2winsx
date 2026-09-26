@@ -13,8 +13,11 @@
  * FEATURE FLAG:
  *   isWalletEnabled() reads from the AppSettings DB table (key='wallet_enabled').
  *   Fallback: WALLET_FEATURE_ENABLED env var. Default: enabled.
- *   When disabled: the wallet UI is fully hidden, quiz access is blocked for all users,
- *   and wallet API routes return 503 WALLET_DISABLED.
+ *   When disabled: quizzes are FREE for everyone (no payment prompt, no
+ *   DailyPayment row required - see checkPaymentAccess() and
+ *   submit_quiz_attempt()'s wallet_enabled check), the wallet UI (balance,
+ *   deposit, transaction history) is hidden, and wallet API routes return
+ *   503 WALLET_DISABLED. Admin-toggleable from /admin/wallet.
  */
 
 import { getAdminDb, userDb, quizDb } from '@/lib/supabase/db';

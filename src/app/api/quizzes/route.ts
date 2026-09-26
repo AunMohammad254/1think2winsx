@@ -10,6 +10,7 @@ import { createHash } from 'crypto';
 import { securityLogger } from '@/lib/security-logger';
 import { getActiveQuizCatalog } from '@/lib/quiz-catalog';
 import { quizListCache } from '@/lib/quiz-cache';
+import { isWalletEnabled } from '@/lib/wallet/service';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -59,7 +60,8 @@ export async function GET(request: NextRequest) {
     const catalog = await getActiveQuizCatalog();
     const quizIds = catalog.map(q => q.id);
 
-    const [payment, attemptsRes, questionAttemptsRes] = await Promise.all([
+    const [walletEnabled, payment, attemptsRes, questionAttemptsRes] = await Promise.all([
+      isWalletEnabled(),
       dailyPaymentDb.findFirstActive(userId).catch(() => null),
       quizIds.length
         ? supabase.from('QuizAttempt').select('quizId, completedAt').eq('userId', userId).eq('isCompleted', true).in('quizId', quizIds)
@@ -71,9 +73,10 @@ export async function GET(request: NextRequest) {
 
     const now = Date.now();
     const expiresAt = payment ? new Date(payment.expiresAt).getTime() : 0;
-    const hasAccess = !!payment && expiresAt > now;
-    const paymentInfo = hasAccess
-      ? { id: payment!.id, expiresAt: new Date(expiresAt), timeRemaining: Math.floor((expiresAt - now) / 1000) }
+    // Wallet disabled => quizzes are free for everyone, regardless of payment state.
+    const hasAccess = !walletEnabled || (!!payment && expiresAt > now);
+    const paymentInfo = payment && expiresAt > now
+      ? { id: payment.id, expiresAt: new Date(expiresAt), timeRemaining: Math.floor((expiresAt - now) / 1000) }
       : null;
 
     const attemptByQuiz = new Map<string, { completedAt: string | null }>();
