@@ -43,12 +43,17 @@ export async function isWalletEnabled(): Promise<boolean> {
     const envFlag = process.env.WALLET_FEATURE_ENABLED;
     if (envFlag === 'false' || envFlag === 'true') {
         // Asynchronously sync the env flag to the database so DB RPCs match the Node state
-        getAdminDb().from('AppSettings').upsert({
-            key: 'wallet_enabled',
-            value: envFlag
-        }, { onConflict: 'key' })
-        .then((res) => { if (res.error) console.error('AppSettings sync error:', res.error); })
-        .catch((err) => { console.error('AppSettings sync exception:', err); });
+        (async () => {
+            try {
+                const res = await getAdminDb().from('AppSettings').upsert({
+                    key: 'wallet_enabled',
+                    value: envFlag
+                }, { onConflict: 'key' });
+                if (res.error) console.error('AppSettings sync error:', res.error);
+            } catch (err: any) {
+                console.error('AppSettings sync exception:', err);
+            }
+        })();
         
         return envFlag === 'true';
     }
