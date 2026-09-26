@@ -137,6 +137,8 @@ export async function GET(request: NextRequest) {
         status: quiz.status,
         startsAt: quiz.startsAt,
         quizType: quiz.quizType,
+        prizeId: quiz.prizeId,
+        isBumperPrize: quiz.isBumperPrize,
         createdAt: quiz.createdAt,
         updatedAt: quiz.updatedAt,
         questions: questions,
