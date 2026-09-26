@@ -85,7 +85,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
                     title: '🎮 New Quiz Published!',
                     message: `"${quiz.title || 'Challenge'}" is now active. Play now and score points!`,
                     type: 'quiz_deadline',
-                    link: `/quiz/${quiz.id}`
+                    link: `/quizzes?openQuiz=${quiz.id}`
                 });
             } catch (notifErr) {
                 console.error('Failed to send quiz publication broadcast notification:', notifErr);
@@ -247,7 +247,7 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
                     title: '🎮 New Quiz Published!',
                     message: `"${updatedQuiz.title || 'Challenge'}" is now active. Play now and score points!`,
                     type: 'quiz_deadline',
-                    link: `/quiz/${id}`
+                    link: `/quizzes?openQuiz=${id}`
                 });
             } catch (notifErr) {
                 console.error('Failed to send quiz publication broadcast notification:', notifErr);
@@ -313,7 +313,7 @@ export async function pushQuizLive(id: string): Promise<ActionResult> {
                     title: '🔴 Live now',
                     message: `"${updatedQuiz.title || 'Quiz'}" was just pushed during the stream — jump in now!`,
                     type: 'quiz_deadline',
-                    link: `/quiz/${id}`
+                    link: `/quizzes?openQuiz=${id}`
                 });
             } catch (notifErr) {
                 console.error('Failed to send quiz push broadcast notification:', notifErr);

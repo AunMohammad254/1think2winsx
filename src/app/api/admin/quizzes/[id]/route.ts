@@ -165,6 +165,7 @@ export async function GET(
         duration: quiz.duration,
         passingScore: quiz.passingScore,
         status: quiz.status,
+        accessPrice: quiz.accessPrice,
         prizeId: quiz.prizeId,
         isBumperPrize: quiz.isBumperPrize,
         quizType: quiz.quizType,

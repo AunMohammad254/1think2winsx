@@ -35,33 +35,26 @@ function StreamPlaceholder({ onLoadStream }: { onLoadStream: () => void }) {
       {/* Ambient glow, matching the app's other glass cards */}
       <div className="absolute inset-0 bg-[radial-gradient(120%_140%_at_15%_0%,rgba(147,51,234,0.18),transparent_55%),radial-gradient(120%_140%_at_85%_100%,rgba(59,130,246,0.16),transparent_55%)]" />
 
-      {/* LIVE indicator, top-left — same pulsing-dot language as the rest of the app */}
-      <div className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm border border-white/10">
-        <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-        </span>
-        <span className="text-[10px] font-bold uppercase tracking-wide text-white">Live</span>
-      </div>
 
-      <div className="relative text-center text-white p-8">
+
+      <div className="relative text-center text-white p-4 sm:p-8 flex flex-col items-center justify-center h-full">
         <button
           onClick={onLoadStream}
           aria-label="Load stream"
-          className="group w-16 h-16 mx-auto mb-4 rounded-full bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur-sm hover:bg-white/20 hover:scale-105 transition-all duration-200"
+          className="group hidden sm:flex w-16 h-16 mx-auto mb-4 rounded-full bg-white/10 border border-white/20 items-center justify-center backdrop-blur-sm hover:bg-white/20 hover:scale-105 transition-all duration-200"
         >
           <Play className="w-7 h-7 ml-1 group-hover:scale-110 transition-transform" />
         </button>
-        <h3 className="text-lg font-bold mb-1.5 flex items-center justify-center gap-2">
-          <Radio className="w-4 h-4 text-purple-400" />
+        <h3 className="text-base sm:text-lg font-bold mb-1.5 sm:mb-2 mt-4 sm:mt-0 flex items-center justify-center gap-1.5 sm:gap-2">
+          <Radio className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
           Live Stream Available
         </h3>
-        <p className="text-sm text-gray-400 mb-5">
+        <p className="hidden sm:block text-sm text-gray-400 mb-5 max-w-md mx-auto">
           Watch live while you take the quiz — the admin can push new quizzes to you here.
         </p>
         <button
           onClick={onLoadStream}
-          className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-200 font-semibold"
+          className="px-5 py-2 sm:px-6 sm:py-2.5 mt-1 sm:mt-0 text-sm sm:text-base rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-200 font-semibold"
         >
           Load Stream
         </button>

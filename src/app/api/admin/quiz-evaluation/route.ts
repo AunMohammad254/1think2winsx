@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb } from '@/lib/supabase/db';
+import { getAdminDb, notificationDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { requireAuth } from '@/lib/auth-middleware';
@@ -116,6 +116,27 @@ export async function POST(request: NextRequest) {
     }
 
     logger.log(`[QUIZ_EVALUATION] quiz ${quizId}: ${finalize.evaluatedAttempts} attempts in ${Date.now() - startedAt} ms`);
+
+    // Notify all users who attempted the quiz that their results are ready
+    try {
+      const { data: attemptsData } = await supabase
+        .from('QuizAttempt')
+        .select('userId')
+        .eq('quizId', quizId);
+
+      if (attemptsData && attemptsData.length > 0) {
+        const userIds = [...new Set(attemptsData.map((a: any) => a.userId))];
+        await notificationDb.createBatchForUsers(userIds, {
+          title: '🏅 Quiz Results Available!',
+          message: `Your results for "${quiz.title}" have been evaluated. Check your score now!`,
+          type: 'general',
+          link: `/quiz/${quizId}/results`
+        });
+        logger.log(`[QUIZ_EVALUATION] Sent result notifications to ${userIds.length} users.`);
+      }
+    } catch (notifErr) {
+      console.error('[QUIZ_EVALUATION] Failed to send evaluation notifications:', notifErr);
+    }
 
     // Small preview for the admin UI (top 50) instead of every participant.
     const { data: top } = await supabase

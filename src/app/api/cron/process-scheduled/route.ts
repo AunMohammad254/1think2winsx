@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
             title: '🔴 Live now',
             message: `"${quiz.title || 'Challenge'}" was just pushed (Scheduled) — jump in now!`,
             type: 'quiz_deadline',
-            link: `/quiz/${quiz.id}`
+            link: `/quizzes?openQuiz=${quiz.id}`
           });
           processedQuizIds.push(quiz.id);
           logger.log(`[Cron] Activated quiz ${quiz.id} and sent notification broadcast.`);
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
               title: '⏰ Cricket Quiz Starts in 10 Min!',
               message: `Get ready! "${quiz.title || 'Challenge'}" starts in 10 minutes. Don't miss out!`,
               type: 'quiz_starts_soon',
-              link: `/quiz/${quiz.id}`
+              link: `/quizzes?openQuiz=${quiz.id}`
             });
             logger.log(`[Cron] Broadcasted 10-minute warning notification for quiz ${quiz.id}`);
           }

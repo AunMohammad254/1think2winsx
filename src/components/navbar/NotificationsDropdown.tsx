@@ -99,7 +99,8 @@ export default function NotificationsDropdown() {
   // same submit endpoint, just the richer view — instead of navigating away
   // from the stream entirely.
   const resolveNotificationHref = (link: string) => {
-    const match = link.match(/^\/quiz\/([^/?#]+)/);
+    if (link.includes('/results')) return link;
+    const match = link.match(/\/quiz\/([^/?#]+)/);
     return match ? `/quizzes?openQuiz=${encodeURIComponent(match[1])}` : link;
   };
 
