@@ -617,7 +617,7 @@ export default function AdminQuizManagementPage() {
                                                 {status.label}
                                                 {quiz.status === 'scheduled' && quiz.startsAt && (
                                                     <span className="opacity-80 ml-1">
-                                                        ({new Date(quiz.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                                        ({new Date(quiz.startsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })})
                                                     </span>
                                                 )}
                                             </span>

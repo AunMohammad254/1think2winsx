@@ -56,6 +56,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const [answers, setAnswers] = useState<Record<string, number>>({});
     const [locked, setLocked] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [toastAnim, setToastAnim] = useState(false);
     const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Fetches quiz content by id. Never touches `answers`/`locked` - safe to
@@ -87,7 +88,12 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         setAnswers({});
         setLocked(false);
         setLoadError(null);
+        setToastAnim(false);
         setView('toast');
+        
+        // Trigger CSS transition
+        requestAnimationFrame(() => setToastAnim(true));
+        
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         toastTimerRef.current = setTimeout(() => {
             setView((v) => (v === 'toast' ? 'hidden' : v));
@@ -164,129 +170,100 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     return (
         <>
             {view === 'toast' && (
-                <div className="absolute left-3 right-3 top-3 z-40 flex items-center justify-between rounded-2xl border border-white/15 bg-gradient-to-br from-blue-600/25 via-purple-600/20 to-pink-600/20 backdrop-blur-xl px-4 py-3 shadow-2xl animate-in slide-in-from-top-4 duration-300">
-                    <button
-                        onClick={() => openPanel('popup')}
-                        className="flex items-center gap-3 text-left flex-1 min-w-0"
-                    >
-                        <span className="flex-none w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-pink-500 flex items-center justify-center animate-bounce">
-                            <Bell className="w-4 h-4 text-white" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-bold text-white">New quiz just dropped</span>
-                            <span className="block text-xs text-gray-300 truncate">{pending.title} · tap to play</span>
-                        </span>
-                    </button>
-                    <button
-                        onClick={close}
-                        className="ml-3 p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"
-                        aria-label="Close notification"
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
+                <div className={`toast ${toastAnim ? 'show' : ''}`} onClick={() => openPanel('popup')}>
+                    <div className="ticon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+                    </div>
+                    <div className="ttext">
+                        <div className="ttitle">New quiz just dropped</div>
+                        <div className="tsub">{pending.title} · tap to play</div>
+                    </div>
+                    <div className="tarrow">
+                        <button onClick={(e) => { e.stopPropagation(); close(); }} aria-label="Close notification">
+                           <X className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
             )}
 
             {(view === 'popup' || view === 'split') && (
-                <div
-                    className={
-                        view === 'popup'
-                            ? 'absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4'
-                            : 'contents'
-                    }
+                <div 
+                    className={view === 'popup' ? 'quiz-pop open' : 'split-slot'}
                     onClick={view === 'popup' ? (e) => { if (e.target === e.currentTarget) close(); } : undefined}
                 >
-                    <div
-                        className={
-                            view === 'popup'
-                                ? 'w-full max-w-sm max-h-full flex flex-col rounded-2xl border border-white/15 bg-gray-950/95 backdrop-blur-xl shadow-2xl overflow-hidden'
-                                // Split view: side-by-side on md+ (stream left, quiz right, both
-                                // in one frame via the shared flex row in quizzes/page.tsx); on
-                                // phones a flex row can't fit both meaningfully, so it stacks
-                                // below the stream instead with its own capped, scrollable height.
-                                : 'flex-1 md:basis-2/5 min-w-0 max-h-[55vh] md:max-h-none flex flex-col border-t md:border-t-0 md:border-l border-white/10 bg-gray-950/95 backdrop-blur-xl overflow-hidden'
-                        }
-                    >
-                        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-white/10 flex-none">
-                            <div className="min-w-0 flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-none" />
-                                <span className="text-sm font-bold text-white truncate">{pending.title}</span>
+                    <div className="quiz-panel">
+                        <div className="qp-head">
+                            <div className="qp-title">
+                                <span className="livedot"></span>
+                                <span className="tt">{pending.title}</span>
                             </div>
-                            <div className="flex items-center gap-1.5 flex-none">
-                                <button
+                            <div className="qp-actions">
+                                <button 
+                                    className={`icon-btn ${view === 'split' ? 'active' : ''}`}
                                     onClick={toggleSplit}
                                     title={view === 'split' ? 'Back to popup' : 'Split view'}
-                                    className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${view === 'split' ? 'border-blue-400 text-blue-400 bg-blue-500/10' : 'border-white/15 text-gray-400 hover:text-white hover:bg-white/10'}`}
                                 >
-                                    {view === 'split' ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
                                 </button>
-                                <button
-                                    onClick={close}
-                                    title="Close"
-                                    className="w-7 h-7 rounded-lg border border-white/15 text-gray-400 hover:text-white hover:bg-white/10 flex items-center justify-center"
-                                >
-                                    <X className="w-3.5 h-3.5" />
+                                <button className="icon-btn" onClick={close} title="Close">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3"><path d="M6 6l12 12M18 6 6 18"/></svg>
                                 </button>
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-4 py-4">
-                            {loadError && (
-                                <p className="text-sm text-red-300">{loadError}</p>
-                            )}
+                        <div className="qp-body">
+                            {loadError && <p className="text-sm text-red-300">{loadError}</p>}
                             {!quiz && !loadError && (
                                 <div className="flex items-center justify-center py-10 text-gray-400">
                                     <Loader2 className="w-5 h-5 animate-spin" />
                                 </div>
                             )}
                             {quiz && (
-                                <div className="space-y-5">
-                                    {locked && (
-                                        <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
-                                            <CheckCircle2 className="w-3.5 h-3.5" />
-                                            Answer locked in — waiting for the admin to reveal results
-                                        </div>
-                                    )}
+                                <>
+                                    <div className={`qp-status ${locked ? 'locked' : ''}`}>
+                                        {locked ? (
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                                        ) : (
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+                                        )}
+                                        <span>{locked ? 'Answer locked in — waiting for results' : 'Active'}</span>
+                                    </div>
+
                                     {quiz.questions.map((q, i) => (
                                         <div key={q.id}>
-                                            <p className="text-sm font-semibold text-white mb-2">{i + 1}. {q.text}</p>
-                                            <div className="space-y-1.5">
-                                                {q.options.map((opt, idx) => {
-                                                    const picked = answers[q.id] === idx;
-                                                    return (
-                                                        <button
-                                                            key={idx}
-                                                            disabled={locked}
-                                                            onClick={() => pick(q.id, idx)}
-                                                            className={`w-full flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${picked
-                                                                ? (locked ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-200' : 'border-blue-500/50 bg-blue-500/10 text-blue-100')
-                                                                : 'border-white/10 text-gray-300 hover:border-white/25 hover:bg-white/5'
-                                                                } ${locked ? 'cursor-default' : 'cursor-pointer'}`}
-                                                        >
-                                                            <span className={`w-3 h-3 rounded-full border-2 flex-none ${picked ? (locked ? 'border-emerald-400 bg-emerald-400' : 'border-blue-400 bg-blue-400') : 'border-gray-500'}`} />
-                                                            {opt}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
+                                            <div className="qp-q">{i + 1}. {q.text}</div>
+                                            {q.options.map((opt, idx) => {
+                                                const picked = answers[q.id] === idx;
+                                                return (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => pick(q.id, idx)}
+                                                        className={`qp-opt ${picked ? 'picked' : ''} ${locked ? 'locked' : ''}`}
+                                                    >
+                                                        <span className="radio"></span>
+                                                        {opt}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     ))}
-                                </div>
+
+                                    {!locked && (
+                                        <button 
+                                            className="qp-submit" 
+                                            onClick={submit} 
+                                            disabled={!allAnswered || submitting}
+                                        >
+                                            {submitting ? 'Submitting...' : (allAnswered ? 'Lock in answer' : `Answer all ${quiz.questions.length} questions`)}
+                                        </button>
+                                    )}
+                                </>
                             )}
                         </div>
 
-                        {quiz && !locked && (
-                            <div className="flex-none px-4 py-3 border-t border-white/10">
-                                <button
-                                    onClick={submit}
-                                    disabled={!allAnswered || submitting}
-                                    className="w-full py-2.5 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-purple-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                >
-                                    {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                                    {allAnswered ? 'Lock in answer' : `Answer all ${quiz.questions.length} questions (${answeredCount}/${quiz.questions.length})`}
-                                </button>
-                            </div>
-                        )}
+                        <div className="dockhint">
+                            {view === 'split' ? 'Split view: the stream keeps playing beside the quiz.' : 'Popup mode: the quiz floats above the stream.'}
+                        </div>
                     </div>
                 </div>
             )}

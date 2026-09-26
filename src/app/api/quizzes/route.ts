@@ -28,11 +28,17 @@ function maybeKickCron() {
   const cronSecret = process.env.CRON_SECRET;
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || '';
   const now = Date.now();
-  if (!cronSecret || !siteUrl || now - lastCronKick < CRON_KICK_INTERVAL_MS) return;
+  
+  const isProd = process.env.NODE_ENV === 'production';
+  if ((!cronSecret && isProd) || !siteUrl || now - lastCronKick < CRON_KICK_INTERVAL_MS) return;
+  
   lastCronKick = now;
+  const headers: Record<string, string> = {};
+  if (cronSecret) headers['Authorization'] = `Bearer ${cronSecret}`;
+  
   fetch(`${siteUrl}/api/cron/process-scheduled`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${cronSecret}` },
+    headers,
     signal: AbortSignal.timeout(10_000),
   }).catch(() => { /* background safety net only */ });
 }

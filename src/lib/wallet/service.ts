@@ -41,8 +41,17 @@ const FLAG_CACHE_TTL_MS = 60_000; // cache the flag for 1 minute
 export async function isWalletEnabled(): Promise<boolean> {
     // 1. Env-var override — fastest path, no DB round-trip
     const envFlag = process.env.WALLET_FEATURE_ENABLED;
-    if (envFlag === 'false') return false;
-    if (envFlag === 'true') return true;
+    if (envFlag === 'false' || envFlag === 'true') {
+        // Asynchronously sync the env flag to the database so DB RPCs match the Node state
+        getAdminDb().from('AppSettings').upsert({
+            key: 'wallet_enabled',
+            value: envFlag
+        }, { onConflict: 'key' })
+        .then((res) => { if (res.error) console.error('AppSettings sync error:', res.error); })
+        .catch((err) => { console.error('AppSettings sync exception:', err); });
+        
+        return envFlag === 'true';
+    }
 
     // 2. Cached DB read
     const now = Date.now();

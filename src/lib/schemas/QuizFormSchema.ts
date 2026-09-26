@@ -44,7 +44,7 @@ export const QuizFormBaseSchema = z.object({
         .min(0, 'Passing score must be 0 or higher')
         .max(100, 'Passing score cannot exceed 100'),
     accessPrice: z.number()
-        .min(0.5, 'Access price must be at least 0.5 PKR')
+        .min(0, 'Access price must be at least 0 PKR')
         .max(1000, 'Access price cannot exceed 1000 PKR')
         .default(2),
     difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),

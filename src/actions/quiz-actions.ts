@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import {
     QuizFormSchema,
+    CreateQuizInputSchema,
     CreateQuizInput,
     UpdateQuizInput
 } from '@/lib/schemas/QuizFormSchema';
@@ -30,7 +31,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
     if (denied) return denied as any;
     try {
         // Validate input
-        const validationResult = QuizFormSchema.omit({ id: true }).safeParse(input);
+        const validationResult = CreateQuizInputSchema.safeParse(input);
         if (!validationResult.success) {
             return {
                 success: false,

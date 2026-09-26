@@ -1,5 +1,7 @@
 'use client';
 
+import '../live-quiz.css';
+
 import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -7,8 +9,6 @@ import { toast } from 'sonner';
 import { Search, Filter, Clock, CheckCircle, Sparkles } from 'lucide-react';
 import QuizCard from '@/components/quiz/QuizCard';
 import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
-import QuizDetailModal from '@/components/quiz/QuizDetailModal';
-import QuizAttemptModal from '@/components/quiz/QuizAttemptModal';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 import LiveQuizPush, { type LiveQuizPushHandle } from '@/components/quiz/LiveQuizPush';
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
@@ -73,8 +73,6 @@ function QuizzesPageInner() {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
-  const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
-  const [attemptQuizId, setAttemptQuizId] = useState<string | null>(null);
   const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null); // null = loading
 
   // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
@@ -159,6 +157,16 @@ function QuizzesPageInner() {
         fetchQuizzesData();
       });
   }, [user, isLoading, router, fetchQuizzesData]);
+
+  // Periodic polling to keep data fresh and ensure the server's scheduled cron
+  // gets kicked even if no other users are navigating the site.
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      fetchQuizzesData(true);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [user, fetchQuizzesData]);
 
   // Deep link from the notification bell / a "View Details" link on a
   // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
@@ -257,11 +265,8 @@ function QuizzesPageInner() {
   const fetchQuizzes = fetchQuizzesData;
 
   const handleQuizClick = (quizId: string) => {
-    const quiz = quizzes.find(q => q.id === quizId);
-    if (!quiz) return;
-
     if (hasAccess) {
-      setSelectedQuiz(quiz);
+      liveQuizPushRef.current?.open(quizId);
     } else {
       setShowPaymentModal(true);
     }
@@ -383,11 +388,11 @@ function QuizzesPageInner() {
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-200 to-white">
+        <div className="mb-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-200 to-white">
             Quiz Arena
           </h1>
-          <p className="text-gray-400 text-lg max-w-2xl">
+          <p className="text-gray-400 text-sm max-w-2xl">
             {hasAccess
               ? 'You have full access to all quizzes! Choose one to test your knowledge.'
               : 'Unlock 24-hour access for just 2 PKR and play unlimited quizzes.'}
@@ -418,13 +423,22 @@ function QuizzesPageInner() {
         {/* Live Stream Section — everything push/toast/split-related is scoped
             to this one relative+overflow-hidden box; it never affects the
             quiz grid below or any other part of the page. */}
-        <div className="mb-8" id="live-stream-section">
-          <div id="live-stream-fullscreen-target" className="relative overflow-hidden bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 flex flex-col h-full">
-            <div className="flex flex-col md:flex-row flex-1 min-h-0">
-              <div className="flex-1 min-w-0 p-4 flex flex-col justify-center">
-                <Suspense fallback={<div className="h-64 bg-gray-800 rounded-xl animate-pulse" />}>
-                  <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" />
-                </Suspense>
+        <div className="mb-8 live-quiz-theme" id="live-stream-section">
+          <div id="live-stream-fullscreen-target" className="stream-section h-full w-full">
+            <div className="stream-row w-full flex-1">
+              <div className="player flex-1">
+                <div className="absolute inset-0 z-10 pointer-events-none">
+                  <div className="badge-live"><span className="rec"></span>LIVE</div>
+                  <div className="viewers">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+                    <span className="num">2,481</span>
+                  </div>
+                </div>
+                <div className="w-full relative z-0">
+                  <Suspense fallback={<div className="aspect-video w-full bg-gray-800 rounded-xl animate-pulse" />}>
+                    <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" />
+                  </Suspense>
+                </div>
               </div>
               <LiveQuizPush ref={liveQuizPushRef} onAnswered={() => fetchQuizzesData(true)} />
             </div>
@@ -504,10 +518,12 @@ function QuizzesPageInner() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredQuizzes.map((quiz) => (
-              <QuizCard
-                key={quiz.id}
+          <div className="live-quiz-theme">
+            <div className="section-label">Today's quizzes — pushed by admin</div>
+            <div className="quiz-grid">
+              {filteredQuizzes.map((quiz) => (
+                <QuizCard
+                  key={quiz.id}
                 id={quiz.id}
                 title={quiz.title}
                 description={quiz.description}
@@ -523,38 +539,8 @@ function QuizzesPageInner() {
                 pushStatus={quiz.pushStatus}
               />
             ))}
+            </div>
           </div>
-        )}
-
-        {/* Quiz Detail Modal */}
-        {selectedQuiz && (
-          <QuizDetailModal
-            quiz={{
-              ...selectedQuiz,
-              difficulty: 'medium',
-            }}
-            isOpen={!!selectedQuiz}
-            onClose={() => setSelectedQuiz(null)}
-            onStartQuiz={(quizId) => {
-              setSelectedQuiz(null);
-              setAttemptQuizId(quizId);
-            }}
-          />
-        )}
-
-        {/* Quiz Attempt Modal */}
-        {attemptQuizId && (
-          <QuizAttemptModal
-            quizId={attemptQuizId}
-            isOpen={!!attemptQuizId}
-            onClose={() => {
-              setAttemptQuizId(null);
-              fetchQuizzes();
-            }}
-            onQuizCompleted={() => {
-              fetchQuizzes();
-            }}
-          />
         )}
 
         {/* Payment Modal */}
