@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Search, Filter, Clock, CheckCircle, Sparkles } from 'lucide-react';
 import QuizCard from '@/components/quiz/QuizCard';
@@ -10,6 +10,7 @@ import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
 import QuizDetailModal from '@/components/quiz/QuizDetailModal';
 import QuizAttemptModal from '@/components/quiz/QuizAttemptModal';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
+import LiveQuizPush, { type LiveQuizPushHandle } from '@/components/quiz/LiveQuizPush';
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 import { createClient } from '@/lib/supabase/client';
 import PaymentModal from '@/components/quiz/PaymentModal';
@@ -34,6 +35,8 @@ interface Quiz {
   score?: number;
   attemptCount?: number;
   totalAttempts?: number;
+  pushedAt?: string | null;
+  pushStatus?: 'active' | 'answered' | 'missed' | null;
 }
 
 interface PaymentInfo {
@@ -45,8 +48,17 @@ interface PaymentInfo {
 type FilterTab = 'all' | 'available' | 'completed' | 'new';
 
 export default function QuizzesPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4"><div className="max-w-7xl mx-auto"><QuizCardSkeletonGrid count={6} /></div></div>}>
+      <QuizzesPageInner />
+    </Suspense>
+  );
+}
+
+function QuizzesPageInner() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +79,10 @@ export default function QuizzesPage() {
 
   // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
   const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const liveQuizPushRef = useRef<LiveQuizPushHandle>(null);
+  // Last pushedAt we've already reacted to, per quiz - so re-fetches or
+  // unrelated edits to an already-pushed quiz don't re-fire the toast.
+  const seenPushedAtRef = useRef<Map<string, string | null>>(new Map());
 
   const fetchQuizzesData = useCallback(async (fresh = false) => {
     try {
@@ -92,7 +108,9 @@ export default function QuizzesPage() {
         return;
       }
       const data = await response.json();
-      setQuizzes(data.quizzes || []);
+      const fetchedQuizzes: Quiz[] = data.quizzes || [];
+      setQuizzes(fetchedQuizzes);
+      for (const q of fetchedQuizzes) seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
       setHasAccess(data.hasAccess || false);
       setPaymentInfo(data.paymentInfo);
       setError(data.accessError || null);
@@ -142,6 +160,23 @@ export default function QuizzesPage() {
       });
   }, [user, isLoading, router, fetchQuizzesData]);
 
+  // Deep link from the notification bell / a "View Details" link on a
+  // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
+  // straight into the popup instead of the toast. Reactive (useSearchParams,
+  // not a one-time window.location read) so clicking a bell notification
+  // while ALREADY on /quizzes also opens it, not just on first load. Strips
+  // the param afterward so a refresh or back-navigation doesn't reopen it.
+  useEffect(() => {
+    if (isLoading || !user) return;
+    const openQuiz = searchParams.get('openQuiz');
+    if (!openQuiz) return;
+    liveQuizPushRef.current?.open(openQuiz);
+    const rest = new URLSearchParams(searchParams.toString());
+    rest.delete('openQuiz');
+    const query = rest.toString();
+    router.replace(query ? `/quizzes?${query}` : '/quizzes', { scroll: false });
+  }, [isLoading, user, router, searchParams]);
+
   // Realtime subscription for live quiz updates
   useEffect(() => {
     const supabase = createClient();
@@ -157,7 +192,15 @@ export default function QuizzesPage() {
       )
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'Quiz' },
-        () => {
+        (payload) => {
+          // Admin "push to live" support: the row's pushedAt changed to a
+          // new (non-null) value we haven't already reacted to -> show the
+          // live toast. Reuses this same subscription, no new channel.
+          const next = payload.new as { id: string; title: string; pushedAt: string | null };
+          if (next.pushedAt && seenPushedAtRef.current.get(next.id) !== next.pushedAt) {
+            seenPushedAtRef.current.set(next.id, next.pushedAt);
+            liveQuizPushRef.current?.notify(next.id, next.title);
+          }
           debouncedFreshFetch();
         }
       )
@@ -177,6 +220,8 @@ export default function QuizzesPage() {
       }
     };
   }, [debouncedFreshFetch]);
+
+  // Throwback behavior removed as requested.
 
   // Update time remaining every second
   useEffect(() => {
@@ -370,12 +415,19 @@ export default function QuizzesPage() {
           </div>
         )}
 
-        {/* Live Stream Section */}
-        <div className="mb-8">
-          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-4">
-            <Suspense fallback={<div className="h-64 bg-gray-800 rounded-xl animate-pulse" />}>
-              <LazyStreamPlayer autoPlay={false} />
-            </Suspense>
+        {/* Live Stream Section — everything push/toast/split-related is scoped
+            to this one relative+overflow-hidden box; it never affects the
+            quiz grid below or any other part of the page. */}
+        <div className="mb-8" id="live-stream-section">
+          <div id="live-stream-fullscreen-target" className="relative overflow-hidden bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 flex flex-col h-full">
+            <div className="flex flex-col md:flex-row flex-1 min-h-0">
+              <div className="flex-1 min-w-0 p-4 flex flex-col justify-center">
+                <Suspense fallback={<div className="h-64 bg-gray-800 rounded-xl animate-pulse" />}>
+                  <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" />
+                </Suspense>
+              </div>
+              <LiveQuizPush ref={liveQuizPushRef} onAnswered={() => fetchQuizzesData(true)} />
+            </div>
           </div>
         </div>
 
@@ -468,6 +520,7 @@ export default function QuizzesPage() {
                 isCompleted={quiz.isCompleted}
                 score={quiz.score}
                 onStartClick={handleQuizClick}
+                pushStatus={quiz.pushStatus}
               />
             ))}
           </div>

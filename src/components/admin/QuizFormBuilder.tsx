@@ -37,6 +37,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     const [expandedQuestions, setExpandedQuestions] = useState<number[]>([0]);
     const [showPrizeSection, setShowPrizeSection] = useState(!!initialData?.prizeId);
     const [prizes, setPrizes] = useState<Array<{ id: string; name: string; description: string | null }>>([]);
+    const [walletEnabled, setWalletEnabled] = useState(true);
 
     const isEditing = !!initialData?.id;
 
@@ -69,7 +70,6 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     const watchedPrizeId = watch('prizeId');
     const watchedQuizType = watch('quizType');
 
-    // Fetch prizes when prize section is opened
     useEffect(() => {
         if (showPrizeSection && prizes.length === 0) {
             fetch('/api/prizes')
@@ -78,6 +78,14 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                 .catch(() => {});
         }
     }, [showPrizeSection, prizes.length]);
+
+    // Fetch wallet enabled status
+    useEffect(() => {
+        fetch('/api/settings/wallet-enabled')
+            .then(res => res.json())
+            .then(data => setWalletEnabled(data.walletEnabled))
+            .catch(console.error);
+    }, []);
 
     // Toggle question expansion
     const toggleQuestion = useCallback((index: number) => {
@@ -159,6 +167,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
             const payload = {
                 ...data,
                 startsAt: data.status === 'scheduled' ? data.startsAt : null,
+                accessPrice: walletEnabled ? data.accessPrice : 0,
             };
             const result = isEditing
                 ? await updateQuiz(payload)
@@ -301,27 +310,29 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                     </div>
 
                     {/* Access Price */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Access Price (PKR) <span className="text-red-400">*</span>
-                        </label>
-                        <div className="relative">
-                            <input
-                                type="number"
-                                {...register('accessPrice', { valueAsNumber: true })}
-                                min={0.5}
-                                max={1000}
-                                step={0.5}
-                                className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                                placeholder="2"
-                            />
-                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">PKR</span>
+                    {walletEnabled && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                                Access Price (PKR) <span className="text-red-400">*</span>
+                            </label>
+                            <div className="relative">
+                                <input
+                                    type="number"
+                                    {...register('accessPrice', { valueAsNumber: true })}
+                                    min={0.5}
+                                    max={1000}
+                                    step={0.5}
+                                    className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+                                    placeholder="2"
+                                />
+                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">PKR</span>
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500">Price users pay for 24-hour quiz access</p>
+                            {errors.accessPrice && (
+                                <p className="mt-1 text-sm text-red-400">{errors.accessPrice.message}</p>
+                            )}
                         </div>
-                        <p className="mt-1 text-xs text-gray-500">Price users pay for 24-hour quiz access</p>
-                        {errors.accessPrice && (
-                            <p className="mt-1 text-sm text-red-400">{errors.accessPrice.message}</p>
-                        )}
-                    </div>
+                    )}
 
                     {/* Difficulty */}
                     <div>

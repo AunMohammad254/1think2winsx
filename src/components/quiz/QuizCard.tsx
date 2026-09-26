@@ -16,7 +16,15 @@ interface QuizCardProps {
     isCompleted?: boolean;
     score?: number;
     onStartClick?: (id: string) => void;
+    /** Admin-push status — only set once a quiz has actually been pushed live. */
+    pushStatus?: 'active' | 'answered' | 'missed' | null;
 }
+
+const pushStatusConfig = {
+    active: { label: 'Active', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25', dot: 'bg-emerald-400 animate-pulse' },
+    answered: { label: 'Answered', color: 'bg-blue-500/15 text-blue-400 border-blue-500/25', dot: 'bg-blue-400' },
+    missed: { label: 'Missed', color: 'bg-red-500/15 text-red-400 border-red-500/25', dot: 'bg-red-400' },
+};
 
 const difficultyColors = {
     easy: 'from-green-500 to-emerald-600 text-green-100',
@@ -44,8 +52,10 @@ export default function QuizCard({
     isCompleted = false,
     score,
     onStartClick,
+    pushStatus,
 }: QuizCardProps) {
     const statusInfo = statusConfig[status] || statusConfig.active;
+    const pushInfo = pushStatus ? pushStatusConfig[pushStatus] : null;
 
     const handleClick = (e: React.MouseEvent) => {
         if (onStartClick) {
@@ -67,6 +77,16 @@ export default function QuizCard({
                     {statusInfo.label}
                 </span>
             </div>
+
+            {/* Admin-push status — only present once this quiz has been pushed live */}
+            {pushInfo && (
+                <div className="absolute top-4 left-4 z-10">
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide rounded-full border ${pushInfo.color}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${pushInfo.dot}`} />
+                        {pushInfo.label}
+                    </span>
+                </div>
+            )}
 
             {/* Difficulty Strip */}
             <div className={`h-1.5 w-full bg-gradient-to-r ${difficultyColors[difficulty]}`} />

@@ -1,0 +1,617 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Live Quiz Push</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#030711; --panel:#0b0f1a; --surface:#10141f; --surface-2:#161c2b;
+    --border:rgba(255,255,255,.09); --border-strong:rgba(255,255,255,.16);
+    --text:#eef1f7; --text-dim:#9aa4b8; --text-faint:#5c6478;
+    --live:#12d999; --live-bg:rgba(18,217,153,.12);
+    --a1:#4f7cff; --a2:#a855f7; --a3:#ec4899;
+    --warn:#f5a623; --danger:#f0575d; --good:#12d999;
+    --shadow: 0 20px 60px -12px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    padding-inline:16px; padding-block:28px 48px;
+  }
+  h1,h2,h3,.disp{font-family:'Poppins',ui-sans-serif,sans-serif;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  .wrap{max-width:980px;margin:0 auto;}
+
+  .intro{margin-bottom:22px;}
+  .eyebrow{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--a1);font-weight:600;}
+  .intro h1{font-size:clamp(22px,4vw,30px);margin:6px 0 8px;text-wrap:balance;}
+  .intro p{color:var(--text-dim);max-width:64ch;font-size:14.5px;line-height:1.6;margin:0;}
+  .intro p b{color:var(--text);}
+
+  .controls{
+    display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;
+    margin:22px 0 18px; padding:10px 14px; background:var(--panel); border:1px solid var(--border);
+    border-radius:14px;
+  }
+  .seg{display:inline-flex; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:3px; gap:2px;}
+  .seg button{
+    border:none; background:transparent; color:var(--text-dim); font:inherit; font-size:13px; font-weight:600;
+    padding:6px 14px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;
+  }
+  .seg button.active{background:var(--surface-2); color:var(--text); box-shadow:inset 0 0 0 1px var(--border-strong);}
+  .push-btn{
+    border:none; cursor:pointer; font:inherit; font-weight:700; font-size:13.5px; color:#04120c;
+    background:linear-gradient(135deg,var(--live),#0bbf82); padding:9px 16px; border-radius:10px;
+    display:flex; align-items:center; gap:7px; box-shadow:0 8px 20px -6px rgba(18,217,153,.5);
+    transition:transform .15s;
+  }
+  .push-btn:active{transform:scale(.96);}
+  .push-btn:disabled{opacity:.5; cursor:not-allowed; box-shadow:none;}
+  .reset-btn{
+    border:1px solid var(--border-strong); background:transparent; color:var(--text-dim); font:inherit; font-size:13px;
+    padding:8px 12px; border-radius:9px; cursor:pointer;
+  }
+
+  .stage{ display:flex; justify-content:center; }
+  .device{
+    position:relative; background:#000; border:1px solid var(--border-strong); border-radius:22px;
+    box-shadow:var(--shadow); overflow:hidden; transition:width .35s cubic-bezier(.4,0,.2,1), height .35s cubic-bezier(.4,0,.2,1);
+  }
+  .device.desktop{ width:100%; max-width:820px; height:600px; border-radius:16px; }
+  .device.mobile{ width:360px; height:720px; border-radius:34px; border-width:6px; border-color:#1c2230; }
+  .screen{ position:relative; width:100%; height:100%; overflow:hidden; background:linear-gradient(180deg,#050810,#0a0e18); display:flex; flex-direction:column; }
+
+  .app-topbar{
+    display:flex; align-items:center; justify-content:space-between; padding:10px 14px;
+    border-bottom:1px solid var(--border); background:rgba(10,13,22,.8); flex:none;
+  }
+  .brand{display:flex; align-items:center; gap:8px; font-family:'Poppins'; font-weight:700; font-size:13px;}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,var(--a1),var(--a3));}
+  .bell{ position:relative; width:30px; height:30px; border-radius:9px; background:var(--surface); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; color:var(--text-dim); cursor:pointer; }
+  .bell svg{width:15px;height:15px;}
+  .bell .pip{position:absolute; top:-3px; right:-3px; width:9px; height:9px; border-radius:50%; background:var(--a3); border:2px solid var(--panel); display:none;}
+  .bell.has-pip .pip{display:block;}
+
+  .app-body{ padding:12px; flex:1; overflow:auto; }
+  .device.mobile .app-body{ padding:10px; }
+
+  /* ================= LIVE-STREAM SECTION ================================
+     Everything below (toast, popup overlay, split layout) is scoped to this
+     one box via `position:relative` + `overflow:hidden`. Nothing here can
+     escape into the quiz-grid list underneath or the page chrome above. */
+  .stream-section{ position:relative; border-radius:12px; overflow:hidden; border:1px solid var(--border); }
+
+  .stream-row{ display:flex; width:100%; transition:height .38s cubic-bezier(.4,0,.2,1); }
+  .device.desktop .stream-row{ height:260px; }
+  .device.mobile .stream-row{ height:190px; flex-direction:column; }
+  /* Scrolled into view -> expand to the maximum height the app-body has to
+     offer. Height itself is set inline by JS (from the real scroll
+     container's measured height), so no fixed "maximized" class/value here. */
+
+  .player{
+    position:relative; overflow:hidden; flex:1 1 100%; min-width:0; min-height:0;
+    background:
+      radial-gradient(120% 160% at 15% 0%, rgba(79,124,255,.35), transparent 55%),
+      radial-gradient(120% 160% at 85% 100%, rgba(236,72,153,.3), transparent 55%),
+      #0a0d16;
+    display:flex; align-items:center; justify-content:center;
+    transition:flex-basis .38s cubic-bezier(.4,0,.2,1);
+  }
+  .stream-section.split .player{ flex:1 1 60%; }
+  .device.mobile .stream-section.split .player{ flex:0 0 46%; }
+
+  .player .badge-live{
+    position:absolute; top:10px; left:10px; display:flex; align-items:center; gap:6px;
+    background:rgba(0,0,0,.55); backdrop-filter:blur(6px); padding:5px 9px 5px 7px; border-radius:999px;
+    font-size:11px; font-weight:700; letter-spacing:.03em;
+  }
+  .player .badge-live .rec{width:7px;height:7px;border-radius:50%;background:var(--danger); animation:pulse 1.6s infinite;}
+  .player .viewers{
+    position:absolute; top:10px; right:10px; background:rgba(0,0,0,.55); backdrop-filter:blur(6px);
+    padding:5px 9px; border-radius:999px; font-size:11px; color:var(--text-dim); display:flex; gap:5px; align-items:center;
+  }
+  .playicon{ width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25);
+    display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px); flex:none; }
+  .playicon svg{ width:18px; height:18px; margin-left:3px; fill:#fff; }
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .section-label{ font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-faint); font-weight:700; margin:16px 2px 8px; }
+  .quiz-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:9px; }
+  .device.mobile .quiz-grid{ grid-template-columns:1fr; }
+  .quiz-card{ position:relative; background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:11px; }
+  .quiz-card .qtitle{ font-size:12.5px; font-weight:600; margin-bottom:4px; padding-right:70px; }
+  .quiz-card .qmeta{ font-size:11px; color:var(--text-faint); }
+
+  .qstatus{
+    position:absolute; top:10px; right:10px; display:flex; align-items:center; gap:4px;
+    font-size:9.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase;
+    padding:3px 7px 3px 6px; border-radius:999px; line-height:1.5;
+  }
+  .qstatus .qdot{ width:6px; height:6px; border-radius:50%; flex:none; }
+  .qstatus.active{ background:var(--live-bg); color:var(--live); }
+  .qstatus.active .qdot{ background:var(--live); animation:pulse 1.6s infinite; }
+  .qstatus.answered{ background:rgba(79,124,255,.14); color:var(--a1); }
+  .qstatus.answered .qdot{ background:var(--a1); }
+  .qstatus.missed{ background:rgba(240,87,93,.13); color:var(--danger); }
+  .qstatus.missed .qdot{ background:var(--danger); }
+
+  /* toast — confined to the stream-section box, never over the quiz list */
+  .toast{
+    position:absolute; left:10px; right:10px; top:10px; z-index:40;
+    background:linear-gradient(135deg, rgba(79,124,255,.22), rgba(236,72,153,.18)), var(--surface-2);
+    border:1px solid var(--border-strong); border-radius:13px; padding:11px 12px;
+    display:flex; align-items:center; gap:10px; cursor:pointer; box-shadow:0 14px 34px -10px rgba(0,0,0,.6);
+    transform:translateY(-140%); opacity:0; transition:transform .45s cubic-bezier(.2,.9,.3,1.2), opacity .3s;
+  }
+  .toast.show{ transform:translateY(0); opacity:1; }
+  .toast .ticon{ flex:none; width:32px; height:32px; border-radius:9px; background:linear-gradient(135deg,var(--a1),var(--a3));
+    display:flex; align-items:center; justify-content:center; }
+  .toast .ticon svg{width:15px;height:15px;color:#fff;}
+  .toast .ttext{flex:1; min-width:0;}
+  .toast .ttitle{font-size:12.5px; font-weight:700;}
+  .toast .tsub{font-size:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .toast .tarrow{color:var(--text-faint); flex:none;}
+
+  /* popup overlay — dims/covers only the stream-section box, nothing else */
+  .quiz-pop{
+    position:absolute; inset:0; z-index:50; display:flex; align-items:center; justify-content:center;
+    background:rgba(2,4,10,0); pointer-events:none; transition:background .3s; padding:16px;
+  }
+  .quiz-pop.open{ background:rgba(2,4,10,.6); pointer-events:auto; }
+
+  /* the ONE quiz panel node — moved between the popup slot and the split
+     slot in JS (appendChild), so its internal state (picked option, locked,
+     timer) is never recreated and can't be lost by switching layouts. */
+  .quiz-panel{
+    background:var(--panel); border:1px solid var(--border-strong); box-shadow:var(--shadow);
+    display:flex; flex-direction:column; overflow:hidden; border-radius:14px;
+    width:340px; max-width:100%; height:100%; max-height:100%;
+    transform:scale(.92); opacity:0; transition:transform .3s cubic-bezier(.2,.9,.3,1.2), opacity .25s;
+  }
+  .quiz-pop.open .quiz-panel{ transform:scale(1); opacity:1; }
+  /* inside the split slot the panel is a normal flex child, not an overlay */
+  .split-slot .quiz-panel{ width:auto; flex:1 1 40%; min-width:0; border-radius:0; border-top:none; border-right:none; border-bottom:none; transform:none; opacity:1; }
+  .device.mobile .split-slot .quiz-panel{ border-left:none; border-top:1px solid var(--border-strong); flex:1 1 auto; }
+  .split-slot{ display:contents; }
+
+  .qp-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:11px 13px;
+    border-bottom:1px solid var(--border); flex:none; }
+  .qp-head .qp-title{ display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700; min-width:0; }
+  .qp-head .qp-title span.tt{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .qp-head .qp-title .livedot{width:7px;height:7px;border-radius:50%;background:var(--live); flex:none;}
+  .qp-actions{ display:flex; gap:6px; flex:none; }
+  .icon-btn{ width:27px; height:27px; border-radius:8px; border:1px solid var(--border-strong); background:var(--surface);
+    color:var(--text-dim); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .icon-btn:hover{ color:var(--text); background:var(--surface-2); }
+  .icon-btn.active{ color:var(--a1); border-color:var(--a1); }
+  .icon-btn svg{width:13px;height:13px;}
+
+  .qp-body{ flex:1; overflow:auto; padding:14px 13px; }
+  .qp-status{ display:flex; align-items:center; gap:6px; font-size:11.5px; font-weight:700; margin-bottom:11px; color:var(--warn); }
+  .qp-status.locked{ color:var(--good); }
+  .qp-q{ font-size:13.5px; font-weight:600; line-height:1.5; margin-bottom:12px; }
+  .qp-opt{ display:flex; align-items:center; gap:9px; padding:9px 10px; border:1px solid var(--border); border-radius:10px;
+    margin-bottom:7px; font-size:12.5px; cursor:pointer; }
+  .qp-opt:hover{ border-color:var(--border-strong); background:var(--surface); }
+  .qp-opt .radio{ width:14px; height:14px; border-radius:50%; border:2px solid var(--text-faint); flex:none; }
+  .qp-opt.picked .radio{ border-color:var(--a1); background:radial-gradient(circle,var(--a1) 40%,transparent 44%); }
+  .qp-opt.locked{ cursor:default; }
+  .qp-opt.locked.picked{ border-color:var(--good); background:rgba(18,217,153,.08); }
+  .qp-opt.locked.picked .radio{ border-color:var(--good); background:radial-gradient(circle,var(--good) 40%,transparent 44%); }
+  .qp-submit{ margin-top:4px; width:100%; border:none; padding:10px; border-radius:10px; font:inherit; font-weight:700;
+    font-size:12.5px; color:#fff; background:linear-gradient(135deg,var(--a1),var(--a2)); cursor:pointer; }
+  .qp-submit:disabled{ background:var(--surface-2); color:var(--text-faint); cursor:default; }
+
+  .dockhint{ font-size:10.5px; color:var(--text-faint); padding:8px 13px; border-top:1px solid var(--border); flex:none; }
+
+  .throwback-toast{
+    position:absolute; left:50%; bottom:14px; transform:translate(-50%,8px); z-index:60;
+    background:var(--surface-2); border:1px solid var(--border-strong); border-radius:999px;
+    padding:7px 13px; font-size:11px; font-weight:600; color:var(--text-dim); white-space:nowrap;
+    opacity:0; pointer-events:none; transition:transform .3s cubic-bezier(.2,.9,.3,1.2), opacity .3s;
+    display:flex; align-items:center; gap:6px; box-shadow:0 10px 26px -8px rgba(0,0,0,.6);
+  }
+  .throwback-toast.show{ opacity:1; transform:translate(-50%,0); }
+  .throwback-toast svg{ width:12px; height:12px; color:var(--a1); }
+
+  footer.note{ margin-top:26px; padding-top:16px; border-top:1px solid var(--border); font-size:12.5px; color:var(--text-faint); }
+  footer.note b{ color:var(--text-dim); }
+  footer.note code{ background:var(--surface); padding:1px 5px; border-radius:5px; }
+</style>
+
+<div class="wrap">
+  <div class="intro">
+    <div class="eyebrow">Interaction prototype</div>
+    <h1>Push a quiz into the live stream</h1>
+    <p><b>Simulate admin push</b> → tap the toast → answer → lock it in → watch its card below flip from Active to Answered. Try split view (now fixed: close actually closes it from split too), and scroll the app body all the way down — it snaps back to the stream, up to 3 times, then leaves you at the bottom on the 4th try.</p>
+  </div>
+
+  <div class="controls">
+    <div class="seg" id="deviceSeg">
+      <button data-device="desktop" class="active">Desktop</button>
+      <button data-device="mobile">Mobile</button>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button class="reset-btn" id="resetBtn">Reset</button>
+      <button class="push-btn" id="pushBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+        Simulate admin push
+      </button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="device desktop" id="device">
+      <div class="screen">
+        <div class="app-topbar">
+          <div class="brand"><span class="dot"></span>1Think2Win</div>
+          <div class="bell" id="bell" title="Notifications">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+            <span class="pip"></span>
+          </div>
+        </div>
+
+        <div class="app-body" id="appBody">
+          <!-- ===== everything split/popup/toast-related lives inside here ===== -->
+          <div class="stream-section" id="streamSection">
+            <div class="stream-row" id="streamRow">
+              <div class="player" id="player">
+                <div class="badge-live"><span class="rec"></span>LIVE</div>
+                <div class="viewers">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+                  <span class="num">2,481</span>
+                </div>
+                <div class="playicon"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+              </div>
+              <div class="split-slot" id="splitSlot"></div>
+            </div>
+
+            <div class="toast" id="toast">
+              <div class="ticon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div>
+              <div class="ttext">
+                <div class="ttitle">New quiz just dropped</div>
+                <div class="tsub">Cricket Trivia — Match Day · tap to play</div>
+              </div>
+              <div class="tarrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m9 18 6-6-6-6"/></svg>
+              </div>
+            </div>
+
+            <div class="quiz-pop" id="quizPop"></div>
+
+            <div class="throwback-toast" id="throwbackToast">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <span id="throwbackText">Back to the stream (1/3)</span>
+            </div>
+          </div>
+          <!-- ===== end live-stream section ===== -->
+
+          <div class="section-label">Today's quizzes — pushed by admin</div>
+          <div class="quiz-grid" id="quizGrid">
+            <div class="quiz-card" data-quiz="cricket">
+              <span class="qstatus active" id="cricketStatus"><span class="qdot"></span><span class="qlabel">Active</span></span>
+              <div class="qtitle">Cricket Trivia — Match Day</div><div class="qmeta">10 questions · 5 min</div>
+            </div>
+            <div class="quiz-card" data-quiz="squad">
+              <span class="qstatus missed"><span class="qdot"></span><span class="qlabel">Missed</span></span>
+              <div class="qtitle">Squad Knowledge</div><div class="qmeta">8 questions · 4 min</div>
+            </div>
+            <div class="quiz-card" data-quiz="bowling">
+              <span class="qstatus answered"><span class="qdot"></span><span class="qlabel">Answered</span></span>
+              <div class="qtitle">Bowling Records</div><div class="qmeta">6 questions · 3 min</div>
+            </div>
+            <div class="quiz-card" data-quiz="worldcup">
+              <span class="qstatus active"><span class="qdot"></span><span class="qlabel">Active</span></span>
+              <div class="qtitle">World Cup History</div><div class="qmeta">12 questions · 6 min</div>
+            </div>
+            <div class="quiz-card" data-quiz="fielding">
+              <span class="qstatus missed"><span class="qdot"></span><span class="qlabel">Missed</span></span>
+              <div class="qtitle">Fielding Legends</div><div class="qmeta">7 questions · 4 min</div>
+            </div>
+            <div class="quiz-card" data-quiz="rivalries">
+              <span class="qstatus answered"><span class="qdot"></span><span class="qlabel">Answered</span></span>
+              <div class="qtitle">Rivalries &amp; Records</div><div class="qmeta">9 questions · 5 min</div>
+            </div>
+          </div>
+          <p style="font-size:11px;color:var(--text-faint);text-align:center;margin:14px 0 0;">— keep scrolling down: the throwback kicks in below —</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- template for the quiz panel node itself; JS clones this once and moves the one instance between slots -->
+  <template id="quizPanelTpl">
+    <div class="quiz-panel" id="quizPanel">
+      <div class="qp-head">
+        <div class="qp-title"><span class="livedot"></span><span class="tt">Cricket Trivia — Match Day</span></div>
+        <div class="qp-actions">
+          <button class="icon-btn" id="splitBtn" title="Split view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
+          </button>
+          <button class="icon-btn" id="closeBtn" title="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="qp-body">
+        <div class="qp-status" id="qpStatus">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+          <span id="timerText">00:28 left on this question</span>
+        </div>
+        <div class="qp-q">Who has scored the most runs in T20 World Cup history?</div>
+        <div class="qp-opt" data-opt="0"><span class="radio"></span>Virat Kohli</div>
+        <div class="qp-opt" data-opt="1"><span class="radio"></span>Rohit Sharma</div>
+        <div class="qp-opt" data-opt="2"><span class="radio"></span>Babar Azam</div>
+        <div class="qp-opt" data-opt="3"><span class="radio"></span>Mahmudullah</div>
+        <button class="qp-submit" id="submitBtn">Lock in answer</button>
+      </div>
+      <div class="dockhint" id="dockHint">Popup mode: the quiz floats above the stream.</div>
+    </div>
+  </template>
+
+  <footer class="note">
+    <b>Behind this prototype:</b> the quiz panel is a single DOM node moved between the popup overlay and the split slot with <code>appendChild</code> — it's never destroyed or rebuilt, so the selected option, the lock state and the timer survive every open/close/split toggle. Closing from split mode used to only strip a CSS class and leave the node sitting in a <code>display:contents</code> slot (which always renders its child) — fixed by always re-parenting the node back into the popup slot on close. Card status (<code>Active</code> / <code>Answered</code> / <code>Missed</code>) reads from the same <code>state.locked</code> the quiz panel already tracks — locking in an answer updates the Cricket Trivia card immediately, no separate source of truth. The bottom "throwback" uses an edge-triggered scroll check (fires once per arrival at the bottom, not once per scroll event while sitting there) with a capped counter, so it can't loop.
+  </footer>
+</div>
+
+<script>
+(function(){
+  const device = document.getElementById('device');
+  const deviceSeg = document.getElementById('deviceSeg');
+  const pushBtn = document.getElementById('pushBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const toast = document.getElementById('toast');
+  const bell = document.getElementById('bell');
+  const streamSection = document.getElementById('streamSection');
+  const streamRow = document.getElementById('streamRow');
+  const appBody = document.getElementById('appBody');
+  const quizPop = document.getElementById('quizPop');
+  const splitSlot = document.getElementById('splitSlot');
+  const tpl = document.getElementById('quizPanelTpl');
+  const cricketStatus = document.getElementById('cricketStatus');
+  const throwbackToast = document.getElementById('throwbackToast');
+  const throwbackText = document.getElementById('throwbackText');
+
+  // The one persistent quiz-panel node. Built once; moved, never recreated.
+  const panel = tpl.content.firstElementChild.cloneNode(true);
+  const splitBtn = panel.querySelector('#splitBtn');
+  const closeBtn = panel.querySelector('#closeBtn');
+  const submitBtn = panel.querySelector('#submitBtn');
+  const qpStatus = panel.querySelector('#qpStatus');
+  const timerText = panel.querySelector('#timerText');
+  const dockHint = panel.querySelector('#dockHint');
+  const opts = Array.from(panel.querySelectorAll('.qp-opt'));
+
+  // State lives here, independent of where the node is mounted.
+  const state = { view: 'closed', pushed: false, picked: null, locked: false, seconds: 28 };
+  let timerInterval = null;
+
+  function setCardStatus(status){
+    cricketStatus.classList.remove('active','answered','missed');
+    cricketStatus.classList.add(status);
+    cricketStatus.querySelector('.qlabel').textContent =
+      status === 'active' ? 'Active' : status === 'answered' ? 'Answered' : 'Missed';
+  }
+
+  function render(){
+    // options
+    opts.forEach(o => {
+      const isPicked = state.picked === o.dataset.opt;
+      o.classList.toggle('picked', isPicked);
+      o.classList.toggle('locked', state.locked);
+    });
+    // status line
+    if (state.locked){
+      qpStatus.classList.add('locked');
+      timerText.textContent = 'Answer locked in — waiting for the admin to reveal results';
+    } else {
+      qpStatus.classList.remove('locked');
+      timerText.textContent = '00:' + String(state.seconds).padStart(2,'0') + ' left on this question';
+    }
+    // submit button
+    submitBtn.disabled = state.locked || state.picked === null;
+    submitBtn.textContent = state.locked ? 'Answer locked in ✓' : 'Lock in answer';
+    // split/popup icon + hint
+    const isSplit = state.view === 'split';
+    splitBtn.classList.toggle('active', isSplit);
+    splitBtn.title = isSplit ? 'Back to popup' : 'Split view';
+    dockHint.textContent = isSplit
+      ? 'Split view: the stream keeps playing beside the quiz.'
+      : 'Popup mode: the quiz floats above the stream.';
+    // today's-quizzes card status — same source of truth as the panel itself
+    if (state.pushed) setCardStatus(state.locked ? 'answered' : 'active');
+  }
+
+  function startTimer(){
+    clearInterval(timerInterval);
+    if (state.locked) return;
+    timerInterval = setInterval(() => {
+      if (state.locked){ clearInterval(timerInterval); return; }
+      state.seconds -= 1;
+      if (state.seconds <= 0) state.seconds = 28;
+      render();
+    }, 1000);
+  }
+
+  function mountPopup(){
+    quizPop.appendChild(panel);
+    streamSection.classList.remove('split');
+    quizPop.classList.add('open');
+  }
+  function mountSplit(){
+    splitSlot.appendChild(panel);
+    streamSection.classList.add('split');
+    quizPop.classList.remove('open');
+  }
+  function unmount(){
+    // BUG FIX: closing from split mode used to only strip the 'split' class
+    // and leave the panel node sitting inside splitSlot. splitSlot is
+    // `display:contents` (always renders its child), so the quiz stayed
+    // visible in the row and the close button appeared to do nothing.
+    // Always re-parent the node back into quizPop (which IS properly hidden
+    // when it lacks .open) before dropping the split/open state.
+    quizPop.appendChild(panel);
+    streamSection.classList.remove('split');
+    quizPop.classList.remove('open');
+    // Node stays in the DOM (inside the now-closed quizPop) so state never
+    // resets — reopening shows exactly what was left.
+  }
+
+  function open(view){
+    state.view = view || 'popup';
+    if (state.view === 'split') mountSplit(); else mountPopup();
+    render();
+    startTimer();
+  }
+
+  function setDevice(kind){
+    device.classList.remove('desktop','mobile');
+    device.classList.add(kind);
+    deviceSeg.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.device === kind));
+    // Switching device size changes app-body's height; re-measure next frame.
+    requestAnimationFrame(applyMaximizeState);
+  }
+  deviceSeg.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-device]');
+    if (!btn) return;
+    setDevice(btn.dataset.device);
+  });
+
+  // ---- Scroll-to-maximize: the live-stream section grows to fill the
+  // scroll container's own visible height while it's (mostly) in view, and
+  // relaxes back to a resting height once the viewer scrolls past it toward
+  // the quiz list. Height is measured from the real container, not guessed,
+  // so it stays correct across the desktop/mobile mock and window resizes.
+  let isMaximized = true;
+  function applyMaximizeState(){
+    if (isMaximized){
+      const restBuffer = 18; // breathing room so the section-label peeks in
+      streamRow.style.height = Math.max(220, appBody.clientHeight - restBuffer) + 'px';
+    } else {
+      streamRow.style.height = '';
+    }
+  }
+  const maximizeObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      isMaximized = entry.intersectionRatio > 0.55;
+      applyMaximizeState();
+    });
+  }, { root: appBody, threshold: [0, 0.25, 0.55, 0.85, 1] });
+  maximizeObserver.observe(streamSection);
+  window.addEventListener('resize', () => requestAnimationFrame(applyMaximizeState));
+
+  // ---- Bottom throwback: edge-triggered (fires once per arrival at the
+  // bottom, not once per 'scroll' event while sitting there), capped at 3.
+  // BUG this replaces: the old version re-checked "am I at the bottom?" on
+  // every scroll tick, and since programmatically scrolling back to the top
+  // itself fires more 'scroll' events, a naive check could re-arm and fire
+  // again before the user had even let go - looked like it "triggered
+  // repeatedly". Fix: track whether we're already AT the bottom (wasAtBottom)
+  // and only act on the false->true transition, and ignore scroll events
+  // that happen while we're mid-throwback (isThrowingBack).
+  const THROWBACK_LIMIT = 3;
+  let throwbackCount = 0;
+  let wasAtBottom = false;
+  let isThrowingBack = false;
+  let throwbackToastTimer = null;
+
+  function showThrowbackToast(n){
+    clearTimeout(throwbackToastTimer);
+    throwbackText.textContent = 'Back to the stream (' + n + '/' + THROWBACK_LIMIT + ')';
+    throwbackToast.classList.add('show');
+    throwbackToastTimer = setTimeout(() => throwbackToast.classList.remove('show'), 2200);
+  }
+
+  appBody.addEventListener('scroll', () => {
+    if (isThrowingBack) return; // ignore the scroll events our own animation generates
+
+    const distanceFromBottom = appBody.scrollHeight - appBody.scrollTop - appBody.clientHeight;
+    const atBottom = distanceFromBottom < 4;
+
+    if (atBottom && !wasAtBottom){
+      // Rising edge: this is the moment the user ARRIVED at the bottom, not
+      // a repeat while they stay there.
+      wasAtBottom = true;
+      if (throwbackCount < THROWBACK_LIMIT){
+        throwbackCount += 1;
+        isThrowingBack = true;
+        showThrowbackToast(throwbackCount);
+        appBody.scrollTo({ top: 0, behavior: 'smooth' });
+        // Scroll-end isn't reliably supported everywhere; release the guard
+        // after the smooth-scroll's rough duration instead of polling it.
+        setTimeout(() => { isThrowingBack = false; wasAtBottom = false; }, 650);
+      }
+      // At/after the limit: do nothing - let them stay at the bottom.
+    } else if (!atBottom){
+      wasAtBottom = false; // re-arm for the next time they reach bottom
+    }
+  }, { passive: true });
+
+  function reset(){
+    pushBtn.disabled = false;
+    toast.classList.remove('show');
+    bell.classList.remove('has-pip');
+    state.view = 'closed'; state.pushed = false; state.picked = null; state.locked = false; state.seconds = 28;
+    unmount();
+    clearInterval(timerInterval);
+    setCardStatus('active');
+    throwbackCount = 0; wasAtBottom = false; isThrowingBack = false;
+    render();
+  }
+  resetBtn.addEventListener('click', reset);
+
+  pushBtn.addEventListener('click', () => {
+    pushBtn.disabled = true;
+    state.pushed = true;
+    toast.classList.add('show');
+    bell.classList.add('has-pip');
+    setCardStatus('active');
+    setTimeout(() => { if (state.view === 'closed') toast.classList.remove('show'); }, 6000);
+  });
+
+  toast.addEventListener('click', () => {
+    toast.classList.remove('show');
+    open('popup');
+  });
+
+  bell.addEventListener('click', () => {
+    if (!state.pushed) return;
+    bell.classList.remove('has-pip');
+    if (state.view === 'closed') open('popup');
+  });
+
+  closeBtn.addEventListener('click', () => {
+    state.view = 'closed';
+    unmount();
+    clearInterval(timerInterval);
+  });
+
+  splitBtn.addEventListener('click', () => {
+    open(state.view === 'split' ? 'popup' : 'split');
+  });
+
+  submitBtn.addEventListener('click', () => {
+    if (state.picked === null || state.locked) return;
+    state.locked = true;
+    clearInterval(timerInterval);
+    render();
+  });
+
+  opts.forEach(opt => {
+    opt.addEventListener('click', () => {
+      if (state.locked) return;
+      state.picked = opt.dataset.opt;
+      render();
+    });
+  });
+
+  render();
+  applyMaximizeState(); // start maximized: the stream section is in view on load
+})();
+</script>
+
+</body></html>

@@ -1,7 +1,7 @@
 'use client';
 
 import { lazy, Suspense, useState, useEffect, useRef } from 'react';
-import { Loader2, Play } from 'lucide-react';
+import { Loader2, Play, Radio } from 'lucide-react';
 
 // Lazy load the StreamPlayer component
 const StreamPlayer = lazy(() => import('./StreamPlayer'));
@@ -13,15 +13,16 @@ interface LazyStreamPlayerProps {
   onError?: (error: string) => void;
   onMetrics?: (metrics: unknown) => void;
   placeholder?: React.ReactNode;
+  fullscreenTargetId?: string;
 }
 
 // Loading fallback component
 function StreamPlayerSkeleton() {
   return (
-    <div className="yt-player-frame bg-gray-900 flex items-center justify-center">
+    <div className="yt-player-frame relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 flex items-center justify-center">
       <div className="text-center text-white">
-        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-        <p className="text-sm">Loading stream player...</p>
+        <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-400" />
+        <p className="text-sm text-gray-300">Loading stream player...</p>
       </div>
     </div>
   );
@@ -30,18 +31,37 @@ function StreamPlayerSkeleton() {
 // Placeholder component for when stream is not loaded
 function StreamPlaceholder({ onLoadStream }: { onLoadStream: () => void }) {
   return (
-    <div className="yt-player-frame bg-gradient-to-br from-blue-900 to-purple-900 flex items-center justify-center">
-      <div className="text-center text-white p-8">
-        <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
-          <Play className="w-8 h-8 ml-1" />
-        </div>
-        <h3 className="text-lg font-semibold mb-2">Live Stream Available</h3>
-        <p className="text-sm text-gray-300 mb-4">
-          Watch live content while taking the quiz
+    <div className="yt-player-frame relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 via-purple-950/40 to-gray-900/90 flex items-center justify-center">
+      {/* Ambient glow, matching the app's other glass cards */}
+      <div className="absolute inset-0 bg-[radial-gradient(120%_140%_at_15%_0%,rgba(147,51,234,0.18),transparent_55%),radial-gradient(120%_140%_at_85%_100%,rgba(59,130,246,0.16),transparent_55%)]" />
+
+      {/* LIVE indicator, top-left — same pulsing-dot language as the rest of the app */}
+      <div className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm border border-white/10">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+        </span>
+        <span className="text-[10px] font-bold uppercase tracking-wide text-white">Live</span>
+      </div>
+
+      <div className="relative text-center text-white p-8">
+        <button
+          onClick={onLoadStream}
+          aria-label="Load stream"
+          className="group w-16 h-16 mx-auto mb-4 rounded-full bg-white/10 border border-white/20 flex items-center justify-center backdrop-blur-sm hover:bg-white/20 hover:scale-105 transition-all duration-200"
+        >
+          <Play className="w-7 h-7 ml-1 group-hover:scale-110 transition-transform" />
+        </button>
+        <h3 className="text-lg font-bold mb-1.5 flex items-center justify-center gap-2">
+          <Radio className="w-4 h-4 text-purple-400" />
+          Live Stream Available
+        </h3>
+        <p className="text-sm text-gray-400 mb-5">
+          Watch live while you take the quiz — the admin can push new quizzes to you here.
         </p>
         <button
           onClick={onLoadStream}
-          className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors font-medium"
+          className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 hover:shadow-lg hover:shadow-purple-500/25 transition-all duration-200 font-semibold"
         >
           Load Stream
         </button>
@@ -55,6 +75,7 @@ export default function LazyStreamPlayer({
   autoPlay = false,
   onError,
   placeholder,
+  fullscreenTargetId,
 }: LazyStreamPlayerProps) {
   const [shouldLoad, setShouldLoad] = useState(autoPlay);
   const [hasStreamAvailable, setHasStreamAvailable] = useState<boolean | null>(null);
@@ -125,8 +146,8 @@ export default function LazyStreamPlayer({
   if (hasStreamAvailable === null) {
     return (
         <div ref={containerRef} className={`yt-responsive-player ${className}`}>
-        <div className="yt-player-frame bg-gray-800 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <div className="yt-player-frame rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
         </div>
       </div>
     );
@@ -139,6 +160,7 @@ export default function LazyStreamPlayer({
           <StreamPlayer
             className="yt-responsive-player"
             onError={handleStreamError}
+            fullscreenTargetId={fullscreenTargetId}
           />
         </Suspense>
       ) : (

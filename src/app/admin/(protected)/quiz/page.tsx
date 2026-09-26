@@ -12,6 +12,7 @@ import {
     Trash2,
     Play,
     Pause,
+    Zap,
     Eye,
     Users,
     HelpCircle,
@@ -22,7 +23,7 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import { DynamicQuizFormBuilder } from '@/components/admin/DynamicAdminComponents';
-import { publishQuiz, pauseQuiz, deleteQuiz } from '@/actions/quiz-actions';
+import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive } from '@/actions/quiz-actions';
 import { createClient } from '@/lib/supabase/client';
 
 // ============================================
@@ -36,6 +37,7 @@ interface Quiz {
     passingScore: number;
     status: 'draft' | 'active' | 'paused' | 'scheduled';
     startsAt?: string | null;
+    pushedAt?: string | null;
     createdAt: string;
     updatedAt: string;
     _count?: {
@@ -187,6 +189,18 @@ export default function AdminQuizManagementPage() {
         if (result.success) {
             toast.success(result.message);
             // Realtime UPDATE event will trigger re-fetch
+        } else {
+            toast.error(result.error);
+        }
+        setActionMenuOpen(null);
+    };
+
+    const handlePush = async (id: string) => {
+        const result = await pushQuizLive(id);
+        if (result.success) {
+            toast.success(result.message);
+            // Realtime UPDATE event will trigger re-fetch here; on /quizzes it
+            // triggers the live toast/popup for anyone watching the stream.
         } else {
             toast.error(result.error);
         }
@@ -664,13 +678,22 @@ export default function AdminQuizManagementPage() {
                                                                 Publish
                                                             </button>
                                                         ) : (
-                                                            <button
-                                                                onClick={() => handlePause(quiz.id)}
-                                                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-yellow-400 hover:bg-white/10 transition-colors"
-                                                            >
-                                                                <Pause className="w-4 h-4" />
-                                                                Pause
-                                                            </button>
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handlePush(quiz.id)}
+                                                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-pink-400 hover:bg-white/10 transition-colors"
+                                                                >
+                                                                    <Zap className="w-4 h-4" />
+                                                                    Push to live viewers
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handlePause(quiz.id)}
+                                                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-yellow-400 hover:bg-white/10 transition-colors"
+                                                                >
+                                                                    <Pause className="w-4 h-4" />
+                                                                    Pause
+                                                                </button>
+                                                            </>
                                                         )}
                                                         <div className="border-t border-white/10 my-1" />
                                                         <button

@@ -68,6 +68,7 @@ export interface Database {
                     accessPrice: number
                     status: string
                     startsAt: string | null
+                    pushedAt: string | null
                     prizeId: string | null
                     isBumperPrize: boolean
                     quizType: string
@@ -83,6 +84,7 @@ export interface Database {
                     accessPrice?: number
                     status?: string
                     startsAt?: string | null
+                    pushedAt?: string | null
                     prizeId?: string | null
                     isBumperPrize?: boolean
                     quizType?: string
@@ -98,6 +100,7 @@ export interface Database {
                     accessPrice?: number
                     status?: string
                     startsAt?: string | null
+                    pushedAt?: string | null
                     prizeId?: string | null
                     isBumperPrize?: boolean
                     quizType?: string

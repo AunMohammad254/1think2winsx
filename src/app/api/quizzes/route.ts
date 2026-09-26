@@ -94,6 +94,16 @@ export async function GET(request: NextRequest) {
       const newQuestionsCount = quiz.questions.filter(q => !answered?.has(q.id)).length;
       const isCompleted = !!attempt;
       const hasNewQuestions = isCompleted && newQuestionsCount > 0;
+      // Admin-push status shown on "Today's quizzes": only quizzes that have
+      // actually been pushed get a badge at all. Answered beats Active beats
+      // Missed (a quiz still open stays "Active" even if pushed a while ago).
+      const pushStatus: 'active' | 'answered' | 'missed' | null = !quiz.pushedAt
+        ? null
+        : isCompleted
+          ? 'answered'
+          : quiz.status === 'active'
+            ? 'active'
+            : 'missed';
       return {
         id: quiz.id,
         title: quiz.title,
@@ -108,6 +118,8 @@ export async function GET(request: NextRequest) {
         hasNewQuestions,
         newQuestionsCount: hasNewQuestions ? newQuestionsCount : 0,
         lastAttemptDate: attempt?.completedAt ? new Date(attempt.completedAt) : null,
+        pushedAt: quiz.pushedAt ? new Date(quiz.pushedAt) : null,
+        pushStatus,
         createdAt: new Date(quiz.createdAt),
         updatedAt: new Date(quiz.updatedAt),
         questions: hasAccess ? quiz.questions : [],

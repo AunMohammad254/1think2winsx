@@ -22,6 +22,7 @@ export interface CatalogQuiz {
   quizType: string;
   isBumperPrize: boolean;
   startsAt: string | null;
+  pushedAt: string | null;
   createdAt: string;
   updatedAt: string;
   questions: CatalogQuestion[];
@@ -41,7 +42,7 @@ async function load(): Promise<CatalogQuiz[]> {
   const db = getAdminDb();
   const { data: quizzes, error } = await db
     .from('Quiz')
-    .select('id, title, description, duration, passingScore, status, accessPrice, quizType, isBumperPrize, startsAt, createdAt, updatedAt')
+    .select('id, title, description, duration, passingScore, status, accessPrice, quizType, isBumperPrize, startsAt, pushedAt, createdAt, updatedAt')
     .eq('status', 'active')
     .order('createdAt', { ascending: false });
   if (error) throw error;
