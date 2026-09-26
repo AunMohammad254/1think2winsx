@@ -33,6 +33,7 @@ interface Quiz {
   lastAttemptDate?: string;
   score?: number;
   attemptCount?: number;
+  totalAttempts?: number;
 }
 
 interface PaymentInfo {
@@ -108,9 +109,12 @@ export default function QuizzesPage() {
     if (realtimeDebounceRef.current) {
       clearTimeout(realtimeDebounceRef.current);
     }
+    // Spread re-fetches over 2-15 s: a single admin edit is broadcast to every
+    // connected player at once, and a fixed 500 ms delay turned it into a
+    // synchronized stampede of thousands of simultaneous /api/quizzes calls.
     realtimeDebounceRef.current = setTimeout(() => {
       fetchQuizzesData(true);
-    }, 500);
+    }, 2000 + Math.random() * 13000);
   }, [fetchQuizzesData]);
 
   // Redirect to login if not authenticated, and check wallet feature flag
@@ -122,18 +126,18 @@ export default function QuizzesPage() {
       return;
     }
 
-    // Check wallet feature flag first — if disabled, quizzes are unavailable
+    // Check wallet feature flag — disabled means quizzes are free, not blocked
+    // (the server already grants free access via /api/quizzes' hasAccess when
+    // the wallet is off; this flag only controls whether the payment UI shows).
     fetch('/api/settings/wallet-enabled')
       .then(r => r.json())
       .then((d: { walletEnabled: boolean }) => {
         setWalletEnabled(d.walletEnabled);
-        if (d.walletEnabled) {
-          fetchQuizzesData();
-        }
       })
       .catch(() => {
-        // If flag check fails, default to enabled to avoid locking users out
         setWalletEnabled(true);
+      })
+      .finally(() => {
         fetchQuizzesData();
       });
   }, [user, isLoading, router, fetchQuizzesData]);
@@ -329,24 +333,6 @@ export default function QuizzesPage() {
     );
   }
 
-  // Wallet disabled — quizzes entirely unavailable
-  if (!walletEnabled) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center px-4">
-        <div className="max-w-md w-full text-center">
-          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-3xl border border-white/10 p-12">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-700/40 flex items-center justify-center">
-              <Clock className="w-10 h-10 text-gray-400" />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-3">Quizzes Unavailable</h2>
-            <p className="text-gray-400">
-              Quiz access is currently unavailable. Please check back later.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
@@ -475,7 +461,7 @@ export default function QuizzesPage() {
                 description={quiz.description}
                 duration={quiz.duration}
                 questionCount={quiz.questionCount}
-                attemptCount={quiz.attemptCount}
+                attemptCount={quiz.attemptCount ?? quiz.totalAttempts}
                 difficulty="medium"
                 status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : (quiz.status as any)}
                 hasAccess={hasAccess}

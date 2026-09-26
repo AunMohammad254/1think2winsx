@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, prizeRedemptionDb, userDb } from '@/lib/supabase/db';
+import { getAdminDb, prizeRedemptionDb, userDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Try RPC first
     try {
@@ -189,7 +189,7 @@ export async function PUT(request: NextRequest) {
     const { claimId, status, notes } = validationResult.data;
 
     // Get database client
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Try using the unified update_claim_status RPC function first
     try {

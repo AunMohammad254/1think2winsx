@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ArrowLeft, Wallet } from 'lucide-react';
 import { requireAdminSession } from '@/lib/admin-session';
 import { DynamicWalletTransactionsManager } from '@/components/admin/DynamicAdminComponents';
+import WalletFeatureToggle from '@/components/admin/WalletFeatureToggle';
 
 async function checkAuth() {
     // Require valid admin session (validates token in database)
@@ -39,6 +40,7 @@ export default async function AdminWalletPage() {
 
             {/* Main Content */}
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <WalletFeatureToggle />
                 <DynamicWalletTransactionsManager />
             </main>
         </div>

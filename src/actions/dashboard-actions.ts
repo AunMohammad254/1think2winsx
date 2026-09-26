@@ -1,6 +1,8 @@
 'use server';
 
-import { getDb } from '@/lib/supabase/db';
+import { adminActionGuard, assertAdmin } from '@/lib/admin-guard';
+
+import { getAdminDb } from '@/lib/supabase/db';
 import { quizDb, questionDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 
@@ -72,7 +74,8 @@ type ActionResult<T = undefined> =
  * Get all dashboard statistics in a single optimized call
  */
 export async function getDashboardStats(): Promise<DashboardStats> {
-    const supabase = await getDb();
+    await assertAdmin();
+    const supabase = getAdminDb();
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     // Run all counts in parallel for efficiency
@@ -146,7 +149,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
  * Get recent activity feed (quiz attempts and user signups)
  */
 export async function getRecentActivity(limit: number = 10): Promise<RecentActivity[]> {
-    const supabase = await getDb();
+    await assertAdmin();
+    const supabase = getAdminDb();
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
     // Get recent quiz attempts with user and quiz info
@@ -231,6 +235,7 @@ export async function getQuizzes(options: {
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
 }): Promise<PaginatedQuizzes> {
+    await assertAdmin();
     const {
         page = 1,
         pageSize = 10,
@@ -240,7 +245,7 @@ export async function getQuizzes(options: {
         sortOrder = 'desc',
     } = options;
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Build the query
     let query = supabase.from('Quiz').select('*', { count: 'exact' });
@@ -317,6 +322,8 @@ export async function toggleQuizStatus(
     quizId: string,
     newStatus: 'draft' | 'active' | 'paused'
 ): Promise<ActionResult<{ status: string }>> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // If publishing, check for questions
         if (newStatus === 'active') {
@@ -352,7 +359,8 @@ export async function toggleQuizStatus(
  * Get a single quiz with full details
  */
 export async function getQuizById(quizId: string) {
-    const supabase = await getDb();
+    await assertAdmin();
+    const supabase = getAdminDb();
 
     const { data: quiz, error: quizError } = await supabase
         .from('Quiz')

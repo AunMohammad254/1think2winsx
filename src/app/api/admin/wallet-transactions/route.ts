@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
-import { getDb, notificationDb } from '@/lib/supabase/db';
+import { getAdminDb, notificationDb } from '@/lib/supabase/db';
 import { TransactionStatus, PaymentMethod } from '@/types/wallet';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { isWalletEnabled } from '@/lib/wallet/service';
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
         const limit = parseInt(searchParams.get('limit') || '50');
         const offset = (page - 1) * limit;
 
-        const supabase = await getDb();
+        const supabase = getAdminDb();
 
         // Try RPC first
         try {
@@ -128,7 +128,7 @@ export async function PATCH(request: NextRequest) {
             return NextResponse.json({ error: 'Invalid action. Must be "approve" or "reject"' }, { status: 400 });
         }
 
-        const supabase = await getDb();
+        const supabase = getAdminDb();
 
         // Try RPC first for approval (which needs atomic balance update)
         if (action === 'approve') {

@@ -28,7 +28,6 @@ export {
 export { quizWinnerDb } from './winner.db'
 export {
     adminSessionDb,
-    rateLimitDb,
     securityEventDb
 } from './admin.db'
 export { streamConfigDb } from './stream.db'
@@ -40,7 +39,7 @@ import { userDb } from './user.db'
 import { quizDb, questionDb, quizAttemptDb, answerDb } from './quiz.db'
 import { walletTransactionDb, dailyPaymentDb } from './wallet.db'
 import { prizeDb, prizeRedemptionDb } from './prize.db'
-import { adminSessionDb, rateLimitDb, securityEventDb } from './admin.db'
+import { adminSessionDb, securityEventDb } from './admin.db'
 import { streamConfigDb } from './stream.db'
 import { notificationDb } from './notification.db'
 import { newsletterDb } from './newsletter.db'
@@ -57,7 +56,6 @@ export const db = {
     prizeRedemption: prizeRedemptionDb,
     quizWinner: quizWinnerDb,
     adminSession: adminSessionDb,
-    rateLimit: rateLimitDb,
     securityEvent: securityEventDb,
     dailyPayment: dailyPaymentDb,
     streamConfig: streamConfigDb,

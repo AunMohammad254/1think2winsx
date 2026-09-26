@@ -78,6 +78,9 @@ export class SecurityLogger {
    * Log security events with structured data
    */
   logSecurityEvent(event: SecurityEvent): void {
+    // Success/info events fire on every request; logging them floods stdout under load.
+    if (this.getSeverityLevel(event.type) === 'info' && process.env.NODE_ENV === 'production') return;
+
     const logEntry = {
       ...event,
       severity: this.getSeverityLevel(event.type),
@@ -187,7 +190,7 @@ async function validateCSRFTokenForApiRoute(request: { method?: string; headers:
         environment,
         timestamp: new Date().toISOString(),
         ...requestMetadata,
-        details: { headers: request.headers }
+        details: { method: request.method }
       });
 
       return {
@@ -266,6 +269,25 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
   const requestMetadata = extractRequestMetadata(request);
 
   try {
+    // Real CSRF defence: browsers always send Origin on cross-site POST/PUT/PATCH/DELETE.
+    // Reject when it doesn't match the host we are serving.
+    const origin = request.headers.get('origin');
+    if (origin) {
+      const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+      let originHost: string | null = null;
+      try { originHost = new URL(origin).host; } catch { originHost = null; }
+      if (!host || originHost !== host) {
+        securityLogger.logSecurityEvent({
+          type: SecurityEventType.CSRF_VALIDATION_ERROR,
+          environment,
+          timestamp: new Date().toISOString(),
+          ...requestMetadata,
+          details: { reason: 'cross-origin request', origin }
+        });
+        return { isValid: false, error: 'Cross-origin request blocked' };
+      }
+    }
+
     // Get the CSRF token from headers
     const csrfToken = request.headers.get('x-csrf-token') ||
       request.headers.get('X-CSRF-Token') ||
@@ -278,7 +300,7 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
         environment,
         timestamp: new Date().toISOString(),
         ...requestMetadata,
-        details: { headers: Object.fromEntries(request.headers.entries()) }
+        details: { method: request.method } // never log raw headers: they contain session cookies
       });
 
       return {
@@ -337,7 +359,6 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
       );
 
       if (supabaseAuthCookie || hasSupabaseCookie || adminSessionCookie) {
-        console.info(`[${environment.toUpperCase()}] Session found via ${adminSessionCookie ? 'Admin' : 'Supabase'} cookie`);
         hasSession = true;
       }
     } catch (cookieError) {

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { questionDb, quizAttemptDb, getDb } from '@/lib/supabase/db';
-import { executeCriticalTransaction } from '@/lib/transaction-manager';
+import { getAdminDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { requireAuth } from '@/lib/auth-middleware';
@@ -61,7 +60,7 @@ export async function POST(request: NextRequest) {
     const { quizId, correctAnswers } = validationResult.data;
 
     // Get quiz with questions and unevaluated attempts
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     const { data: quiz, error: quizError } = await supabase
       .from('Quiz')
@@ -92,97 +91,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get unevaluated attempts with answers and user info
-    const { data: attempts } = await supabase
+    // Set-based evaluation inside Postgres. The previous implementation fetched every
+    // attempt + every answer into Node (silently truncated at PostgREST's 1,000-row
+    // limit), issued one UPDATE per attempt and then `IN (...)` updates listing every
+    // answer id — unusable beyond a few thousand participants.
+    // One RPC per question keeps each statement short (~2-4 s at 50k attempts).
+    const startedAt = Date.now();
+    for (const [questionId, correctOption] of Object.entries(correctAnswers)) {
+      if (!questionIds.includes(questionId)) continue;
+      const { data, error } = await supabase.rpc('evaluate_question', {
+        p_question_id: questionId,
+        p_correct_option: correctOption as number,
+      });
+      if (error || !data?.success) {
+        console.error('[QUIZ_EVALUATION] evaluate_question failed', questionId, error || data);
+        return NextResponse.json({ message: 'Failed to evaluate question', questionId }, { status: 500 });
+      }
+    }
+
+    const { data: finalize, error: finalizeError } = await supabase.rpc('finalize_quiz_scores', { p_quiz_id: quizId });
+    if (finalizeError || !finalize?.success) {
+      console.error('[QUIZ_EVALUATION] finalize_quiz_scores failed', finalizeError || finalize);
+      return NextResponse.json({ message: 'Failed to finalize quiz scores' }, { status: 500 });
+    }
+
+    logger.log(`[QUIZ_EVALUATION] quiz ${quizId}: ${finalize.evaluatedAttempts} attempts in ${Date.now() - startedAt} ms`);
+
+    // Small preview for the admin UI (top 50) instead of every participant.
+    const { data: top } = await supabase
       .from('QuizAttempt')
-      .select(`
-        id, userId, score, isEvaluated,
-        User:userId (id, email, name)
-      `)
+      .select('userId, score, User:userId (email)')
       .eq('quizId', quizId)
-      .eq('isEvaluated', false);
-
-    // Process evaluation
-    const evaluationResult = await executeCriticalTransaction(async () => {
-      // 1. Set correct answers on all questions (sequential, small set)
-      for (const [questionId, correctOption] of Object.entries(correctAnswers)) {
-        await questionDb.setCorrectAnswer(questionId, correctOption as number);
-      }
-
-      const attemptList = attempts || [];
-      logger.log(`[QUIZ_EVALUATION] Starting evaluation for quiz ${quizId} with ${attemptList.length} attempts`);
-
-      if (attemptList.length === 0) return [];
-
-      // 2. Batch-fetch ALL answers for ALL unevaluated attempts in one query
-      const attemptIds = attemptList.map((a: any) => a.id);
-      const { data: allAnswerData } = await supabase
-        .from('Answer')
-        .select('id, questionId, selectedOption, quizAttemptId')
-        .in('quizAttemptId', attemptIds);
-
-      // Group answers by attemptId
-      const answersByAttempt = new Map<string, any[]>();
-      for (const ans of (allAnswerData || [])) {
-        if (!answersByAttempt.has(ans.quizAttemptId)) answersByAttempt.set(ans.quizAttemptId, []);
-        answersByAttempt.get(ans.quizAttemptId)!.push(ans);
-      }
-
-      // 3. Evaluate scores in-memory and collect correct/wrong answer IDs
-      const correctAnswerIds: string[] = [];
-      const wrongAnswerIds: string[] = [];
-      const evaluatedAttempts = [];
-
-      for (const attempt of attemptList) {
-        const answerData = answersByAttempt.get(attempt.id) || [];
-        let score = 0;
-        const answerDetails = [];
-
-        const userRaw = attempt.User;
-        const user = Array.isArray(userRaw) ? userRaw[0] : userRaw;
-        logger.log(`[QUIZ_EVALUATION] Evaluating attempt ${attempt.id} for user ${user?.email}`);
-
-        for (const answer of answerData) {
-          const correctOption = correctAnswers[answer.questionId];
-          const isCorrect = answer.selectedOption === correctOption;
-          if (isCorrect) {
-            score++;
-            correctAnswerIds.push(answer.id);
-          } else {
-            wrongAnswerIds.push(answer.id);
-          }
-          answerDetails.push({ questionId: answer.questionId, selectedOption: answer.selectedOption, correctOption, isCorrect });
-        }
-
-        const scorePercentage = Math.round((score / questionIds.length) * 100);
-        logger.log(`[QUIZ_EVALUATION] User ${user?.email} scored ${score}/${questionIds.length} (${scorePercentage}%)`);
-
-        await quizAttemptDb.update(attempt.id, { score: scorePercentage, isEvaluated: true });
-        evaluatedAttempts.push({ userId: attempt.userId, userEmail: user?.email, score, totalQuestions: questionIds.length, percentage: scorePercentage });
-      }
-
-      // 4. Two bulk IN-clause updates instead of N×M sequential writes
-      await Promise.all([
-        correctAnswerIds.length > 0
-          ? supabase.from('Answer').update({ isCorrect: true }).in('id', correctAnswerIds)
-          : Promise.resolve(),
-        wrongAnswerIds.length > 0
-          ? supabase.from('Answer').update({ isCorrect: false }).in('id', wrongAnswerIds)
-          : Promise.resolve(),
-      ]);
-
-      logger.log(`[QUIZ_EVALUATION] Completed evaluation for ${evaluatedAttempts.length} attempts`);
-      return evaluatedAttempts;
-    }, {
-      context: 'quiz_evaluation',
-      userId: session.user.id,
-      description: `Quiz evaluation for quiz ${quizId}`
+      .order('score', { ascending: false })
+      .limit(50);
+    const evaluationResult = (top || []).map((t: { userId: string; score: number; User: { email?: string } | { email?: string }[] | null }) => {
+      const u = Array.isArray(t.User) ? t.User[0] : t.User;
+      return {
+        userId: t.userId,
+        userEmail: u?.email,
+        percentage: t.score,
+        totalQuestions: finalize.totalQuestions as number,
+      };
     });
+    const evaluatedCount = finalize.evaluatedAttempts as number;
 
     return createSecureJsonResponse({
       success: true,
       message: 'Quiz evaluated successfully',
-      evaluatedAttempts: evaluationResult.length,
+      evaluatedAttempts: evaluatedCount,
       results: evaluationResult
     }, { status: 200 });
 
@@ -234,7 +190,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Get quiz with evaluation status
     const { data: quiz, error: quizError } = await supabase

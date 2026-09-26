@@ -1,5 +1,7 @@
 'use server';
 
+import { adminActionGuard } from '@/lib/admin-guard';
+
 /**
  * Server Actions for Live Stream Configuration
  * Uses Supabase RPC functions for database-only storage
@@ -160,6 +162,8 @@ export async function updateStreamConfig(
     input: UpdateStreamConfigInput,
     adminEmail: string = 'admin'
 ): Promise<ActionResult<StreamConfig>> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // Validate input
         if (!input.embedHtml && !input.embedUrl) {
@@ -291,6 +295,8 @@ export async function toggleStreamStatus(
     isActive: boolean,
     adminEmail: string = 'admin'
 ): Promise<ActionResult<{ isActive: boolean }>> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         const supabase = getSupabaseAdmin();
 
