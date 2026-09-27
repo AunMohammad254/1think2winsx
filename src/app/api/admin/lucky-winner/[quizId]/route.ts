@@ -40,7 +40,7 @@ export async function GET(
             return NextResponse.json({ error: 'Quiz not found' }, { status: 404 });
         }
 
-        if (!quiz.prizeId) {
+        if (!quiz.prizeId && !quiz.isBumperPrize) {
             return NextResponse.json(
                 { error: 'This quiz is not linked to a prize. Link a prize first.' },
                 { status: 422 }
@@ -48,11 +48,17 @@ export async function GET(
         }
 
         // Fetch prize info
-        const { data: prize } = await adminDb
-            .from('Prize')
-            .select('id, name, description, imageUrl')
-            .eq('id', quiz.prizeId as string)
-            .maybeSingle();
+        let prize = null;
+        if (quiz.prizeId) {
+            const { data } = await adminDb
+                .from('Prize')
+                .select('id, name, description, imageUrl')
+                .eq('id', quiz.prizeId as string)
+                .maybeSingle();
+            prize = data;
+        } else if (quiz.isBumperPrize) {
+            prize = { id: 'bumper', name: 'Bumper Prize', description: 'Bumper Prize for this quiz', imageUrl: null };
+        }
 
         // Fetch all completed attempts, ordered by score DESC then completedAt ASC (tiebreaker)
         const { data: attempts, error: attemptsError } = await adminDb

@@ -115,3 +115,13 @@ graphify-out/
 # Deployment artifacts
 hostinger-deploy.zip
 hostinger-staging/
+claude-review/
+
+# loadtest: generated per checkout by `node keys.mjs init`, or by `npm i` in loadtest/
+loadtest/.jwks-keypair.json
+loadtest/jwks-public.json
+loadtest/node_modules/
+loadtest/
+
+# Ignore files from Gemini IDE
+.claude/

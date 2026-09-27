@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { getDb } from '@/lib/supabase/db';
+import { getAdminDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -53,7 +53,7 @@ export async function GET(
       return rateLimitResponse;
     }
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Get question with quiz details
     const { data: question, error: questionError } = await supabase
@@ -221,7 +221,7 @@ export async function PATCH(
     }
 
     const updateData = validationResult.data;
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Check if question exists
     const { data: existingQuestion, error: fetchError } = await supabase
@@ -348,7 +348,7 @@ export async function DELETE(
       return rateLimitResponse;
     }
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Check if question exists
     const { data: existingQuestion, error: fetchError } = await supabase

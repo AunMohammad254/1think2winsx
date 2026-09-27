@@ -1,10 +1,13 @@
 'use server';
 
+import { adminActionGuard } from '@/lib/admin-guard';
+
 import { quizDb, questionDb, notificationDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import {
     QuizFormSchema,
+    CreateQuizInputSchema,
     CreateQuizInput,
     UpdateQuizInput
 } from '@/lib/schemas/QuizFormSchema';
@@ -24,9 +27,11 @@ type ActionResult<T = undefined> =
  * Create a new quiz with questions
  */
 export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{ id: string }>> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // Validate input
-        const validationResult = QuizFormSchema.omit({ id: true }).safeParse(input);
+        const validationResult = CreateQuizInputSchema.safeParse(input);
         if (!validationResult.success) {
             return {
                 success: false,
@@ -80,7 +85,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
                     title: '🎮 New Quiz Published!',
                     message: `"${quiz.title || 'Challenge'}" is now active. Play now and score points!`,
                     type: 'quiz_deadline',
-                    link: `/quiz/${quiz.id}`
+                    link: `/quizzes?openQuiz=${quiz.id}`
                 });
             } catch (notifErr) {
                 console.error('Failed to send quiz publication broadcast notification:', notifErr);
@@ -109,6 +114,8 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
  * Update an existing quiz
  */
 export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         if (!input.id) {
             return { success: false, error: 'Quiz ID is required' };
@@ -202,6 +209,8 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
  * Delete a quiz
  */
 export async function deleteQuiz(id: string): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         await quizDb.delete(id);
 
@@ -220,6 +229,8 @@ export async function deleteQuiz(id: string): Promise<ActionResult> {
  * Publish a quiz (change status from draft to active)
  */
 export async function publishQuiz(id: string): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // Check if quiz has at least one question
         const questions = await questionDb.findByQuizId(id);
@@ -236,7 +247,7 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
                     title: '🎮 New Quiz Published!',
                     message: `"${updatedQuiz.title || 'Challenge'}" is now active. Play now and score points!`,
                     type: 'quiz_deadline',
-                    link: `/quiz/${id}`
+                    link: `/quizzes?openQuiz=${id}`
                 });
             } catch (notifErr) {
                 console.error('Failed to send quiz publication broadcast notification:', notifErr);
@@ -258,6 +269,8 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
  * Pause a quiz
  */
 export async function pauseQuiz(id: string): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         await quizDb.update(id, { status: 'paused' });
 
@@ -269,6 +282,52 @@ export async function pauseQuiz(id: string): Promise<ActionResult> {
     } catch (error) {
         console.error('Pause quiz error:', error);
         return { success: false, error: 'Failed to pause quiz. Please try again.' };
+    }
+}
+
+/**
+ * Push an already-published quiz to everyone currently on the live stream.
+ *
+ * Sets Quiz.pushedAt, which the client picks up two ways with no new
+ * infrastructure: (1) the quizzes page's existing Realtime subscription on
+ * Quiz UPDATE events sees pushedAt change and shows the live toast/popup,
+ * (2) the "Today's quizzes" cards read pushedAt (via /api/quizzes) to show
+ * the Active/Answered/Missed badge. Also fires the same broadcast
+ * notification publishQuiz() sends, for anyone not currently on the page.
+ */
+export async function pushQuizLive(id: string): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
+    try {
+        const quiz = await quizDb.findById(id);
+        if (!quiz) return { success: false, error: 'Quiz not found' };
+        if (quiz.status !== 'active') {
+            return { success: false, error: 'Publish the quiz before pushing it live' };
+        }
+
+        const updatedQuiz = await quizDb.update(id, { pushedAt: new Date().toISOString() } as any);
+
+        if (updatedQuiz) {
+            try {
+                await notificationDb.createBroadcast({
+                    title: '🔴 Live now',
+                    message: `"${updatedQuiz.title || 'Quiz'}" was just pushed during the stream — jump in now!`,
+                    type: 'quiz_deadline',
+                    link: `/quizzes?openQuiz=${id}`
+                });
+            } catch (notifErr) {
+                console.error('Failed to send quiz push broadcast notification:', notifErr);
+            }
+        }
+
+        revalidatePath('/admin/quiz');
+        revalidatePath('/quizzes');
+        clearQuizListCache();
+
+        return { success: true, message: 'Pushed to live viewers!' };
+    } catch (error) {
+        console.error('Push quiz error:', error);
+        return { success: false, error: 'Failed to push quiz. Please try again.' };
     }
 }
 

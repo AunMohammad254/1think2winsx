@@ -12,6 +12,7 @@ import {
     Trash2,
     Play,
     Pause,
+    Zap,
     Eye,
     Users,
     HelpCircle,
@@ -22,7 +23,7 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import { DynamicQuizFormBuilder } from '@/components/admin/DynamicAdminComponents';
-import { publishQuiz, pauseQuiz, deleteQuiz } from '@/actions/quiz-actions';
+import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive } from '@/actions/quiz-actions';
 import { createClient } from '@/lib/supabase/client';
 
 // ============================================
@@ -36,6 +37,7 @@ interface Quiz {
     passingScore: number;
     status: 'draft' | 'active' | 'paused' | 'scheduled';
     startsAt?: string | null;
+    pushedAt?: string | null;
     createdAt: string;
     updatedAt: string;
     _count?: {
@@ -193,6 +195,18 @@ export default function AdminQuizManagementPage() {
         setActionMenuOpen(null);
     };
 
+    const handlePush = async (id: string) => {
+        const result = await pushQuizLive(id);
+        if (result.success) {
+            toast.success(result.message);
+            // Realtime UPDATE event will trigger re-fetch here; on /quizzes it
+            // triggers the live toast/popup for anyone watching the stream.
+        } else {
+            toast.error(result.error);
+        }
+        setActionMenuOpen(null);
+    };
+
     const handlePause = async (id: string) => {
         const result = await pauseQuiz(id);
         if (result.success) {
@@ -254,6 +268,7 @@ export default function AdminQuizManagementPage() {
                 description: fullQuiz.description || '',
                 duration: fullQuiz.duration || 30,
                 passingScore: fullQuiz.passingScore || 70,
+                accessPrice: fullQuiz.accessPrice ?? 0,
                 difficulty: 'medium' as const,
                 status: (fullQuiz.status || 'draft') as 'draft' | 'active' | 'paused' | 'scheduled',
                 startsAt: fullQuiz.startsAt || null,
@@ -279,6 +294,60 @@ export default function AdminQuizManagementPage() {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleReuse = async (quiz: Quiz) => {
+        try {
+            setLoading(true);
+            const toastId = toast.loading('Loading quiz details to copy...');
+            const response = await fetch(`/api/admin/quizzes/${quiz.id}`);
+
+            if (!response.ok) throw new Error('Failed to load quiz details');
+
+            const data = await response.json();
+            const fullQuiz = data.quiz || data;
+
+            toast.loading('Creating duplicated quiz...', { id: toastId });
+
+            const input = {
+                title: `${fullQuiz.title} (Copy)`,
+                description: fullQuiz.description || '',
+                duration: fullQuiz.duration || 30,
+                passingScore: fullQuiz.passingScore || 70,
+                accessPrice: fullQuiz.accessPrice || 0,
+                difficulty: 'medium' as const,
+                status: 'draft' as const,
+                startsAt: null,
+                prizeId: fullQuiz.prizeId || null,
+                isBumperPrize: fullQuiz.isBumperPrize || false,
+                quizType: fullQuiz.quizType || 'normal',
+                questions: (fullQuiz.questions || []).map((q: any) => ({
+                    text: q.text,
+                    options: (Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]')).map((text: string, idx: number) => ({
+                        text,
+                        isCorrect: q.correctOption === idx,
+                    })),
+                    correctOption: q.correctOption ?? 0,
+                    status: q.status || 'active',
+                })),
+            };
+
+            const { createQuiz } = await import('@/actions/quiz-actions');
+            const result = await createQuiz(input);
+
+            if (result.success) {
+                toast.success('Quiz duplicated and saved to draft!', { id: toastId });
+                // We let the Realtime INSERT event trigger the state update
+            } else {
+                toast.error(result.error || 'Failed to duplicate quiz', { id: toastId });
+            }
+        } catch (err) {
+            toast.error('An unexpected error occurred while duplicating');
+            console.error(err);
+        } finally {
+            setLoading(false);
+            setActionMenuOpen(null);
         }
     };
 
@@ -603,7 +672,7 @@ export default function AdminQuizManagementPage() {
                                                 {status.label}
                                                 {quiz.status === 'scheduled' && quiz.startsAt && (
                                                     <span className="opacity-80 ml-1">
-                                                        ({new Date(quiz.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                                        ({new Date(quiz.startsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })})
                                                     </span>
                                                 )}
                                             </span>
@@ -648,8 +717,15 @@ export default function AdminQuizManagementPage() {
                                                             <Edit className="w-4 h-4" />
                                                             Edit Quiz
                                                         </button>
+                                                        <button
+                                                            onClick={() => handleReuse(quiz)}
+                                                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/10 transition-colors"
+                                                        >
+                                                            <RefreshCw className="w-4 h-4" />
+                                                            Reuse Quiz
+                                                        </button>
                                                         <Link
-                                                            href={`/quiz/${quiz.id}`}
+                                                            href={`/quizzes?openQuiz=${quiz.id}`}
                                                             className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/10 transition-colors"
                                                         >
                                                             <Eye className="w-4 h-4" />
@@ -664,13 +740,22 @@ export default function AdminQuizManagementPage() {
                                                                 Publish
                                                             </button>
                                                         ) : (
-                                                            <button
-                                                                onClick={() => handlePause(quiz.id)}
-                                                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-yellow-400 hover:bg-white/10 transition-colors"
-                                                            >
-                                                                <Pause className="w-4 h-4" />
-                                                                Pause
-                                                            </button>
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handlePush(quiz.id)}
+                                                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-pink-400 hover:bg-white/10 transition-colors"
+                                                                >
+                                                                    <Zap className="w-4 h-4" />
+                                                                    Push to live viewers
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handlePause(quiz.id)}
+                                                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-yellow-400 hover:bg-white/10 transition-colors"
+                                                                >
+                                                                    <Pause className="w-4 h-4" />
+                                                                    Pause
+                                                                </button>
+                                                            </>
                                                         )}
                                                         <div className="border-t border-white/10 my-1" />
                                                         <button

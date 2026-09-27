@@ -18,14 +18,16 @@ export async function getDb() {
     return await createClient()
 }
 
-let cachedAdminDb: any = null
+type ServerDbClient = Awaited<ReturnType<typeof createClient>>
+
+let cachedAdminDb: ServerDbClient | null = null
 
 /**
  * Get Supabase admin client with service_role key
  * This bypasses ALL RLS policies - use only for admin operations
  * Note: Uses loose typing to avoid TypeScript inference issues with table operations
  */
-export function getAdminDb() {
+export function getAdminDb(): ServerDbClient {
     if (cachedAdminDb) {
         return cachedAdminDb
     }
@@ -47,7 +49,7 @@ export function getAdminDb() {
         db: {
             schema: 'public'
         }
-    }) as ReturnType<typeof createClient> extends Promise<infer T> ? T : never
+    }) as unknown as ServerDbClient
 
     return cachedAdminDb
 }

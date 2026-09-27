@@ -40,10 +40,14 @@ export const SECURITY_HEADERS = {
  * Applies security headers to a NextResponse
  */
 export function applySecurityHeaders(response: NextResponse): NextResponse {
+  const callerSetCaching = response.headers.has('Cache-Control');
   Object.entries(SECURITY_HEADERS).forEach(([key, value]) => {
+    // Respect an explicit Cache-Control from the route (e.g. public, cacheable
+    // leaderboard responses); only default to no-store when none was given.
+    if (callerSetCaching && (key === 'Cache-Control' || key === 'Pragma' || key === 'Expires')) return;
     response.headers.set(key, value);
   });
-  
+
   return response;
 }
 

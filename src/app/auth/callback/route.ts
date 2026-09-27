@@ -12,12 +12,18 @@ export async function GET(request: Request) {
 
         if (!error) {
             const forwardedHost = request.headers.get('x-forwarded-host')
+            // Trust the proxy's own scheme (nginx sends X-Forwarded-Proto) instead of
+            // assuming https. Assuming https broke self-hosted/local deployments behind
+            // deploy/nginx.conf, which only listens on plain HTTP (port 80, no TLS
+            // block) - the redirect went to https://<host>, which nothing was listening
+            // on, and the browser hung/failed instead of completing sign-in.
+            const forwardedProto = request.headers.get('x-forwarded-proto')
             const isLocalEnv = process.env.NODE_ENV === 'development'
 
             if (isLocalEnv) {
                 return NextResponse.redirect(`${origin}${next}`)
             } else if (forwardedHost) {
-                return NextResponse.redirect(`https://${forwardedHost}${next}`)
+                return NextResponse.redirect(`${forwardedProto || 'https'}://${forwardedHost}${next}`)
             } else {
                 return NextResponse.redirect(`${origin}${next}`)
             }

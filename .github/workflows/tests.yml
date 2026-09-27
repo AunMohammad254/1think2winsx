@@ -22,8 +22,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# publish-unit-test-result-action needs checks + PR write access to post results
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
 env:
-  NODE_VERSION: '20'
   BUN_VERSION: '1.x'
 
 jobs:
@@ -57,11 +62,11 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run ESLint
-        run: bun run lint --format=json --output-file=eslint-report.json || true
-        continue-on-error: true
-
-      - name: Run ESLint (human-readable)
         run: bun run lint
+
+      - name: Generate ESLint JSON report
+        if: always()
+        run: bun run lint --format=json --output-file=eslint-report.json || true
 
       - name: TypeScript type check
         run: bunx tsc --noEmit
@@ -461,6 +466,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [unit-tests, e2e-chromium, e2e-firefox, e2e-webkit, e2e-mobile]
     if: always()
+    # `secrets` is not allowed in `if:` expressions, so expose it via env and test that instead
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -490,7 +499,7 @@ jobs:
         if: |
           failure() &&
           github.ref == 'refs/heads/main' &&
-          secrets.SLACK_WEBHOOK_URL != ''
+          env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |
@@ -525,15 +534,12 @@ jobs:
                 }
               ]
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
       - name: Notify Slack on success
         if: |
           success() &&
           github.ref == 'refs/heads/main' &&
-          secrets.SLACK_WEBHOOK_URL != ''
+          env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.27.0
         with:
           payload: |
@@ -557,6 +563,3 @@ jobs:
                 }
               ]
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

@@ -57,44 +57,6 @@ export const adminSessionDb = {
 }
 
 // ============================================================================
-// RATE LIMIT OPERATIONS
-// ============================================================================
-
-export const rateLimitDb = {
-    async count(key: string, windowMs: number) {
-        const supabase = getAdminDb()
-        const windowStart = new Date(Date.now() - windowMs).toISOString()
-
-        const { count, error } = await supabase
-            .from('RateLimitEntry')
-            .select('*', { count: 'exact', head: true })
-            .eq('key', key)
-            .gte('createdAt', windowStart)
-
-        if (error) throw error
-        return count || 0
-    },
-
-    async add(key: string) {
-        const supabase = getAdminDb()
-        await supabase
-            .from('RateLimitEntry')
-            .insert({ id: generateId(), key } as any)
-    },
-
-    async cleanup(key: string, windowMs: number) {
-        const supabase = getAdminDb()
-        const windowStart = new Date(Date.now() - windowMs).toISOString()
-
-        await supabase
-            .from('RateLimitEntry')
-            .delete()
-            .eq('key', key)
-            .lt('createdAt', windowStart)
-    },
-}
-
-// ============================================================================
 // SECURITY EVENT OPERATIONS
 // ============================================================================
 

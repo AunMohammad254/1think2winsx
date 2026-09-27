@@ -1,15 +1,16 @@
 'use client';
 
+import '../live-quiz.css';
+
 import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Search, Filter, Clock, CheckCircle, Sparkles } from 'lucide-react';
 import QuizCard from '@/components/quiz/QuizCard';
 import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
-import QuizDetailModal from '@/components/quiz/QuizDetailModal';
-import QuizAttemptModal from '@/components/quiz/QuizAttemptModal';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
+import LiveQuizPush, { type LiveQuizPushHandle } from '@/components/quiz/LiveQuizPush';
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 import { createClient } from '@/lib/supabase/client';
 import PaymentModal from '@/components/quiz/PaymentModal';
@@ -33,6 +34,9 @@ interface Quiz {
   lastAttemptDate?: string;
   score?: number;
   attemptCount?: number;
+  totalAttempts?: number;
+  pushedAt?: string | null;
+  pushStatus?: 'active' | 'answered' | 'missed' | null;
 }
 
 interface PaymentInfo {
@@ -44,8 +48,17 @@ interface PaymentInfo {
 type FilterTab = 'all' | 'available' | 'completed' | 'new';
 
 export default function QuizzesPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4"><div className="max-w-7xl mx-auto"><QuizCardSkeletonGrid count={6} /></div></div>}>
+      <QuizzesPageInner />
+    </Suspense>
+  );
+}
+
+function QuizzesPageInner() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,12 +73,14 @@ export default function QuizzesPage() {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
-  const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
-  const [attemptQuizId, setAttemptQuizId] = useState<string | null>(null);
   const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null); // null = loading
 
   // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
   const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const liveQuizPushRef = useRef<LiveQuizPushHandle>(null);
+  // Last pushedAt we've already reacted to, per quiz - so re-fetches or
+  // unrelated edits to an already-pushed quiz don't re-fire the toast.
+  const seenPushedAtRef = useRef<Map<string, string | null>>(new Map());
 
   const fetchQuizzesData = useCallback(async (fresh = false) => {
     try {
@@ -91,7 +106,9 @@ export default function QuizzesPage() {
         return;
       }
       const data = await response.json();
-      setQuizzes(data.quizzes || []);
+      const fetchedQuizzes: Quiz[] = data.quizzes || [];
+      setQuizzes(fetchedQuizzes);
+      for (const q of fetchedQuizzes) seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
       setHasAccess(data.hasAccess || false);
       setPaymentInfo(data.paymentInfo);
       setError(data.accessError || null);
@@ -108,9 +125,12 @@ export default function QuizzesPage() {
     if (realtimeDebounceRef.current) {
       clearTimeout(realtimeDebounceRef.current);
     }
+    // Spread re-fetches over 2-15 s: a single admin edit is broadcast to every
+    // connected player at once, and a fixed 500 ms delay turned it into a
+    // synchronized stampede of thousands of simultaneous /api/quizzes calls.
     realtimeDebounceRef.current = setTimeout(() => {
       fetchQuizzesData(true);
-    }, 500);
+    }, 2000 + Math.random() * 13000);
   }, [fetchQuizzesData]);
 
   // Redirect to login if not authenticated, and check wallet feature flag
@@ -122,21 +142,48 @@ export default function QuizzesPage() {
       return;
     }
 
-    // Check wallet feature flag first — if disabled, quizzes are unavailable
+    // Check wallet feature flag — disabled means quizzes are free, not blocked
+    // (the server already grants free access via /api/quizzes' hasAccess when
+    // the wallet is off; this flag only controls whether the payment UI shows).
     fetch('/api/settings/wallet-enabled')
       .then(r => r.json())
       .then((d: { walletEnabled: boolean }) => {
         setWalletEnabled(d.walletEnabled);
-        if (d.walletEnabled) {
-          fetchQuizzesData();
-        }
       })
       .catch(() => {
-        // If flag check fails, default to enabled to avoid locking users out
         setWalletEnabled(true);
+      })
+      .finally(() => {
         fetchQuizzesData();
       });
   }, [user, isLoading, router, fetchQuizzesData]);
+
+  // Periodic polling to keep data fresh and ensure the server's scheduled cron
+  // gets kicked even if no other users are navigating the site.
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      fetchQuizzesData(true);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [user, fetchQuizzesData]);
+
+  // Deep link from the notification bell / a "View Details" link on a
+  // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
+  // straight into the popup instead of the toast. Reactive (useSearchParams,
+  // not a one-time window.location read) so clicking a bell notification
+  // while ALREADY on /quizzes also opens it, not just on first load. Strips
+  // the param afterward so a refresh or back-navigation doesn't reopen it.
+  useEffect(() => {
+    if (isLoading || !user) return;
+    const openQuiz = searchParams.get('openQuiz');
+    if (!openQuiz) return;
+    liveQuizPushRef.current?.open(openQuiz);
+    const rest = new URLSearchParams(searchParams.toString());
+    rest.delete('openQuiz');
+    const query = rest.toString();
+    router.replace(query ? `/quizzes?${query}` : '/quizzes', { scroll: false });
+  }, [isLoading, user, router, searchParams]);
 
   // Realtime subscription for live quiz updates
   useEffect(() => {
@@ -153,7 +200,15 @@ export default function QuizzesPage() {
       )
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'Quiz' },
-        () => {
+        (payload) => {
+          // Admin "push to live" support: the row's pushedAt changed to a
+          // new (non-null) value we haven't already reacted to -> show the
+          // live toast. Reuses this same subscription, no new channel.
+          const next = payload.new as { id: string; title: string; pushedAt: string | null };
+          if (next.pushedAt && seenPushedAtRef.current.get(next.id) !== next.pushedAt) {
+            seenPushedAtRef.current.set(next.id, next.pushedAt);
+            liveQuizPushRef.current?.notify(next.id, next.title);
+          }
           debouncedFreshFetch();
         }
       )
@@ -173,6 +228,8 @@ export default function QuizzesPage() {
       }
     };
   }, [debouncedFreshFetch]);
+
+  // Throwback behavior removed as requested.
 
   // Update time remaining every second
   useEffect(() => {
@@ -208,11 +265,8 @@ export default function QuizzesPage() {
   const fetchQuizzes = fetchQuizzesData;
 
   const handleQuizClick = (quizId: string) => {
-    const quiz = quizzes.find(q => q.id === quizId);
-    if (!quiz) return;
-
     if (hasAccess) {
-      setSelectedQuiz(quiz);
+      liveQuizPushRef.current?.open(quizId);
     } else {
       setShowPaymentModal(true);
     }
@@ -329,34 +383,16 @@ export default function QuizzesPage() {
     );
   }
 
-  // Wallet disabled — quizzes entirely unavailable
-  if (!walletEnabled) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center px-4">
-        <div className="max-w-md w-full text-center">
-          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-3xl border border-white/10 p-12">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-700/40 flex items-center justify-center">
-              <Clock className="w-10 h-10 text-gray-400" />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-3">Quizzes Unavailable</h2>
-            <p className="text-gray-400">
-              Quiz access is currently unavailable. Please check back later.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-200 to-white">
+        <div className="mb-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-200 to-white">
             Quiz Arena
           </h1>
-          <p className="text-gray-400 text-lg max-w-2xl">
+          <p className="text-gray-400 text-sm max-w-2xl">
             {hasAccess
               ? 'You have full access to all quizzes! Choose one to test your knowledge.'
               : 'Unlock 24-hour access for just 2 PKR and play unlimited quizzes.'}
@@ -384,12 +420,28 @@ export default function QuizzesPage() {
           </div>
         )}
 
-        {/* Live Stream Section */}
-        <div className="mb-8">
-          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-4">
-            <Suspense fallback={<div className="h-64 bg-gray-800 rounded-xl animate-pulse" />}>
-              <LazyStreamPlayer autoPlay={false} />
-            </Suspense>
+        {/* Live Stream Section — everything push/toast/split-related is scoped
+            to this one relative+overflow-hidden box; it never affects the
+            quiz grid below or any other part of the page. */}
+        <div className="mb-8 live-quiz-theme" id="live-stream-section">
+          <div id="live-stream-fullscreen-target" className="stream-section h-full w-full">
+            <div className="stream-row w-full flex-1">
+              <div className="player flex-1">
+                <div className="absolute inset-0 z-10 pointer-events-none">
+                  <div className="badge-live"><span className="rec"></span>LIVE</div>
+                  <div className="viewers">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+                    <span className="num">2,481</span>
+                  </div>
+                </div>
+                <div className="w-full relative z-0">
+                  <Suspense fallback={<div className="aspect-video w-full bg-gray-800 rounded-xl animate-pulse" />}>
+                    <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" />
+                  </Suspense>
+                </div>
+              </div>
+              <LiveQuizPush ref={liveQuizPushRef} onAnswered={() => fetchQuizzesData(true)} />
+            </div>
           </div>
         </div>
 
@@ -466,56 +518,29 @@ export default function QuizzesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredQuizzes.map((quiz) => (
-              <QuizCard
-                key={quiz.id}
+          <div className="live-quiz-theme">
+            <div className="section-label">Today's quizzes — pushed by admin</div>
+            <div className="quiz-grid">
+              {filteredQuizzes.map((quiz) => (
+                <QuizCard
+                  key={quiz.id}
                 id={quiz.id}
                 title={quiz.title}
                 description={quiz.description}
                 duration={quiz.duration}
                 questionCount={quiz.questionCount}
-                attemptCount={quiz.attemptCount}
+                attemptCount={quiz.attemptCount ?? quiz.totalAttempts}
                 difficulty="medium"
                 status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : (quiz.status as any)}
                 hasAccess={hasAccess}
                 isCompleted={quiz.isCompleted}
                 score={quiz.score}
                 onStartClick={handleQuizClick}
+                pushStatus={quiz.pushStatus}
               />
             ))}
+            </div>
           </div>
-        )}
-
-        {/* Quiz Detail Modal */}
-        {selectedQuiz && (
-          <QuizDetailModal
-            quiz={{
-              ...selectedQuiz,
-              difficulty: 'medium',
-            }}
-            isOpen={!!selectedQuiz}
-            onClose={() => setSelectedQuiz(null)}
-            onStartQuiz={(quizId) => {
-              setSelectedQuiz(null);
-              setAttemptQuizId(quizId);
-            }}
-          />
-        )}
-
-        {/* Quiz Attempt Modal */}
-        {attemptQuizId && (
-          <QuizAttemptModal
-            quizId={attemptQuizId}
-            isOpen={!!attemptQuizId}
-            onClose={() => {
-              setAttemptQuizId(null);
-              fetchQuizzes();
-            }}
-            onQuizCompleted={() => {
-              fetchQuizzes();
-            }}
-          />
         )}
 
         {/* Payment Modal */}

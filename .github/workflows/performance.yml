@@ -153,8 +153,11 @@ jobs:
         run: |
           bun run start &
           echo "Waiting for server..."
-          sleep 10
-          curl -f http://localhost:3000 || (echo "Server not ready" && exit 1)
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000 > /dev/null; then echo "Server ready"; exit 0; fi
+            sleep 2
+          done
+          echo "Server not ready after 120s" && exit 1
 
       - name: Run Lighthouse CI
         run: |
@@ -313,9 +316,26 @@ jobs:
             > View detailed results in the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
             `;
 
-            github.rest.issues.createComment({
+            // Update our previous comment instead of posting a new one on every push
+            const marker = '## ⚡ Performance Analysis';
+            const { data: comments } = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
             });
+            const existing = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body,
+              });
+            }
