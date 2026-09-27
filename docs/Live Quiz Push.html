@@ -274,7 +274,7 @@
               <div class="ticon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div>
               <div class="ttext">
                 <div class="ttitle">New quiz just dropped</div>
-                <div class="tsub">Cricket Trivia — Match Day · tap to play</div>
+                <div class="tsub">Sports Trivia — Match Day · tap to play</div>
               </div>
               <div class="tarrow">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m9 18 6-6-6-6"/></svg>
@@ -292,9 +292,9 @@
 
           <div class="section-label">Today's quizzes — pushed by admin</div>
           <div class="quiz-grid" id="quizGrid">
-            <div class="quiz-card" data-quiz="cricket">
-              <span class="qstatus active" id="cricketStatus"><span class="qdot"></span><span class="qlabel">Active</span></span>
-              <div class="qtitle">Cricket Trivia — Match Day</div><div class="qmeta">10 questions · 5 min</div>
+            <div class="quiz-card" data-quiz="sports">
+              <span class="qstatus active" id="sportsStatus"><span class="qdot"></span><span class="qlabel">Active</span></span>
+              <div class="qtitle">Sports Trivia — Match Day</div><div class="qmeta">10 questions · 5 min</div>
             </div>
             <div class="quiz-card" data-quiz="squad">
               <span class="qstatus missed"><span class="qdot"></span><span class="qlabel">Missed</span></span>
@@ -327,7 +327,7 @@
   <template id="quizPanelTpl">
     <div class="quiz-panel" id="quizPanel">
       <div class="qp-head">
-        <div class="qp-title"><span class="livedot"></span><span class="tt">Cricket Trivia — Match Day</span></div>
+        <div class="qp-title"><span class="livedot"></span><span class="tt">Sports Trivia — Match Day</span></div>
         <div class="qp-actions">
           <button class="icon-btn" id="splitBtn" title="Split view">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
@@ -354,7 +354,7 @@
   </template>
 
   <footer class="note">
-    <b>Behind this prototype:</b> the quiz panel is a single DOM node moved between the popup overlay and the split slot with <code>appendChild</code> — it's never destroyed or rebuilt, so the selected option, the lock state and the timer survive every open/close/split toggle. Closing from split mode used to only strip a CSS class and leave the node sitting in a <code>display:contents</code> slot (which always renders its child) — fixed by always re-parenting the node back into the popup slot on close. Card status (<code>Active</code> / <code>Answered</code> / <code>Missed</code>) reads from the same <code>state.locked</code> the quiz panel already tracks — locking in an answer updates the Cricket Trivia card immediately, no separate source of truth. The bottom "throwback" uses an edge-triggered scroll check (fires once per arrival at the bottom, not once per scroll event while sitting there) with a capped counter, so it can't loop.
+    <b>Behind this prototype:</b> the quiz panel is a single DOM node moved between the popup overlay and the split slot with <code>appendChild</code> — it's never destroyed or rebuilt, so the selected option, the lock state and the timer survive every open/close/split toggle. Closing from split mode used to only strip a CSS class and leave the node sitting in a <code>display:contents</code> slot (which always renders its child) — fixed by always re-parenting the node back into the popup slot on close. Card status (<code>Active</code> / <code>Answered</code> / <code>Missed</code>) reads from the same <code>state.locked</code> the quiz panel already tracks — locking in an answer updates the Sports Trivia card immediately, no separate source of truth. The bottom "throwback" uses an edge-triggered scroll check (fires once per arrival at the bottom, not once per scroll event while sitting there) with a capped counter, so it can't loop.
   </footer>
 </div>
 
@@ -372,7 +372,7 @@
   const quizPop = document.getElementById('quizPop');
   const splitSlot = document.getElementById('splitSlot');
   const tpl = document.getElementById('quizPanelTpl');
-  const cricketStatus = document.getElementById('cricketStatus');
+  const sportsStatus = document.getElementById('sportsStatus');
   const throwbackToast = document.getElementById('throwbackToast');
   const throwbackText = document.getElementById('throwbackText');
 
@@ -391,9 +391,9 @@
   let timerInterval = null;
 
   function setCardStatus(status){
-    cricketStatus.classList.remove('active','answered','missed');
-    cricketStatus.classList.add(status);
-    cricketStatus.querySelector('.qlabel').textContent =
+    sportsStatus.classList.remove('active','answered','missed');
+    sportsStatus.classList.add(status);
+    sportsStatus.querySelector('.qlabel').textContent =
       status === 'active' ? 'Active' : status === 'answered' ? 'Answered' : 'Missed';
   }
 

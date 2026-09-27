@@ -271,7 +271,7 @@ export default function AdminNewsletterPage() {
                   required
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  placeholder="e.g. Weekly Quiz Update & Cricket News"
+                  placeholder="e.g. Weekly Quiz Update & Sports News"
                   className="w-full px-4 py-2.5 bg-gray-950/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-colors"
                 />
               </div>

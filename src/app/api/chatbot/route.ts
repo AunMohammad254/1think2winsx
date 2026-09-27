@@ -73,7 +73,7 @@ const SYSTEM_PROMPT = `You are 1Think2Win's friendly AI support assistant. You k
 
 ## HOW IT WORKS (3 steps)
 1. Register & Pay — Create an account and pay 2 PKR to enter
-2. Answer Questions — Tape-ball cricket knowledge quiz
+2. Answer Questions — Sports knowledge quiz
 3. Win Prizes — Random winners are selected after each quiz session
 
 ## PRIZES AVAILABLE
@@ -106,7 +106,7 @@ Winners are selected randomly after each quiz session — everyone has a fair ch
 - Auth is powered by Supabase (secure)
 
 ## QUIZ RULES
-- Tape-ball cricket themed questions
+- Sports themed questions
 - Each session is timed
 - Answers are locked after submission
 - Random selection algorithm picks winners (not just highest scorers)
@@ -129,7 +129,7 @@ Examples:
 
 ## RESPONSE STYLE
 - Be friendly, enthusiastic, and concise
-- Use cricket emojis occasionally 🏏🏆
+- Use sports emojis occasionally 🏆⚽🏀
 - Keep answers short (2-4 sentences) unless detail is needed
 - If you don't know something specific, direct them to /contact
 - Support both English and Urdu speakers (respond in their language)
@@ -352,7 +352,7 @@ ${userContextText}
     const refillInSec = Math.max(1, Math.ceil(minRefillMs / 1000));
     return NextResponse.json(
       {
-        error: `You're sending messages too fast! Please wait ${refillInSec} second${refillInSec !== 1 ? 's' : ''} before trying again. 🏏`,
+        error: `You're sending messages too fast! Please wait ${refillInSec} second${refillInSec !== 1 ? 's' : ''} before trying again. ⚽`,
         rateLimited: true,
         retryAfterMs: minRefillMs,
       },

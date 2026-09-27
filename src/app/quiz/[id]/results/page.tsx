@@ -323,7 +323,7 @@ export default function QuizResultsPage() {
             {/* WhatsApp Share */}
             <button
               onClick={() => {
-                const text = `I just scored ${result.percentage}% on the "${result.quiz.title}" cricket quiz on 1Think2Win! 🎯 Can you beat my score? Join and play now: ${window.location.origin}/quiz/${quizId}`;
+                const text = `I just scored ${result.percentage}% on the "${result.quiz.title}" sports quiz on 1Think2Win! 🎯 Can you beat my score? Join and play now: ${window.location.origin}/quiz/${quizId}`;
                 window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
               }}
               className="py-2.5 px-5 bg-[#25D366] hover:bg-[#20ba56] text-white rounded-xl font-medium transition-all duration-200 flex items-center gap-2 text-sm shadow-md"
@@ -334,7 +334,7 @@ export default function QuizResultsPage() {
             {/* Twitter / X Share */}
             <button
               onClick={() => {
-                const text = `I just completed the "${result.quiz.title}" cricket quiz on 1Think2Win with ${result.percentage}% accuracy! 🏆 Can you beat me? Play here:`;
+                const text = `I just completed the "${result.quiz.title}" sports quiz on 1Think2Win with ${result.percentage}% accuracy! 🏆 Can you beat me? Play here:`;
                 const url = `${window.location.origin}/quiz/${quizId}`;
                 window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
               }}

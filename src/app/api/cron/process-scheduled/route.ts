@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
 
           if (!alreadySent || alreadySent.length === 0) {
             await notificationDb.createBroadcast({
-              title: '⏰ Cricket Quiz Starts in 10 Min!',
+              title: '⏰ Sports Quiz Starts in 10 Min!',
               message: `Get ready! "${quiz.title || 'Challenge'}" starts in 10 minutes. Don't miss out!`,
               type: 'quiz_starts_soon',
               link: `/quizzes?openQuiz=${quiz.id}`
