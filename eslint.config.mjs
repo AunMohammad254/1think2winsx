@@ -13,11 +13,6 @@ const eslintConfig = [
     ],
   },
   {
-    // CommonJS config files legitimately use require()
-    files: ["next.config.js", "*.config.js"],
-    rules: { "@typescript-eslint/no-require-imports": "off" },
-  },
-  {
     files: ["**/*.{js,jsx,ts,tsx}"],
     plugins: {
       "@next/next": nextPlugin,
@@ -47,6 +42,12 @@ const eslintConfig = [
         }
       ]
     }
+  },
+  {
+    // CommonJS files legitimately use require(). Must come AFTER the main block,
+    // otherwise tsPlugin's recommended rules re-enable no-require-imports.
+    files: ["next.config.js", "*.config.js", "update_settings.js"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   }
 ];
 
