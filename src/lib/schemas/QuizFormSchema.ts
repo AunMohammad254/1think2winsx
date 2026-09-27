@@ -1,0 +1,159 @@
+import { z } from 'zod';
+
+// ============================================
+// Option Schema
+// ============================================
+export const OptionSchema = z.object({
+    id: z.string().optional(),
+    text: z.string().min(1, 'Option text is required').max(500, 'Option too long'),
+    isCorrect: z.boolean().default(false),
+});
+
+export type OptionFormData = z.infer<typeof OptionSchema>;
+
+// ============================================
+// Question Schema
+// ============================================
+export const QuestionSchema = z.object({
+    id: z.string().optional(),
+    text: z.string()
+        .min(5, 'Question must be at least 5 characters')
+        .max(1000, 'Question too long (max 1000 characters)'),
+    options: z.array(OptionSchema)
+        .min(2, 'At least 2 options required')
+        .max(6, 'Maximum 6 options allowed'),
+    correctOption: z.number().nullable().optional(),
+    status: z.enum(['active', 'paused']).default('active'),
+});
+
+export type QuestionFormData = z.infer<typeof QuestionSchema>;
+
+// ============================================
+// Quiz Schema
+// ============================================
+export const QuizFormBaseSchema = z.object({
+    id: z.string().optional(),
+    title: z.string()
+        .min(3, 'Title must be at least 3 characters')
+        .max(200, 'Title too long (max 200 characters)'),
+    description: z.string().max(1000, 'Description too long').optional().nullable(),
+    duration: z.number()
+        .min(1, 'Duration must be at least 1 minute')
+        .max(180, 'Duration cannot exceed 180 minutes'),
+    passingScore: z.number()
+        .min(0, 'Passing score must be 0 or higher')
+        .max(100, 'Passing score cannot exceed 100'),
+    accessPrice: z.number()
+        .min(0, 'Access price must be at least 0 PKR')
+        .max(1000, 'Access price cannot exceed 1000 PKR')
+        .default(2),
+    difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
+    status: z.enum(['draft', 'active', 'paused', 'scheduled']).default('draft'),
+    startsAt: z.string().nullable().optional(),
+    // Prize-link fields (optional — non-prize quizzes leave these unset)
+    prizeId: z.string().nullable().optional(),
+    isBumperPrize: z.boolean().default(false),
+    quizType: z.enum(['normal', 'predictable']).default('normal'),
+    questions: z.array(QuestionSchema)
+        .min(1, 'At least 1 question required'),
+});
+
+const validatePredictableQuiz = (data: { quizType: string, questions: any[] }, ctx: z.RefinementCtx) => {
+    // If it's a normal quiz, ensure every question has a correct option selected
+    if (data.quizType === 'normal') {
+        data.questions.forEach((q, idx) => {
+            if (q.correctOption === null || q.correctOption === undefined || q.correctOption < 0) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'Correct option must be selected for normal quizzes',
+                    path: ['questions', idx, 'correctOption']
+                });
+            }
+        });
+    }
+};
+
+export const QuizFormSchema = QuizFormBaseSchema.superRefine(validatePredictableQuiz);
+
+export type QuizFormData = z.infer<typeof QuizFormSchema>;
+
+// ============================================
+// Server Action Input Schemas
+// ============================================
+export const CreateQuizInputSchema = QuizFormBaseSchema.omit({ id: true }).superRefine(validatePredictableQuiz);
+export const UpdateQuizInputSchema = QuizFormSchema;
+
+export type CreateQuizInput = z.infer<typeof CreateQuizInputSchema>;
+export type UpdateQuizInput = z.infer<typeof UpdateQuizInputSchema>;
+
+// ============================================
+// Quiz Attempt Schemas
+// ============================================
+export const AnswerSubmissionSchema = z.object({
+    questionId: z.string(),
+    selectedOption: z.number().min(0),
+});
+
+export const QuizSubmissionSchema = z.object({
+    quizId: z.string(),
+    answers: z.array(AnswerSubmissionSchema).min(1, 'At least 1 answer required'),
+});
+
+export type AnswerSubmission = z.infer<typeof AnswerSubmissionSchema>;
+export type QuizSubmission = z.infer<typeof QuizSubmissionSchema>;
+
+// ============================================
+// Validation Helpers
+// ============================================
+export function validateQuizForm(data: unknown): { success: true; data: QuizFormData } |
+{ success: false; errors: z.ZodIssue[] } {
+    const result = QuizFormSchema.safeParse(data);
+    if (result.success) {
+        return { success: true, data: result.data };
+    }
+    return { success: false, errors: result.error.issues };
+}
+
+export function validateQuizSubmission(data: unknown): { success: true; data: QuizSubmission } |
+{ success: false; errors: z.ZodIssue[] } {
+    const result = QuizSubmissionSchema.safeParse(data);
+    if (result.success) {
+        return { success: true, data: result.data };
+    }
+    return { success: false, errors: result.error.issues };
+}
+
+// ============================================
+// Default Values
+// ============================================
+export const defaultOption: OptionFormData = {
+    text: '',
+    isCorrect: false,
+};
+
+export const defaultQuestion: QuestionFormData = {
+    text: '',
+    options: [
+        { text: '', isCorrect: false },
+        { text: '', isCorrect: false },
+        { text: '', isCorrect: false },
+        { text: '', isCorrect: false },
+    ],
+    correctOption: null,
+    status: 'active',
+};
+
+export const defaultQuiz: QuizFormData = {
+    title: '',
+    description: '',
+    duration: 30,
+    passingScore: 70,
+    accessPrice: 2,
+    difficulty: 'medium',
+    status: 'draft',
+    startsAt: null,
+    prizeId: null,
+    isBumperPrize: false,
+    quizType: 'normal',
+    questions: [defaultQuestion],
+};

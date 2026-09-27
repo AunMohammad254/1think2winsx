@@ -1,0 +1,154 @@
+/**
+ * User Database Operations
+ */
+
+import { getAdminDb, generateId } from './shared'
+import type { Insertable, Updatable } from '../database.types'
+
+/**
+ * All User access goes through the service-role client: after the security
+ * migration, clients can only SELECT their own row and cannot write at all
+ * (they previously could set their own walletBalance/points). Every caller is
+ * server-side code that has already resolved the user id from the session.
+ */
+export const userDb = {
+    async findByEmail(email: string) {
+        const supabase = getAdminDb()
+        const { data, error } = await supabase
+            .from('User')
+            .select('*')
+            .eq('email', email)
+            .single()
+
+        if (error && error.code !== 'PGRST116') throw error
+        return data
+    },
+
+    async findById(id: string) {
+        const supabase = getAdminDb()
+        const { data, error } = await supabase
+            .from('User')
+            .select('*')
+            .eq('id', id)
+            .single()
+
+        if (error && error.code !== 'PGRST116') throw error
+        return data
+    },
+
+    async create(userData: Insertable<'User'>) {
+        const supabase = getAdminDb()
+        const { data, error } = await supabase
+            .from('User')
+            .insert({ id: generateId(), ...userData })
+            .select()
+            .single()
+
+        if (error) throw error
+        return data
+    },
+
+    async update(id: string, userData: Updatable<'User'>) {
+        const supabase = getAdminDb()
+        const { data, error } = await supabase
+            .from('User')
+            .update({ ...userData, updatedAt: new Date().toISOString() })
+            .eq('id', id)
+            .select()
+            .single()
+
+        if (error) throw error
+        return data
+    },
+
+    async updateByEmail(email: string, userData: Updatable<'User'>) {
+        const supabase = getAdminDb()
+        const { data, error } = await supabase
+            .from('User')
+            .update({ ...userData, updatedAt: new Date().toISOString() })
+            .eq('email', email)
+            .select()
+            .single()
+
+        if (error) throw error
+        return data
+    },
+
+    async delete(id: string) {
+        const supabase = getAdminDb()
+        const { error } = await supabase
+            .from('User')
+            .delete()
+            .eq('id', id)
+
+        if (error) throw error
+    },
+
+    async count() {
+        const supabase = getAdminDb()
+        const { count, error } = await supabase
+            .from('User')
+            .select('*', { count: 'exact', head: true })
+
+        if (error) throw error
+        return count || 0
+    },
+
+    async getLeaderboard(limit = 10) {
+        const supabase = getAdminDb()
+        const { data, error } = await supabase
+            .from('User')
+            .select('id, name, email, points, profilePicture')
+            .order('points', { ascending: false })
+            .limit(limit)
+
+        if (error) throw error
+        return data || []
+    },
+
+    async addPoints(id: string, points: number) {
+        const supabase = getAdminDb()
+        // Use atomic RPC to avoid read-then-write race condition
+        const { data, error } = await supabase
+            .rpc('increment_user_points', { p_user_id: id, p_delta: points })
+
+        if (error) throw error
+        return data
+    },
+
+    async updateWalletBalance(id: string, amount: number) {
+        const supabase = getAdminDb()
+        // Use atomic RPC to avoid read-then-write race condition
+        const { data, error } = await supabase
+            .rpc('increment_user_wallet', { p_user_id: id, p_delta: amount })
+
+        if (error) throw error
+        return data
+    },
+
+    async findByPhone(phone: string, normalizedPhone?: string) {
+        const supabase = getAdminDb()
+
+        // Build OR query for phone variations
+        const phoneVariants = [phone]
+        if (normalizedPhone && normalizedPhone !== phone) {
+            phoneVariants.push(normalizedPhone)
+        }
+        if (phone.startsWith('0')) {
+            phoneVariants.push('+92' + phone.slice(1))
+        }
+        if (phone.startsWith('+92')) {
+            phoneVariants.push('0' + phone.slice(3))
+        }
+
+        const { data, error } = await supabase
+            .from('User')
+            .select('id, email, name')
+            .in('phone', phoneVariants)
+            .limit(1)
+            .single()
+
+        if (error && error.code !== 'PGRST116') throw error
+        return data
+    },
+}

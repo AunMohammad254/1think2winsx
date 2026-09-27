@@ -1,0 +1,127 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# testing
+/coverage
+test-results.json
+test-results/
+playwright-report/
+.playwright/
+docs/
+
+# Test artifacts
+*.trace
+trace.zip
+
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug & logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+logs/
+*.log
+dev.log
+
+# Python/tooling artifacts (move to scripts/ if needed)
+scripts/contrast-results.txt
+scripts/
+
+
+
+# env files (can opt-in for committing if needed)
+.env
+.env.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+prisma/dev.db-shm
+*.db
+*.db-journal
+dev.db
+
+# Build tools
+tools/
+
+# Backup env files
+.env(supabase)
+.env.production
+
+#SQL
+SQL/
+
+# Google OAuth client secrets (sensitive - do not commit)
+client_secret*.json
+
+# Build outputs and temp files
+build-output.txt
+tsc-errors.txt
+tsc-output.txt
+
+#other
+test-results
+GEMINI.md
+AGENTS.md
+CLAUDE.md
+
+# Ignore temporary documentation files
+CLEANUP_SUMMARY.md
+DEPLOYMENT_SAFETY_REPORT.md
+PHASE_*.md
+TESTING_*.md
+
+# Allow docs/ directory but ignore generated content
+!docs/
+docs/**/*.tmp
+docs/**/*.bak
+
+# graphify
+graphify-out/
+
+# Gemini IDE settings and cache
+.gemini/
+
+# Deployment artifacts
+hostinger-deploy.zip
+hostinger-staging/
+claude-review/
+
+# loadtest: generated per checkout by `node keys.mjs init`, or by `npm i` in loadtest/
+loadtest/.jwks-keypair.json
+loadtest/jwks-public.json
+loadtest/node_modules/
+loadtest/
+
+# Ignore files from Gemini IDE
+.claude/

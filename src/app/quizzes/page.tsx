@@ -1,0 +1,580 @@
+'use client';
+
+import '../live-quiz.css';
+
+import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
+import { Search, Filter, Clock, CheckCircle, Sparkles } from 'lucide-react';
+import QuizCard from '@/components/quiz/QuizCard';
+import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
+import LazyStreamPlayer from '@/components/LazyStreamPlayer';
+import LiveQuizPush, { type LiveQuizPushHandle } from '@/components/quiz/LiveQuizPush';
+import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
+import { createClient } from '@/lib/supabase/client';
+import PaymentModal from '@/components/quiz/PaymentModal';
+import ConfirmationModal from '@/components/quiz/ConfirmationModal';
+import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
+
+interface Quiz {
+  id: string;
+  title: string;
+  description: string;
+  duration: number;
+  passingScore: number;
+  status: 'active' | 'paused' | 'scheduled';
+  questionCount: number;
+  hasAccess: boolean;
+  createdAt: string;
+  updatedAt: string;
+  isCompleted?: boolean;
+  hasNewQuestions?: boolean;
+  newQuestionsCount?: number;
+  lastAttemptDate?: string;
+  score?: number;
+  attemptCount?: number;
+  totalAttempts?: number;
+  pushedAt?: string | null;
+  pushStatus?: 'active' | 'answered' | 'missed' | null;
+}
+
+interface PaymentInfo {
+  id: string;
+  expiresAt: string;
+  timeRemaining: number;
+}
+
+type FilterTab = 'all' | 'available' | 'completed' | 'new';
+
+export default function QuizzesPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4"><div className="max-w-7xl mx-auto"><QuizCardSkeletonGrid count={6} /></div></div>}>
+      <QuizzesPageInner />
+    </Suspense>
+  );
+}
+
+function QuizzesPageInner() {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasAccess, setHasAccess] = useState(false);
+  const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [showInsufficientBalanceModal, setShowInsufficientBalanceModal] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+  const [accessPrice, setAccessPrice] = useState<number>(2);
+  const [timeRemaining, setTimeRemaining] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null); // null = loading
+
+  // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
+  const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const liveQuizPushRef = useRef<LiveQuizPushHandle>(null);
+  // Last pushedAt we've already reacted to, per quiz - so re-fetches or
+  // unrelated edits to an already-pushed quiz don't re-fire the toast.
+  const seenPushedAtRef = useRef<Map<string, string | null>>(new Map());
+
+  const fetchQuizzesData = useCallback(async (fresh = false) => {
+    try {
+      const url = fresh ? '/api/quizzes?fresh=1' : '/api/quizzes';
+      const response = await fetch(url, { cache: 'no-store' });
+      if (response.status === 304) {
+        setLoading(false);
+        return;
+      }
+      if (!response.ok) {
+        try {
+          const errorData = await response.json();
+          if (response.status === 429) {
+            setError(errorData.message || 'Too many requests. Please try again later.');
+          } else if (typeof errorData.error === 'string') {
+            setError(errorData.error);
+          } else {
+            setError('Failed to fetch quizzes');
+          }
+        } catch {
+          setError('Failed to fetch quizzes');
+        }
+        return;
+      }
+      const data = await response.json();
+      const fetchedQuizzes: Quiz[] = data.quizzes || [];
+      setQuizzes(fetchedQuizzes);
+      for (const q of fetchedQuizzes) seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
+      setHasAccess(data.hasAccess || false);
+      setPaymentInfo(data.paymentInfo);
+      setError(data.accessError || null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load quizzes');
+      toast.error('Failed to load quizzes');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Debounced realtime re-fetch to avoid rapid consecutive API calls
+  const debouncedFreshFetch = useCallback(() => {
+    if (realtimeDebounceRef.current) {
+      clearTimeout(realtimeDebounceRef.current);
+    }
+    // Spread re-fetches over 2-15 s: a single admin edit is broadcast to every
+    // connected player at once, and a fixed 500 ms delay turned it into a
+    // synchronized stampede of thousands of simultaneous /api/quizzes calls.
+    realtimeDebounceRef.current = setTimeout(() => {
+      fetchQuizzesData(true);
+    }, 2000 + Math.random() * 13000);
+  }, [fetchQuizzesData]);
+
+  // Redirect to login if not authenticated, and check wallet feature flag
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+
+    // Check wallet feature flag — disabled means quizzes are free, not blocked
+    // (the server already grants free access via /api/quizzes' hasAccess when
+    // the wallet is off; this flag only controls whether the payment UI shows).
+    fetch('/api/settings/wallet-enabled')
+      .then(r => r.json())
+      .then((d: { walletEnabled: boolean }) => {
+        setWalletEnabled(d.walletEnabled);
+      })
+      .catch(() => {
+        setWalletEnabled(true);
+      })
+      .finally(() => {
+        fetchQuizzesData();
+      });
+  }, [user, isLoading, router, fetchQuizzesData]);
+
+  // Periodic polling to keep data fresh and ensure the server's scheduled cron
+  // gets kicked even if no other users are navigating the site.
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      fetchQuizzesData(true);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [user, fetchQuizzesData]);
+
+  // Deep link from the notification bell / a "View Details" link on a
+  // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
+  // straight into the popup instead of the toast. Reactive (useSearchParams,
+  // not a one-time window.location read) so clicking a bell notification
+  // while ALREADY on /quizzes also opens it, not just on first load. Strips
+  // the param afterward so a refresh or back-navigation doesn't reopen it.
+  useEffect(() => {
+    if (isLoading || !user) return;
+    const openQuiz = searchParams.get('openQuiz');
+    if (!openQuiz) return;
+    liveQuizPushRef.current?.open(openQuiz);
+    const rest = new URLSearchParams(searchParams.toString());
+    rest.delete('openQuiz');
+    const query = rest.toString();
+    router.replace(query ? `/quizzes?${query}` : '/quizzes', { scroll: false });
+  }, [isLoading, user, router, searchParams]);
+
+  // Realtime subscription for live quiz updates
+  useEffect(() => {
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel('user-quiz-changes')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'Quiz' },
+        () => {
+          // Re-fetch with cache bust to get enriched data
+          debouncedFreshFetch();
+        }
+      )
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'Quiz' },
+        (payload) => {
+          // Admin "push to live" support: the row's pushedAt changed to a
+          // new (non-null) value we haven't already reacted to -> show the
+          // live toast. Reuses this same subscription, no new channel.
+          const next = payload.new as { id: string; title: string; pushedAt: string | null };
+          if (next.pushedAt && seenPushedAtRef.current.get(next.id) !== next.pushedAt) {
+            seenPushedAtRef.current.set(next.id, next.pushedAt);
+            liveQuizPushRef.current?.notify(next.id, next.title);
+          }
+          debouncedFreshFetch();
+        }
+      )
+      .on('postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'Quiz' },
+        (payload) => {
+          const deletedId = payload.old.id as string;
+          setQuizzes(prev => prev.filter(q => q.id !== deletedId));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      if (realtimeDebounceRef.current) {
+        clearTimeout(realtimeDebounceRef.current);
+      }
+    };
+  }, [debouncedFreshFetch]);
+
+  // Throwback behavior removed as requested.
+
+  // Update time remaining every second
+  useEffect(() => {
+    if (!paymentInfo) return;
+
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const expiry = new Date(paymentInfo.expiresAt).getTime();
+      const remaining = expiry - now;
+
+      if (remaining <= 0) {
+        setTimeRemaining('Expired');
+        setHasAccess(false);
+        setPaymentInfo(null);
+        toast.warning('Your 24-hour access has expired');
+        return;
+      }
+
+      const hours = Math.floor(remaining / (1000 * 60 * 60));
+      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+      setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [paymentInfo]);
+
+  // Legacy fetchQuizzes alias for components that call it
+  const fetchQuizzes = fetchQuizzesData;
+
+  const handleQuizClick = (quizId: string) => {
+    if (hasAccess) {
+      liveQuizPushRef.current?.open(quizId);
+    } else {
+      setShowPaymentModal(true);
+    }
+  };
+
+  // Fetch wallet balance and access price when payment modal opens
+  const fetchWalletData = async (): Promise<{ balance: number; price: number }> => {
+    const [balanceResult, priceResult] = await Promise.all([
+      getWalletBalanceForDeduction(),
+      getQuizAccessPrice()
+    ]);
+
+    const balance = balanceResult.success ? (balanceResult.balance ?? 0) : 0;
+    const price = priceResult.success ? (priceResult.price ?? 2) : 2;
+
+    setWalletBalance(balance);
+    setAccessPrice(price);
+
+    return { balance, price };
+  };
+
+  // Handle "Pay Now" click - shows confirmation if sufficient balance, otherwise shows insufficient balance dialog
+  const handlePayNowClick = async () => {
+    setPaymentLoading(true);
+    const { balance, price } = await fetchWalletData();
+    setPaymentLoading(false);
+
+    // Check if wallet balance is sufficient (use fetched values directly)
+    if (balance >= price) {
+      setShowPaymentModal(false);
+      setShowConfirmationModal(true);
+    } else {
+      setShowPaymentModal(false);
+      setShowInsufficientBalanceModal(true);
+    }
+  };
+
+  // Handle confirmed wallet payment
+  const handleConfirmedPayment = async () => {
+    setPaymentLoading(true);
+    try {
+      const result = await deductWalletForQuizAccess(accessPrice);
+
+      if (!result.success) {
+        if (result.insufficientBalance) {
+          setShowConfirmationModal(false);
+          setShowInsufficientBalanceModal(true);
+          return;
+        }
+        throw new Error(result.error || 'Payment failed');
+      }
+
+      setHasAccess(true);
+      setWalletBalance(result.newBalance ?? 0);
+      setShowConfirmationModal(false);
+      setError(null);
+      toast.success('Payment successful! You now have 24-hour access.');
+      fetchQuizzes();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Payment failed';
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  // Navigate to wallet page to add funds
+  const handleGoToWallet = () => {
+    setShowInsufficientBalanceModal(false);
+    router.push('/profile/wallet');
+  };
+
+  // Filter quizzes based on active filter and search query
+  const filteredQuizzes = useMemo(() => {
+    return quizzes.filter(quiz => {
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        if (!quiz.title.toLowerCase().includes(query) &&
+          !quiz.description?.toLowerCase().includes(query)) {
+          return false;
+        }
+      }
+
+      // Tab filter
+      switch (activeFilter) {
+        case 'available':
+          return quiz.status === 'active' && !quiz.isCompleted;
+        case 'completed':
+          return quiz.isCompleted;
+        case 'new':
+          return quiz.hasNewQuestions;
+        default:
+          return true;
+      }
+    });
+  }, [quizzes, searchQuery, activeFilter]);
+
+  const filterTabs: { key: FilterTab; label: string; icon: React.ReactNode; count?: number }[] = useMemo(() => [
+    { key: 'all', label: 'All Quizzes', icon: <Filter className="w-4 h-4" />, count: quizzes.length },
+    { key: 'available', label: 'Available', icon: <Clock className="w-4 h-4" />, count: quizzes.filter(q => q.status === 'active' && !q.isCompleted).length },
+    { key: 'completed', label: 'Completed', icon: <CheckCircle className="w-4 h-4" />, count: quizzes.filter(q => q.isCompleted).length },
+    { key: 'new', label: 'New Questions', icon: <Sparkles className="w-4 h-4" />, count: quizzes.filter(q => q.hasNewQuestions).length },
+  ], [quizzes]);
+
+  if (isLoading || walletEnabled === null) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
+        <div className="max-w-7xl mx-auto">
+          <QuizCardSkeletonGrid count={6} />
+        </div>
+      </div>
+    );
+  }
+
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-200 to-white">
+            Quiz Arena
+          </h1>
+          <p className="text-gray-400 text-sm max-w-2xl">
+            {hasAccess
+              ? 'You have full access to all quizzes! Choose one to test your knowledge.'
+              : 'Unlock 24-hour access for just 2 PKR and play unlimited quizzes.'}
+          </p>
+        </div>
+
+        {/* Access Status Banner */}
+        {hasAccess && paymentInfo && (
+          <div className="mb-8 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                </div>
+                <div>
+                  <p className="text-green-200 font-semibold">Full Access Active</p>
+                  <p className="text-green-300/70 text-sm">Unlimited quizzes for 24 hours</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/20">
+                <Clock className="w-4 h-4 text-green-400" />
+                <span className="font-mono text-green-300 font-medium">{timeRemaining}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Live Stream Section — everything push/toast/split-related is scoped
+            to this one relative+overflow-hidden box; it never affects the
+            quiz grid below or any other part of the page. */}
+        <div className="mb-8 live-quiz-theme" id="live-stream-section">
+          <div id="live-stream-fullscreen-target" className="stream-section h-full w-full">
+            <div className="stream-row w-full flex-1">
+              <div className="player flex-1">
+                <div className="absolute inset-0 z-10 pointer-events-none">
+                  <div className="badge-live"><span className="rec"></span>LIVE</div>
+                  <div className="viewers">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+                    <span className="num">2,481</span>
+                  </div>
+                </div>
+                <div className="w-full relative z-0">
+                  <Suspense fallback={<div className="aspect-video w-full bg-gray-800 rounded-xl animate-pulse" />}>
+                    <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" />
+                  </Suspense>
+                </div>
+              </div>
+              <LiveQuizPush ref={liveQuizPushRef} onAnswered={() => fetchQuizzesData(true)} />
+            </div>
+          </div>
+        </div>
+
+        {/* Error Banner */}
+        {error && (
+          <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl">
+            <p className="text-red-300">{error}</p>
+          </div>
+        )}
+
+        {/* Search and Filters */}
+        <div className="flex flex-col lg:flex-row gap-4 mb-8">
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+            <input
+              type="text"
+              placeholder="Search quizzes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+            />
+          </div>
+
+          {/* Filter Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {filterTabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveFilter(tab.key)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all ${activeFilter === tab.key
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
+                  : 'bg-gray-800/50 text-gray-400 border border-white/5 hover:bg-gray-700/50 hover:text-white'
+                  }`}
+              >
+                {tab.icon}
+                {tab.label}
+                {tab.count !== undefined && tab.count > 0 && (
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${activeFilter === tab.key
+                    ? 'bg-white/20 text-white'
+                    : 'bg-gray-700 text-gray-300'
+                    }`}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Quizzes Grid */}
+        {loading ? (
+          <QuizCardSkeletonGrid count={6} />
+        ) : filteredQuizzes.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-3xl border border-white/10 p-12 max-w-md mx-auto">
+              <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-purple-500/10 flex items-center justify-center">
+                <Search className="w-10 h-10 text-purple-400" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">No Quizzes Found</h3>
+              <p className="text-gray-400 mb-6">
+                {searchQuery
+                  ? 'Try adjusting your search or filters.'
+                  : 'There are no quizzes matching your criteria at the moment.'}
+              </p>
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setActiveFilter('all'); }}
+                  className="px-6 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-500 transition-colors"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="live-quiz-theme">
+            <div className="section-label">Today's quizzes — pushed by admin</div>
+            <div className="quiz-grid">
+              {filteredQuizzes.map((quiz) => (
+                <QuizCard
+                  key={quiz.id}
+                id={quiz.id}
+                title={quiz.title}
+                description={quiz.description}
+                duration={quiz.duration}
+                questionCount={quiz.questionCount}
+                attemptCount={quiz.attemptCount ?? quiz.totalAttempts}
+                difficulty="medium"
+                status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : (quiz.status as any)}
+                hasAccess={hasAccess}
+                isCompleted={quiz.isCompleted}
+                score={quiz.score}
+                onStartClick={handleQuizClick}
+                pushStatus={quiz.pushStatus}
+              />
+            ))}
+            </div>
+          </div>
+        )}
+
+        {/* Payment Modal */}
+        <PaymentModal
+          isOpen={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          accessPrice={accessPrice}
+          paymentLoading={paymentLoading}
+          handlePayNowClick={handlePayNowClick}
+        />
+
+        {/* Confirmation Modal - Wallet Deduction */}
+        <ConfirmationModal
+          isOpen={showConfirmationModal}
+          onClose={() => setShowConfirmationModal(false)}
+          walletBalance={walletBalance}
+          accessPrice={accessPrice}
+          paymentLoading={paymentLoading}
+          handleConfirmedPayment={handleConfirmedPayment}
+          onBack={() => {
+            setShowConfirmationModal(false);
+            setShowPaymentModal(true);
+          }}
+        />
+
+        {/* Insufficient Balance Modal */}
+        <InsufficientBalanceModal
+          isOpen={showInsufficientBalanceModal}
+          onClose={() => setShowInsufficientBalanceModal(false)}
+          walletBalance={walletBalance}
+          accessPrice={accessPrice}
+          handleGoToWallet={handleGoToWallet}
+        />
+      </div>
+    </div>
+  );
+}

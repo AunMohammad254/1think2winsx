@@ -1,0 +1,66 @@
+/**
+ * Database Layer Barrel Export
+ * 
+ * This file re-exports all database modules for easy imports.
+ * Import from '@/lib/supabase/db' for backward compatibility.
+ */
+
+// Shared utilities
+export { generateId, getDb, getAdminDb } from './shared'
+
+// Domain-specific modules
+export { userDb } from './user.db'
+export {
+    quizDb,
+    questionDb,
+    quizAttemptDb,
+    answerDb,
+    questionAttemptDb
+} from './quiz.db'
+export {
+    walletTransactionDb,
+    dailyPaymentDb
+} from './wallet.db'
+export {
+    prizeDb,
+    prizeRedemptionDb
+} from './prize.db'
+export { quizWinnerDb } from './winner.db'
+export {
+    adminSessionDb,
+    securityEventDb
+} from './admin.db'
+export { streamConfigDb } from './stream.db'
+export { notificationDb } from './notification.db'
+export { newsletterDb } from './newsletter.db'
+
+// Combined db object for convenience
+import { userDb } from './user.db'
+import { quizDb, questionDb, quizAttemptDb, answerDb } from './quiz.db'
+import { walletTransactionDb, dailyPaymentDb } from './wallet.db'
+import { prizeDb, prizeRedemptionDb } from './prize.db'
+import { adminSessionDb, securityEventDb } from './admin.db'
+import { streamConfigDb } from './stream.db'
+import { notificationDb } from './notification.db'
+import { newsletterDb } from './newsletter.db'
+import { quizWinnerDb } from './winner.db'
+
+export const db = {
+    user: userDb,
+    quiz: quizDb,
+    question: questionDb,
+    quizAttempt: quizAttemptDb,
+    answer: answerDb,
+    walletTransaction: walletTransactionDb,
+    prize: prizeDb,
+    prizeRedemption: prizeRedemptionDb,
+    quizWinner: quizWinnerDb,
+    adminSession: adminSessionDb,
+    securityEvent: securityEventDb,
+    dailyPayment: dailyPaymentDb,
+    streamConfig: streamConfigDb,
+    notification: notificationDb,
+    newsletter: newsletterDb,
+}
+
+export default db
