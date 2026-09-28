@@ -27,9 +27,10 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions) =
                 'content-type': 'application/json'
             },
             body: JSON.stringify({
-                sender: { 
-                    email: 'support@1think2win.com', // Must be a valid format
-                    name: '1Think 2Win Support' 
+                sender: {
+                    // Must be a verified sender (or authenticated domain) in Brevo, or the send is rejected
+                    email: process.env.BREVO_SENDER_EMAIL || 'support@1think2win.com',
+                    name: '1Think 2Win Support'
                 },
                 to: [{ email: to }],
                 subject: subject,
