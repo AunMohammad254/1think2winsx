@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { createClient } from '@supabase/supabase-js';
+import sanitizeHtml from 'sanitize-html';
 
 /**
  * Admin Stream Embed API
@@ -90,10 +91,18 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    // Light sanitization: strip script tags
-    const embedHtml = embedHtmlRaw
-      .trim()
-      .replace(/<script[^>]*>.*?<\/script>/gis, '');
+    // Robust sanitization with sanitize-html
+    const embedHtml = sanitizeHtml(embedHtmlRaw.trim(), {
+      allowedTags: ['iframe', 'div', 'span', 'p', 'a', 'br', 'strong', 'em', 'u'],
+      allowedAttributes: {
+        'iframe': ['src', 'width', 'height', 'frameborder', 'allow', 'allowfullscreen', 'scrolling', 'title'],
+        'div': ['class', 'id', 'style'],
+        'span': ['class', 'style'],
+        'a': ['href', 'target', 'rel']
+      },
+      allowedIframeHostnames: ['www.youtube.com', 'youtube.com', 'www.youtube-nocookie.com', 'player.vimeo.com', 'player.twitch.tv'],
+      allowIframeRelativeUrls: false
+    });
 
     const supabase = getSupabaseAdmin();
 

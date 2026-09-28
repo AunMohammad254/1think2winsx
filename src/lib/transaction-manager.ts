@@ -1,5 +1,5 @@
 import { securityLogger } from './security-logger';
-import { getDb, answerDb, quizAttemptDb, questionAttemptDb, dailyPaymentDb, userDb, generateId } from './supabase/db';
+import { getDb, getAdminDb, answerDb, quizAttemptDb, questionAttemptDb, dailyPaymentDb, userDb, generateId } from './supabase/db';
 
 /**
  * Supabase-based Transaction Manager
@@ -213,7 +213,7 @@ export class TransactionManager {
     let lastError: string | undefined;
 
     try {
-      const supabase = await getDb();
+      const supabase = getAdminDb(); // RLS blocks user-client reads of "User"
       const { error } = await supabase.from('User').select('id').limit(1);
 
       if (!error) {

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { TransactionManager } from '@/lib/transaction-manager';
 import { securityLogger } from '@/lib/security-logger';
-import { getDb } from '@/lib/supabase/db';
+import { getAdminDb } from '@/lib/supabase/db';
 import { securityMonitor } from '@/lib/security-monitoring';
 
 /**
@@ -115,7 +115,8 @@ async function checkDatabaseHealth() {
   const startTime = Date.now();
 
   try {
-    const supabase = await getDb();
+    // Service role: RLS blocks anon/user reads of "User" since the security migration
+    const supabase = getAdminDb();
 
     // Test basic connectivity
     const { error: readError } = await supabase

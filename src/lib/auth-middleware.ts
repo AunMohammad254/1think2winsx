@@ -83,7 +83,19 @@ export async function requireAuth(
   // Retry authentication in case of temporary session issues
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const user = await getVerifiedUser();
+      let user: VerifiedUser | null = await getVerifiedUser();
+
+      if (!user && adminOnly) {
+        const { validateAdminSession } = await import('./admin-session');
+        const adminSession = await validateAdminSession();
+        if (adminSession.valid && adminSession.email) {
+          user = {
+            id: 'admin-user',
+            email: adminSession.email,
+            user_metadata: { name: 'Admin', role: 'admin' }
+          };
+        }
+      }
 
       if (!user) {
         const error = new Error('No valid session found');
@@ -208,9 +220,12 @@ export async function requireAuth(
  * Helper function to check if current user is admin (with caching)
  */
 export async function isCurrentUserAdmin(): Promise<boolean> {
-  const user = await getVerifiedUser();
+  let user = await getVerifiedUser();
 
   if (!user) {
+    const { validateAdminSession } = await import('./admin-session');
+    const adminSession = await validateAdminSession();
+    if (adminSession.valid) return true;
     return false;
   }
 

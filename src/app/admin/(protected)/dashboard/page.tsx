@@ -15,6 +15,7 @@ import {
   BarChart3,
   Mail,
   Sparkles,
+  LifeBuoy,
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
@@ -111,6 +112,7 @@ const navItems = [
   { href: '/admin/newsletter', label: 'Newsletter', icon: Mail },
   { href: '/admin/db-stats', label: 'Database', icon: Database },
   { href: '/admin/security', label: 'Security', icon: Shield },
+  { href: '/admin/support', label: 'User Support', icon: LifeBuoy },
 ];
 
 const quickActions = [

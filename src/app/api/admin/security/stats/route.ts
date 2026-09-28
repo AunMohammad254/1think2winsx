@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
+import { validateAdminSession } from '@/lib/admin-session';
 import { getAdminDb } from '@/lib/supabase/db';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
@@ -27,7 +28,8 @@ export async function GET(request: NextRequest) {
 
     // Check authentication and admin privileges
     const session = await auth();
-    if (!session?.user?.isAdmin) {
+    // Admin panel logins use the admin-session cookie, not a Supabase session
+    if (!session?.user?.isAdmin && !(await validateAdminSession()).valid) {
       await securityLogger.logSecurityEvent({
         type: 'UNAUTHORIZED_ACCESS',
         userId: session?.user?.id || 'anonymous',

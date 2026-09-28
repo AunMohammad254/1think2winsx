@@ -27,6 +27,18 @@ export async function lookupEmailByPhone(formData: FormData) {
     }
 
     try {
+        // Prevent account enumeration by rate limiting this unauthenticated endpoint
+        const { headers } = await import('next/headers');
+        const { rateLimiters } = await import('@/lib/rate-limiter');
+        const headersList = await headers();
+        const ip = headersList.get('x-forwarded-for') || 'unknown';
+        
+        // Mock NextRequest-like object for the rate limiter
+        const mockRequest = { headers: headersList } as any;
+        const limitResult = await rateLimiters.auth.checkLimit(mockRequest, ip, '/forgot-email');
+        if (!limitResult.success) {
+            return { error: 'Too many requests. Please try again later.' };
+        }
         // Normalize phone number (remove +92 prefix if present, add 0)
         let normalizedPhone = phone;
         if (phone.startsWith('+92')) {

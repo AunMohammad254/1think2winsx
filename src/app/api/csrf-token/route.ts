@@ -14,13 +14,7 @@ import { createSecureJsonResponse } from '@/lib/security-headers';
  */
 export async function GET(request: NextRequest) {
   try {
-    const hasUserSession = request.cookies.getAll().some(c => c.name.startsWith('sb-') && c.name.includes('-auth-token'));
-    const hasAdminSession = !!request.cookies.get('admin-session')?.value;
-
-    if (!hasUserSession && !hasAdminSession) {
-      securityLogger.logUnauthorizedAccess(undefined, '/api/csrf-token', request);
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    }
+    // Allow public access to generate CSRF token for registration/newsletter forms
 
     const csrfToken = generateCSRFToken();
     return createSecureJsonResponse(

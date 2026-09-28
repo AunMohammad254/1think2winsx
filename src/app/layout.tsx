@@ -28,6 +28,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
   title: "1Think 2Win",
   description: "1Think 2Win - Test your sports knowledge and win exciting prizes!",
   icons: {

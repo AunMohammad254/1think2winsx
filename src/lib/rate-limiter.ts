@@ -87,8 +87,8 @@ export class RateLimiter {
       skipSuccessfulRequests: false,
       ...config
     };
-    this.upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
-    this.upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+    this.upstashUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+    this.upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   }
 
   /**

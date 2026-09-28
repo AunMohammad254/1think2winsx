@@ -129,77 +129,8 @@ export async function POST(request: NextRequest) {
     });
 
     if (rpcError) {
-      // Fallback to manual operations if RPC doesn't exist
-      if (rpcError.message?.includes('function') || rpcError.code === '42883') {
-        const redemptionId = generateId();
-
-        // Deduct points from user
-        await supabase
-          .from('User')
-          .update({
-            points: user.points - prize.pointsRequired,
-            updatedAt: new Date().toISOString()
-          })
-          .eq('id', user.id);
-
-        // Decrement stock if applicable
-        if (prize.stock !== null && prize.stock > 0) {
-          await supabase
-            .from('Prize')
-            .update({
-              stock: prize.stock - 1,
-              updatedAt: new Date().toISOString()
-            })
-            .eq('id', prizeId);
-        }
-
-        // Create redemption request
-        const { data: redemption, error: redemptionError } = await supabase
-          .from('PrizeRedemption')
-          .insert({
-            id: redemptionId,
-            userId: user.id,
-            prizeId: prizeId,
-            pointsUsed: prize.pointsRequired,
-            status: 'pending',
-            fullName: fullName || null,
-            whatsappNumber: whatsappNumber || null,
-            address: address || null,
-            requestedAt: new Date().toISOString(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          })
-          .select()
-          .single();
-
-        if (redemptionError) throw redemptionError;
-
-        // Log successful prize redemption
-        securityLogger.logSecurityEvent({
-          type: 'PRIZE_REDEMPTION',
-          userId: session.user.id,
-          ip: request.headers.get('x-forwarded-for') || 'unknown',
-          userAgent: request.headers.get('user-agent') || undefined,
-          endpoint: '/api/prize-redemption',
-          details: {
-            prizeId,
-            prizeName: prize.name,
-            pointsUsed: prize.pointsRequired
-          },
-          severity: 'LOW'
-        });
-
-        return createSecureJsonResponse({
-          message: 'Prize redeemed successfully',
-          redemption: {
-            id: redemption.id,
-            prizeName: prize.name,
-            pointsUsed: prize.pointsRequired,
-            status: 'pending',
-            requestedAt: redemption.requestedAt,
-          },
-        }, { status: 201 });
-      }
+      // We no longer fallback to manual operations because it creates a race condition
+      // (concurrent overspending). The RPC 'redeem_prize' must be installed in the database.
       throw rpcError;
     }
 
