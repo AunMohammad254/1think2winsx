@@ -85,14 +85,19 @@ export async function POST(request: NextRequest) {
         action: 'newsletter_dispatched',
         senderEmail: senderEmail.trim(),
         subject: subject.trim(),
-        subscriberCount: subscribers.length
+        subscriberCount: subscribers.length,
+        sentCount: emailResult.sentCount,
+        failedCount: emailResult.failedCount ?? 0
       }
     });
 
     return createSecureJsonResponse({
       success: true,
-      message: `Successfully sent newsletter to ${subscribers.length} subscribed user(s)!`,
-      sentCount: subscribers.length
+      message: emailResult.failedCount
+        ? `Sent to ${emailResult.sentCount} of ${subscribers.length} subscriber(s); ${emailResult.failedCount} failed.`
+        : `Successfully sent newsletter to ${emailResult.sentCount} subscribed user(s)!`,
+      sentCount: emailResult.sentCount,
+      failedCount: emailResult.failedCount ?? 0
     }, { status: 200 });
   } catch (error: any) {
     console.error('Error in admin newsletter send endpoint:', error);
