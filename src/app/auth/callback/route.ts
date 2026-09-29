@@ -4,7 +4,12 @@ import { createClient } from '@/lib/supabase/server'
 export async function GET(request: Request) {
     const { searchParams, origin } = new URL(request.url)
     const code = searchParams.get('code')
-    const next = searchParams.get('next') ?? '/quizzes'
+    // Only allow same-site paths: `next` is appended to the host, so values like
+    // "@evil.com" or "//evil.com" would otherwise redirect to another site.
+    const rawNext = searchParams.get('next') ?? '/quizzes'
+    const next = rawNext.startsWith('/') && !rawNext.startsWith('//') && !rawNext.includes('\\')
+        ? rawNext
+        : '/quizzes'
 
     if (code) {
         const supabase = await createClient()

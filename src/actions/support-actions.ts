@@ -332,7 +332,7 @@ export async function sendNotificationAction(userId: string, title: string, mess
             title,
             message,
             type: 'admin_message',
-            link: '/dashboard'
+            link: '/profile'
         });
         
         let emailSent = false;

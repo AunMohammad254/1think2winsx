@@ -23,12 +23,14 @@ export async function POST(request: NextRequest) {
 
     // 3. Parse request body
     const body = await request.json();
-    const { senderEmail, subject, content } = body;
+    const { subject, content } = body;
+    // Blank sender -> the verified default (Brevo rejects unverified senders)
+    const senderEmail: string = (body.senderEmail || '').trim() || process.env.BREVO_SENDER_EMAIL || '';
 
     // 4. Validate input fields
     if (!senderEmail || !subject || !content) {
       return NextResponse.json(
-        { success: false, message: 'Sender email, subject, and content/description are required.' },
+        { success: false, message: 'Subject and content/description are required (and a sender email when BREVO_SENDER_EMAIL is not set).' },
         { status: 400 }
       );
     }
