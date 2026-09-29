@@ -24,7 +24,7 @@ const CSP = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   `connect-src 'self' ${supabaseUrl} ${supabaseWs} https://accounts.google.com`,
-  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.facebook.com https://player.twitch.tv",
+  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.facebook.com https://player.twitch.tv https://player.cloudinary.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

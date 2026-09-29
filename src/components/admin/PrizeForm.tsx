@@ -7,12 +7,13 @@ import { z } from 'zod';
 import { motion } from 'framer-motion';
 import type { Prize, PrizeFormData, PrizeCategoryValue, PrizeStatus } from '@/types/prize';
 import Image from 'next/image';
+import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT, CLOUDINARY_CLOUD_NAME } from '@/lib/cloudinary';
 
 // Form validation schema
 const prizeFormSchema = z.object({
     name: z.string().min(1, 'Name is required').max(100, 'Name too long'),
     description: z.string().max(500, 'Description too long').optional(),
-    imageUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
+    imageUrl: z.string().url('Invalid URL').refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
     modelUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
     pointsRequired: z.number().min(1, 'Points must be at least 1'),
@@ -153,7 +154,7 @@ export default function PrizeForm({
                                     type="text"
                                     {...register('imageUrl')}
                                     className="w-full px-4 py-3 bg-slate-700/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                                    placeholder="https://example.com/image.jpg"
+                                    placeholder={`https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/t_1Think2win/…`}
                                 />
                                 {errors.imageUrl && (
                                     <p className="mt-1 text-xs text-red-400">{errors.imageUrl.message}</p>

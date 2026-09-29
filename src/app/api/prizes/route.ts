@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT } from '@/lib/cloudinary';
 import { auth } from '@/lib/auth';
 import { prizeDb, userDb, prizeRedemptionDb, getDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
@@ -322,6 +323,13 @@ export async function POST(request: NextRequest) {
           error: 'Missing required fields',
           message: 'Name, type, and pointsRequired are required',
         },
+        { status: 400 }
+      );
+    }
+
+    if (imageUrl && (typeof imageUrl !== 'string' || !isAllowedPrizeImageUrl(imageUrl))) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid image URL', message: PRIZE_IMAGE_URL_HINT },
         { status: 400 }
       );
     }

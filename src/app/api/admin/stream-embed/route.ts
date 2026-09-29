@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
         'span': ['class', 'style'],
         'a': ['href', 'target', 'rel']
       },
-      allowedIframeHostnames: ['www.youtube.com', 'youtube.com', 'www.youtube-nocookie.com', 'player.vimeo.com', 'player.twitch.tv'],
+      allowedIframeHostnames: ['www.youtube.com', 'youtube.com', 'www.youtube-nocookie.com', 'player.vimeo.com', 'player.twitch.tv', 'player.cloudinary.com'],
       allowIframeRelativeUrls: false
     });
 

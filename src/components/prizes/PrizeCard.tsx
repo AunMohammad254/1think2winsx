@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { Prize } from '@/types/prize';
@@ -55,6 +56,7 @@ export default function PrizeCard({
                     {prize.imageUrl && !imageError ? (
                         <Image
                             src={prize.imageUrl}
+                            loader={loaderFor(prize.imageUrl)}
                             alt={prize.name}
                             fill
                             className="object-contain p-4 transition-transform duration-500 group-hover:scale-110"

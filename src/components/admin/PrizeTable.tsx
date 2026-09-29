@@ -3,6 +3,7 @@
 import type { Prize } from '@/types/prize';
 import { STATUS_COLORS } from '@/types/prize';
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 
 interface PrizeTableProps {
     prizes: Prize[];
@@ -84,6 +85,7 @@ export default function PrizeTable({
                                             {prize.imageUrl ? (
                                                 <Image
                                                     src={prize.imageUrl}
+                                                    loader={loaderFor(prize.imageUrl)}
                                                     alt={prize.name}
                                                     fill
                                                     className="object-cover"
@@ -187,6 +189,7 @@ export default function PrizeTable({
                                 {prize.imageUrl ? (
                                     <Image
                                         src={prize.imageUrl}
+                                        loader={loaderFor(prize.imageUrl)}
                                         alt={prize.name}
                                         fill
                                         className="object-cover"
