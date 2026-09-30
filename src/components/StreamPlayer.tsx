@@ -14,6 +14,7 @@ interface StreamData {
 interface StreamPlayerProps {
   className?: string;
   onError?: (error: string) => void;
+  fullscreenTargetId?: string;
 }
 
 // Responsive helper (exported for tests)
@@ -24,7 +25,7 @@ export function getResponsiveClasses(width: number): string {
   return 'aspect-video w-full';
 }
 
-export default function StreamPlayer({ className = '', onError }: StreamPlayerProps) {
+export default function StreamPlayer({ className = '', onError, fullscreenTargetId }: StreamPlayerProps) {
   const [streamData, setStreamData] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,19 +62,38 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
   // (Removed) responsiveClasses state was unused; container uses fixed responsive CSS
 
   const toggleFullscreen = useCallback(() => {
-    if (!containerRef.current) return;
+    const target = fullscreenTargetId 
+      ? document.getElementById(fullscreenTargetId) 
+      : containerRef.current;
+    
+    if (!target) return;
+    
     if (!isFullscreen) {
-      if (containerRef.current.requestFullscreen) {
-        containerRef.current.requestFullscreen();
-        setIsFullscreen(true);
+      if (target.requestFullscreen) {
+        target.requestFullscreen();
       }
     } else {
       if (document.exitFullscreen) {
         document.exitFullscreen();
-        setIsFullscreen(false);
       }
     }
-  }, [isFullscreen]);
+  }, [isFullscreen, fullscreenTargetId]);
+
+  // Sync fullscreen state with native browser events
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const target = fullscreenTargetId 
+        ? document.getElementById(fullscreenTargetId) 
+        : containerRef.current;
+      
+      setIsFullscreen(document.fullscreenElement === target);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [fullscreenTargetId]);
 
   // Keyboard controls (F toggles fullscreen).
   // Uses a ref so the listener does not need to be re-attached on every
@@ -115,17 +135,17 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
       ? getYouTubeVideoId(streamData.embedHtml)
       : null;
     if (ytId) {
-      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1`;
+      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&fs=0`;
     }
     return buildEmbedDataUri(streamData.embedHtml);
   }, [streamData]);
 
   if (loading) {
     return (
-      <div className={`flex items-center justify-center bg-gray-900 rounded-lg ${className}`} role="status" aria-live="polite">
+      <div className={`flex items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="status" aria-live="polite">
         <div className="text-center text-white p-8">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-          <p>Loading stream...</p>
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-400" />
+          <p className="text-gray-300">Loading stream...</p>
         </div>
       </div>
     );
@@ -133,12 +153,12 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
 
   if (error || !streamData) {
     return (
-      <div className={`flex items-center justify-center bg-gray-900 rounded-lg ${className}`} role="alert" aria-live="assertive">
+      <div className={`flex items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="alert" aria-live="assertive">
         <div className="text-center text-white p-8">
-          <p className="mb-4">{error || 'No stream available'}</p>
+          <p className="mb-4 text-gray-300">{error || 'No stream available'}</p>
           <button
             onClick={fetchStreamData}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 transition-all"
             aria-label="Retry loading stream"
           >
             Retry
@@ -157,7 +177,6 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
         src={embedSrc}
         className={isYouTubeContent(streamData.embedHtml) ? 'w-full h-full border-0' : 'yt-player-frame'}
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        allowFullScreen
         loading="lazy"
         aria-label={streamData.title}
         onLoad={handleIframeLoad}
@@ -170,7 +189,7 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
   return (
     <div
       ref={containerRef}
-      className={`relative bg-black rounded-lg overflow-hidden yt-responsive-player ${className} ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}
+      className={`relative bg-black rounded-2xl overflow-hidden yt-responsive-player ${className}`}
       role="application"
       aria-label="Live stream viewer"
       tabIndex={0}

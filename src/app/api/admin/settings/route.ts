@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
 import { getAdminDb } from '@/lib/supabase/db';
 import { invalidateWalletEnabledCache } from '@/lib/wallet/service';
+import { requireCSRFToken } from '@/lib/csrf-protection';
 import { z } from 'zod';
 
 /**
@@ -44,6 +45,9 @@ export async function PUT(request: NextRequest) {
     if (!adminSession.valid) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const csrfResult = await requireCSRFToken(request);
+    if (csrfResult) return csrfResult;
 
     try {
         const body = await request.json();

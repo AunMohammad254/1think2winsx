@@ -336,7 +336,10 @@ export default function ProfilePage() {
           {walletEnabled && <BalanceCard balance={profile.walletBalance || 0} />}
 
           {/* Quick Actions */}
-          <QuickActions onChangePasswordClick={() => setShowPasswordModal(true)} />
+          <QuickActions
+            onChangePasswordClick={() => setShowPasswordModal(true)}
+            hideWalletActions={!walletEnabled}
+          />
 
           {/* Stats Grid */}
           <StatsGrid stats={stats} />

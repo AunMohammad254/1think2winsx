@@ -56,9 +56,10 @@ export const quizDb = {
     async findByIdWithQuestions(id: string) {
         const supabase = await getDb()
         // Single joined query — avoids the sequential quiz-then-questions round-trip.
+        // Explicit columns: the answer key (correctOption) is not readable by users.
         const { data, error } = await supabase
             .from('Quiz')
-            .select('*, questions:Question(*)')
+            .select('id, title, description, duration, passingScore, status, accessPrice, quizType, isBumperPrize, startsAt, questions:Question(id, text, options, status, hasCorrectAnswer, createdAt)')
             .eq('id', id)
             .single()
 
@@ -127,7 +128,7 @@ export const quizDb = {
 
 export const questionDb = {
     async findByQuizId(quizId: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Question')
             .select('*')
@@ -139,7 +140,7 @@ export const questionDb = {
     },
 
     async findById(id: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Question')
             .select('*')
@@ -284,7 +285,7 @@ export const quizAttemptDb = {
     },
 
     async create(attemptData: Insertable<'QuizAttempt'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('QuizAttempt')
             .insert({ id: generateId(), ...attemptData })
@@ -296,7 +297,7 @@ export const quizAttemptDb = {
     },
 
     async update(id: string, attemptData: Updatable<'QuizAttempt'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('QuizAttempt')
             .update({ ...attemptData, updatedAt: new Date().toISOString() })
@@ -309,7 +310,7 @@ export const quizAttemptDb = {
     },
 
     async complete(id: string, score: number, points: number) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('QuizAttempt')
             .update({
@@ -345,7 +346,7 @@ export const answerDb = {
     },
 
     async create(answerData: Insertable<'Answer'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Answer')
             .insert({ id: generateId(), ...answerData })
@@ -357,7 +358,7 @@ export const answerDb = {
     },
 
     async createMany(answers: Insertable<'Answer'>[]) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const answersWithIds = answers.map(a => ({ id: generateId(), ...a }))
 
         const { data, error } = await supabase
@@ -369,31 +370,18 @@ export const answerDb = {
         return data || []
     },
 
+    /**
+     * Mark every answer to a question correct/incorrect in ONE set-based statement
+     * (previously: fetch all answer ids, then two `IN (...)` updates, which break
+     * beyond a few thousand rows).
+     */
     async updateCorrectness(questionId: string, correctOption: number) {
-        const supabase = await getDb()
-
-        // Get all answers for this question
-        const { data: answers, error: fetchError } = await supabase
-            .from('Answer')
-            .select('id, selectedOption')
-            .eq('questionId', questionId)
-
-        if (fetchError) throw fetchError
-        if (!answers || answers.length === 0) return
-
-        // Partition into correct / incorrect answer IDs
-        const correctIds = answers.filter(a => a.selectedOption === correctOption).map(a => a.id)
-        const wrongIds   = answers.filter(a => a.selectedOption !== correctOption).map(a => a.id)
-
-        // Two bulk updates instead of N sequential updates
-        await Promise.all([
-            correctIds.length > 0
-                ? supabase.from('Answer').update({ isCorrect: true }).in('id', correctIds)
-                : Promise.resolve(),
-            wrongIds.length > 0
-                ? supabase.from('Answer').update({ isCorrect: false }).in('id', wrongIds)
-                : Promise.resolve(),
-        ])
+        const supabase = getAdminDb()
+        const { error } = await supabase.rpc('evaluate_question', {
+            p_question_id: questionId,
+            p_correct_option: correctOption,
+        })
+        if (error) throw error
     },
 }
 

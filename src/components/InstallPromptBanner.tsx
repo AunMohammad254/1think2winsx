@@ -43,7 +43,7 @@ export default function InstallPromptBanner() {
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-bold text-white mb-1 pr-6">Install 1Think2Win App</h4>
             <p className="text-xs text-gray-300 leading-relaxed mb-4">
-              Get active cricket quizzes, check leaderboard ranks, and claim your rewards instantly from your home screen!
+              Get active sports quizzes, check leaderboard ranks, and claim your rewards instantly from your home screen!
             </p>
 
             <div className="flex gap-2">

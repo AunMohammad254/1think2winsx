@@ -16,12 +16,12 @@ services:
   # ============================================================================
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: deploy/Dockerfile
     container_name: 1think2wins-app
     restart: unless-stopped
     env_file:
-      - .env.production
+      - ../.env.production
     environment:
       - NODE_ENV=production
     networks:

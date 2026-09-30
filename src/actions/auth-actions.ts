@@ -136,24 +136,21 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
         // This ensures the password is stored for password change detection
         if (signUpData.user) {
             try {
-                const registerResponse = await fetch(`${origin}/api/register`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: formData.name,
-                        email: formData.email,
-                        password: formData.password,
-                        phone: formData.phone,
-                        dateOfBirth: formData.dateOfBirth,
-                    }),
-                });
+                // The on_auth_user_created trigger has already inserted public.User with the auth id,
+                // so fill in the remaining profile fields on that row instead of inserting a second one.
+                // An existing email returns an obfuscated user with no identities: never touch that row.
+                if (signUpData.user.identities && signUpData.user.identities.length > 0) {
+                    const { userDb } = await import('@/lib/supabase/db');
+                    const bcrypt = await import('bcryptjs');
+                    const hashedPassword = await bcrypt.hash(formData.password, 12);
 
-                if (!registerResponse.ok) {
-                    // User already exists in public.User is fine - they may have registered before
-                    const result = await registerResponse.json();
-                    if (registerResponse.status !== 409) {
-                        console.error('[registerAction] Failed to create public.User:', result);
-                    }
+                    await userDb.update(signUpData.user.id, {
+                        name: formData.name,
+                        password: hashedPassword,
+                        authProvider: 'email',
+                        ...(formData.phone ? { phone: formData.phone } : {}),
+                        ...(formData.dateOfBirth ? { dateOfBirth: new Date(formData.dateOfBirth).toISOString() } : {}),
+                    });
                 }
             } catch (err) {
                 console.error('[registerAction] Error creating public.User:', err);

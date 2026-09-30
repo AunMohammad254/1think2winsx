@@ -93,6 +93,17 @@ export default function NotificationsDropdown() {
     setIsOpen(false);
   };
 
+  // A quiz notification's link is `/quiz/<id>` (the standalone full-page
+  // attempt flow). Route it through /quizzes?openQuiz=<id> instead, so it
+  // opens straight into the live-stream popup/split experience — same quiz,
+  // same submit endpoint, just the richer view — instead of navigating away
+  // from the stream entirely.
+  const resolveNotificationHref = (link: string) => {
+    if (link.includes('/results')) return link;
+    const match = link.match(/\/quiz\/([^/?#]+)/);
+    return match ? `/quizzes?openQuiz=${encodeURIComponent(match[1])}` : link;
+  };
+
   return (
     <div ref={dropdownRef} className="relative">
       {/* Bell Trigger Button */}
@@ -231,7 +242,7 @@ export default function NotificationsDropdown() {
                             <div className="flex items-center gap-3">
                               {notif.link ? (
                                 <Link
-                                  href={notif.link}
+                                  href={resolveNotificationHref(notif.link)}
                                   onClick={() => handleNotificationClick(notif)}
                                   className="text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:underline"
                                 >

@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 import {
     Eye,
     MessageSquare,
@@ -33,6 +34,7 @@ export function ClaimCard({ claim, updating, onViewDetails, onUpdateStatus }: Cl
                     <div className="relative">
                         <Image
                             src={claim.prize.imageUrl}
+                            loader={loaderFor(claim.prize.imageUrl)}
                             alt={claim.prize.name}
                             width={64}
                             height={64}

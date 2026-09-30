@@ -116,6 +116,14 @@ const nextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        // Cloudinary (prize images and videos). Most <Image>s use the Cloudinary loader
+        // in src/lib/cloudinary.ts; this entry covers any that go through Next's optimizer.
+        protocol: 'https',
+        hostname: 'res.cloudinary.com',
+        port: '',
+        pathname: `/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dszrz6s6u'}/**`,
+      },
     ],
     unoptimized: false,
     // Image formats and sizes

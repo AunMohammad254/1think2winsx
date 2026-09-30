@@ -1,8 +1,37 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { securityLogger } from './security-logger';
-import type { User } from '@supabase/supabase-js';
+
+/** Minimal verified identity used by API routes. */
+export interface VerifiedUser {
+  id: string;
+  email?: string;
+  user_metadata: Record<string, any>;
+}
+
+/**
+ * Verify the caller's Supabase session.
+ *
+ * Uses getClaims(): with asymmetric JWT signing keys (Supabase dashboard ->
+ * Auth -> Signing Keys) the JWT is verified locally with the cached JWKS, i.e. NO
+ * network round-trip to Supabase Auth per API request. With legacy HS256 keys it
+ * transparently falls back to getUser() (same cost as before).
+ */
+export async function getVerifiedUser(): Promise<VerifiedUser | null> {
+  const supabase = await getSupabaseServerClient();
+  const { data, error } = await supabase.auth.getClaims();
+  if (error || !data?.claims?.sub) return null;
+  const c = data.claims as Record<string, any>;
+  return { id: c.sub, email: c.email, user_metadata: c.user_metadata || {} };
+}
+
+function isAdminEmail(email: string | undefined): boolean {
+  if (!email) return false;
+  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  return adminEmails.includes(email.trim().toLowerCase());
+}
 
 // Admin status cache to avoid repeated environment variable parsing
 const adminCache = new Map<string, { isAdmin: boolean; timestamp: number }>();
@@ -54,16 +83,19 @@ export async function requireAuth(
   // Retry authentication in case of temporary session issues
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      let user: User | null = null;
+      let user: VerifiedUser | null = await getVerifiedUser();
 
-      const supabase = await getSupabaseServerClient();
-      const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
-
-      if (error) {
-        console.error('Supabase auth error:', error);
+      if (!user && adminOnly) {
+        const { validateAdminSession } = await import('./admin-session');
+        const adminSession = await validateAdminSession();
+        if (adminSession.valid && adminSession.email) {
+          user = {
+            id: 'admin-user',
+            email: adminSession.email,
+            user_metadata: { name: 'Admin', role: 'admin' }
+          };
+        }
       }
-
-      user = supabaseUser;
 
       if (!user) {
         const error = new Error('No valid session found');
@@ -110,8 +142,7 @@ export async function requireAuth(
         if (cachedAdmin && (Date.now() - cachedAdmin.timestamp) < ADMIN_CACHE_TTL) {
           isAdmin = cachedAdmin.isAdmin;
         } else {
-          const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
-          isAdmin = adminEmails.includes(userEmail);
+          isAdmin = isAdminEmail(userEmail);
 
           // Cache the admin status
           adminCache.set(userEmail, { isAdmin, timestamp: Date.now() });
@@ -189,10 +220,12 @@ export async function requireAuth(
  * Helper function to check if current user is admin (with caching)
  */
 export async function isCurrentUserAdmin(): Promise<boolean> {
-  const supabase = await getSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  let user = await getVerifiedUser();
 
   if (!user) {
+    const { validateAdminSession } = await import('./admin-session');
+    const adminSession = await validateAdminSession();
+    if (adminSession.valid) return true;
     return false;
   }
 
@@ -205,8 +238,7 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
     return cachedAdmin.isAdmin;
   }
 
-  const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
-  const isAdmin = adminEmails.includes(userEmail);
+  const isAdmin = isAdminEmail(userEmail);
 
   // Cache the admin status
   adminCache.set(userEmail, { isAdmin, timestamp: Date.now() });
@@ -218,8 +250,7 @@ export async function isCurrentUserAdmin(): Promise<boolean> {
  * Get current authenticated user
  */
 export async function getCurrentUser() {
-  const supabase = await getSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getVerifiedUser();
 
   if (!user) return null;
 

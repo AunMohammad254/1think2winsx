@@ -23,12 +23,14 @@ export async function POST(request: NextRequest) {
 
     // 3. Parse request body
     const body = await request.json();
-    const { senderEmail, subject, content } = body;
+    const { subject, content } = body;
+    // Blank sender -> the verified default (Brevo rejects unverified senders)
+    const senderEmail: string = (body.senderEmail || '').trim() || process.env.BREVO_SENDER_EMAIL || '';
 
     // 4. Validate input fields
     if (!senderEmail || !subject || !content) {
       return NextResponse.json(
-        { success: false, message: 'Sender email, subject, and content/description are required.' },
+        { success: false, message: 'Subject and content/description are required (and a sender email when BREVO_SENDER_EMAIL is not set).' },
         { status: 400 }
       );
     }
@@ -83,14 +85,19 @@ export async function POST(request: NextRequest) {
         action: 'newsletter_dispatched',
         senderEmail: senderEmail.trim(),
         subject: subject.trim(),
-        subscriberCount: subscribers.length
+        subscriberCount: subscribers.length,
+        sentCount: emailResult.sentCount,
+        failedCount: emailResult.failedCount ?? 0
       }
     });
 
     return createSecureJsonResponse({
       success: true,
-      message: `Successfully sent newsletter to ${subscribers.length} subscribed user(s)!`,
-      sentCount: subscribers.length
+      message: emailResult.failedCount
+        ? `Sent to ${emailResult.sentCount} of ${subscribers.length} subscriber(s); ${emailResult.failedCount} failed.`
+        : `Successfully sent newsletter to ${emailResult.sentCount} subscribed user(s)!`,
+      sentCount: emailResult.sentCount,
+      failedCount: emailResult.failedCount ?? 0
     }, { status: 200 });
   } catch (error: any) {
     console.error('Error in admin newsletter send endpoint:', error);

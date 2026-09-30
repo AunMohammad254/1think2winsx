@@ -108,7 +108,7 @@ export const prizeRedemptionDb = {
     },
 
     async findPending() {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('PrizeRedemption')
             .select('*')
@@ -135,7 +135,7 @@ export const prizeRedemptionDb = {
     },
 
     async findAllAdmin(options?: { status?: string, page?: number, limit?: number }) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const page = options?.page || 1
         const limit = options?.limit || 20
         const offset = (page - 1) * limit
@@ -163,7 +163,7 @@ export const prizeRedemptionDb = {
     },
 
     async create(redemptionData: Insertable<'PrizeRedemption'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('PrizeRedemption')
             .insert({ id: generateId(), ...redemptionData })
@@ -175,7 +175,7 @@ export const prizeRedemptionDb = {
     },
 
     async updateStatus(id: string, status: string, notes?: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('PrizeRedemption')
             .update({

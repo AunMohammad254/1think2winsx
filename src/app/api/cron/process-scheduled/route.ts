@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const { data: dueQuizzes, error: fetchError } = await adminDb
       .from('Quiz')
       .select('*')
-      .eq('status', 'scheduled')
+      .in('status', ['scheduled', 'upcoming'])
       .lte('startsAt', now);
 
     if (fetchError) {
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
       for (const quiz of dueQuizzes) {
         const { error: updateError } = await adminDb
           .from('Quiz')
-          .update({ status: 'active', updatedAt: now })
+          .update({ status: 'active', pushedAt: now, updatedAt: now })
           .eq('id', quiz.id);
 
         if (updateError) {
@@ -83,10 +83,10 @@ export async function GET(request: NextRequest) {
 
         try {
           await notificationDb.createBroadcast({
-            title: '🎮 New Quiz is Live!',
-            message: `"${quiz.title || 'Challenge'}" is now active. Play now and win points!`,
+            title: '🔴 Live now',
+            message: `"${quiz.title || 'Challenge'}" was just pushed (Scheduled) — jump in now!`,
             type: 'quiz_deadline',
-            link: `/quiz/${quiz.id}`
+            link: `/quizzes?openQuiz=${quiz.id}`
           });
           processedQuizIds.push(quiz.id);
           logger.log(`[Cron] Activated quiz ${quiz.id} and sent notification broadcast.`);
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
     const { data: warningQuizzes } = await adminDb
       .from('Quiz')
       .select('*')
-      .eq('status', 'scheduled')
+      .in('status', ['scheduled', 'upcoming'])
       .lte('startsAt', tenMinutesFromNow)
       .gt('startsAt', now);
 
@@ -118,15 +118,48 @@ export async function GET(request: NextRequest) {
 
           if (!alreadySent || alreadySent.length === 0) {
             await notificationDb.createBroadcast({
-              title: '⏰ Cricket Quiz Starts in 10 Min!',
+              title: '⏰ Sports Quiz Starts in 10 Min!',
               message: `Get ready! "${quiz.title || 'Challenge'}" starts in 10 minutes. Don't miss out!`,
               type: 'quiz_starts_soon',
-              link: `/quiz/${quiz.id}`
+              link: `/quizzes?openQuiz=${quiz.id}`
             });
             logger.log(`[Cron] Broadcasted 10-minute warning notification for quiz ${quiz.id}`);
           }
         } catch (warningErr) {
           console.error(`[Cron] Failed to process warning notification for quiz ${quiz.id}:`, warningErr);
+        }
+      }
+    }
+
+    // 3c. Unpublish active quizzes that have exceeded their duration window
+    const { data: activeQuizzes } = await adminDb
+      .from('Quiz')
+      .select('id, pushedAt, duration')
+      .eq('status', 'active');
+      
+    if (activeQuizzes && activeQuizzes.length > 0) {
+      const expiredQuizIds: string[] = [];
+      const nowMs = Date.now();
+      for (const quiz of activeQuizzes) {
+        if (quiz.pushedAt && quiz.duration) {
+          const expiryTime = new Date(quiz.pushedAt).getTime() + (quiz.duration * 60 * 1000);
+          if (nowMs >= expiryTime) {
+            expiredQuizIds.push(quiz.id);
+          }
+        }
+      }
+      
+      if (expiredQuizIds.length > 0) {
+        logger.log(`[Cron] Found ${expiredQuizIds.length} expired active quizzes. Moving back to paused...`);
+        const { error: unpublishError } = await adminDb
+          .from('Quiz')
+          .update({ status: 'paused', updatedAt: now })
+          .in('id', expiredQuizIds);
+          
+        if (unpublishError) {
+          console.error(`[Cron] Failed to unpublish expired quizzes:`, unpublishError);
+        } else {
+          processedQuizIds.push(...expiredQuizIds);
         }
       }
     }

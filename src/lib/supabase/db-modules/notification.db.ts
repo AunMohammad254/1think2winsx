@@ -254,6 +254,66 @@ export const notificationDb = {
         }
     },
 
+    // Create a batch notification for specific users
+    async createBatchForUsers(userIds: string[], data: { title: string; message: string; type: string; link?: string }) {
+        if (!userIds || userIds.length === 0) return;
+        
+        const adminDb = getAdminDb();
+        const now = new Date().toISOString();
+
+        // 1. Insert notifications in chunks of 500 rows to stay within Supabase limits
+        const INSERT_CHUNK = 500;
+        for (let i = 0; i < userIds.length; i += INSERT_CHUNK) {
+            const chunk = userIds.slice(i, i + INSERT_CHUNK);
+            const notifications = chunk.map((uid: string) => ({
+                id: generateId(),
+                userId: uid,
+                title: data.title,
+                message: data.message,
+                type: data.type,
+                link: data.link || null,
+                read: false,
+                createdAt: now,
+                updatedAt: now,
+            }));
+
+            const { error: insertError } = await adminDb
+                .from('Notification')
+                .insert(notifications);
+
+            if (insertError) throw insertError;
+        }
+
+        // 2. Fetch push subscriptions for these users and broadcast web pushes
+        const { data: subs, error: subError } = await adminDb
+            .from('PushSubscription')
+            .select('*')
+            .in('userId', userIds);
+
+        if (!subError && subs && subs.length > 0) {
+            const payload: PushPayload = {
+                title: data.title,
+                body: data.message,
+                url: data.link || '/notifications',
+                icon: '/Favicon/apple-touch-icon.png',
+                badge: '/Favicon/favicon.ico',
+                tag: data.type,
+                renotify: true,
+            };
+            
+            // Dispatch in small batches of 50 to avoid network bottlenecks
+            const batchSize = 50;
+            (async () => {
+                for (let i = 0; i < subs.length; i += batchSize) {
+                    const batch = subs.slice(i, i + batchSize);
+                    await Promise.allSettled(batch.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload)));
+                }
+            })().catch(e => {
+                console.error('[Web Push] Error during batch sending:', e);
+            });
+        }
+    },
+
     // Save browser push subscription
     async savePushSubscription(userId: string, subscription: { endpoint: string; keys: { p256dh: string; auth: string } }) {
         const supabase = await getDb()

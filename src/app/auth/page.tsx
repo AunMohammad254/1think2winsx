@@ -95,10 +95,11 @@ function AuthPageContent() {
                                 <div className="absolute -inset-3 bg-gradient-to-r from-purple-400 via-blue-400 to-pink-400 rounded-full blur-lg opacity-60 group-hover:opacity-100 transition duration-300" />
                                 <div className="relative">
                                     <Image
-                                        src="/auth-logo.png"
+                                        src="https://res.cloudinary.com/dszrz6s6u/image/upload/v1790752176/assets/auth-logo.avif"
                                         alt="Kheelo Or Jeeto Logo"
                                         width={100}
                                         height={100}
+                                        unoptimized
                                         className="rounded-full bg-white/10 backdrop-blur-xl p-2 border border-white/20 shadow-2xl transform group-hover:scale-110 transition-all duration-300"
                                     />
                                 </div>
@@ -144,10 +145,11 @@ function AuthPageContent() {
                             <div className="relative">
                                 <div className="absolute -inset-2 bg-gradient-to-r from-purple-400 via-blue-400 to-pink-400 rounded-full blur opacity-60" />
                                 <Image
-                                    src="/auth-logo.png"
+                                    src="https://res.cloudinary.com/dszrz6s6u/image/upload/v1790752176/assets/auth-logo.avif"
                                     alt="Kheelo Or Jeeto Logo"
                                     width={70}
                                     height={70}
+                                    unoptimized
                                     className="relative rounded-full bg-white/10 backdrop-blur-xl p-1 border border-white/20 shadow-xl"
                                 />
                             </div>

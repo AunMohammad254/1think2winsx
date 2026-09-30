@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 import { getCSRFToken } from '@/lib/csrf';
 import { type Prize, type RedemptionFormData } from './types';
 
@@ -118,6 +119,7 @@ export function RedemptionFormModal({
                         <div className="h-16 w-16 bg-gradient-glass-dark rounded-lg flex items-center justify-center glass-border">
                             <Image
                                 src={prize.imageUrl || `/prizes/${prize.type}.svg`}
+                                loader={loaderFor(prize.imageUrl)}
                                 alt={prize.name}
                                 width={48}
                                 height={48}

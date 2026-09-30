@@ -14,6 +14,8 @@ interface QuickAction {
 interface QuickActionsProps {
     actions?: QuickAction[];
     onChangePasswordClick?: () => void;
+    /** Hide the Deposit/History actions (wallet feature disabled). */
+    hideWalletActions?: boolean;
 }
 
 // Theme-aligned gradients (4 distinct semantic categories)
@@ -107,8 +109,11 @@ const defaultActions: QuickAction[] = [
     },
 ];
 
-export default function QuickActions({ actions = defaultActions, onChangePasswordClick }: QuickActionsProps) {
-    const actionsWithHandlers = actions.map((action) => {
+export default function QuickActions({ actions = defaultActions, onChangePasswordClick, hideWalletActions }: QuickActionsProps) {
+    const visibleActions = hideWalletActions
+        ? actions.filter((a) => a.id !== 'deposit' && a.id !== 'history')
+        : actions;
+    const actionsWithHandlers = visibleActions.map((action) => {
         if (action.id === 'changePassword' && onChangePasswordClick) {
             return { ...action, onClick: onChangePasswordClick };
         }

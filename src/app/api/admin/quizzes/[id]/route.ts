@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { getDb, generateId } from '@/lib/supabase/db';
+import { getAdminDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -11,8 +11,9 @@ const updateQuizSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().optional(),
   duration: z.number().min(1).max(180).optional(),
+  timeUpDuration: z.number().min(1).max(1440).optional(),
   passingScore: z.number().min(0).max(100).optional(),
-  status: z.enum(['active', 'paused', 'scheduled', 'draft']).optional(),
+  status: z.enum(['active', 'paused', 'scheduled', 'draft', 'upcoming']).optional(),
   startsAt: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
 });
@@ -23,8 +24,9 @@ const completeQuizUpdateSchema = z.object({
   description: z.string().nullable().optional(),
   timeLimit: z.number().min(1).max(7200).optional(),
   duration: z.number().min(1).max(180).optional(),
+  timeUpDuration: z.number().min(1).max(1440).optional(),
   passingScore: z.number().min(0).max(100).optional(),
-  status: z.enum(['active', 'paused', 'scheduled', 'draft']).optional(),
+  status: z.enum(['active', 'paused', 'scheduled', 'draft', 'upcoming']).optional(),
   startsAt: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
   questions: z.array(z.object({
@@ -67,7 +69,7 @@ export async function GET(
       return rateLimitResponse;
     }
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Get quiz
     const { data: quiz, error: quizError } = await supabase
@@ -165,6 +167,7 @@ export async function GET(
         duration: quiz.duration,
         passingScore: quiz.passingScore,
         status: quiz.status,
+        accessPrice: quiz.accessPrice,
         prizeId: quiz.prizeId,
         isBumperPrize: quiz.isBumperPrize,
         quizType: quiz.quizType,
@@ -258,7 +261,7 @@ export async function PATCH(
     }
 
     const updateData = validationResult.data;
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Check if quiz exists
     const { data: existingQuiz, error: fetchError } = await supabase
@@ -311,6 +314,7 @@ export async function PATCH(
         title: updatedQuiz.title,
         description: updatedQuiz.description,
         duration: updatedQuiz.duration,
+        timeUpDuration: updatedQuiz.timeUpDuration,
         passingScore: updatedQuiz.passingScore,
         status: updatedQuiz.status,
         createdAt: updatedQuiz.createdAt,
@@ -390,7 +394,7 @@ export async function PUT(
     }
 
     const updateData = validationResult.data;
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Check if quiz exists with questions
     const { data: existingQuiz, error: fetchError } = await supabase
@@ -422,6 +426,7 @@ export async function PUT(
     };
 
     if (updateData.duration) quizUpdateData.duration = updateData.duration;
+    if (updateData.timeUpDuration) quizUpdateData.timeUpDuration = updateData.timeUpDuration;
     if (updateData.passingScore) quizUpdateData.passingScore = updateData.passingScore;
 
     await supabase
@@ -573,7 +578,7 @@ export async function DELETE(
       return rateLimitResponse;
     }
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Check if quiz exists
     const { data: existingQuiz, error: fetchError } = await supabase

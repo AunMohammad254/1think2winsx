@@ -55,6 +55,7 @@ export default function ProfileAvatar({
                         alt={name}
                         width={128}
                         height={128}
+                        unoptimized
                         className="w-full h-full object-cover"
                     />
                 ) : (

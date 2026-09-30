@@ -31,14 +31,14 @@
   --foreground: #ffffff;
 
   /* Theme Colors - Easy to customize for your brand */
-  --color-primary: #16a34a; /* Cricket Green */
+  --color-primary: #16a34a; /* Sports Green */
   --color-primary-rgb: 22, 163, 74; /* RGB for opacity support */
   --color-secondary: #eab308; /* Gold */
   --color-secondary-rgb: 234, 179, 8; /* RGB for opacity support */
   --color-accent: #1e40af; /* Deep Blue */
   --color-accent-rgb: 30, 64, 175; /* RGB for opacity support */
 
-  /* Cricket Theme - Deep Emerald & Midnight Blue */
+  /* Sports Theme - Deep Emerald & Midnight Blue */
   --color-emerald: #059669; /* Deep Emerald Green */
   --color-emerald-rgb: 5, 150, 105;
   --color-midnight: #0f172a; /* Midnight Blue */
@@ -723,12 +723,12 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateZ(0);
 }
 
-@keyframes ball-spin {
+@keyframes icon-spin {
   0% { transform: rotate3d(0, 0, 1, 0deg); }
   100% { transform: rotate3d(0, 0, 1, 360deg); }
 }
-.anim-ball {
-  animation: ball-spin 12s linear infinite;
+.anim-icon {
+  animation: icon-spin 12s linear infinite;
   will-change: transform;
   backface-visibility: hidden;
   transform: translateZ(0);
@@ -920,7 +920,7 @@ h1, h2, h3, h4, h5, h6 {
   .anim-float,
   .anim-skeleton,
   .anim-orb,
-  .anim-ball,
+  .anim-icon,
   .anim-float-soft,
   .animate-success-scale {
     animation: none !important;

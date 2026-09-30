@@ -24,7 +24,7 @@ export default function AdminNewsletterPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Dispatch Form state
-  const [senderEmail, setSenderEmail] = useState('support@1think2win.com');
+  const [senderEmail, setSenderEmail] = useState('');
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
   const [sending, setSending] = useState(false);
@@ -97,13 +97,13 @@ export default function AdminNewsletterPage() {
   // Handle email dispatch
   const handleSendNewsletter = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!senderEmail || !subject || !content) {
-      toast.error('All fields are required.');
+    if (!subject || !content) {
+      toast.error('Subject and content are required.');
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(senderEmail.trim())) {
+    if (senderEmail.trim() && !emailRegex.test(senderEmail.trim())) {
       toast.error('Please enter a valid sender email.');
       return;
     }
@@ -252,13 +252,12 @@ export default function AdminNewsletterPage() {
                 <input
                   type="email"
                   id="sender"
-                  required
                   value={senderEmail}
                   onChange={(e) => setSenderEmail(e.target.value)}
                   placeholder="e.g. support@1think2win.com"
                   className="w-full px-4 py-2.5 bg-gray-950/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-colors"
                 />
-                <p className="text-[11px] text-gray-500 mt-1">This email must be configured in your Brevo/sender domain setup.</p>
+                <p className="text-[11px] text-gray-500 mt-1">Leave blank to use the verified default sender. A custom address must be verified in Brevo, or sending fails.</p>
               </div>
 
               <div>
@@ -271,7 +270,7 @@ export default function AdminNewsletterPage() {
                   required
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  placeholder="e.g. Weekly Quiz Update & Cricket News"
+                  placeholder="e.g. Weekly Quiz Update & Sports News"
                   className="w-full px-4 py-2.5 bg-gray-950/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-colors"
                 />
               </div>
