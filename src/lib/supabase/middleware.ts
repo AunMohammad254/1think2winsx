@@ -10,6 +10,37 @@ function hasSupabaseAuthCookie(request: NextRequest) {
     return request.cookies.getAll().some(c => c.name.startsWith('sb-') && c.name.includes('-auth-token'))
 }
 
+// auth-js refreshes a session this close to expiry (EXPIRY_MARGIN_MS)
+const REFRESH_MARGIN_S = 90
+
+/**
+ * True when the session cookie is expired/expiring (or unreadable), i.e. when the next
+ * Supabase call would try to use the refresh token. Read locally — no network.
+ * Cookie format (@supabase/ssr): "base64-" + base64url(JSON session), possibly split
+ * into `<name>.0`, `<name>.1`, ... chunks.
+ */
+function authSessionNeedsRefresh(request: NextRequest): boolean {
+    const cookies = request.cookies.getAll().filter(c => /^sb-.+-auth-token(\.\d+)?$/.test(c.name))
+    if (cookies.length === 0) return false
+    const base = cookies[0].name.replace(/\.\d+$/, '')
+    const whole = request.cookies.get(base)?.value
+    const raw = whole ?? cookies
+        .filter(c => c.name.startsWith(base + '.'))
+        .sort((a, b) => Number(a.name.slice(base.length + 1)) - Number(b.name.slice(base.length + 1)))
+        .map(c => c.value)
+        .join('')
+    try {
+        const json = raw.startsWith('base64-')
+            ? Buffer.from(raw.slice('base64-'.length), 'base64url').toString('utf8')
+            : raw
+        const expiresAt = Number(JSON.parse(json)?.expires_at)
+        if (!Number.isFinite(expiresAt)) return true
+        return expiresAt - Math.floor(Date.now() / 1000) <= REFRESH_MARGIN_S
+    } catch {
+        return true
+    }
+}
+
 /**
  * Refreshes the Supabase session and applies route guards.
  *
@@ -27,7 +58,10 @@ export async function updateSession(request: NextRequest) {
 
     let supabaseResponse = NextResponse.next({ request })
 
-    if (!isProtected && !isAuthPath) {
+    // Public pages normally skip Supabase. But when the session cookie has expired, the
+    // page's own API calls would each retry the refresh token — and log
+    // "Invalid Refresh Token" forever if it's dead. Refresh (or clear) it once here instead.
+    if (!isProtected && !isAuthPath && !authSessionNeedsRefresh(request)) {
         return supabaseResponse
     }
 
