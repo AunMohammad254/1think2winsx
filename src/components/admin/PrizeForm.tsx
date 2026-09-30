@@ -50,6 +50,7 @@ export default function PrizeForm({
     isSubmitting,
 }: PrizeFormProps) {
     const [previewUrl, setPreviewUrl] = useState<string>(prize?.imageUrl || '');
+    const [isUploading, setIsUploading] = useState(false);
 
     const {
         register,
@@ -88,6 +89,32 @@ export default function PrizeForm({
             imageUrl: data.imageUrl || '',
             modelUrl: data.modelUrl || '',
         });
+    };
+
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+            setIsUploading(true);
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const res = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!res.ok) throw new Error('Upload failed');
+            
+            const data = await res.json();
+            setValue('imageUrl', data.url, { shouldValidate: true });
+        } catch (error) {
+            console.error('Error uploading image:', error);
+            // Optionally, we could add a toast notification here
+        } finally {
+            setIsUploading(false);
+        }
     };
 
     return (
@@ -136,6 +163,7 @@ export default function PrizeForm({
                                     alt="Preview"
                                     fill
                                     unoptimized
+                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                                     className="object-cover"
                                     onError={() => setPreviewUrl('')}
                                 />
@@ -146,19 +174,36 @@ export default function PrizeForm({
                             )}
                         </div>
                         <div className="flex-1 space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">
-                                    Image URL
-                                </label>
-                                <input
-                                    type="text"
-                                    {...register('imageUrl')}
-                                    className="w-full px-4 py-3 bg-slate-700/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                                    placeholder={`https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/t_1Think2win/…`}
-                                />
-                                {errors.imageUrl && (
-                                    <p className="mt-1 text-xs text-red-400">{errors.imageUrl.message}</p>
-                                )}
+                            <div className="flex items-end gap-2">
+                                <div className="flex-1">
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                                        Image URL (or upload)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        {...register('imageUrl')}
+                                        className="w-full px-4 py-3 bg-slate-700/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                                        placeholder={`https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/t_1Think2win/…`}
+                                    />
+                                    {errors.imageUrl && (
+                                        <p className="mt-1 text-xs text-red-400">{errors.imageUrl.message}</p>
+                                    )}
+                                </div>
+                                <div className="flex-shrink-0 mb-[2px]">
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        id="prizeImageUpload"
+                                        onChange={handleImageUpload}
+                                    />
+                                    <label
+                                        htmlFor="prizeImageUpload"
+                                        className={`cursor-pointer px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
+                                    >
+                                        {isUploading ? 'Uploading...' : 'Upload'}
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     </div>

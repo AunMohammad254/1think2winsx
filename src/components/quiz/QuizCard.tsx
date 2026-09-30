@@ -13,7 +13,7 @@ interface QuizCardProps {
     isCompleted?: boolean;
     score?: number;
     onStartClick?: (id: string) => void;
-    pushStatus?: 'active' | 'answered' | 'missed' | null;
+    pushStatus?: 'unanswered' | 'answered' | 'upcoming' | 'time-up' | null;
 }
 
 export default function QuizCard({
@@ -35,8 +35,11 @@ export default function QuizCard({
 
     let pStatus = 'missed';
     let label = 'Missed';
-    if (pushStatus === 'active' || status === 'active') { pStatus = 'active'; label = 'Active'; }
-    if (pushStatus === 'answered' || isCompleted) { pStatus = 'answered'; label = 'Answered'; }
+    
+    if (pushStatus === 'upcoming') { pStatus = 'upcoming'; label = 'Upcoming'; }
+    else if (pushStatus === 'time-up') { pStatus = 'time-up'; label = 'Time-up'; }
+    else if (pushStatus === 'unanswered' || (!isCompleted && status === 'active')) { pStatus = 'active'; label = 'Unanswered'; }
+    else if (pushStatus === 'answered' || isCompleted) { pStatus = 'answered'; label = 'Answered'; }
 
     return (
         <div className="quiz-card" onClick={handleClick}>

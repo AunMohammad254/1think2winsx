@@ -1,7 +1,6 @@
 'use client';
 
-import Image from 'next/image';
-import { loaderFor } from '@/lib/cloudinary';
+import { CldImage } from 'next-cloudinary';
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { Prize } from '@/types/prize';
@@ -54,11 +53,12 @@ export default function PrizeCard({
                 {/* Image Section */}
                 <div className={`relative ${variant === 'featured' ? 'h-64' : 'h-48'} overflow-hidden bg-gradient-to-br from-slate-700/50 to-slate-800/50`}>
                     {prize.imageUrl && !imageError ? (
-                        <Image
+                        <CldImage
                             src={prize.imageUrl}
-                            loader={loaderFor(prize.imageUrl)}
                             alt={prize.name}
                             fill
+                            placeholder="blur"
+                            blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" // Tiny transparent fallback if Cloudinary blur hash delays
                             className="object-contain p-4 transition-transform duration-500 group-hover:scale-110"
                             onError={() => setImageError(true)}
                             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"

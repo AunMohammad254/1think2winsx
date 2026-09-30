@@ -16,6 +16,7 @@ import {
   Mail,
   Sparkles,
   LifeBuoy,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
@@ -111,6 +112,7 @@ const navItems = [
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
   { href: '/admin/newsletter', label: 'Newsletter', icon: Mail },
   { href: '/admin/db-stats', label: 'Database', icon: Database },
+  { href: '/admin/media', label: 'Media Management', icon: ImageIcon },
   { href: '/admin/security', label: 'Security', icon: Shield },
   { href: '/admin/support', label: 'User Support', icon: LifeBuoy },
 ];
@@ -123,6 +125,7 @@ const quickActions = [
   { href: '/admin/prizes', label: 'Manage Prizes', icon: Trophy, color: 'green' },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet, color: 'emerald' },
   { href: '/admin/claims', label: 'Prize Claims', icon: Gift, color: 'amber' },
+  { href: '/admin/media', label: 'Manage Media', icon: ImageIcon, color: 'fuchsia' },
   { href: '/admin/newsletter', label: 'Send Newsletter', icon: Mail, color: 'blue' },
   { href: '/admin/streaming', label: 'Live Streaming', icon: Video, color: 'red' },
 ];

@@ -314,6 +314,7 @@ export default function QuizResultsPage() {
               src={`/api/quizzes/${quizId}/share-card?score=${result.correctAnswers}&total=${result.totalQuestions}&pct=${result.percentage}&title=${encodeURIComponent(result.quiz.title)}&name=${encodeURIComponent(user?.user_metadata?.name || user?.email?.split('@')[0] || 'Player')}`}
               alt="Quiz Achievement Share Card"
               fill
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
               className="object-cover"
               unoptimized
             />

@@ -5,7 +5,21 @@ import { adminActionGuard } from '@/lib/admin-guard';
 import { prizeDb, getDb, getAdminDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT } from '@/lib/cloudinary';
+import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT, cloudinaryPublicIdFromUrl } from '@/lib/cloudinary';
+import { deleteCloudinaryImageByUrl } from '@/lib/cloudinary-server';
+
+/**
+ * Delete a prize's old Cloudinary image, unless something else still needs it:
+ * another prize using the same image (any transformation), or a site asset in "assets/".
+ */
+async function deletePrizeImageIfUnused(url: string, prizeId: string): Promise<void> {
+    const publicId = cloudinaryPublicIdFromUrl(url);
+    if (!publicId || publicId.startsWith('assets/')) return;
+    const { data, error } = await getAdminDb().from('Prize').select('id, imageUrl').neq('id', prizeId);
+    if (error) throw error; // can't prove it's unused, so keep it
+    const stillUsed = (data || []).some((p: { imageUrl: string | null }) => cloudinaryPublicIdFromUrl(p.imageUrl) === publicId);
+    if (!stillUsed) await deleteCloudinaryImageByUrl(url);
+}
 import type {
     Prize,
     PrizeFormData,
@@ -352,6 +366,16 @@ export async function updatePrize(
 
         const prize = await prizeDb.update(id, updateData);
 
+        // If the image URL changed, delete the old image from Cloudinary
+        if (
+            existing.imageUrl && 
+            updateData.imageUrl !== undefined && 
+            existing.imageUrl !== updateData.imageUrl
+        ) {
+            // Non-blocking delete
+            deletePrizeImageIfUnused(existing.imageUrl, id).catch(console.error);
+        }
+
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');
 
@@ -386,8 +410,17 @@ export async function deletePrize(
             };
         }
 
+        // Fetch prize to get the image URL before deletion
+        const prize = await prizeDb.findById(id);
+
         // Use prizeDb.delete which uses admin client to bypass RLS
         await prizeDb.delete(id);
+
+        // Clean up Cloudinary image if it exists
+        if (prize?.imageUrl) {
+            // Non-blocking delete
+            deletePrizeImageIfUnused(prize.imageUrl, id).catch(console.error);
+        }
 
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');

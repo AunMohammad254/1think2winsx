@@ -32,6 +32,10 @@
 .live-quiz-theme .qstatus.answered .qdot{ background:var(--a1); }
 .live-quiz-theme .qstatus.missed{ background:rgba(240,87,93,.13); color:var(--danger); }
 .live-quiz-theme .qstatus.missed .qdot{ background:var(--danger); }
+.live-quiz-theme .qstatus.upcoming{ background:rgba(255,193,7,.14); color:var(--accent); }
+.live-quiz-theme .qstatus.upcoming .qdot{ background:var(--accent); }
+.live-quiz-theme .qstatus.time-up{ background:rgba(128,128,128,.14); color:#9ca3af; }
+.live-quiz-theme .qstatus.time-up .qdot{ background:#9ca3af; }
 
 /* Live Stream Section Overlay */
 .live-quiz-theme .stream-section{ position:relative; border-radius:12px; overflow:hidden; border:1px solid var(--border); background: var(--bg); }

@@ -22,7 +22,8 @@
     "test:e2e:mobile": "playwright test --project='Mobile Chrome' --project='Mobile Safari'",
     "test:e2e:report": "playwright show-report",
     "test:all": "bun run test:ci && bun run test:e2e",
-    "cleanup:orphaned": "bun scripts/cleanup-orphaned-records.ts"
+    "cleanup:orphaned": "bun scripts/cleanup-orphaned-records.ts",
+    "graphify:update": "GEMINI_API_KEY=$Graphify_GEMINI_API_KEY GEMINI_MODEL='gemini-3.5-flash-lite' graphify update ."
   },
   "ignoredBuiltDependencies": [
     "esbuild"
@@ -39,11 +40,13 @@
     "@supabase/supabase-js": "^2.108.2",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
+    "cloudinary": "^2.11.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.18.0",
     "next": "^16.2.9",
+    "next-cloudinary": "^6.19.3",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

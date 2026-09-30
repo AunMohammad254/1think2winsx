@@ -2,8 +2,7 @@
 
 import type { Prize } from '@/types/prize';
 import { STATUS_COLORS } from '@/types/prize';
-import Image from 'next/image';
-import { loaderFor } from '@/lib/cloudinary';
+import { CldImage } from 'next-cloudinary';
 
 interface PrizeTableProps {
     prizes: Prize[];
@@ -83,11 +82,13 @@ export default function PrizeTable({
                                     <div className="flex items-center gap-3">
                                         <div className="relative w-12 h-12 rounded-lg bg-slate-700/50 overflow-hidden flex-shrink-0">
                                             {prize.imageUrl ? (
-                                                <Image
+                                                <CldImage
                                                     src={prize.imageUrl}
-                                                    loader={loaderFor(prize.imageUrl)}
                                                     alt={prize.name}
                                                     fill
+                                                    placeholder="blur"
+                                                    blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" // Tiny transparent fallback if Cloudinary blur hash delays
+                                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                                                     className="object-cover"
                                                 />
                                             ) : (
@@ -187,11 +188,13 @@ export default function PrizeTable({
                         <div className="flex items-center gap-3">
                             <div className="relative w-16 h-16 rounded-lg bg-slate-700/50 overflow-hidden flex-shrink-0">
                                 {prize.imageUrl ? (
-                                    <Image
+                                    <CldImage
                                         src={prize.imageUrl}
-                                        loader={loaderFor(prize.imageUrl)}
                                         alt={prize.name}
                                         fill
+                                        placeholder="blur"
+                                        blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" // Tiny transparent fallback if Cloudinary blur hash delays
+                                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                                         className="object-cover"
                                     />
                                 ) : (

@@ -64,6 +64,7 @@ export interface Database {
                     title: string
                     description: string | null
                     duration: number
+                    timeUpDuration: number
                     passingScore: number
                     accessPrice: number
                     status: string
@@ -80,6 +81,7 @@ export interface Database {
                     title: string
                     description?: string | null
                     duration?: number
+                    timeUpDuration?: number
                     passingScore?: number
                     accessPrice?: number
                     status?: string
@@ -96,6 +98,7 @@ export interface Database {
                     title?: string
                     description?: string | null
                     duration?: number
+                    timeUpDuration?: number
                     passingScore?: number
                     accessPrice?: number
                     status?: string

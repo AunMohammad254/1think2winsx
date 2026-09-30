@@ -11,8 +11,9 @@ const updateQuizSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().optional(),
   duration: z.number().min(1).max(180).optional(),
+  timeUpDuration: z.number().min(1).max(1440).optional(),
   passingScore: z.number().min(0).max(100).optional(),
-  status: z.enum(['active', 'paused', 'scheduled', 'draft']).optional(),
+  status: z.enum(['active', 'paused', 'scheduled', 'draft', 'upcoming']).optional(),
   startsAt: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
 });
@@ -23,8 +24,9 @@ const completeQuizUpdateSchema = z.object({
   description: z.string().nullable().optional(),
   timeLimit: z.number().min(1).max(7200).optional(),
   duration: z.number().min(1).max(180).optional(),
+  timeUpDuration: z.number().min(1).max(1440).optional(),
   passingScore: z.number().min(0).max(100).optional(),
-  status: z.enum(['active', 'paused', 'scheduled', 'draft']).optional(),
+  status: z.enum(['active', 'paused', 'scheduled', 'draft', 'upcoming']).optional(),
   startsAt: z.string().nullable().optional(),
   isActive: z.boolean().optional(),
   questions: z.array(z.object({
@@ -312,6 +314,7 @@ export async function PATCH(
         title: updatedQuiz.title,
         description: updatedQuiz.description,
         duration: updatedQuiz.duration,
+        timeUpDuration: updatedQuiz.timeUpDuration,
         passingScore: updatedQuiz.passingScore,
         status: updatedQuiz.status,
         createdAt: updatedQuiz.createdAt,
@@ -423,6 +426,7 @@ export async function PUT(
     };
 
     if (updateData.duration) quizUpdateData.duration = updateData.duration;
+    if (updateData.timeUpDuration) quizUpdateData.timeUpDuration = updateData.timeUpDuration;
     if (updateData.passingScore) quizUpdateData.passingScore = updateData.passingScore;
 
     await supabase

@@ -56,6 +56,25 @@ export const cloudinaryLoader: ImageLoader = ({ src, width, quality }) => {
   return url.toString();
 };
 
+/**
+ * Public ID of an image in this Cloudinary account, e.g.
+ * ".../upload/t_1Think2win/f_auto/v17/prizes/phone.jpg" -> "prizes/phone".
+ * Returns null for other hosts/accounts, so callers can never delete a foreign asset.
+ */
+export function cloudinaryPublicIdFromUrl(src: string | null | undefined): string | null {
+  if (!isCloudinaryUrl(src)) return null;
+  const path = new URL(src).pathname;
+  const marker = '/image/upload/';
+  const at = path.indexOf(marker);
+  if (at === -1) return null;
+  const segments = path.slice(at + marker.length).split('/').map(decodeURIComponent);
+  let i = 0;
+  while (i < segments.length - 1 && isTransformSegment(segments[i])) i++;
+  if (i < segments.length - 1 && /^v\d+$/.test(segments[i])) i++;
+  const id = segments.slice(i).join('/').replace(/\.[a-z0-9]+$/i, '');
+  return id || null;
+}
+
 /** Per-image loader prop: Cloudinary resizing for Cloudinary URLs, Next's default otherwise. */
 export function loaderFor(src: string | null | undefined): ImageLoader | undefined {
   return isCloudinaryUrl(src) ? cloudinaryLoader : undefined;

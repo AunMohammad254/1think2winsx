@@ -16,6 +16,7 @@ export interface CatalogQuiz {
   title: string;
   description: string;
   duration: number;
+  timeUpDuration: number;
   passingScore: number;
   status: string;
   accessPrice: number;
@@ -40,13 +41,29 @@ function parseOptions(raw: unknown): string[] {
 
 async function load(): Promise<CatalogQuiz[]> {
   const db = getAdminDb();
-  const { data: quizzes, error } = await db
+  const { data: rawQuizzes, error } = await db
     .from('Quiz')
-    .select('id, title, description, duration, passingScore, status, accessPrice, quizType, isBumperPrize, startsAt, pushedAt, createdAt, updatedAt')
-    .eq('status', 'active')
+    .select('id, title, description, duration, timeUpDuration, passingScore, status, accessPrice, quizType, isBumperPrize, startsAt, pushedAt, createdAt, updatedAt')
+    .in('status', ['active', 'upcoming', 'paused'])
     .order('createdAt', { ascending: false });
   if (error) throw error;
-  const ids = (quizzes || []).map((q: { id: string }) => q.id);
+
+  // Include upcoming. Include active/paused only within their (duration + timeUpDuration) window from pushedAt
+  const now = Date.now();
+  const quizzes = (rawQuizzes || []).filter((q: any) => {
+    if (q.status === 'upcoming') return true;
+    // Never-pushed quizzes: active ones stay listed as before; paused ones were hidden
+    // by an admin and must not reappear
+    if (!q.pushedAt || !q.duration) return q.status === 'active';
+    
+    const timeUpMins = q.timeUpDuration ?? 60;
+    const publishTime = new Date(q.pushedAt).getTime();
+    const absoluteExpiryTime = publishTime + ((q.duration + timeUpMins) * 60 * 1000);
+    
+    return now <= absoluteExpiryTime;
+  });
+
+  const ids = quizzes.map((q: { id: string }) => q.id);
   if (ids.length === 0) return [];
 
   const [questionsRes, countsRes] = await Promise.all([

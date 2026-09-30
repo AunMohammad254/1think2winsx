@@ -23,7 +23,7 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import { DynamicQuizFormBuilder } from '@/components/admin/DynamicAdminComponents';
-import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive } from '@/actions/quiz-actions';
+import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive, pushScheduleQuiz } from '@/actions/quiz-actions';
 import { createClient } from '@/lib/supabase/client';
 
 // ============================================
@@ -34,8 +34,9 @@ interface Quiz {
     title: string;
     description: string | null;
     duration: number;
+    timeUpDuration?: number;
     passingScore: number;
-    status: 'draft' | 'active' | 'paused' | 'scheduled';
+    status: 'draft' | 'active' | 'paused' | 'scheduled' | 'upcoming';
     startsAt?: string | null;
     pushedAt?: string | null;
     createdAt: string;
@@ -72,6 +73,7 @@ const statusConfig = {
     active: { label: 'Published', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
     paused: { label: 'Paused', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
     scheduled: { label: 'Scheduled', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+    upcoming: { label: 'Upcoming', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
 };
 
 // ============================================
@@ -207,6 +209,16 @@ export default function AdminQuizManagementPage() {
         setActionMenuOpen(null);
     };
 
+    const handlePushSchedule = async (id: string) => {
+        const result = await pushScheduleQuiz(id);
+        if (result.success) {
+            toast.success(result.message);
+        } else {
+            toast.error(result.error);
+        }
+        setActionMenuOpen(null);
+    };
+
     const handlePause = async (id: string) => {
         const result = await pauseQuiz(id);
         if (result.success) {
@@ -267,6 +279,7 @@ export default function AdminQuizManagementPage() {
                 title: fullQuiz.title || '',
                 description: fullQuiz.description || '',
                 duration: fullQuiz.duration || 30,
+                timeUpDuration: fullQuiz.timeUpDuration ?? 60,
                 passingScore: fullQuiz.passingScore || 70,
                 accessPrice: fullQuiz.accessPrice ?? 0,
                 difficulty: 'medium' as const,
@@ -314,6 +327,7 @@ export default function AdminQuizManagementPage() {
                 title: `${fullQuiz.title} (Copy)`,
                 description: fullQuiz.description || '',
                 duration: fullQuiz.duration || 30,
+                timeUpDuration: fullQuiz.timeUpDuration ?? 60,
                 passingScore: fullQuiz.passingScore || 70,
                 accessPrice: fullQuiz.accessPrice || 0,
                 difficulty: 'medium' as const,
@@ -732,13 +746,24 @@ export default function AdminQuizManagementPage() {
                                                             Preview
                                                         </Link>
                                                         {quiz.status !== 'active' ? (
-                                                            <button
-                                                                onClick={() => handlePublish(quiz.id)}
-                                                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-green-400 hover:bg-white/10 transition-colors"
-                                                            >
-                                                                <Play className="w-4 h-4" />
-                                                                Publish
-                                                            </button>
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handlePublish(quiz.id)}
+                                                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-green-400 hover:bg-white/10 transition-colors"
+                                                                >
+                                                                    <Play className="w-4 h-4" />
+                                                                    Publish
+                                                                </button>
+                                                                {quiz.status === 'scheduled' && (
+                                                                    <button
+                                                                        onClick={() => handlePushSchedule(quiz.id)}
+                                                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-blue-400 hover:bg-white/10 transition-colors"
+                                                                    >
+                                                                        <Clock className="w-4 h-4" />
+                                                                        Push Schedule Quiz
+                                                                    </button>
+                                                                )}
+                                                            </>
                                                         ) : (
                                                             <>
                                                                 <button

@@ -36,7 +36,7 @@ interface Quiz {
   attemptCount?: number;
   totalAttempts?: number;
   pushedAt?: string | null;
-  pushStatus?: 'active' | 'answered' | 'missed' | null;
+  pushStatus?: 'unanswered' | 'answered' | 'upcoming' | 'time-up' | null;
 }
 
 interface PaymentInfo {

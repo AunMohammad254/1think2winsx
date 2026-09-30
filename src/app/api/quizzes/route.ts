@@ -16,6 +16,7 @@ const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().optional(),
   duration: z.number().min(1).max(180).default(30), // 1-180 minutes
+  timeUpDuration: z.number().min(1).max(1440).default(60), // 1-1440 minutes
   passingScore: z.number().min(0).max(100).default(70), // 0-100%
 });
 
@@ -100,16 +101,18 @@ export async function GET(request: NextRequest) {
       const newQuestionsCount = quiz.questions.filter(q => !answered?.has(q.id)).length;
       const isCompleted = !!attempt;
       const hasNewQuestions = isCompleted && newQuestionsCount > 0;
-      // Admin-push status shown on "Today's quizzes": only quizzes that have
-      // actually been pushed get a badge at all. Answered beats Active beats
-      // Missed (a quiz still open stays "Active" even if pushed a while ago).
-      const pushStatus: 'active' | 'answered' | 'missed' | null = !quiz.pushedAt
-        ? null
-        : isCompleted
-          ? 'answered'
-          : quiz.status === 'active'
-            ? 'active'
-            : 'missed';
+      let pushStatus: 'unanswered' | 'answered' | 'upcoming' | 'time-up' | null = null;
+      if (quiz.status === 'upcoming') {
+        pushStatus = 'upcoming';
+      } else if (quiz.pushedAt) {
+        if (isCompleted) {
+          pushStatus = 'answered';
+        } else if (quiz.status === 'paused') {
+          pushStatus = 'time-up';
+        } else if (quiz.status === 'active') {
+          pushStatus = 'unanswered';
+        }
+      }
       return {
         id: quiz.id,
         title: quiz.title,
@@ -206,7 +209,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { title, description, duration, passingScore } = validationResult.data;
+    const { title, description, duration, timeUpDuration, passingScore } = validationResult.data;
 
     const supabase = getAdminDb();
 
@@ -215,6 +218,7 @@ export async function POST(request: NextRequest) {
       title,
       description: description || null,
       duration,
+      timeUpDuration,
       passingScore,
       status: 'active',
     });

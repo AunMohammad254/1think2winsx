@@ -50,6 +50,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             title: quizData.title,
             description: quizData.description || null,
             duration: quizData.duration,
+            timeUpDuration: quizData.timeUpDuration,
             passingScore: quizData.passingScore,
             status: quizData.status,
             startsAt: startsAtUtc,
@@ -139,6 +140,7 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             title: quizData.title,
             description: quizData.description || null,
             duration: quizData.duration,
+            timeUpDuration: quizData.timeUpDuration,
             passingScore: quizData.passingScore,
             status: quizData.status,
             startsAt: startsAtUtc,
@@ -328,6 +330,45 @@ export async function pushQuizLive(id: string): Promise<ActionResult> {
     } catch (error) {
         console.error('Push quiz error:', error);
         return { success: false, error: 'Failed to push quiz. Please try again.' };
+    }
+}
+
+/**
+ * Push a scheduled quiz as upcoming
+ */
+export async function pushScheduleQuiz(id: string): Promise<ActionResult> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
+    try {
+        const quiz = await quizDb.findById(id);
+        if (!quiz) return { success: false, error: 'Quiz not found' };
+        if (quiz.status !== 'scheduled') {
+            return { success: false, error: 'Only scheduled quizzes can be pushed as upcoming' };
+        }
+
+        const updatedQuiz = await quizDb.update(id, { status: 'upcoming' });
+
+        if (updatedQuiz) {
+            try {
+                await notificationDb.createBroadcast({
+                    title: '📅 Upcoming Quiz!',
+                    message: `"${updatedQuiz.title || 'Quiz'}" is upcoming. Get ready!`,
+                    type: 'quiz_starts_soon',
+                    link: `/quizzes?openQuiz=${id}`
+                });
+            } catch (notifErr) {
+                console.error('Failed to send quiz upcoming broadcast notification:', notifErr);
+            }
+        }
+
+        revalidatePath('/admin/quiz');
+        revalidatePath('/quizzes');
+        clearQuizListCache();
+
+        return { success: true, message: 'Quiz pushed as upcoming successfully!' };
+    } catch (error) {
+        console.error('Push schedule quiz error:', error);
+        return { success: false, error: 'Failed to push schedule quiz. Please try again.' };
     }
 }
 
