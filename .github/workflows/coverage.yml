@@ -291,6 +291,8 @@ jobs:
             echo "comment<<EOF" >> $GITHUB_OUTPUT
             echo "$COMMENT" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "comment=⚠️ Coverage summary not found in artifact." >> $GITHUB_OUTPUT
           fi
 
       - name: Post PR comment
