@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Gift, Search, RefreshCw, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -130,24 +130,26 @@ export default function PlayerClaimsManager() {
   // ============================================
   // Helpers
   // ============================================
-  const filteredClaims = claims.filter(claim => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      claim.user.name?.toLowerCase().includes(query) ||
-      claim.user.email?.toLowerCase().includes(query) ||
-      claim.prize.name?.toLowerCase().includes(query) ||
-      claim.fullName?.toLowerCase().includes(query)
-    );
-  });
+  const filteredClaims = useMemo(() => {
+    return claims.filter(claim => {
+      if (!searchQuery) return true;
+      const query = searchQuery.toLowerCase();
+      return (
+        claim.user.name?.toLowerCase().includes(query) ||
+        claim.user.email?.toLowerCase().includes(query) ||
+        claim.prize.name?.toLowerCase().includes(query) ||
+        claim.fullName?.toLowerCase().includes(query)
+      );
+    });
+  }, [claims, searchQuery]);
 
   // Count claims by status
-  const statusCounts: Record<ClaimStatus, number> = {
+  const statusCounts: Record<ClaimStatus, number> = useMemo(() => ({
     pending: claims.filter(c => c.status === 'pending').length,
     approved: claims.filter(c => c.status === 'approved').length,
     fulfilled: claims.filter(c => c.status === 'fulfilled').length,
     rejected: claims.filter(c => c.status === 'rejected').length,
-  };
+  }), [claims]);
 
   // ============================================
   // Render
