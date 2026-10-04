@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
 import { Clock, HelpCircle, Users, Trophy, ChevronRight } from 'lucide-react';
 
@@ -31,7 +32,9 @@ const statusConfig = {
     new: { label: 'New', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' },
 };
 
-export default function QuizCard({
+// ⚡ Bolt: Added React.memo() to prevent unnecessary re-renders when parent states change (e.g., search queries, filter tabs).
+// 📊 Expected Impact: O(n) re-renders avoided per filter/search keystroke (n = number of cards).
+const QuizCard = React.memo(function QuizCard({
     id,
     title,
     description,
@@ -138,4 +141,6 @@ export default function QuizCard({
             </div>
         </div>
     );
-}
+});
+
+export default QuizCard;

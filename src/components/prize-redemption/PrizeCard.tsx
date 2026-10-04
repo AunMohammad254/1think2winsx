@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import Image from 'next/image';
 import type { Prize } from './types';
 
@@ -14,7 +15,9 @@ interface PrizeCardProps {
 /**
  * Individual prize card in the grid
  */
-export function PrizeCard({
+// ⚡ Bolt: Wrapped in React.memo() to avoid re-rendering entire prize grid on parent tab switches or other state changes.
+// 📊 Expected Impact: O(n) re-renders avoided per state change (n = number of prizes).
+export const PrizeCard = React.memo(function PrizeCard({
     prize,
     userPoints,
     isRedeeming,
@@ -64,4 +67,4 @@ export function PrizeCard({
             </div>
         </div>
     );
-}
+});
