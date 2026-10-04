@@ -298,4 +298,4 @@ jobs:
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: coverage-report
-          message: ${{ steps.coverage-comment.outputs.comment }}
+          message: ${{ steps.coverage-comment.outputs.comment || 'No coverage data generated' }}
