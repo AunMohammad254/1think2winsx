@@ -101,7 +101,7 @@ jobs:
       - name: Check coverage thresholds
         run: |
           if [ -f coverage/coverage-summary.json ]; then
-            python3 << 'EOF'
+            python3 << 'EOF_PY'
           import json, sys
 
           with open('coverage/coverage-summary.json') as f:
@@ -130,7 +130,7 @@ jobs:
               sys.exit(1)
           else:
               print("\n✅ All coverage thresholds passed!")
-          EOF
+          EOF_PY
           else
             echo "No coverage summary found, skipping threshold check"
           fi
@@ -185,14 +185,14 @@ jobs:
           fi
 
           mkdir -p .github/badges
-          cat > .github/badges/coverage.json << EOF
+          cat > .github/badges/coverage.json << EOF_BADGE
           {
             "schemaVersion": 1,
             "label": "coverage",
             "message": "${PCT}%",
             "color": "${COLOR}"
           }
-          EOF
+          EOF_BADGE
           echo "Badge generated: ${PCT}% (${COLOR})"
 
       - name: Upload badge artifact
@@ -259,7 +259,7 @@ jobs:
         id: coverage-comment
         run: |
           if [ -f coverage/coverage-summary.json ]; then
-            COMMENT=$(python3 << 'EOF'
+            COMMENT=$(python3 << 'EOF_PY'
           import json
 
           with open('coverage/coverage-summary.json') as f:
@@ -286,15 +286,16 @@ jobs:
           | Branches | {branches:.1f}% | {emoji(branches)} |
 
           > 🟢 ≥90% | 🟡 ≥70% | 🔴 <70%""")
-          EOF
+          EOF_PY
           )
-            echo "comment<<EOF" >> $GITHUB_OUTPUT
+            EOF_COMMENT="comment-EOF-$(date +%s)"
+            echo "comment<<$EOF_COMMENT" >> $GITHUB_OUTPUT
             echo "$COMMENT" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            echo "$EOF_COMMENT" >> $GITHUB_OUTPUT
           fi
 
       - name: Post PR comment
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: coverage-report
-          message: ${{ steps.coverage-comment.outputs.comment }}
+          message: ${{ steps.coverage-comment.outputs.comment || 'No coverage data generated' }}
