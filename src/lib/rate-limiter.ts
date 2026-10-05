@@ -246,7 +246,20 @@ export const rateLimiters = {
   deposit: new RateLimiter({
     windowMs: 60 * 60 * 1000, // 1 hour
     maxRequests: 5 // 5 deposit requests per hour
-  }, 'deposit')
+  }, 'deposit'),
+
+  // "Email me a reminder" on /forgot-email. Keyed per phone number (pass it as userId) so
+  // nobody can flood one person's inbox, even from many IP addresses.
+  emailReminder: new RateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    maxRequests: 2 // 2 reminders per phone number per hour
+  }, 'emailReminder'),
+
+  // Public newsletter sign-ups (each new one sends a confirmation email), keyed per IP.
+  newsletter: new RateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    maxRequests: 5 // 5 sign-ups per IP per hour
+  }, 'newsletter')
 };
 
 /**

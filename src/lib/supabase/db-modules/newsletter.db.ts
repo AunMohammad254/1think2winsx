@@ -8,12 +8,14 @@ export interface NewsletterSubscription {
 
 export const newsletterDb = {
   /**
-   * Subscribe an email to the newsletter
+   * Subscribe an email to the newsletter.
+   * `isNew` is true only when this call created the subscription (not for repeat sign-ups),
+   * so callers can send a one-time confirmation email.
    */
-  async subscribeEmail(email: string): Promise<{ success: boolean; message: string; error?: string }> {
+  async subscribeEmail(email: string): Promise<{ success: boolean; message: string; isNew?: boolean; error?: string }> {
     try {
       const db = await getDb();
-      
+
       // Try inserting the email
       const { error } = await db
         .from('NewsletterSubscription')
@@ -22,12 +24,12 @@ export const newsletterDb = {
       if (error) {
         // Handle duplicate key violation (23505)
         if (error.code === '23505') {
-          return { success: true, message: 'You are already subscribed!' };
+          return { success: true, isNew: false, message: 'You are already subscribed!' };
         }
         throw error;
       }
 
-      return { success: true, message: 'Subscribed successfully!' };
+      return { success: true, isNew: true, message: 'Subscribed successfully!' };
     } catch (error: any) {
       console.error('Error subscribing email:', error);
       return { success: false, message: 'Failed to subscribe', error: error.message };
