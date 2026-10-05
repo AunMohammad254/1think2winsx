@@ -3,12 +3,7 @@ import {
   Eyebrow,
 } from "./Primitives";
 import { SportsBall } from "@/components/hero";
-import { TypedTitle, HeroCTA } from "./HeroClient";
-import dynamic from 'next/dynamic';
-
-const Particles = dynamic(() => import("./HeroClient").then((mod) => mod.Particles), {
-  ssr: false,
-});
+import { Particles, TypedTitle, HeroCTA } from "./HeroClient";
 
 const SUBHEADS = ["Test your Sports IQ", "Win random prizes", "Beat the world"];
 
