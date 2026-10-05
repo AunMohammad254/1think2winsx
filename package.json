@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build --webpack",
+    "analyze": "ANALYZE=true bun run build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",

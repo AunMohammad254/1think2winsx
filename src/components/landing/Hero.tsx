@@ -1,51 +1,14 @@
-"use client";
-
-import { useMemo, useState, useEffect } from "react";
-import { useAuth } from "@/contexts/AuthContext";
 import {
-  Button,
   Reveal,
   Eyebrow,
-
-  useTypewriter,
-  useScrollReveal,
 } from "./Primitives";
-
 import { SportsBall } from "@/components/hero";
-function Particles() {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-  const particles = useMemo(() => {
-    if (!mounted) return [];
-    return Array.from({ length: 30 }).map((_, i) => ({
-      id: i,
-      left: `${Math.random() * 100}%`,
-      top: `${Math.random() * 100}%`,
-      size: Math.random() * 3 + 1.5,
-      delay: Math.random() * 8,
-      duration: Math.random() * 6 + 5,
-    }));
-  }, [mounted]);
-  if (!mounted) return null;
-  return (
-    <div className="pointer-events-none absolute inset-0 -z-20 overflow-hidden" aria-hidden="true">
-      {particles.map((p) => (
-        <span
-          key={p.id}
-          className="absolute rounded-full bg-emerald-400/30 anim-particle"
-          style={{
-            left: p.left,
-            top: p.top,
-            width: p.size + "px",
-            height: p.size + "px",
-            animationDelay: `${p.delay}s`,
-            animationDuration: `${p.duration}s`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
+import { TypedTitle, HeroCTA } from "./HeroClient";
+import dynamic from 'next/dynamic';
+
+const Particles = dynamic(() => import("./HeroClient").then((mod) => mod.Particles), {
+  ssr: false,
+});
 
 const SUBHEADS = ["Test your Sports IQ", "Win random prizes", "Beat the world"];
 
@@ -148,20 +111,8 @@ function HeroVisual() {
 }
 
 export default function Hero() {
-  const { user, isLoading } = useAuth();
-  const isLoggedIn = !!user;
-  const typedText = useTypewriter(SUBHEADS, { typeSpeed: 50, deleteSpeed: 30, pause: 2200 });
-
-  const ctaConfig = useMemo(() => {
-    if (isLoading) return { href: "/quizzes", text: "Start Quiz Now", icon: "🎯" };
-    if (isLoggedIn) return { href: "/quizzes", text: "Play Now", icon: "🚀" };
-    return { href: "/register", text: "Play Free Now", icon: "🚀" };
-  }, [isLoading, isLoggedIn]);
-
-  const { ref: heroRef, isVisible } = useScrollReveal<HTMLDivElement>({ once: true, threshold: 0.05 });
-
   return (
-    <section id="top" ref={heroRef} className="relative isolate contain-paint flex min-h-[90svh] items-center overflow-hidden pt-12 pb-20">
+    <section id="top" className="relative isolate contain-paint flex min-h-[90svh] items-center overflow-hidden pt-12 pb-20">
       <div className="absolute inset-0 -z-20 bg-gradient-to-b from-ink-950 via-ink-900 to-ink-950" />
       <div className="absolute inset-0 -z-20 bg-grid opacity-60" />
       <Particles />
@@ -180,27 +131,24 @@ export default function Hero() {
       <div className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center gap-12 px-5 sm:px-8 lg:grid-cols-12 lg:gap-8">
         <div className="lg:col-span-7">
           <Reveal><Eyebrow tone="live">Live quizzes available</Eyebrow></Reveal>
+          {/* Plain h1: it is the LCP element, so it must not wait on a scroll-reveal observer. */}
           <h1 className="mt-6 font-display text-5xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl lg:text-7xl xl:text-[5.5rem]">
-            <span className={`block transition-all duration-700 ${isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"}`}>
-              {typedText}
+            <span className="block">
+              <TypedTitle subheads={SUBHEADS} />
               <span className="ml-0.5 inline-block h-[0.08em] w-[3px] rounded bg-emerald-400 align-middle anim-cursor" />
             </span>
-            <span className={`block text-gradient-pitch transition-all duration-700 delay-150 ${isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"}`}>
+            <span className="block text-gradient-pitch mt-2">
               & win <span className="text-gradient-trophy">random prizes.</span>
             </span>
           </h1>
+
           <Reveal delay={500}>
             <p className="mt-6 max-w-xl text-lg text-white/65 sm:text-xl">
               Compete with fans worldwide, climb the global leaderboard, and unlock exclusive rewards — all in under <span className="text-white">60 seconds</span>.
             </p>
           </Reveal>
           <Reveal delay={700}>
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Button href={ctaConfig.href} size="lg" variant="primary" icon={<svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M13.4 5.6 12 7l4 4H4v2h12l-4 4 1.4 1.4L20 12l-6.6-6.4Z" /></svg>}>
-                {ctaConfig.text}
-              </Button>
-              <Button href="#how" size="lg" variant="secondary">See how it works</Button>
-            </div>
+            <HeroCTA />
           </Reveal>
           <Reveal delay={900}>
             <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4 text-sm text-white/55">

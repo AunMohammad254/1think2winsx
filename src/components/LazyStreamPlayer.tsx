@@ -14,6 +14,8 @@ interface LazyStreamPlayerProps {
   onMetrics?: (metrics: unknown) => void;
   placeholder?: React.ReactNode;
   fullscreenTargetId?: string;
+  /** Called once the active-stream check resolves, so a parent can drop its stream layout when nothing is live. */
+  onAvailabilityChange?: (available: boolean) => void;
 }
 
 // Loading fallback component
@@ -69,22 +71,28 @@ export default function LazyStreamPlayer({
   onError,
   placeholder,
   fullscreenTargetId,
+  onAvailabilityChange,
 }: LazyStreamPlayerProps) {
   const [shouldLoad, setShouldLoad] = useState(autoPlay);
   const [hasStreamAvailable, setHasStreamAvailable] = useState<boolean | null>(null);
   const [isIntersecting, setIsIntersecting] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Latest callback without re-running the one-shot availability check below
+  const onAvailabilityChangeRef = useRef(onAvailabilityChange);
+  onAvailabilityChangeRef.current = onAvailabilityChange;
 
   // Check if stream is available without loading the full component
   useEffect(() => {
     const checkStreamAvailability = async () => {
       try {
-        const response = await fetch('/api/streaming/active', { cache: 'no-store' });
+        const response = await fetch('/api/streaming/active');
         const data = await response.json();
         setHasStreamAvailable(data.hasActiveStream);
+        onAvailabilityChangeRef.current?.(!!data.hasActiveStream);
       } catch (error) {
         console.error('Error checking stream availability:', error);
         setHasStreamAvailable(false);
+        onAvailabilityChangeRef.current?.(false);
       }
     };
 

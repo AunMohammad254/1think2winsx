@@ -16,8 +16,7 @@ const nextConfig = {
 
   // Mobile performance optimizations
   experimental: {
-    // Disable optimizeCss as it's causing build issues
-    // optimizeCss: true,
+    // optimizeCss needs the `critters` package (not installed) and broke builds before
     optimizePackageImports: ['framer-motion'],
   },
   serverExternalPackages: ['pdf-parse'],

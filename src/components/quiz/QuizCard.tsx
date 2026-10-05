@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 interface QuizCardProps {
     id: string;
     title: string;
@@ -26,11 +28,18 @@ export default function QuizCard({
     onStartClick,
     pushStatus,
 }: QuizCardProps) {
+    const router = useRouter();
+
     const handleClick = (e: React.MouseEvent) => {
         if (onStartClick) {
             e.preventDefault();
             onStartClick(id);
         }
+    };
+
+    const handlePointerEnter = () => {
+        // Preload the quiz route on hover/focus to eliminate network delay on click
+        router.prefetch(`/quiz/${id}`);
     };
 
     let pStatus = 'missed';
@@ -42,7 +51,7 @@ export default function QuizCard({
     else if (pushStatus === 'answered' || isCompleted) { pStatus = 'answered'; label = 'Answered'; }
 
     return (
-        <div className="quiz-card" onClick={handleClick}>
+        <div className="quiz-card" onClick={handleClick} onPointerEnter={handlePointerEnter}>
             <span className={`qstatus ${pStatus}`}>
                 <span className="qdot"></span>
                 <span className="qlabel">{label}</span>

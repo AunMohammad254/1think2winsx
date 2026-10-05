@@ -10,7 +10,12 @@ import { Search, Filter, Clock, CheckCircle, Sparkles } from 'lucide-react';
 import QuizCard from '@/components/quiz/QuizCard';
 import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
-import LiveQuizPush, { type LiveQuizPushHandle } from '@/components/quiz/LiveQuizPush';
+import dynamic from 'next/dynamic';
+import type { LiveQuizPushHandle } from '@/components/quiz/LiveQuizPush';
+
+const LiveQuizPush = dynamic(() => import('@/components/quiz/LiveQuizPush'), {
+  ssr: false,
+});
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 import { createClient } from '@/lib/supabase/client';
 import PaymentModal from '@/components/quiz/PaymentModal';
@@ -85,7 +90,7 @@ function QuizzesPageInner() {
   const fetchQuizzesData = useCallback(async (fresh = false) => {
     try {
       const url = fresh ? '/api/quizzes?fresh=1' : '/api/quizzes';
-      const response = await fetch(url, { cache: 'no-store' });
+      const response = await fetch(url);
       if (response.status === 304) {
         setLoading(false);
         return;

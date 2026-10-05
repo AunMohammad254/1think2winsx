@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
-import { X, Zap, PanelRightClose, PanelRightOpen, Loader2, CheckCircle2, Bell } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
 
@@ -67,7 +67,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             const res = await fetch(`/api/quizzes/${quizId}`);
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                throw new Error(data.error || 'This quiz is no longer available');
+                setLoadError(data.error || 'This quiz is no longer available');
+                return;
             }
             const data = await res.json();
             setQuiz({ id: data.quiz.id, title: data.quiz.title, questions: data.quiz.questions });
@@ -154,7 +155,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                throw new Error(data.error || 'Failed to submit');
+                toast.error(data.error || 'Failed to submit');
+                return;
             }
             setLocked(true);
             toast.success('Answer locked in!');

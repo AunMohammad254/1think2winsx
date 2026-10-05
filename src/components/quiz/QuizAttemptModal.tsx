@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { getCSRFToken } from '@/lib/csrf';
 import { useAuth } from '@/contexts/AuthContext';
-import { X, Clock, HelpCircle, Target, AlertTriangle, Play, ChevronLeft, ChevronRight, Check, Tv, Loader2 } from 'lucide-react';
+import { X, Clock, HelpCircle, Target, AlertTriangle, Play, ChevronLeft, ChevronRight, Check, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import QuizResults from '@/components/QuizResults';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 
@@ -77,7 +77,9 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
     // Sub-dialogs
     const [showTimeExpired, setShowTimeExpired] = useState(false);
     const [showUnansweredWarning, setShowUnansweredWarning] = useState(false);
-    const [showStream, setShowStream] = useState(false);
+    const [isTheaterMode, setIsTheaterMode] = useState(false);
+    // null while LazyStreamPlayer is still checking; only an explicit `false` collapses the stream layout
+    const [streamAvailable, setStreamAvailable] = useState<boolean | null>(null);
 
     // Results
     const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
@@ -138,8 +140,9 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
             setIsSubmitting(false);
             setShowTimeExpired(false);
             setShowUnansweredWarning(false);
-            setShowStream(false);
             setSubmissionResult(null);
+            setIsTheaterMode(false);
+            setStreamAvailable(null);
         }
     }, [isOpen, user, fetchQuiz]);
 
@@ -430,223 +433,200 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
 
     if (!currentQuestion) return null;
 
+    const hasStream = streamAvailable !== false;
+    const timerTone = (timeRemaining ?? 0) <= 60 ? 'text-red-400 animate-pulse' : (timeRemaining ?? 0) <= 120 ? 'text-yellow-400' : 'text-white';
+
     return (
-        <div className="fixed inset-0 z-50 bg-gray-950/95 backdrop-blur-sm flex flex-col">
-            {/* ──── Top Header Bar ──── */}
-            <div className="flex-shrink-0 bg-gray-900/90 border-b border-white/10 backdrop-blur-xl">
-                <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-                    {/* Quiz Title */}
-                    <div className="flex-1 min-w-0">
-                        <h1 className="text-lg md:text-xl font-bold text-white truncate">{quiz.title}</h1>
-                        <p className="text-gray-400 text-sm">
-                            Question <span className="text-blue-400 font-semibold">{currentQuestionIndex + 1}</span> of <span className="text-blue-400 font-semibold">{quiz.questions.length}</span>
-                        </p>
-                    </div>
-
-                    {/* Timer */}
-                    <div className={`text-center px-4 py-2 rounded-xl flex-shrink-0 ${(timeRemaining ?? 0) <= 60 ? 'bg-red-500/20 border border-red-500/50' : 'bg-blue-500/10 border border-blue-500/30'}`}>
-                        <div className={`text-xl md:text-2xl font-bold font-mono ${(timeRemaining ?? 0) <= 60 ? 'text-red-400 animate-pulse' : (timeRemaining ?? 0) <= 120 ? 'text-yellow-400' : 'text-white'}`}>
-                            {formatTime(timeRemaining)}
+        <div className="fixed inset-0 z-50 bg-gray-950/95 backdrop-blur-sm flex flex-col lg:flex-row">
+            {/* ──── STREAM CONTAINER ──── (stays mounted so the availability check can run; hidden when nothing is live) */}
+            <div className={!hasStream ? 'hidden' : `
+                relative z-0 shrink-0 transition-all duration-300 ease-in-out bg-black
+                portrait:w-full portrait:aspect-video portrait:sticky portrait:top-0 portrait:z-40
+                max-lg:landscape:fixed max-lg:landscape:inset-0 max-lg:landscape:w-screen max-lg:landscape:h-screen max-lg:landscape:z-0
+                ${isTheaterMode
+                    ? 'lg:order-first lg:flex-1 lg:border-r lg:border-white/10'
+                    : 'lg:order-last lg:w-80 xl:w-96 lg:border-l lg:border-white/10 lg:bg-gray-900/60 lg:aspect-auto lg:h-full lg:flex lg:flex-col'}
+            `}>
+                <div className={`w-full h-full flex flex-col ${!isTheaterMode ? 'lg:p-4' : ''}`}>
+                    {!isTheaterMode && (
+                        <div className="hidden lg:flex items-center justify-between mb-4 flex-shrink-0">
+                            <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
+                            <div className="flex items-center space-x-2">
+                                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                                <span className="text-red-400 text-sm font-medium">LIVE</span>
+                            </div>
                         </div>
-                        <div className="text-gray-400 text-xs">Time Left</div>
+                    )}
+                    <div className="relative flex-1 w-full h-full min-h-0">
+                        <LazyStreamPlayer
+                            onAvailabilityChange={(available) => {
+                                setStreamAvailable(available);
+                                if (!available) setIsTheaterMode(false);
+                            }}
+                        />
                     </div>
-
-                    {/* Answered Count */}
-                    <div className="text-center px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/30 flex-shrink-0 hidden sm:block">
-                        <div className="text-xl font-bold text-white">
-                            <span className="text-green-400">{getAnsweredCount()}</span>/{quiz.questions.length}
-                        </div>
-                        <div className="text-gray-400 text-xs">Answered</div>
-                    </div>
-
-                    {/* Stream Toggle (mobile) */}
-                    <button
-                        onClick={() => setShowStream(!showStream)}
-                        className="lg:hidden p-2 rounded-xl bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30 transition-colors flex-shrink-0"
-                        title="Toggle Live Stream"
-                    >
-                        <Tv className="w-5 h-5" />
-                    </button>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="h-1.5 bg-gray-800">
-                    <div
-                        className="h-full bg-gradient-to-r from-green-400 via-blue-500 to-purple-500 transition-all duration-500 ease-out"
-                        style={{ width: `${progressPercent}%` }}
-                    />
                 </div>
             </div>
 
-            {/* ──── Main Content ──── */}
-            <div className="flex-1 overflow-y-auto">
-                <div className="max-w-7xl mx-auto px-4 py-6">
-                    <div className="flex flex-col lg:flex-row gap-6">
-                        {/* Left: Quiz Content */}
-                        <div className="flex-1 max-w-4xl space-y-6">
-                            {/* Question Card */}
-                            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6 md:p-8">
-                                {/* Question Number Badge */}
-                                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300 text-sm mb-4">
-                                    <span>❓</span>
-                                    <span>Question {currentQuestionIndex + 1}</span>
-                                </div>
+            {/* ──── QUIZ CONTAINER ──── */}
+            <div className={`
+                relative z-10 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out
+                portrait:flex-1
+                ${hasStream
+                    ? 'max-lg:landscape:absolute max-lg:landscape:bottom-4 max-lg:landscape:right-4 max-lg:landscape:w-[400px] max-lg:landscape:max-w-[calc(100vw-2rem)] max-lg:landscape:max-h-[calc(100vh-2rem)] max-lg:landscape:bg-gray-900/80 max-lg:landscape:backdrop-blur-xl max-lg:landscape:rounded-2xl max-lg:landscape:border max-lg:landscape:border-white/20 max-lg:landscape:shadow-2xl'
+                    : 'flex-1'}
+                ${isTheaterMode
+                    ? 'lg:order-last lg:w-[400px] xl:w-[450px] lg:flex-shrink-0 lg:bg-gray-900/50'
+                    : 'lg:order-first lg:flex-1'}
+            `}>
+                {/* Compact timer strip: the full header is hidden in landscape (stream overlay), but the clock must stay visible */}
+                {hasStream && (
+                    <div className="hidden max-lg:landscape:flex flex-shrink-0 items-center justify-between gap-3 px-4 py-2 bg-gray-900/90 border-b border-white/10">
+                        <span className="text-sm text-gray-300 truncate">
+                            Q <span className="text-blue-400 font-semibold">{currentQuestionIndex + 1}</span>/{quiz.questions.length}
+                        </span>
+                        <span className={`font-mono font-bold text-lg ${timerTone}`}>{formatTime(timeRemaining)}</span>
+                    </div>
+                )}
 
-                                <h2 className="text-lg md:text-xl font-semibold text-white mb-6 leading-relaxed">
-                                    {currentQuestion.text}
-                                </h2>
+                {/* Top Header Bar */}
+                <div className={`flex-shrink-0 bg-gray-900/90 border-b border-white/10 backdrop-blur-xl ${hasStream ? 'max-lg:landscape:hidden' : ''}`}>
+                    <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                            <h1 className="text-lg md:text-xl font-bold text-white truncate">{quiz.title}</h1>
+                            <p className="text-gray-400 text-sm">
+                                Question <span className="text-blue-400 font-semibold">{currentQuestionIndex + 1}</span> of <span className="text-blue-400 font-semibold">{quiz.questions.length}</span>
+                            </p>
+                        </div>
+                        <div className={`text-center px-4 py-2 rounded-xl flex-shrink-0 ${(timeRemaining ?? 0) <= 60 ? 'bg-red-500/20 border border-red-500/50' : 'bg-blue-500/10 border border-blue-500/30'}`}>
+                            <div className={`text-xl md:text-2xl font-bold font-mono ${(timeRemaining ?? 0) <= 60 ? 'text-red-400 animate-pulse' : (timeRemaining ?? 0) <= 120 ? 'text-yellow-400' : 'text-white'}`}>
+                                {formatTime(timeRemaining)}
+                            </div>
+                            <div className="text-gray-400 text-xs hidden sm:block">Time Left</div>
+                        </div>
+                        <div className="hidden sm:block text-center px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/30 flex-shrink-0">
+                            <div className="text-xl font-bold text-white">
+                                <span className="text-green-400">{getAnsweredCount()}</span>/{quiz.questions.length}
+                            </div>
+                            <div className="text-gray-400 text-xs">Answered</div>
+                        </div>
+                        {/* Theater Mode Toggle (Desktop, only when a stream is live) */}
+                        {hasStream && (
+                            <button
+                                onClick={() => setIsTheaterMode(!isTheaterMode)}
+                                className="hidden lg:flex p-2 rounded-xl bg-gray-800 border border-white/10 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex-shrink-0"
+                                title={isTheaterMode ? "Exit Theater Mode" : "Enter Theater Mode"}
+                            >
+                                {isTheaterMode ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                            </button>
+                        )}
+                    </div>
+                    <div className="h-1.5 bg-gray-800">
+                        <div className="h-full bg-gradient-to-r from-green-400 via-blue-500 to-purple-500 transition-all duration-500 ease-out" style={{ width: `${progressPercent}%` }} />
+                    </div>
+                </div>
 
-                                {/* Options */}
-                                <div className="space-y-3">
-                                    {currentQuestion.options.map((option, index) => {
-                                        const isSelected = currentAnswer?.selectedOption === index;
-                                        return (
-                                            <button
-                                                key={index}
-                                                onClick={() => handleAnswerSelect(currentQuestion.id, index)}
-                                                className={`w-full min-h-[60px] p-4 md:p-5 text-left rounded-xl border-2 transition-all duration-200 transform active:scale-[0.98] ${isSelected
+                {/* Main Content */}
+                <div className={`flex-1 overflow-y-auto ${isTheaterMode ? 'p-4' : 'p-4 md:p-6'}`}>
+                    <div className="flex flex-col gap-6 max-w-4xl mx-auto">
+                        {/* Question Card */}
+                        <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-5 md:p-6 shadow-xl">
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300 text-sm mb-4">
+                                <span>❓</span>
+                                <span>Question {currentQuestionIndex + 1}</span>
+                            </div>
+                            <h2 className="text-lg md:text-xl font-semibold text-white mb-6 leading-relaxed">
+                                {currentQuestion.text}
+                            </h2>
+                            <div className="space-y-3">
+                                {currentQuestion.options.map((option, index) => {
+                                    const isSelected = currentAnswer?.selectedOption === index;
+                                    return (
+                                        <button
+                                            key={index}
+                                            onClick={() => handleAnswerSelect(currentQuestion.id, index)}
+                                            className={`w-full min-h-[56px] p-4 text-left rounded-xl border-2 transition-all duration-200 transform active:scale-[0.98] ${
+                                                isSelected
                                                     ? 'border-blue-400 bg-gradient-to-r from-blue-500/30 to-purple-500/30 text-white shadow-lg shadow-blue-500/20'
                                                     : 'border-gray-600 bg-gray-800/50 text-gray-300 hover:border-gray-400 hover:bg-gray-700/50'
-                                                    }`}
-                                            >
-                                                <div className="flex items-center gap-4">
-                                                    <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full border-2 flex items-center justify-center font-bold text-sm md:text-base flex-shrink-0 transition-all duration-200 ${isSelected
-                                                        ? 'border-blue-400 bg-blue-500 text-white'
-                                                        : 'border-gray-500 text-gray-400'
-                                                        }`}>
-                                                        {String.fromCharCode(65 + index)}
-                                                    </div>
-                                                    <span className="font-medium text-sm md:text-base">{option}</span>
-                                                    {isSelected && (
-                                                        <div className="ml-auto">
-                                                            <Check className="w-6 h-6 text-blue-400" />
-                                                        </div>
-                                                    )}
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-sm flex-shrink-0 transition-all duration-200 ${
+                                                    isSelected ? 'border-blue-400 bg-blue-500 text-white' : 'border-gray-500 text-gray-400'
+                                                }`}>
+                                                    {String.fromCharCode(65 + index)}
                                                 </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                                <span className={`font-medium text-sm md:text-base ${isTheaterMode ? 'line-clamp-2' : ''}`}>{option}</span>
+                                                {isSelected && (
+                                                    <div className="ml-auto flex-shrink-0">
+                                                        <Check className="w-5 h-5 text-blue-400" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
                             </div>
+                        </div>
 
-                            {/* Navigation */}
-                            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+                        {/* Navigation & Submit */}
+                        <div className={`flex flex-col sm:flex-row justify-between items-center gap-4 ${isTheaterMode ? 'sm:flex-col items-stretch' : ''}`}>
+                            <div className={`flex gap-3 w-full ${isTheaterMode ? '' : 'sm:w-auto'}`}>
                                 <button
                                     onClick={handlePreviousQuestion}
                                     disabled={currentQuestionIndex === 0}
-                                    className="w-full sm:w-auto py-3 px-6 bg-gray-800/60 border border-white/10 text-gray-300 rounded-xl font-medium hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    className="flex-1 sm:flex-none py-3 px-6 bg-gray-800/60 border border-white/10 text-gray-300 rounded-xl font-medium hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
                                     <ChevronLeft className="w-5 h-5" />
-                                    Previous
+                                    Prev
                                 </button>
-
-                                {/* Mobile answered count */}
-                                <div className="sm:hidden text-center px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/30">
-                                    <span className="text-green-400 font-bold">{getAnsweredCount()}</span>
-                                    <span className="text-white font-bold">/{quiz.questions.length}</span>
-                                    <span className="text-gray-400 text-xs ml-2">Answered</span>
-                                </div>
-
-                                <div className="flex gap-3 w-full sm:w-auto">
-                                    {currentQuestionIndex === quiz.questions.length - 1 ? (
-                                        <button
-                                            onClick={() => handleSubmitQuiz()}
-                                            disabled={isSubmitting}
-                                            className="flex-1 sm:flex-none py-3 px-8 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:from-green-600 hover:to-emerald-700 transition-all disabled:opacity-50 shadow-lg shadow-green-500/25 flex items-center justify-center gap-2"
-                                        >
-                                            {isSubmitting ? (
-                                                <>
-                                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                                    Submitting...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    Submit Quiz
-                                                    <Check className="w-5 h-5" />
-                                                </>
-                                            )}
-                                        </button>
-                                    ) : (
-                                        <button
-                                            onClick={handleNextQuestion}
-                                            className="flex-1 sm:flex-none py-3 px-8 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-purple-600 transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
-                                        >
-                                            Next
-                                            <ChevronRight className="w-5 h-5" />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Question Navigator */}
-                            <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-6">
-                                <h3 className="text-lg font-semibold text-white mb-4">Question Navigator</h3>
-                                <div className="grid grid-cols-5 md:grid-cols-10 gap-2">
-                                    {quiz.questions.map((_, index) => {
-                                        const isAnswered = answers[index]?.selectedOption !== -1;
-                                        const isCurrent = index === currentQuestionIndex;
-                                        return (
-                                            <button
-                                                key={index}
-                                                onClick={() => setCurrentQuestionIndex(index)}
-                                                className={`w-10 h-10 rounded-lg font-medium transition-all duration-200 ${isCurrent
-                                                    ? 'bg-blue-500 text-white ring-2 ring-blue-400 ring-offset-2 ring-offset-gray-900'
-                                                    : isAnswered
-                                                        ? 'bg-green-500/30 text-green-400 border border-green-500/50'
-                                                        : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                                                    }`}
-                                            >
-                                                {index + 1}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                {currentQuestionIndex === quiz.questions.length - 1 ? (
+                                    <button
+                                        onClick={() => handleSubmitQuiz()}
+                                        disabled={isSubmitting}
+                                        className="flex-1 sm:flex-none py-3 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:from-green-600 hover:to-emerald-700 transition-all disabled:opacity-50 shadow-lg shadow-green-500/25 flex items-center justify-center gap-2"
+                                    >
+                                        {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Submit'}
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={handleNextQuestion}
+                                        className="flex-1 sm:flex-none py-3 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-purple-600 transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
+                                    >
+                                        Next
+                                        <ChevronRight className="w-5 h-5" />
+                                    </button>
+                                )}
                             </div>
                         </div>
 
-                        {/* Right: Live Stream Sidebar (Desktop) */}
-                        <div className="hidden lg:block lg:w-80 xl:w-96">
-                            <div className="sticky top-6 space-y-4">
-                                <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
-                                        <div className="flex items-center space-x-2">
-                                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                                            <span className="text-red-400 text-sm font-medium">LIVE</span>
-                                        </div>
-                                    </div>
-                                    <LazyStreamPlayer />
-                                </div>
-                                <div className="bg-gray-900/60 border border-white/10 rounded-xl p-4">
-                                    <p className="text-gray-300 text-sm">
-                                        💡 <strong>Tip:</strong> Watch the live stream for hints and explanations that might help you with the quiz!
-                                    </p>
-                                </div>
+                        {/* Question Navigator Grid */}
+                        <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4 md:p-6 mb-4 max-lg:landscape:hidden">
+                            <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">Navigator</h3>
+                            <div className="grid grid-cols-5 gap-2">
+                                {quiz.questions.map((_, index) => {
+                                    const isAnswered = answers[index]?.selectedOption !== -1;
+                                    const isCurrent = index === currentQuestionIndex;
+                                    return (
+                                        <button
+                                            key={index}
+                                            onClick={() => setCurrentQuestionIndex(index)}
+                                            className={`w-full aspect-square rounded-lg font-medium text-sm transition-all duration-200 flex items-center justify-center ${
+                                                isCurrent ? 'bg-blue-500 text-white ring-2 ring-blue-400 ring-offset-2 ring-offset-gray-900'
+                                                : isAnswered ? 'bg-green-500/30 text-green-400 border border-green-500/50'
+                                                : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                                            }`}
+                                        >
+                                            {index + 1}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-
-            {/* ──── Mobile Stream Modal ──── */}
-            {showStream && (
-                <div className="lg:hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-                    <div className="bg-gradient-to-br from-gray-900 to-gray-800 border border-white/10 rounded-2xl p-4 w-full max-w-md max-h-[80vh] overflow-y-auto">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-white">📺 Live Stream</h3>
-                            <button onClick={() => setShowStream(false)} className="p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-                        <LazyStreamPlayer />
-                        <div className="mt-4 p-3 bg-blue-500/20 border border-blue-500/30 rounded-xl">
-                            <p className="text-blue-100 text-sm">
-                                💡 Watch for hints and explanations that might help with your quiz!
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* ──── Time Expired Dialog ──── */}
             {showTimeExpired && (

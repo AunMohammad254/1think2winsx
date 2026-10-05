@@ -39,10 +39,8 @@ export const metadata: Metadata = {
     apple: [
       { url: '/Favicon/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
     ],
-    other: [
-      { rel: 'manifest', url: '/Favicon/site.webmanifest' },
-    ],
   },
+  manifest: '/manifest.json',
   openGraph: {
     title: "1Think 2Win",
     description: "1Think 2Win - Test your sports knowledge and win exciting prizes!",
@@ -64,6 +62,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preconnect" href="https://res.cloudinary.com" />
+      </head>
       <body
         className={`${geistSans.variable} ${poppins.variable} antialiased`}
         suppressHydrationWarning
