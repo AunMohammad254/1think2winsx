@@ -1,3 +1,5 @@
+import { emailShell } from './email-theme';
+
 export interface SendEmailOptions {
     to: string;
     subject: string;
@@ -56,40 +58,9 @@ export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions) =
 };
 
 /**
- * Helper function to wrap emails in a beautiful HTML template.
+ * Wraps an email body in the shared 1Think 2Win layout (see ./email-theme).
+ * Kept so existing callers keep working; new emails should use the builders in ./email-templates.
+ * `title` is escaped; `messageHtml` is trusted markup.
  */
-export const generateBeautifulEmailTemplate = (title: string, messageHtml: string) => `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #09090b; color: #ffffff; }
-        .container { max-width: 600px; margin: 40px auto; background: #18181b; border-radius: 16px; overflow: hidden; border: 1px solid #27272a; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
-        .header { background: linear-gradient(135deg, #eab308 0%, #ca8a04 100%); padding: 30px; text-align: center; }
-        .header h1 { margin: 0; color: #000000; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; }
-        .content { padding: 40px 30px; }
-        .content p { color: #a1a1aa; font-size: 16px; line-height: 1.6; margin-top: 0; margin-bottom: 20px; }
-        .content h2 { color: #ffffff; font-size: 20px; margin-top: 0; margin-bottom: 15px; font-weight: 600; }
-        .footer { padding: 20px; text-align: center; border-top: 1px solid #27272a; background: #09090b; }
-        .footer p { color: #52525b; font-size: 12px; margin: 0; }
-        .button { display: inline-block; background: #eab308; color: #000000; font-weight: 600; text-decoration: none; padding: 12px 24px; rounded: 8px; margin-top: 10px; border-radius: 8px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>1Think 2Win</h1>
-        </div>
-        <div class="content">
-            <h2>${title}</h2>
-            ${messageHtml}
-        </div>
-        <div class="footer">
-            <p>&copy; ${new Date().getFullYear()} 1Think 2Win. All rights reserved.</p>
-        </div>
-    </div>
-</body>
-</html>
-`;
+export const generateBeautifulEmailTemplate = (title: string, messageHtml: string) =>
+    emailShell({ title, bodyHtml: messageHtml });

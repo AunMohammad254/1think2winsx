@@ -134,7 +134,7 @@ describe('newsletter subscription confirmation email', () => {
         expect(sendEmail).toHaveBeenCalledTimes(1);
         const mail = sendEmail.mock.calls[0][0] as { to: string; html: string };
         expect(mail.to).toBe('new.fan@example.com');
-        expect(mail.html).toContain('/unsubscribe?e=new.fan%40example.com&t='); // signed unsubscribe link
+        expect(mail.html).toContain('/unsubscribe?e=new.fan%40example.com&amp;t='); // signed unsubscribe link (& is written &amp; in HTML)
         expect(body.message).toMatch(/confirmation email/i);
     });
 

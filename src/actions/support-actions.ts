@@ -258,23 +258,17 @@ export async function resendVerificationEmailAction(userId: string) {
         const verificationUrl = linkData.properties.action_link;
         
         // 2. Send it using our native Nodemailer + Brevo setup
-        const { sendEmail, generateBeautifulEmailTemplate } = await import('@/lib/email');
-        
-        const htmlBody = generateBeautifulEmailTemplate(
-            "Verify Your Email",
-            `<p>Welcome to 1Think 2Win! Please verify your email address to continue setting up your account.</p>
-             <div style="text-align: center; margin: 30px 0;">
-                <a href="${verificationUrl}" style="display: inline-block; background: #eab308; color: #000000; font-weight: 600; text-decoration: none; padding: 12px 24px; border-radius: 8px;">Verify My Email Address</a>
-             </div>
-             <p style="font-size: 12px; color: #71717a;">If the button doesn't work, copy and paste this link into your browser: <br>${verificationUrl}</p>`
-        );
-        
+        const { sendEmail } = await import('@/lib/email');
+        const { buildVerifyEmailEmail } = await import('@/lib/email-templates');
+        const mail = buildVerifyEmailEmail({ verificationUrl });
+
         const emailResult = await sendEmail({
             to: user.email,
-            subject: "Action Required: Verify Your 1Think 2Win Account",
-            html: htmlBody
+            subject: mail.subject,
+            html: mail.html,
+            text: mail.text
         });
-        
+
         if (!emailResult.success) throw new Error(emailResult.error);
         
         await supabase.from('SecurityEvent').insert({
@@ -339,19 +333,17 @@ export async function sendNotificationAction(userId: string, title: string, mess
         if (sendAsEmail) {
             const user = await userDb.findById(userId);
             if (user && user.email) {
-                const { sendEmail, generateBeautifulEmailTemplate } = await import('@/lib/email');
-                const htmlBody = generateBeautifulEmailTemplate(
-                    title,
-                    `<p>${message.replace(/\n/g, '<br>')}</p><br><p>Log in to your dashboard to see more details.</p>`
-                );
-                
+                const { sendEmail } = await import('@/lib/email');
+                const { buildAdminMessageEmail } = await import('@/lib/email-templates');
+                const mail = buildAdminMessageEmail({ title, message });
+
                 const emailResult = await sendEmail({
                     to: user.email,
-                    subject: title,
-                    html: htmlBody,
-                    text: message
+                    subject: mail.subject,
+                    html: mail.html,
+                    text: mail.text
                 });
-                
+
                 if (emailResult.success) {
                     emailSent = true;
                 }
