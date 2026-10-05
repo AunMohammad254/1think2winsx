@@ -26,7 +26,12 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
     const searchParams = useSearchParams();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    // A sign-in link that failed (expired, already used, opened on another device) lands here with ?error=
+    const [error, setError] = useState<string | null>(
+        searchParams.get('error') === 'auth_callback_error'
+            ? 'That sign-in link did not work. It may have expired or already been used. Please sign in below, or use "Forgot password" to get a new link.'
+            : null
+    );
 
     // Check for success messages from URL params
     const registered = searchParams.get('registered') === 'true';
@@ -106,7 +111,7 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                         <LogIn className="w-5 h-5 mr-3 text-green-300" />
                         <span>
                             {registered
-                                ? 'Registration successful! Please check your email to verify your account.'
+                                ? 'Almost there! Check your email: open the link to verify your account (or, if you already had an account, to set your password).'
                                 : 'Password updated successfully! Please log in with your new password.'}
                         </span>
                     </div>

@@ -11,7 +11,11 @@ export async function GET(request: Request) {
         ? rawNext
         : '/quizzes'
 
-    if (code) {
+    // Supabase reports a bad link by redirecting here with ?error=...&error_code=... and no code
+    // (for example "otp_expired": the link was already used, replaced by a newer email, or timed out).
+    const supabaseError = searchParams.get('error_code') || searchParams.get('error')
+
+    if (code && !supabaseError) {
         const supabase = await createClient()
         const { error } = await supabase.auth.exchangeCodeForSession(code)
 
@@ -35,6 +39,13 @@ export async function GET(request: Request) {
         }
     }
 
-    // Return the user to an error page with instructions
-    return NextResponse.redirect(`${origin}/login?error=auth_callback_error`)
+    // The link did not work. Password setup/reset links work only once and only the newest email is
+    // valid, so send those people somewhere that explains it and lets them request a fresh link.
+    // (Sending them to /login hid the problem: that page drops the error and just shows a login form.)
+    if (next === '/update-password') {
+        return NextResponse.redirect(`${origin}/forgot-password?error=link_expired`)
+    }
+
+    // Any other sign-in link (e.g. email verification, Google): show the message on the login page.
+    return NextResponse.redirect(`${origin}/auth?mode=login&error=auth_callback_error`)
 }

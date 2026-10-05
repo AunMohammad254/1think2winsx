@@ -5,6 +5,8 @@ import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
+import { sendPasswordSetupEmail } from '@/lib/password-setup';
+import { detectForUser } from '@/lib/auth-detection-server';
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -54,6 +56,22 @@ export async function PUT(request: NextRequest) {
       return rateLimitResponse;
     }
 
+    // Accounts created with Google have no password to "change". Instead of refusing, email them a
+    // link to set one (checked before the body so a missing current password isn't a dead end).
+    if (!(await detectForUser(supabase, user)).hasPassword) {
+      const sent = user.email ? await sendPasswordSetupEmail(supabase, user.email) : { ok: false };
+      if (!sent.ok) {
+        return NextResponse.json(
+          { message: "We couldn't send the email right now. Please try again in a minute." },
+          { status: 502 }
+        );
+      }
+      return NextResponse.json({
+        resetEmailSent: true,
+        message: 'Your account uses Google sign-in, so we emailed you a link to set a password.',
+      });
+    }
+
     const body = await request.json();
 
     // Validate request body
@@ -67,24 +85,6 @@ export async function PUT(request: NextRequest) {
     }
 
     const { currentPassword, newPassword } = validationResult.data;
-
-    // Check if user has an 'email' identity (meaning they signed up with email/password)
-    const identities = user.identities || [];
-    const hasEmailIdentity = identities.some(identity => identity.provider === 'email');
-
-    if (!hasEmailIdentity) {
-      const oAuthProviders = identities.map(i => i.provider).join(', ');
-      recordSecurityEvent('INVALID_PASSWORD_ATTEMPT', request, userId, {
-        endpoint: '/api/profile/change-password',
-        attemptType: 'oauth_user_password_change',
-        providers: oAuthProviders
-      });
-      securityLogger.logAuthFailure(userId, '/api/profile/change-password', 'OAuth user attempting password change');
-      return NextResponse.json(
-        { message: 'Cannot change password for OAuth accounts. Please manage your password through your OAuth provider.' },
-        { status: 400 }
-      );
-    }
 
     // Verify current password by attempting to sign in with it
     // This is the secure way to verify the password without storing it in public.User

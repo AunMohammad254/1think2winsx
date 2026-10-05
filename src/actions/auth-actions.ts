@@ -3,6 +3,8 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { siteUrl } from '@/lib/site-url';
+import { sendPasswordSetupEmail } from '@/lib/password-setup';
 
 // Types for form data
 export interface LoginFormData {
@@ -107,7 +109,7 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
         const supabase = await createSupabaseClient();
 
         // Get the origin for email redirect
-        const origin = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+        const origin = siteUrl();
 
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
             email: formData.email,
@@ -130,6 +132,29 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
                 return { success: false, error: 'Unable to send confirmation email. Please try again or contact support.' };
             }
             return { success: false, error: signUpError.message };
+        }
+
+        // With email confirmation on, Supabase answers a sign-up for an address that already has an
+        // account (e.g. one created with Google) with an obfuscated user (no identities) and sends NO
+        // email, so the person would wait for a message that never comes. Instead email them a link to
+        // set a password. The answer is the same as for a brand-new sign-up ("check your email"), so
+        // this does not reveal whether an address is registered. Sends are limited per address.
+        if (signUpData.user && (signUpData.user.identities?.length ?? 0) === 0) {
+            try {
+                const { headers } = await import('next/headers');
+                const { rateLimiters } = await import('@/lib/rate-limiter');
+                const limit = await rateLimiters.auth.checkLimit(
+                    { headers: await headers() } as never,
+                    `register-existing:${formData.email.trim().toLowerCase()}`,
+                    '/register'
+                );
+                if (limit.success) {
+                    await sendPasswordSetupEmail(supabase, formData.email);
+                }
+            } catch (err) {
+                console.error('[registerAction] Could not send the password setup email:', err);
+            }
+            return { success: true, redirectTo: '/auth?registered=true' };
         }
 
         // Also create user in public.User table with hashed password
@@ -184,7 +209,7 @@ export async function signOutAction(): Promise<void> {
 export async function getGoogleOAuthUrl(redirectTo: string = '/quizzes'): Promise<string | null> {
     try {
         const supabase = await createSupabaseClient();
-        const origin = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+        const origin = siteUrl();
 
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider: 'google',

@@ -8,7 +8,7 @@ import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { useProfile } from '@/contexts/ProfileContext';
 import ProfilePictureUpload from '@/components/ProfilePictureUpload';
-import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal } from '@/components/profile';
+import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal, SignInMethodBadge } from '@/components/profile';
 
 // Dynamic import for large component
 const PrizeRedemption = dynamic(
@@ -268,7 +268,7 @@ export default function ProfilePage() {
                     }`}
                     aria-label={
                       verification.emailVerified
-                        ? `Email verified${verification.provider ? ` via ${verification.provider}` : ''}`
+                        ? 'Email verified'
                         : 'Email not verified yet'
                     }
                   >
@@ -295,10 +295,10 @@ export default function ProfilePage() {
                         />
                       )}
                     </svg>
-                    {verification.emailVerified
-                      ? `Verified${verification.provider && verification.provider !== 'email' ? ` · ${verification.provider}` : ''}`
-                      : 'Unverified'}
+                    {verification.emailVerified ? 'Verified' : 'Unverified'}
                   </span>
+                  {/* How this session signed in (Google / email + password / email link), detected from the session */}
+                  <SignInMethodBadge />
                 </div>
 
                 {/* Account creation date - prominent */}

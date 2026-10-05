@@ -16,6 +16,8 @@ import {
     AlertCircle
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import SetPasswordByEmail from './SetPasswordByEmail';
+import { passwordDialogTitle } from '@/lib/auth-detection';
 import { isOAuthOnlyUser, getUserAuthMethods, getProviderDisplayName, type AuthMethods } from '@/lib/auth-helpers';
 
 // Zod validation schema with strict password requirements
@@ -58,7 +60,6 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [authMethods, setAuthMethods] = useState<AuthMethods | null>(null);
     const [isOAuthOnly, setIsOAuthOnly] = useState(false);
-
     const {
         register,
         handleSubmit,
@@ -113,7 +114,9 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                         setAuthMethods({
                             hasEmailPassword: data.hasPassword,
                             hasOAuth: !data.hasPassword,
-                            oAuthProviders: data.authMethod === 'oauth' ? ['OAuth Provider'] : [],
+                            oAuthProviders: Array.isArray(data.oAuthProviders) && data.oAuthProviders.length > 0
+                                ? data.oAuthProviders
+                                : (data.authMethod === 'oauth' ? ['google'] : []),
                             canChangePassword: data.canChangePassword,
                             primaryAuthMethod: data.authMethod === 'email' ? 'email' : 'oauth'
                         });
@@ -247,7 +250,9 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                                 >
                                     <KeyRound className="w-5 h-5 text-white" />
                                 </div>
-                                <h2 id="change-password-title" className="text-xl font-bold text-white">Change Password</h2>
+                                <h2 id="change-password-title" className="text-xl font-bold text-white">
+                                    {isCheckingAuth ? 'Password' : passwordDialogTitle(!isOAuthOnly)}
+                                </h2>
                             </div>
                             <button
                                 type="button"
@@ -267,24 +272,12 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                             </div>
                         )}
 
-                        {/* OAuth User Warning */}
+                        {/* Google-only account: offer to set a password by email */}
                         {!isCheckingAuth && isOAuthOnly && authMethods && (
-                            <div className="text-center py-8">
-                                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 flex items-center justify-center border border-amber-500/30">
-                                    <AlertCircle className="w-8 h-8 text-amber-400" />
-                                </div>
-                                <h3 className="text-lg font-semibold text-white mb-2">Password Change Not Available</h3>
-                                <p className="text-slate-300 text-sm mb-4">
-                                    Your account was created using{' '}
-                                    <span className="font-semibold text-blue-300">
-                                        {authMethods.oAuthProviders.map(getProviderDisplayName).join(' and ')}
-                                    </span>
-                                    {' '}sign-in.
-                                </p>
-                                <p className="text-slate-400 text-xs">
-                                    Please manage your password through your OAuth provider.
-                                </p>
-                            </div>
+                            <SetPasswordByEmail
+                                providerLabel={authMethods.oAuthProviders.map(getProviderDisplayName).join(' and ') || 'Google'}
+                                hasPassword={authMethods.hasEmailPassword}
+                            />
                         )}
 
                         {/* Password Change Form */}

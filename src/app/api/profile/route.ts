@@ -340,7 +340,7 @@ export async function PUT(request: NextRequest) {
       // Check if user has a password (OAuth users may not have one)
       if (!currentUser.password) {
         return NextResponse.json(
-          { message: 'Cannot change password for OAuth accounts' },
+          { message: 'This account has no password yet. Use "Set a password" on your profile and we will email you a link.' },
           { status: 400 }
         );
       }

@@ -78,8 +78,9 @@ export default function UpdatePasswordPage() {
                 setError(result.error);
             } else {
                 setSuccess(true);
+                // The emailed link already signed the person in, so take them straight into the app.
                 setTimeout(() => {
-                    router.push('/login?password_reset=success');
+                    router.push('/quizzes');
                 }, 2000);
             }
         } catch {
@@ -153,7 +154,7 @@ export default function UpdatePasswordPage() {
                                     </div>
                                 </div>
                                 <h3 className="text-xl font-semibold text-white mb-2">Password Updated!</h3>
-                                <p className="text-slate-300 mb-4">Redirecting to login...</p>
+                                <p className="text-slate-300 mb-4">Taking you to the quizzes...</p>
                                 <Loader2 className="w-6 h-6 text-purple-400 animate-spin mx-auto" />
                             </div>
                         ) : (
