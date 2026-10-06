@@ -1,4 +1,5 @@
 import { getAdminDb } from '@/lib/supabase/db';
+import { activateDueQuizzes, broadcastQuizLive } from '@/lib/quiz-scheduler';
 
 /**
  * Shared (not per-user) quiz catalogue: active quizzes, their active questions
@@ -31,15 +32,37 @@ export interface CatalogQuiz {
 }
 
 const TTL_MS = 15_000;
-let cache: { at: number; data: CatalogQuiz[] } | null = null;
-let inflight: Promise<CatalogQuiz[]> | null = null;
+// `nextDueAt`: start time of the next scheduled/upcoming quiz. The cache is dropped at
+// that moment so a quiz going live is never held back by the TTL.
+let cache: { at: number; data: CatalogQuiz[]; nextDueAt: number | null } | null = null;
+let inflight: Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }> | null = null;
 
 function parseOptions(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw as string[];
   try { return JSON.parse(String(raw)); } catch { return []; }
 }
 
-async function load(): Promise<CatalogQuiz[]> {
+async function load(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }> {
+  // Go live any scheduled quiz whose time has come, so it appears in this very read
+  // even when no external cron is running. The "live now" broadcast is slow on big
+  // user bases, so it must not hold up the response.
+  let nextDueAt: number | null = null;
+  try {
+    const due = await activateDueQuizzes();
+    nextDueAt = due.nextDueAt;
+    for (const quiz of due.activated) {
+      broadcastQuizLive(quiz).catch((err) =>
+        console.error(`[QuizCatalog] Failed to broadcast live quiz ${quiz.id}:`, err));
+    }
+  } catch (err) {
+    console.error('[QuizCatalog] Failed to activate due quizzes:', err);
+  }
+
+  const data = await loadCatalog();
+  return { data, nextDueAt };
+}
+
+async function loadCatalog(): Promise<CatalogQuiz[]> {
   const db = getAdminDb();
   const { data: rawQuizzes, error } = await db
     .from('Quiz')
@@ -101,13 +124,16 @@ async function load(): Promise<CatalogQuiz[]> {
 }
 
 export async function getActiveQuizCatalog(): Promise<CatalogQuiz[]> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.data;
+  const now = Date.now();
+  if (cache && now - cache.at < TTL_MS && (cache.nextDueAt === null || now < cache.nextDueAt)) {
+    return cache.data;
+  }
   if (!inflight) {
     inflight = load()
-      .then((data) => { cache = { at: Date.now(), data }; return data; })
+      .then((result) => { cache = { at: Date.now(), ...result }; return result; })
       .finally(() => { inflight = null; });
   }
-  return inflight;
+  return (await inflight).data;
 }
 
 export async function getCatalogQuiz(quizId: string): Promise<CatalogQuiz | undefined> {

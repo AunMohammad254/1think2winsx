@@ -67,6 +67,11 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             const res = await fetch(`/api/quizzes/${quizId}`);
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
+                if (data.upcoming && data.startsAt) {
+                    // Show the start time in the viewer's own timezone
+                    setLoadError(`This quiz hasn't started yet. It goes live ${new Date(data.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`);
+                    return;
+                }
                 setLoadError(data.error || 'This quiz is no longer available');
                 return;
             }

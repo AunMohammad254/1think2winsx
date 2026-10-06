@@ -31,7 +31,11 @@ const statusOptions = [
     { value: 'active', label: 'Published', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
     { value: 'paused', label: 'Paused', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
     { value: 'scheduled', label: 'Scheduled', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+    { value: 'upcoming', label: 'Upcoming', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
 ];
+
+// Statuses that go live on their own at `startsAt`, so they need a date.
+const isTimedStatus = (status?: string) => status === 'scheduled' || status === 'upcoming';
 
 export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: QuizFormBuilderProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -164,10 +168,15 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     const onSubmit = async (data: QuizFormData) => {
         setIsSubmitting(true);
         try {
-            // Clean up startsAt if status is not scheduled
+            // Clean up startsAt unless the quiz is still waiting to go live
             const payload = {
                 ...data,
-                startsAt: data.status === 'scheduled' ? data.startsAt : null,
+                // The picker yields a zone-less local time ("2026-12-01T16:30"). Convert it to an
+                // absolute instant HERE, in the admin's browser: if the server parsed it, it would
+                // read it in the server's timezone (UTC) and shift the quiz by the viewer's offset.
+                startsAt: isTimedStatus(data.status) && data.startsAt
+                    ? new Date(data.startsAt).toISOString()
+                    : null,
                 accessPrice: walletEnabled ? data.accessPrice : 0,
             };
             const result = isEditing
@@ -387,7 +396,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                             name="status"
                             control={control}
                             render={({ field }) => (
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                                     {statusOptions.map((option) => (
                                         <button
                                             key={option.value}
@@ -407,7 +416,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                     </div>
 
                     {/* Schedule Date-Time Picker */}
-                    {watchedStatus === 'scheduled' && (
+                    {isTimedStatus(watchedStatus) && (
                         <div className="md:col-span-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200 relative z-50">
                             <label className="block text-sm font-medium text-gray-300">
                                 Publish Schedule Date & Time <span className="text-red-400">*</span>
@@ -425,6 +434,9 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                                     />
                                 )}
                             />
+                            {errors.startsAt && (
+                                <p className="text-xs text-red-400">{errors.startsAt.message}</p>
+                            )}
                             <p className="text-xs text-gray-500">Select when this quiz should automatically go live and notify users.</p>
                         </div>
                     )}

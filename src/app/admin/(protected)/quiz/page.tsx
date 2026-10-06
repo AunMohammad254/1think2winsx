@@ -23,7 +23,7 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import { DynamicQuizFormBuilder } from '@/components/admin/DynamicAdminComponents';
-import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive, pushScheduleQuiz } from '@/actions/quiz-actions';
+import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive, notifyUpcomingQuiz } from '@/actions/quiz-actions';
 import { createClient } from '@/lib/supabase/client';
 
 // ============================================
@@ -209,14 +209,19 @@ export default function AdminQuizManagementPage() {
         setActionMenuOpen(null);
     };
 
-    const handlePushSchedule = async (id: string) => {
-        const result = await pushScheduleQuiz(id);
+    // Sends the "upcoming quiz" notification only; the quiz itself stays scheduled.
+    const handleNotifyUpcoming = async (id: string) => {
+        setActionMenuOpen(null);
+        let result = await notifyUpcomingQuiz(id);
+        if (!result.success && result.code === 'ALREADY_NOTIFIED') {
+            if (!window.confirm('Users were already notified about this quiz. Send the notification again?')) return;
+            result = await notifyUpcomingQuiz(id, true);
+        }
         if (result.success) {
             toast.success(result.message);
         } else {
             toast.error(result.error);
         }
-        setActionMenuOpen(null);
     };
 
     const handlePause = async (id: string) => {
@@ -386,7 +391,11 @@ export default function AdminQuizManagementPage() {
             }
 
             // Status filter
-            if (statusFilter !== 'all' && quiz.status !== statusFilter) {
+            // "Scheduled" also covers upcoming quizzes: they are scheduled ones users were already told about
+            const matchesStatus = statusFilter === 'scheduled'
+                ? quiz.status === 'scheduled' || quiz.status === 'upcoming'
+                : quiz.status === statusFilter;
+            if (statusFilter !== 'all' && !matchesStatus) {
                 return false;
             }
 
@@ -684,9 +693,9 @@ export default function AdminQuizManagementPage() {
                                         <div className="col-span-3 md:col-span-2">
                                             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${status.color}`}>
                                                 {status.label}
-                                                {quiz.status === 'scheduled' && quiz.startsAt && (
+                                                {(quiz.status === 'scheduled' || quiz.status === 'upcoming') && quiz.startsAt && (
                                                     <span className="opacity-80 ml-1">
-                                                        ({new Date(quiz.startsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })})
+                                                        ({new Date(quiz.startsAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })})
                                                     </span>
                                                 )}
                                             </span>
@@ -754,13 +763,13 @@ export default function AdminQuizManagementPage() {
                                                                     <Play className="w-4 h-4" />
                                                                     Publish
                                                                 </button>
-                                                                {quiz.status === 'scheduled' && (
+                                                                {(quiz.status === 'scheduled' || quiz.status === 'upcoming') && (
                                                                     <button
-                                                                        onClick={() => handlePushSchedule(quiz.id)}
+                                                                        onClick={() => handleNotifyUpcoming(quiz.id)}
                                                                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-blue-400 hover:bg-white/10 transition-colors"
                                                                     >
                                                                         <Clock className="w-4 h-4" />
-                                                                        Push Schedule Quiz
+                                                                        Notify users: upcoming quiz
                                                                     </button>
                                                                 )}
                                                             </>
@@ -855,7 +864,7 @@ export default function AdminQuizManagementPage() {
                     {[
                         { label: 'Total Quizzes', value: quizzes.length, icon: HelpCircle, color: 'text-purple-400' },
                         { label: 'Published', value: quizzes.filter(q => q.status === 'active').length, icon: Play, color: 'text-green-400' },
-                        { label: 'Scheduled', value: quizzes.filter(q => q.status === 'scheduled').length, icon: Clock, color: 'text-blue-400' },
+                        { label: 'Scheduled', value: quizzes.filter(q => q.status === 'scheduled' || q.status === 'upcoming').length, icon: Clock, color: 'text-blue-400' },
                         { label: 'Drafts/Paused', value: quizzes.filter(q => q.status === 'draft' || q.status === 'paused').length, icon: Pause, color: 'text-yellow-400' },
                     ].map((stat) => (
                         <div

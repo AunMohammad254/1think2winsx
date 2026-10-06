@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { getAdminDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
+import { toUtcIso } from '@/lib/schedule-time';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
@@ -247,7 +248,7 @@ export async function POST(request: NextRequest) {
         duration,
         passingScore,
         status: status || (isActive ? 'active' : 'paused'),
-        startsAt: startsAt || null,
+        startsAt: toUtcIso(startsAt),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })

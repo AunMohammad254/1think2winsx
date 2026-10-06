@@ -58,6 +58,19 @@ export async function GET(
       );
     }
 
+    // Scheduled quizzes are listed as "Upcoming" before they start, but must not be
+    // playable (or have their questions readable) until the scheduler makes them active.
+    if (quiz.status === 'upcoming') {
+      return NextResponse.json(
+        {
+          error: "This quiz hasn't started yet.",
+          upcoming: true,
+          startsAt: quiz.startsAt,
+        },
+        { status: 409 }
+      );
+    }
+
     const activeQuestions = quiz.questions;
     const hasCompleted = existingAttempt?.isCompleted === true;
     const attemptedQuestionIds = new Set(attemptedQuestions.map((qa: { questionId: string }) => qa.questionId));

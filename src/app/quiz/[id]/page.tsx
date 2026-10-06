@@ -82,6 +82,13 @@ export default function QuizPage() {
           }
           throw new Error('You need to pay to access this quiz');
         }
+        if (response.status === 409) {
+          const errorData = await response.json().catch(() => ({}));
+          if (errorData.upcoming && errorData.startsAt) {
+            throw new Error(`This quiz hasn't started yet. It goes live ${new Date(errorData.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`);
+          }
+          throw new Error(errorData.error || "This quiz hasn't started yet.");
+        }
         throw new Error('Failed to fetch quiz');
       }
       const data = await response.json();

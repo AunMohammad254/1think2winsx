@@ -2,7 +2,9 @@
 
 import { adminActionGuard } from '@/lib/admin-guard';
 
-import { quizDb, questionDb, notificationDb } from '@/lib/supabase/db';
+import { quizDb, questionDb, notificationDb, getAdminDb } from '@/lib/supabase/db';
+import { UPCOMING_NOTICE_TITLE, upcomingQuizLink } from '@/lib/quiz-scheduler';
+import { toUtcIso, formatBusinessTime } from '@/lib/schedule-time';
 import { revalidatePath } from 'next/cache';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import {
@@ -17,7 +19,7 @@ import {
 // ============================================
 type ActionResult<T = undefined> =
     | { success: true; data?: T; message?: string }
-    | { success: false; error: string };
+    | { success: false; error: string; code?: string };
 
 // ============================================
 // Admin Quiz Actions
@@ -42,9 +44,9 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
         const { questions, ...quizData } = validationResult.data;
 
         // Create the quiz
-        // Ensure startsAt is stored as UTC — datetime-local inputs submit local time,
-        // but the cron compares against new Date().toISOString() (UTC).
-        const startsAtUtc = quizData.startsAt ? new Date(quizData.startsAt).toISOString() : null;
+        // startsAt must be an absolute instant (the cron compares it against UTC now).
+        // toUtcIso never reads a zone-less string in the server's own timezone.
+        const startsAtUtc = toUtcIso(quizData.startsAt);
 
         const quiz = await quizDb.create({
             title: quizData.title,
@@ -133,8 +135,8 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
         const { questions, id: quizId, ...quizData } = validationResult.data;
 
         // Update quiz basic info
-        // Ensure startsAt is stored as UTC (datetime-local inputs submit local time).
-        const startsAtUtc = quizData.startsAt ? new Date(quizData.startsAt).toISOString() : null;
+        // See createQuiz: absolute instant, independent of the server's timezone.
+        const startsAtUtc = toUtcIso(quizData.startsAt);
 
         await quizDb.update(quizId!, {
             title: quizData.title,
@@ -334,41 +336,57 @@ export async function pushQuizLive(id: string): Promise<ActionResult> {
 }
 
 /**
- * Push a scheduled quiz as upcoming
+ * Tell every user about a scheduled quiz that is coming up.
+ *
+ * This only sends a notification. The quiz stays `scheduled` and still goes live
+ * on its own at `startsAt` (see lib/quiz-scheduler); nothing about it changes.
+ *
+ * If users were already told about this quiz, it refuses with code
+ * 'ALREADY_NOTIFIED' unless `force` is set, so a double click can't spam everyone.
  */
-export async function pushScheduleQuiz(id: string): Promise<ActionResult> {
+export async function notifyUpcomingQuiz(id: string, force = false): Promise<ActionResult> {
     const denied = await adminActionGuard();
     if (denied) return denied as any;
     try {
         const quiz = await quizDb.findById(id);
         if (!quiz) return { success: false, error: 'Quiz not found' };
-        if (quiz.status !== 'scheduled') {
-            return { success: false, error: 'Only scheduled quizzes can be pushed as upcoming' };
+        // 'upcoming' is the legacy status the old button used to set; still notifiable
+        if (quiz.status !== 'scheduled' && quiz.status !== 'upcoming') {
+            return { success: false, error: 'Only scheduled quizzes can be announced as upcoming' };
+        }
+        // Without a start time the scheduler would never take it live
+        if (!quiz.startsAt) {
+            return { success: false, error: 'Set a schedule date and time (edit the quiz) before notifying users' };
+        }
+        if (new Date(quiz.startsAt).getTime() <= Date.now()) {
+            return { success: false, error: 'This quiz is due to start already, so there is nothing "upcoming" to announce' };
         }
 
-        const updatedQuiz = await quizDb.update(id, { status: 'upcoming' });
-
-        if (updatedQuiz) {
-            try {
-                await notificationDb.createBroadcast({
-                    title: '📅 Upcoming Quiz!',
-                    message: `"${updatedQuiz.title || 'Quiz'}" is upcoming. Get ready!`,
-                    type: 'quiz_starts_soon',
-                    link: `/quizzes?openQuiz=${id}`
-                });
-            } catch (notifErr) {
-                console.error('Failed to send quiz upcoming broadcast notification:', notifErr);
+        const link = upcomingQuizLink(id);
+        if (!force) {
+            const { data: alreadySent } = await getAdminDb()
+                .from('Notification')
+                .select('id')
+                .eq('type', 'quiz_starts_soon')
+                .eq('title', UPCOMING_NOTICE_TITLE)
+                .eq('link', link)
+                .limit(1);
+            if (alreadySent && alreadySent.length > 0) {
+                return { success: false, error: 'Users were already notified about this quiz.', code: 'ALREADY_NOTIFIED' };
             }
         }
 
-        revalidatePath('/admin/quiz');
-        revalidatePath('/quizzes');
-        clearQuizListCache();
+        await notificationDb.createBroadcast({
+            title: UPCOMING_NOTICE_TITLE,
+            message: `"${quiz.title || 'Quiz'}" goes live ${formatBusinessTime(quiz.startsAt)}. Get ready!`,
+            type: 'quiz_starts_soon',
+            link,
+        });
 
-        return { success: true, message: 'Quiz pushed as upcoming successfully!' };
+        return { success: true, message: 'Users notified about the upcoming quiz. The quiz is still scheduled.' };
     } catch (error) {
-        console.error('Push schedule quiz error:', error);
-        return { success: false, error: 'Failed to push schedule quiz. Please try again.' };
+        console.error('Notify upcoming quiz error:', error);
+        return { success: false, error: 'Failed to notify users. Please try again.' };
     }
 }
 

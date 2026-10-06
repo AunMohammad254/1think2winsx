@@ -28,7 +28,8 @@ interface Quiz {
   description: string;
   duration: number;
   passingScore: number;
-  status: 'active' | 'paused' | 'scheduled';
+  status: 'active' | 'paused' | 'scheduled' | 'upcoming';
+  startsAt?: string | null;
   questionCount: number;
   hasAccess: boolean;
   createdAt: string;
@@ -269,7 +270,32 @@ function QuizzesPageInner() {
   // Legacy fetchQuizzes alias for components that call it
   const fetchQuizzes = fetchQuizzesData;
 
+  // When an upcoming quiz reaches its start time, re-fetch so its card flips to
+  // live without waiting for the 60 s poll (the server activates it on that read).
+  useEffect(() => {
+    if (!user) return;
+    const now = Date.now();
+    const starts = quizzes
+      .filter(q => q.status === 'upcoming' && q.startsAt)
+      .map(q => new Date(q.startsAt as string).getTime())
+      .filter(t => t > now);
+    if (starts.length === 0) return;
+    const delay = Math.min(...starts) - now + 1000;
+    // setTimeout overflows past ~24.8 days; the 60 s poll covers anything further out
+    if (delay > 2_000_000_000) return;
+    const timer = setTimeout(() => fetchQuizzesData(true), delay);
+    return () => clearTimeout(timer);
+  }, [user, quizzes, fetchQuizzesData]);
+
   const handleQuizClick = (quizId: string) => {
+    const clicked = quizzes.find(q => q.id === quizId);
+    if (clicked?.status === 'upcoming') {
+      const when = clicked.startsAt
+        ? new Date(clicked.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+        : 'soon';
+      toast.info(`"${clicked.title}" hasn't started yet. It goes live ${when}.`);
+      return;
+    }
     if (hasAccess) {
       liveQuizPushRef.current?.open(quizId);
     } else {
@@ -542,6 +568,7 @@ function QuizzesPageInner() {
                 score={quiz.score}
                 onStartClick={handleQuizClick}
                 pushStatus={quiz.pushStatus}
+                startsAt={quiz.startsAt}
               />
             ))}
             </div>

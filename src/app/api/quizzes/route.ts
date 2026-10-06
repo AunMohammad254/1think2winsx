@@ -128,10 +128,12 @@ export async function GET(request: NextRequest) {
         newQuestionsCount: hasNewQuestions ? newQuestionsCount : 0,
         lastAttemptDate: attempt?.completedAt ? new Date(attempt.completedAt) : null,
         pushedAt: quiz.pushedAt ? new Date(quiz.pushedAt) : null,
+        startsAt: quiz.status === 'upcoming' && quiz.startsAt ? new Date(quiz.startsAt) : null,
         pushStatus,
         createdAt: new Date(quiz.createdAt),
         updatedAt: new Date(quiz.updatedAt),
-        questions: hasAccess ? quiz.questions : [],
+        // Upcoming quizzes are visible but not playable yet: don't ship their questions
+        questions: hasAccess && quiz.status !== 'upcoming' ? quiz.questions : [],
       };
     });
 

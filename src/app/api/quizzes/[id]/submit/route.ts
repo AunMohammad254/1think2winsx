@@ -24,6 +24,7 @@ const RPC_ERROR_STATUS: Record<string, number> = {
   not_found: 404,
   invalid: 400,
   forbidden: 403,
+  closed: 403, // answering window over
 };
 
 /**
@@ -92,7 +93,8 @@ export async function POST(
 
     if (!r.success) {
       const status = RPC_ERROR_STATUS[r.code || ''] ?? 500;
-      if (status === 400 || status === 403) {
+      // A late submit ('closed') is normal user behaviour, not a security event
+      if ((status === 400 || status === 403) && r.code !== 'closed') {
         recordSecurityEvent('INVALID_INPUT', request, userId, { endpoint: '/api/quizzes/[id]/submit', code: r.code || 'unknown' });
       }
       return NextResponse.json(

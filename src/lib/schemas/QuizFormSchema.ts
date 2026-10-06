@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toUtcIso } from '@/lib/schedule-time';
 
 // ============================================
 // Option Schema
@@ -63,7 +64,22 @@ export const QuizFormBaseSchema = z.object({
         .min(1, 'At least 1 question required'),
 });
 
-const validatePredictableQuiz = (data: { quizType: string, questions: any[] }, ctx: z.RefinementCtx) => {
+const validatePredictableQuiz = (
+    data: { quizType: string, questions: any[], status?: string, startsAt?: string | null },
+    ctx: z.RefinementCtx
+) => {
+    // Scheduled/upcoming quizzes go live on their own at startsAt; without a valid
+    // date the scheduler would never pick them up.
+    if (data.status === 'scheduled' || data.status === 'upcoming') {
+        if (!toUtcIso(data.startsAt)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Pick a valid date and time for the schedule',
+                path: ['startsAt']
+            });
+        }
+    }
+
     // If it's a normal quiz, ensure every question has a correct option selected
     if (data.quizType === 'normal') {
         data.questions.forEach((q, idx) => {

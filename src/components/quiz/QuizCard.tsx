@@ -16,6 +16,8 @@ interface QuizCardProps {
     score?: number;
     onStartClick?: (id: string) => void;
     pushStatus?: 'unanswered' | 'answered' | 'upcoming' | 'time-up' | null;
+    /** Scheduled start time, shown on upcoming quizzes */
+    startsAt?: string | null;
 }
 
 export default function QuizCard({
@@ -27,6 +29,7 @@ export default function QuizCard({
     isCompleted,
     onStartClick,
     pushStatus,
+    startsAt,
 }: QuizCardProps) {
     const router = useRouter();
 
@@ -57,7 +60,12 @@ export default function QuizCard({
                 <span className="qlabel">{label}</span>
             </span>
             <div className="qtitle">{title}</div>
-            <div className="qmeta">{questionCount} questions · {duration} min</div>
+            <div className="qmeta">
+                {questionCount} questions · {duration} min
+                {pStatus === 'upcoming' && startsAt && (
+                    <> · Starts {new Date(startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</>
+                )}
+            </div>
         </div>
     );
 }
