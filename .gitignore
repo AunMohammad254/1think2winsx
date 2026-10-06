@@ -126,3 +126,6 @@ loadtest/
 
 # Ignore files from Gemini IDE
 .claude/
+
+# Hostinger env import file (contains secrets)
+.env.hostinger-import
