@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
 
@@ -95,7 +95,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         };
     }, []);
 
-    const signOut = async () => {
+    // ⚡ Bolt Performance Optimization:
+    // Memoize the signOut function so its reference remains stable across renders.
+    const signOut = React.useCallback(async () => {
         try {
             await supabase.auth.signOut();
             // Clear local state
@@ -111,10 +113,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
             // Still redirect to login
             window.location.href = '/login';
         }
-    };
+    }, []);
+
+    // ⚡ Bolt Performance Optimization:
+    // Memoize the Context value object to prevent consumers from re-rendering
+    // unnecessarily when AuthProvider re-renders due to unrelated state changes.
+    // Expected impact: Reduces re-renders of all components utilizing useAuth()
+    const value = React.useMemo(() => ({
+        user,
+        session,
+        isLoading,
+        signOut
+    }), [user, session, isLoading, signOut]);
 
     return (
-        <AuthContext.Provider value={{ user, session, isLoading, signOut }}>
+        <AuthContext.Provider value={value}>
             {children}
         </AuthContext.Provider>
     );

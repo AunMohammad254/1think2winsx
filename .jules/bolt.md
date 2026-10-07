@@ -1,0 +1,3 @@
+## 2024-05-15 - React Context Object Stability
+**Learning:** Found that `AuthContext.Provider` and `PWAContext.Provider` were passing new object literals directly to the `value` prop on every render (e.g., `value={{ user, session, isLoading, signOut }}`). This forces all consuming components to re-render whenever the provider re-renders, even if the actual context values haven't changed.
+**Action:** Always wrap context `value` objects in `useMemo` and ensure all exposed functions (like `signOut`, `installApp`) are wrapped in `useCallback`. This is especially critical for root-level providers like `AuthContext` where unnecessary re-renders cascade down the entire component tree.
