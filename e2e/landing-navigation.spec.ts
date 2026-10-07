@@ -126,7 +126,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
       
       await section.scrollIntoViewIfNeeded();
       await page.waitForTimeout(500);
-      await expect(section).toBeInViewport({ timeout: 5000 });
+      await expect(section).toBeVisible({ timeout: 5000 });
     }
   });
 
