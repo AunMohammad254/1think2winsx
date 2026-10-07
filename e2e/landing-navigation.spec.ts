@@ -125,6 +125,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
       await page.waitForTimeout(1200); // Wait for scroll animation
       
       await section.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(500);
       await expect(section).toBeInViewport({ timeout: 5000 });
     }
   });
@@ -161,6 +162,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
     // Should be at prizes section
     const prizesSection = page.locator('#prizes');
     await prizesSection.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
     await expect(prizesSection).toBeInViewport({ timeout: 5000 });
   });
 
@@ -316,6 +318,7 @@ test.describe('Landing Page Navigation - Edge Cases', () => {
     // Should end at leaderboard without errors
     const leaderboard = page.locator('#leaderboard');
     await leaderboard.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
     await expect(leaderboard).toBeInViewport({ timeout: 10000 });
   });
 
