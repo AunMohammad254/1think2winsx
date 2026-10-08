@@ -1,4 +1,5 @@
 import { securityLogger } from './security-logger';
+import { getClientIp } from './client-ip';
 
 /**
  * Security monitoring thresholds and configuration
@@ -278,10 +279,7 @@ export function recordSecurityEvent(
   userId?: string,
   details?: Record<string, unknown>
 ) {
-  const ip = (request as Request & { ip?: string }).ip || 
-             request.headers.get('x-forwarded-for')?.split(',')[0] || 
-             request.headers.get('x-real-ip') || 
-             'unknown';
+  const ip = (request as Request & { ip?: string }).ip || getClientIp(request.headers);
 
   securityMonitor.recordEvent({
     type,

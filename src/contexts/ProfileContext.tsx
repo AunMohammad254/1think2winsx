@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { getCSRFToken } from '@/lib/csrf';
 
@@ -67,6 +67,8 @@ type ProfileContextType = {
   uploadProfilePicture: (file: File) => Promise<void>;
   refreshProfile: () => Promise<void>;
   clearError: () => void;
+  /** Internal: called by useProfile() so the profile is only fetched once something needs it. */
+  ensureLoaded: () => void;
 };
 
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
@@ -76,13 +78,26 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The provider sits in the root layout, but /api/profile is ~10 queries and only four screens
+  // read the profile. Fetching it on every page load for every user was the single heaviest
+  // per-page-load cost; now it is fetched only after a component calls useProfile().
+  const [requested, setRequested] = useState(false);
+  const ensureLoaded = useCallback(() => setRequested(true), []);
+
+  // Key on the user's id, not the object: it is only a fallback source for display fields.
+  const userId = user?.id ?? null;
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const fetchProfile = useCallback(async () => {
     if (authLoading) {
       return;
     }
 
-    if (!user) {
+    const user = userRef.current;
+    if (!userId || !user) {
       setProfile(null);
       setLoading(false);
       return;
@@ -177,7 +192,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [authLoading, user]);
+  }, [authLoading, userId]);
 
   const updateProfile = useCallback(async (data: { name: string; email: string }) => {
     try {
@@ -258,8 +273,9 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!requested) return;
     fetchProfile();
-  }, [fetchProfile]);
+  }, [requested, fetchProfile]);
 
   const value = React.useMemo(() => ({
     profile,
@@ -269,7 +285,8 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     uploadProfilePicture,
     refreshProfile,
     clearError,
-  }), [profile, loading, error, updateProfile, uploadProfilePicture, refreshProfile, clearError]);
+    ensureLoaded,
+  }), [profile, loading, error, updateProfile, uploadProfilePicture, refreshProfile, clearError, ensureLoaded]);
 
   return (
     <ProfileContext.Provider value={value}>
@@ -280,6 +297,11 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
 export function useProfile() {
   const context = useContext(ProfileContext);
+  const ensureLoaded = context?.ensureLoaded;
+  // First consumer to mount triggers the (lazy) profile fetch
+  useEffect(() => {
+    ensureLoaded?.();
+  }, [ensureLoaded]);
   if (context === undefined) {
     throw new Error('useProfile must be used within a ProfileProvider');
   }

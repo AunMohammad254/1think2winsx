@@ -6,7 +6,9 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 
 // GET /api/notifications - Get list of notifications and unread count
-export async function GET() {
+// GET /api/notifications?countOnly=1 - just the unread count (what the navbar badge needs on
+// every page load; the full list is only fetched when the bell is opened)
+export async function GET(request: NextRequest) {
   try {
     const session = await auth();
 
@@ -18,6 +20,11 @@ export async function GET() {
     }
 
     const userId = session.user.id;
+
+    if (request.nextUrl.searchParams.get('countOnly') === '1') {
+      const unreadCount = await notificationDb.getUnreadCount(userId);
+      return createSecureJsonResponse({ success: true, unreadCount }, { status: 200 });
+    }
 
     // Fetch notifications once and derive the unread count in JS \u2014
     // avoids a second DB round-trip for a count query.

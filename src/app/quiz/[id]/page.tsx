@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
 import { getCSRFToken } from '@/lib/csrf';
+import { fetchWithRetry } from '@/lib/fetch-retry';
 import QuizResults from '@/components/QuizResults';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 
@@ -70,7 +71,8 @@ export default function QuizPage() {
 
   const fetchQuiz = useCallback(async () => {
     try {
-      const response = await fetch(`/api/quizzes/${quizId}`);
+      // Retries 429/502/503/504 with jittered backoff (the server sheds load with 503 + Retry-After)
+      const response = await fetchWithRetry(`/api/quizzes/${quizId}`, undefined, { retries: 3 });
       if (!response.ok) {
         if (response.status === 403) {
           const errorData = await response.json();
@@ -140,14 +142,16 @@ export default function QuizPage() {
         throw new Error('Unable to verify security token. Please refresh the page and try again.');
       }
 
-      const response = await fetch(`/api/quizzes/${quizId}/submit`, {
+      // Idempotent in the database (one attempt per user and quiz), so overload responses
+      // (502/503/504) are retried with jittered backoff; 429 is the real per-user limit.
+      const response = await fetchWithRetry(`/api/quizzes/${quizId}/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken || '',
         },
         body: JSON.stringify({ answers }),
-      });
+      }, { retries: 4, retryOn: [502, 503, 504] });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

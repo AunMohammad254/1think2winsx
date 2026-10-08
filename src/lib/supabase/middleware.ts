@@ -70,6 +70,9 @@ export async function updateSession(request: NextRequest) {
         return supabaseResponse
     }
 
+    // NOTE: deliberately no fetch timeout on this client (unlike the API-route clients). A
+    // timeout here would surface as "no user" and bounce signed-in users to /login during a
+    // Supabase slowdown; waiting is the safer failure mode for page navigations.
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

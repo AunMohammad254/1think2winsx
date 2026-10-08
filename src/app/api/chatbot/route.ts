@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { getAdminDb } from '@/lib/supabase/db';
+import { getClientIp } from '@/lib/client-ip';
+
+// ─────────────────────────────────────────────────────────────
+// Cost / abuse guards. The Gemini key has one global quota, and this endpoint is public.
+// ─────────────────────────────────────────────────────────────
+const GEMINI_TIMEOUT_MS = 8_000;          // per model attempt (was: no timeout at all)
+const GEMINI_TOTAL_BUDGET_MS = 15_000;    // stop walking the fallback chain after this long
+const MAX_CONCURRENT_GEMINI_CALLS = Number(process.env.CHATBOT_MAX_CONCURRENT) || 25;
+const MAX_HISTORY_MESSAGES = 20;          // most recent turns kept
+const MAX_PART_CHARS = 2_000;             // per text part
+const MAX_PARTS_PER_MESSAGE = 4;
+const MAX_TRACKED_IPS = 10_000;           // bounds the in-memory rate-limit map
+let activeGeminiCalls = 0;
 
 // ─────────────────────────────────────────────────────────────
 // Model configuration
@@ -29,6 +42,13 @@ const buckets = new Map<string, Record<string, Bucket>>();
 
 function getBucket(ip: string) {
   if (!buckets.has(ip)) {
+    // Bounded: a Map iterates in insertion order, so drop the oldest tracked IPs first.
+    // (Unbounded, rotating a fake X-Forwarded-For value used to grow this without limit.)
+    while (buckets.size >= MAX_TRACKED_IPS) {
+      const oldest = buckets.keys().next().value;
+      if (oldest === undefined) break;
+      buckets.delete(oldest);
+    }
     const now = Date.now();
     const ipBuckets: Record<string, Bucket> = {};
     for (const model of MODELS) {
@@ -175,6 +195,9 @@ async function callGemini(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    // A hung Gemini call used to hold the request (and chain across the whole fallback list)
+    // for as long as the socket stayed open.
+    signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -204,12 +227,33 @@ function extractRedirects(text: string): { clean: string; redirects: string[] } 
 // GET IP from request
 // ─────────────────────────────────────────────────────────────
 function getIp(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
-    req.headers.get('x-real-ip') ??
-    'anonymous'
-  );
+  const ip = getClientIp(req.headers);
+  return ip === 'unknown' ? 'anonymous' : ip;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Keep only well-formed, bounded text turns
+// ─────────────────────────────────────────────────────────────
+function sanitizeMessages(messages: GeminiMessage[]): GeminiMessage[] | null {
+  const cleaned: GeminiMessage[] = [];
+  for (const m of messages.slice(-MAX_HISTORY_MESSAGES)) {
+    if (!m || (m.role !== 'user' && m.role !== 'model') || !Array.isArray(m.parts)) return null;
+    const parts = m.parts
+      .slice(0, MAX_PARTS_PER_MESSAGE)
+      // text only: arbitrary part types (inline data, files, ...) are not something to forward
+      .filter((p): p is { text: string } => !!p && typeof p.text === 'string')
+      .map((p) => ({ text: p.text.slice(0, MAX_PART_CHARS) }));
+    if (parts.length === 0) return null;
+    cleaned.push({ role: m.role, parts });
+  }
+  // Gemini requires the conversation to start with a user turn (the cap above can cut mid-chat)
+  while (cleaned.length > 0 && cleaned[0].role !== 'user') cleaned.shift();
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+// Active quizzes are public and identical for everyone: cache briefly instead of one query per message
+let activeQuizzesCache: { text: string; at: number } | null = null;
+const ACTIVE_QUIZZES_TTL_MS = 30_000;
 
 // ─────────────────────────────────────────────────────────────
 // POST handler
@@ -232,16 +276,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Messages array is required' }, { status: 400 });
   }
 
-  // Validate message structure
-  const validMessages = messages.every(
-    (m) => (m.role === 'user' || m.role === 'model') && Array.isArray(m.parts),
-  );
-  if (!validMessages) {
+  // Validate message structure and bound its size (last N turns, text only, capped length)
+  const safeMessages = sanitizeMessages(messages);
+  if (!safeMessages) {
     return NextResponse.json({ error: 'Invalid message format' }, { status: 400 });
   }
 
   const ip = getIp(req);
   const ipBuckets = getBucket(ip);
+
+  // Global backpressure: the Gemini key has a single shared quota and every call holds a request
+  // open for seconds. Past this many concurrent calls, answer "busy" quickly instead of queueing.
+  if (activeGeminiCalls >= MAX_CONCURRENT_GEMINI_CALLS) {
+    return NextResponse.json(
+      { error: 'The assistant is very busy right now. Please try again in a few seconds.' },
+      { status: 503, headers: { 'Retry-After': '5' } },
+    );
+  }
 
   // Fetch authentication status & live context if authenticated
   const session = await auth();
@@ -249,20 +300,25 @@ export async function POST(req: NextRequest) {
   const adminDb = getAdminDb();
 
   let activeQuizzesText = 'No active quizzes currently.';
-  try {
-    const { data: activeQuizzes } = await adminDb
-      .from('Quiz')
-      .select('title, duration, accessPrice, passingScore')
-      .eq('status', 'active')
-      .limit(5);
+  if (activeQuizzesCache && Date.now() - activeQuizzesCache.at < ACTIVE_QUIZZES_TTL_MS) {
+    activeQuizzesText = activeQuizzesCache.text;
+  } else {
+    try {
+      const { data: activeQuizzes } = await adminDb
+        .from('Quiz')
+        .select('title, duration, accessPrice, passingScore')
+        .eq('status', 'active')
+        .limit(5);
 
-    if (activeQuizzes && activeQuizzes.length > 0) {
-      activeQuizzesText = activeQuizzes
-        .map((q: any) => `- "${q.title}": Entry Fee PKR ${q.accessPrice}, Duration ${q.duration} min, Passing Score ${q.passingScore}%`)
-        .join('\n');
+      if (activeQuizzes && activeQuizzes.length > 0) {
+        activeQuizzesText = activeQuizzes
+          .map((q: any) => `- "${q.title}": Entry Fee PKR ${q.accessPrice}, Duration ${q.duration} min, Passing Score ${q.passingScore}%`)
+          .join('\n');
+      }
+      activeQuizzesCache = { text: activeQuizzesText, at: Date.now() };
+    } catch (err) {
+      console.error('[Chatbot] Failed to query active quizzes:', err);
     }
-  } catch (err) {
-    console.error('[Chatbot] Failed to query active quizzes:', err);
   }
 
   let userContextText = '';
@@ -325,20 +381,25 @@ ${userContextText}
 `;
 
   let minRefillMs = Infinity;
+  const deadline = Date.now() + GEMINI_TOTAL_BUDGET_MS;
 
-  // Try models in order until one succeeds
+  // Try models in order until one succeeds (within an overall time budget)
   for (const model of MODELS) {
+    if (Date.now() >= deadline) break;
     const bucket = ipBuckets[model.id];
-    
+
     // Check rate limit for this model
     if (consumeToken(bucket, model.rpm, model.refillMs)) {
+      activeGeminiCalls++;
       try {
-        const text = await callGemini(model.id, messages, apiKey, finalSystemPrompt);
+        const text = await callGemini(model.id, safeMessages, apiKey, finalSystemPrompt);
         const { clean, redirects } = extractRedirects(text);
         return NextResponse.json({ message: clean, redirects, model: model.label });
       } catch (err) {
         console.error(`[Chatbot] Model ${model.id} failed:`, err);
         // Fall through to the next model in the backup chain
+      } finally {
+        activeGeminiCalls--;
       }
     } else {
       // Rate limited on this model, calculate time until next token

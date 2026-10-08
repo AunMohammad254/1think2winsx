@@ -11,6 +11,7 @@ import { securityLogger } from '@/lib/security-logger';
 import { getActiveQuizCatalog } from '@/lib/quiz-catalog';
 import { quizListCache } from '@/lib/quiz-cache';
 import { isWalletEnabled } from '@/lib/wallet/service';
+import { withLoadShed } from '@/lib/load-shed';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -52,8 +53,11 @@ function maybeKickCron() {
  *   questions, own attempts, question attempts, ALL attempts of every quiz, plus a
  *   self-HTTP cron call)  ->  auth + 3 parallel per-user queries; the shared
  *   catalogue (quizzes, questions, attempt counts) comes from a 15 s process cache.
+ *
+ * Overload: wrapped in withLoadShed so a saturated process answers a fast 503 + Retry-After
+ * instead of queueing (the page's poll and fetchWithRetry both honour it).
  */
-export async function GET(request: NextRequest) {
+export const GET = withLoadShed(async function GET(request: NextRequest) {
   try {
     const start = Date.now();
     const authResult = await requireAuth({ context: 'quiz_list' });
@@ -132,14 +136,18 @@ export async function GET(request: NextRequest) {
         pushStatus,
         createdAt: new Date(quiz.createdAt),
         updatedAt: new Date(quiz.updatedAt),
-        // Upcoming quizzes are visible but not playable yet: don't ship their questions
-        questions: hasAccess && quiz.status !== 'upcoming' ? quiz.questions : [],
+        // The list never needs the question bodies (cards show `questionCount`; the quiz modal
+        // loads them from /api/quizzes/[id]). Shipping every question of every quiz to every
+        // player on each 60 s poll was ~90% of this response. Key kept for compatibility.
+        questions: [] as typeof quiz.questions,
       };
     });
 
     const responseData = {
       quizzes,
       hasAccess,
+      // Lets the page skip a separate /api/settings/wallet-enabled round-trip on every load
+      walletEnabled,
       paymentInfo,
       accessError: hasAccess ? null : 'No active payment found. Please make a payment to access quizzes.',
     };
@@ -160,7 +168,7 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json({ error: 'Failed to fetch quizzes' }, { status: 500 });
   }
-}
+});
 
 // POST /api/quizzes - Create a new quiz (Admin only)
 export async function POST(request: NextRequest) {

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { securityLogger } from './security-logger';
+import { createTimeoutFetch, SUPABASE_FETCH_TIMEOUT_MS } from './supabase/timeout-fetch';
 
 /** Minimal verified identity used by API routes. */
 export interface VerifiedUser {
@@ -47,6 +48,7 @@ async function getSupabaseServerClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      global: { fetch: createTimeoutFetch(SUPABASE_FETCH_TIMEOUT_MS) },
       cookies: {
         getAll() {
           return cookieStore.getAll();
