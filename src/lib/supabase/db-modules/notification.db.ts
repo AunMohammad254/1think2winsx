@@ -2,7 +2,7 @@
  * Notification Database Operations
  */
 
-import { getDb, getAdminDb, generateId } from './shared'
+import { getDb, getAdminDb, generateId, fetchAllByKeyset, mapWithConcurrency } from './shared'
 import webpush from 'web-push'
 import logger from '@/lib/logger'
 
@@ -19,6 +19,31 @@ if (vapidPublicKey && vapidPrivateKey) {
     );
 } else {
     console.warn('[Web Push] VAPID keys are missing from environment variables.');
+}
+
+const PUSH_SEND_TIMEOUT_MS = 10_000;
+// `.in('userId', [...])` puts the ids in the URL. UUIDs are ~37 chars each, and gateways reject
+// request lines past ~8 KB, so look subscriptions up for at most this many users per request.
+const USER_ID_LOOKUP_CHUNK = 120;
+
+/** All push subscriptions for the given users (chunked lookups, every page of each). */
+async function fetchSubscriptionsForUsers(userIds: string[]): Promise<PushSubscriptionRecord[]> {
+    const adminDb = getAdminDb();
+    const chunks: string[][] = [];
+    for (let i = 0; i < userIds.length; i += USER_ID_LOOKUP_CHUNK) {
+        chunks.push(userIds.slice(i, i + USER_ID_LOOKUP_CHUNK));
+    }
+    const perChunk = await mapWithConcurrency(chunks, 4, (chunk) =>
+        fetchAllByKeyset<PushSubscriptionRecord>(
+            (after, limit) => {
+                let q = adminDb.from('PushSubscription').select('*').in('userId', chunk);
+                if (after) q = q.gt('id', after);
+                return q.order('id', { ascending: true }).limit(limit);
+            },
+            (s) => s.id,
+        )
+    );
+    return perChunk.flat();
 }
 
 interface PushPayload {
@@ -50,7 +75,9 @@ async function sendWebPush(subscription: PushSubscriptionRecord, payload: PushPa
                 auth: subscription.auth
             }
         };
-        await webpush.sendNotification(pushSub, JSON.stringify(payload));
+        // Without a timeout one unresponsive push-service socket stalls its whole batch (and the
+        // batches after it) for as long as the OS keeps the connection open.
+        await webpush.sendNotification(pushSub, JSON.stringify(payload), { timeout: PUSH_SEND_TIMEOUT_MS });
     } catch (error: unknown) {
         const pushError = error as { statusCode?: number };
         // If the subscription is no longer valid, delete it (HTTP 410 Gone / 404 Not Found)
@@ -179,24 +206,18 @@ export const notificationDb = {
 
     async createBroadcast(data: { title: string; message: string; type: string; link?: string }): Promise<void> {
         const adminDb = getAdminDb()
-        const PAGE_SIZE = 500;
-        let page = 0;
-        let allUserIds: string[] = [];
 
-        // 1. Fetch all user IDs in paginated batches to avoid Supabase payload limits
-        while (true) {
-            const { data: users, error: fetchError } = await adminDb
-                .from('User')
-                .select('id')
-                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-
-            if (fetchError) throw fetchError;
-            if (!users || users.length === 0) break;
-
-            allUserIds = allUserIds.concat(users.map((u: { id: string }) => u.id));
-            if (users.length < PAGE_SIZE) break;
-            page++;
-        }
+        // 1. Fetch all user IDs. Keyset pagination in primary-key order: the old offset paging
+        // had no ORDER BY, so concurrent signups could make it skip or repeat users.
+        const users = await fetchAllByKeyset<{ id: string }>(
+            (after, limit) => {
+                let q = adminDb.from('User').select('id');
+                if (after) q = q.gt('id', after);
+                return q.order('id', { ascending: true }).limit(limit);
+            },
+            (u) => u.id,
+        );
+        const allUserIds = users.map((u) => u.id);
 
         if (allUserIds.length === 0) return;
 
@@ -225,12 +246,25 @@ export const notificationDb = {
             if (insertError) throw insertError;
         }
 
-        // 3. Fetch all push subscriptions and broadcast web pushes
-        const { data: subs, error: subError } = await adminDb
-            .from('PushSubscription')
-            .select('*');
+        // 3. Fetch ALL push subscriptions (every page: a plain select('*') is silently capped at
+        // PostgREST's 1,000-row limit, so only the first thousand subscribers were ever pushed)
+        // and broadcast web pushes. A failure here must not fail the broadcast: the in-app
+        // notifications above are already stored.
+        let subs: PushSubscriptionRecord[] = [];
+        try {
+            subs = await fetchAllByKeyset<PushSubscriptionRecord>(
+                (after, limit) => {
+                    let q = adminDb.from('PushSubscription').select('*');
+                    if (after) q = q.gt('id', after);
+                    return q.order('id', { ascending: true }).limit(limit);
+                },
+                (s) => s.id,
+            );
+        } catch (subError) {
+            console.error('[Web Push] Failed to load push subscriptions for broadcast:', subError);
+        }
 
-        if (!subError && subs && subs.length > 0) {
+        if (subs.length > 0) {
             const payload: PushPayload = {
                 title: data.title,
                 body: data.message,
@@ -284,13 +318,17 @@ export const notificationDb = {
             if (insertError) throw insertError;
         }
 
-        // 2. Fetch push subscriptions for these users and broadcast web pushes
-        const { data: subs, error: subError } = await adminDb
-            .from('PushSubscription')
-            .select('*')
-            .in('userId', userIds);
+        // 2. Fetch push subscriptions for these users and broadcast web pushes. The lookup is
+        // chunked (thousands of ids in one `.in()` overflow the request URL and the 1,000-row cap)
+        // and a failure is logged instead of silently dropped.
+        let subs: PushSubscriptionRecord[] = [];
+        try {
+            subs = await fetchSubscriptionsForUsers(userIds);
+        } catch (subError) {
+            console.error('[Web Push] Failed to load push subscriptions for batch:', subError);
+        }
 
-        if (!subError && subs && subs.length > 0) {
+        if (subs.length > 0) {
             const payload: PushPayload = {
                 title: data.title,
                 body: data.message,

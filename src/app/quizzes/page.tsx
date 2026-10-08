@@ -18,6 +18,8 @@ const LiveQuizPush = dynamic(() => import('@/components/quiz/LiveQuizPush'), {
 });
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 import { createClient } from '@/lib/supabase/client';
+import { fetchWithRetry } from '@/lib/fetch-retry';
+import { useJitteredPolling } from '@/hooks/useJitteredPolling';
 import PaymentModal from '@/components/quiz/PaymentModal';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
 import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
@@ -63,6 +65,7 @@ export default function QuizzesPage() {
 
 function QuizzesPageInner() {
   const { user, isLoading } = useAuth();
+  const userId = user?.id ?? null;
   const router = useRouter();
   const searchParams = useSearchParams();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
@@ -88,13 +91,19 @@ function QuizzesPageInner() {
   // unrelated edits to an already-pushed quiz don't re-fire the toast.
   const seenPushedAtRef = useRef<Map<string, string | null>>(new Map());
 
-  const fetchQuizzesData = useCallback(async (fresh = false) => {
+  // Resolves true on success (incl. 304) and false on failure, so the poller can back off.
+  // `background` fetches (the poll) don't retry on their own: the poller already backs off, and
+  // retrying inside every poll would multiply load exactly when the server is struggling.
+  const fetchQuizzesData = useCallback(async (fresh = false, background = false): Promise<boolean> => {
+    let ok = false;
     try {
       const url = fresh ? '/api/quizzes?fresh=1' : '/api/quizzes';
-      const response = await fetch(url);
+      // User-triggered loads retry 429/502/503/504 with jittered backoff (the server sheds load
+      // with 503 + Retry-After when saturated).
+      const response = await fetchWithRetry(url, undefined, { retries: background ? 0 : 2 });
       if (response.status === 304) {
         setLoading(false);
-        return;
+        return true;
       }
       if (!response.ok) {
         try {
@@ -109,7 +118,7 @@ function QuizzesPageInner() {
         } catch {
           setError('Failed to fetch quizzes');
         }
-        return;
+        return false;
       }
       const data = await response.json();
       const fetchedQuizzes: Quiz[] = data.quizzes || [];
@@ -118,12 +127,20 @@ function QuizzesPageInner() {
       setHasAccess(data.hasAccess || false);
       setPaymentInfo(data.paymentInfo);
       setError(data.accessError || null);
+      // The list response carries the wallet flag, so no separate /api/settings/wallet-enabled call
+      if (typeof data.walletEnabled === 'boolean') setWalletEnabled(data.walletEnabled);
+      ok = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load quizzes');
       toast.error('Failed to load quizzes');
     } finally {
+      // null means "still loading"; if we never learned the flag (failed load), default to
+      // enabled — the same fallback the old separate flag request used — rather than hanging
+      // on the skeleton forever.
+      setWalletEnabled(prev => prev ?? true);
       setLoading(false);
     }
+    return ok;
   }, []);
 
   // Debounced realtime re-fetch to avoid rapid consecutive API calls
@@ -143,36 +160,25 @@ function QuizzesPageInner() {
   useEffect(() => {
     if (isLoading) return;
 
-    if (!user) {
+    if (!userId) {
       router.push('/login');
       return;
     }
 
-    // Check wallet feature flag — disabled means quizzes are free, not blocked
-    // (the server already grants free access via /api/quizzes' hasAccess when
-    // the wallet is off; this flag only controls whether the payment UI shows).
-    fetch('/api/settings/wallet-enabled')
-      .then(r => r.json())
-      .then((d: { walletEnabled: boolean }) => {
-        setWalletEnabled(d.walletEnabled);
-      })
-      .catch(() => {
-        setWalletEnabled(true);
-      })
-      .finally(() => {
-        fetchQuizzesData();
-      });
-  }, [user, isLoading, router, fetchQuizzesData]);
+    // The wallet feature flag (disabled means quizzes are free, not blocked; it only controls
+    // whether the payment UI shows) now arrives in the /api/quizzes response itself, which
+    // also removes the old flag-then-quizzes request waterfall.
+    fetchQuizzesData();
+    // Depend on the user's id, not the object: Supabase hands out a new `user` object on tab
+    // refocus / token refresh, which used to re-run this and refetch for no reason.
+  }, [userId, isLoading, router, fetchQuizzesData]);
 
   // Periodic polling to keep data fresh and ensure the server's scheduled cron
   // gets kicked even if no other users are navigating the site.
-  useEffect(() => {
-    if (!user) return;
-    const interval = setInterval(() => {
-      fetchQuizzesData(true);
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [user, fetchQuizzesData]);
+  // 60 s base + 0-20 s jitter so clients that loaded together (e.g. after a push) drift apart,
+  // paused while the tab is hidden, and exponential backoff while the server is failing/shedding.
+  const pollQuizzes = useCallback(() => fetchQuizzesData(true, true), [fetchQuizzesData]);
+  useJitteredPolling(pollQuizzes, { intervalMs: 60_000, jitterMs: 20_000, enabled: !!userId });
 
   // Deep link from the notification bell / a "View Details" link on a
   // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
@@ -181,7 +187,7 @@ function QuizzesPageInner() {
   // while ALREADY on /quizzes also opens it, not just on first load. Strips
   // the param afterward so a refresh or back-navigation doesn't reopen it.
   useEffect(() => {
-    if (isLoading || !user) return;
+    if (isLoading || !userId) return;
     const openQuiz = searchParams.get('openQuiz');
     if (!openQuiz) return;
     liveQuizPushRef.current?.open(openQuiz);
@@ -189,7 +195,7 @@ function QuizzesPageInner() {
     rest.delete('openQuiz');
     const query = rest.toString();
     router.replace(query ? `/quizzes?${query}` : '/quizzes', { scroll: false });
-  }, [isLoading, user, router, searchParams]);
+  }, [isLoading, userId, router, searchParams]);
 
   // Realtime subscription for live quiz updates
   useEffect(() => {
@@ -273,19 +279,22 @@ function QuizzesPageInner() {
   // When an upcoming quiz reaches its start time, re-fetch so its card flips to
   // live without waiting for the 60 s poll (the server activates it on that read).
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     const now = Date.now();
     const starts = quizzes
       .filter(q => q.status === 'upcoming' && q.startsAt)
       .map(q => new Date(q.startsAt as string).getTime())
       .filter(t => t > now);
     if (starts.length === 0) return;
-    const delay = Math.min(...starts) - now + 1000;
+    // +1 s so the server has activated the quiz, plus 0-5 s of random jitter: every player's
+    // clock hits startsAt within a couple of seconds of each other, and without jitter this was
+    // a synchronized stampede of tens of thousands of /api/quizzes calls at the moment of go-live.
+    const delay = Math.min(...starts) - now + 1000 + Math.random() * 5000;
     // setTimeout overflows past ~24.8 days; the 60 s poll covers anything further out
     if (delay > 2_000_000_000) return;
     const timer = setTimeout(() => fetchQuizzesData(true), delay);
     return () => clearTimeout(timer);
-  }, [user, quizzes, fetchQuizzesData]);
+  }, [userId, quizzes, fetchQuizzesData]);
 
   const handleQuizClick = (quizId: string) => {
     const clicked = quizzes.find(q => q.id === quizId);

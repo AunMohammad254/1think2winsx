@@ -1,4 +1,4 @@
-import { getDb, getAdminDb } from './shared';
+import { getDb, getAdminDb, fetchAllByKeyset } from './shared';
 
 export interface NewsletterSubscription {
   id: string;
@@ -42,12 +42,18 @@ export const newsletterDb = {
   async getSubscribers(): Promise<string[]> {
     try {
       const adminDb = getAdminDb();
-      const { data, error } = await adminDb
-        .from('NewsletterSubscription')
-        .select('email');
-
-      if (error) throw error;
-      return (data || []).map((sub: { email: string }) => sub.email);
+      // Every page, in primary-key order. A bare select() is silently capped at PostgREST's
+      // 1,000-row limit, so a newsletter used to reach at most the first thousand subscribers
+      // while the admin screen reported success.
+      const rows = await fetchAllByKeyset<{ id: string; email: string }>(
+        (after, limit) => {
+          let q = adminDb.from('NewsletterSubscription').select('id, email');
+          if (after) q = q.gt('id', after);
+          return q.order('id', { ascending: true }).limit(limit);
+        },
+        (row) => row.id,
+      );
+      return rows.map((sub) => sub.email);
     } catch (error) {
       console.error('Error fetching subscribers:', error);
       return [];

@@ -6,9 +6,12 @@ import { getCatalogQuiz } from '@/lib/quiz-catalog';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { withLoadShed } from '@/lib/load-shed';
 
 // GET /api/quizzes/[id] - Get quiz details and start attempt
-export async function GET(
+// Wrapped in withLoadShed: when the process is saturated it answers 503 + Retry-After
+// quickly instead of queueing (callers retry with jitter via fetchWithRetry).
+export const GET = withLoadShed(async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -143,4 +146,4 @@ export async function GET(
       { status: 500 }
     );
   }
-}
+});

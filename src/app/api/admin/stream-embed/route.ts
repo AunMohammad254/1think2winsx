@@ -2,31 +2,31 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { createClient } from '@supabase/supabase-js';
+import { getAdminDb } from '@/lib/supabase/db';
 import sanitizeHtml from 'sanitize-html';
 
 /**
  * Admin Stream Embed API
- * 
+ *
  * This API now uses DATABASE-ONLY storage via Supabase RPC functions.
  * No file-based fallback - all data is stored in the StreamEmbed table.
  */
 
-// Create Supabase admin client for RPC calls
+// Shared service-role client (a fresh createClient() per call leaks an auth timer each time)
 function getSupabaseAdmin() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Supabase credentials not configured');
-  }
-
-  return createClient(supabaseUrl, supabaseServiceKey);
+  return getAdminDb();
 }
 
 // GET /api/admin/stream-embed - Get current livestream embed code
+// Admin only: the response includes `updatedBy` (an admin's email). The public viewer reads the
+// stream through /api/streaming/active instead.
 export async function GET(_req: NextRequest) {
   try {
+    const authResult = await requireAuth({ adminOnly: true, context: '/api/admin/stream-embed' });
+    if (authResult instanceof NextResponse) {
+      return authResult;
+    }
+
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase.rpc('get_live_stream_config');
 

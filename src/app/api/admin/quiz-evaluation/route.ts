@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb, notificationDb } from '@/lib/supabase/db';
+import { getAdminDb, notificationDb, fetchAllByKeyset } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { requireAuth } from '@/lib/auth-middleware';
@@ -119,13 +119,19 @@ export async function POST(request: NextRequest) {
 
     // Notify all users who attempted the quiz that their results are ready
     try {
-      const { data: attemptsData } = await supabase
-        .from('QuizAttempt')
-        .select('userId')
-        .eq('quizId', quizId);
+      // Every page: a plain select() is capped at PostgREST's 1,000 rows, so only the first
+      // thousand participants used to hear that their results were ready.
+      const attemptsData = await fetchAllByKeyset<{ id: string; userId: string }>(
+        (after, limit) => {
+          let q = supabase.from('QuizAttempt').select('id, userId').eq('quizId', quizId);
+          if (after) q = q.gt('id', after);
+          return q.order('id', { ascending: true }).limit(limit);
+        },
+        (a) => a.id,
+      );
 
-      if (attemptsData && attemptsData.length > 0) {
-        const userIds = [...new Set(attemptsData.map((a: any) => a.userId))];
+      if (attemptsData.length > 0) {
+        const userIds = [...new Set(attemptsData.map((a) => a.userId))];
         await notificationDb.createBatchForUsers(userIds, {
           title: '🏅 Quiz Results Available!',
           message: `Your results for "${quiz.title}" have been evaluated. Check your score now!`,
