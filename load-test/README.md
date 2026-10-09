@@ -94,6 +94,12 @@ Calibrate the safety valve from what you observe: `LOAD_SHED_MAX_INFLIGHT` (defa
 
 ## 4. Realtime connections (5k sample)
 
+**Quick probe (`realtime-probe.ts`, staging only).** Opens N real Realtime connections as a signed-in test
+user and reports how many joined, how a change fans out, and whether an outsider can listen or forge a signal.
+It can compare three mechanisms: the app's current `postgres_changes` (`PROBE_MODE=pg`), a public Broadcast
+topic (`PROBE_PRIVATE=0`) and the private authorised channel from `20261009120000_live_broadcast.sql` (default).
+`PROBE_BATCH` / `PROBE_BATCH_DELAY_MS` set the join rate. See the file header for the exact command.
+
 Each open browser tab holds a Supabase Realtime WebSocket. One load machine cannot hold 50k, so test
 about 5,000, check the Supabase dashboard **Reports → Realtime** (connections, messages/s), and
 extrapolate. Ask Supabase support whether fan-out deliveries count against the *Messages per second*

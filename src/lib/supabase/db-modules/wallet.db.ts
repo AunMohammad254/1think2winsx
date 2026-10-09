@@ -43,7 +43,7 @@ export const walletTransactionDb = {
             .from('WalletTransaction')
             .select('*')
             .eq('id', id)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data
@@ -136,9 +136,11 @@ export const dailyPaymentDb = {
             .gt('expiresAt', now)
             .order('createdAt', { ascending: false })
             .limit(1)
-            .single()
+            // maybeSingle(): "no active payment" is the normal case for most users. .single() turned it
+            // into an HTTP 406 (PGRST116) on every call, which flooded the API logs.
+            .maybeSingle()
 
-        if (error && error.code !== 'PGRST116') throw error
+        if (error) throw error
         return data
     },
 

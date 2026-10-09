@@ -17,7 +17,7 @@ export const adminSessionDb = {
             .select('*')
             .eq('token', token)
             .gt('expiresAt', new Date().toISOString())
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data

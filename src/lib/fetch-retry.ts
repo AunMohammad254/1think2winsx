@@ -19,6 +19,17 @@ export interface RetryOptions {
   maxDelayMs?: number;
   /** Status codes worth retrying. */
   retryOn?: readonly number[];
+  /**
+   * Abort EACH attempt after this many ms (a fresh timer per attempt, combined with any signal the
+   * caller passed). Without it a hung connection waits forever.
+   */
+  timeoutMs?: number;
+  /**
+   * Retry an attempt that hit `timeoutMs`? Default true. Set false for non-idempotent sends
+   * (e.g. an email): a request that timed out may still have been processed, so repeating it
+   * could deliver twice.
+   */
+  retryOnTimeout?: boolean;
   /** Injected for tests. */
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
@@ -37,6 +48,16 @@ function retryAfterMs(res: Response): number | null {
   return Number.isNaN(date) ? null : Math.max(0, date - Date.now());
 }
 
+/** A signal that fires after `ms`, and also when the caller's own signal does. */
+function withTimeout(callerSignal: AbortSignal | null | undefined, ms: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ms);
+  return callerSignal ? AbortSignal.any([callerSignal, timeout]) : timeout;
+}
+
+function isTimeoutError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { name?: string }).name === 'TimeoutError';
+}
+
 export async function fetchWithRetry(
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -47,6 +68,8 @@ export async function fetchWithRetry(
     baseDelayMs = 800,
     maxDelayMs = 15_000,
     retryOn = DEFAULT_RETRY_ON,
+    timeoutMs,
+    retryOnTimeout = true,
     sleep = defaultSleep,
     random = Math.random,
   } = options;
@@ -56,11 +79,12 @@ export async function fetchWithRetry(
     let response: Response | null = null;
     let networkError: unknown = null;
     try {
-      response = await fetch(input, init);
+      response = await fetch(input, timeoutMs ? { ...init, signal: withTimeout(init?.signal, timeoutMs) } : init);
     } catch (err) {
       networkError = err;
       // A caller-initiated abort is not a transient failure.
       if (init?.signal?.aborted) throw err;
+      if (!retryOnTimeout && isTimeoutError(err)) throw err;
     }
 
     const retryable = networkError !== null || (response !== null && retryOn.includes(response.status));

@@ -20,6 +20,9 @@ import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessP
 import { createClient } from '@/lib/supabase/client';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import { useJitteredPolling } from '@/hooks/useJitteredPolling';
+import { useQuizBroadcast } from '@/hooks/useQuizBroadcast';
+import { applyQuizSignal, type QuizSignal } from '@/lib/quiz-signal';
+import { LIVE_BROADCAST_ENABLED } from '@/lib/live-config';
 import PaymentModal from '@/components/quiz/PaymentModal';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
 import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
@@ -69,6 +72,11 @@ function QuizzesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  // Always the latest list, readable from realtime callbacks without re-subscribing
+  const quizzesRef = useRef<Quiz[]>([]);
+  useEffect(() => {
+    quizzesRef.current = quizzes;
+  }, [quizzes]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasAccess, setHasAccess] = useState(false);
@@ -197,8 +205,27 @@ function QuizzesPageInner() {
     router.replace(query ? `/quizzes?${query}` : '/quizzes', { scroll: false });
   }, [isLoading, userId, router, searchParams]);
 
-  // Realtime subscription for live quiz updates
+  // Live quiz updates over a private Broadcast channel (NEXT_PUBLIC_LIVE_BROADCAST=1).
+  // A quiz the player already has (e.g. "upcoming" -> live) is patched in place with NO request; only an
+  // unknown quiz triggers a (randomly delayed) refetch. The jittered poll above remains the safety net.
+  const handleQuizSignal = useCallback((signal: QuizSignal) => {
+    if (signal.op === 'UPDATE' && signal.pushedAt && seenPushedAtRef.current.get(signal.id) !== signal.pushedAt) {
+      seenPushedAtRef.current.set(signal.id, signal.pushedAt);
+      liveQuizPushRef.current?.notify(signal.id, signal.title);
+    }
+    const result = applyQuizSignal(quizzesRef.current, signal);
+    if (result.list !== quizzesRef.current) {
+      quizzesRef.current = result.list;
+      setQuizzes(result.list);
+    }
+    if (result.needsFetch) debouncedFreshFetch();
+  }, [debouncedFreshFetch]);
+  useQuizBroadcast({ enabled: LIVE_BROADCAST_ENABLED && !!userId, onSignal: handleQuizSignal });
+
+  // Legacy realtime subscription for live quiz updates (postgres_changes). Used while the Broadcast
+  // path is off; it does a Row Level Security check per subscriber per change, which does not scale.
   useEffect(() => {
+    if (LIVE_BROADCAST_ENABLED) return;
     const supabase = createClient();
 
     const channel = supabase

@@ -12,7 +12,7 @@ export const streamConfigDb = {
             .from('StreamConfiguration')
             .select('*')
             .eq('isDefault', true)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data
@@ -24,7 +24,7 @@ export const streamConfigDb = {
             .from('StreamConfiguration')
             .select('*')
             .eq('isActive', true)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data

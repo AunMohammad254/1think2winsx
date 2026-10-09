@@ -6,6 +6,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
+import { useQuizCountdown } from '@/hooks/useQuizCountdown';
 import QuizResults from '@/components/QuizResults';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 
@@ -21,6 +22,8 @@ interface Quiz {
   description: string;
   questions: Question[];
   duration: number; // Duration in minutes from admin
+  endsAt?: string | null; // When the answering window closes (server clock)
+  serverNow?: number; // Server clock (epoch ms) when this was sent
   timeLimit: number;
   questionCount: number;
   totalQuestions: number;
@@ -59,7 +62,6 @@ export default function QuizPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Answer[]>([]);
-  const [timeRemaining, setTimeRemaining] = useState<number | null>(null); // Will be set from quiz.duration
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quizStarted, setQuizStarted] = useState(false);
   const [showResults, setShowResults] = useState(false);
@@ -68,6 +70,17 @@ export default function QuizPage() {
   const [showTimeExpired, setShowTimeExpired] = useState(false); // Time expired dialog
   const [showUnansweredWarning, setShowUnansweredWarning] = useState(false); // Unanswered questions warning
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Counts down to the sooner of the player's own duration and the quiz's real answering window
+  // (the database rejects answers after pushedAt + duration, so a late joiner must not see a full timer).
+  // Shows the "time expired" dialog instead of auto-submitting.
+  const { timeRemaining, windowClosed } = useQuizCountdown({
+    running: quizStarted,
+    durationMinutes: quiz ? (quiz.duration || 30) : null,
+    endsAt: quiz?.endsAt ?? null,
+    serverNow: quiz?.serverNow ?? null,
+    onExpire: () => setShowTimeExpired(true),
+  });
 
   const fetchQuiz = useCallback(async () => {
     try {
@@ -95,10 +108,6 @@ export default function QuizPage() {
       }
       const data = await response.json();
       setQuiz(data.quiz);
-
-      // Set timer from quiz duration (convert minutes to seconds)
-      const durationInSeconds = (data.quiz.duration || 30) * 60;
-      setTimeRemaining(durationInSeconds);
 
       // Initialize answers array for the questions being shown (new questions in reattempt)
       const initialAnswers: Answer[] = data.quiz.questions.map((q: Question) => ({
@@ -181,25 +190,6 @@ export default function QuizPage() {
 
     fetchQuiz();
   }, [user, isLoading, router, fetchQuiz]);
-
-  // Timer effect
-  useEffect(() => {
-    if (!quizStarted || timeRemaining === null || timeRemaining <= 0) return;
-
-    const timer = setInterval(() => {
-      setTimeRemaining(prev => {
-        if (prev === null) return null;
-        if (prev <= 1) {
-          // Show time expired dialog instead of auto-submitting
-          setShowTimeExpired(true);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [quizStarted, timeRemaining]);
 
   // Offline sync effect
   useEffect(() => {
@@ -411,9 +401,22 @@ export default function QuizPage() {
             </ul>
           </div>
 
+          {windowClosed ? (
+            <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-4 mb-4 text-red-100 text-sm" role="alert">
+              The answering window for this quiz has closed, so new answers can no longer be submitted.
+            </div>
+          ) : (
+            timeRemaining !== null && timeRemaining < (quiz.duration || 30) * 60 - 5 && (
+              <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4 text-blue-100 text-sm">
+                This quiz went live a while ago. Answers close in {formatTime(timeRemaining)}, so your timer will be shorter than {quiz.duration || 30} minutes.
+              </div>
+            )
+          )}
+
           <button
             onClick={() => setQuizStarted(true)}
-            className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-blue-500 text-white text-xl font-bold rounded-xl hover:from-green-600 hover:to-blue-600 transition-all duration-200"
+            disabled={windowClosed}
+            className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-blue-500 text-white text-xl font-bold rounded-xl hover:from-green-600 hover:to-blue-600 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {quiz.isReattempt ? 'Start New Questions' : 'Start Quiz'}
           </button>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
+import { useQuizCountdown } from '@/hooks/useQuizCountdown';
 import { useAuth } from '@/contexts/AuthContext';
 import { X, Clock, HelpCircle, Target, AlertTriangle, Play, ChevronLeft, ChevronRight, Check, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import QuizResults from '@/components/QuizResults';
@@ -22,6 +23,8 @@ interface QuizData {
     description: string;
     questions: Question[];
     duration: number;
+    endsAt?: string | null; // when the answering window closes (server clock)
+    serverNow?: number; // server clock (epoch ms) when this was sent
     timeLimit: number;
     questionCount: number;
     totalQuestions: number;
@@ -72,11 +75,20 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
     // Active quiz state
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [answers, setAnswers] = useState<Answer[]>([]);
-    const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Sub-dialogs
     const [showTimeExpired, setShowTimeExpired] = useState(false);
+
+    // Counts down to the sooner of the player's own duration and the quiz's real answering window
+    // (the database rejects answers after pushedAt + duration, so a late joiner must not see a full timer)
+    const { timeRemaining, windowClosed } = useQuizCountdown({
+        running: phase === 'active',
+        durationMinutes: quiz ? (quiz.duration || 30) : null,
+        endsAt: quiz?.endsAt ?? null,
+        serverNow: quiz?.serverNow ?? null,
+        onExpire: () => setShowTimeExpired(true),
+    });
     const [showUnansweredWarning, setShowUnansweredWarning] = useState(false);
     const [isTheaterMode, setIsTheaterMode] = useState(false);
     // null while LazyStreamPlayer is still checking; only an explicit `false` collapses the stream layout
@@ -113,8 +125,6 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
             }
             const data = await response.json();
             setQuiz(data.quiz);
-            const durationInSeconds = (data.quiz.duration || 30) * 60;
-            setTimeRemaining(durationInSeconds);
             const initialAnswers: Answer[] = data.quiz.questions.map((q: Question) => ({
                 questionId: q.id,
                 selectedOption: -1,
@@ -138,7 +148,6 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
             setError(null);
             setAnswers([]);
             setCurrentQuestionIndex(0);
-            setTimeRemaining(null);
             setIsSubmitting(false);
             setShowTimeExpired(false);
             setShowUnansweredWarning(false);
@@ -147,24 +156,6 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
             setStreamAvailable(null);
         }
     }, [isOpen, user, fetchQuiz]);
-
-    // ─── Timer ───────────────────────────────────────────────────────────────
-    useEffect(() => {
-        if (phase !== 'active' || timeRemaining === null || timeRemaining <= 0) return;
-
-        const timer = setInterval(() => {
-            setTimeRemaining(prev => {
-                if (prev === null) return null;
-                if (prev <= 1) {
-                    setShowTimeExpired(true);
-                    return 0;
-                }
-                return prev - 1;
-            });
-        }, 1000);
-
-        return () => clearInterval(timer);
-    }, [phase, timeRemaining]);
 
     // ─── Submit quiz ─────────────────────────────────────────────────────────
     const handleSubmitQuiz = useCallback(async (forceSubmit: boolean = false) => {
@@ -381,6 +372,18 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                             </Suspense>
                         </div>
 
+                        {windowClosed ? (
+                            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/20 p-4 text-sm text-red-100" role="alert">
+                                The answering window for this quiz has closed, so new answers can no longer be submitted.
+                            </div>
+                        ) : (
+                            timeRemaining !== null && timeRemaining < (quiz.duration || 30) * 60 - 5 && (
+                                <div className="mb-4 rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-100">
+                                    This quiz went live a while ago. Answers close in {formatTime(timeRemaining)}, so your timer will be shorter than {quiz.duration || 30} minutes.
+                                </div>
+                            )
+                        )}
+
                         {/* Start Button */}
                         <div className="flex gap-3">
                             <button
@@ -391,7 +394,8 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                             </button>
                             <button
                                 onClick={() => setPhase('active')}
-                                className="flex-1 flex items-center justify-center gap-2 py-4 px-6 bg-gradient-to-r from-green-500 to-blue-500 text-white text-xl font-bold rounded-xl hover:from-green-600 hover:to-blue-600 transition-all shadow-lg shadow-green-500/25"
+                                disabled={windowClosed}
+                                className="flex-1 flex items-center justify-center gap-2 py-4 px-6 bg-gradient-to-r from-green-500 to-blue-500 text-white text-xl font-bold rounded-xl hover:from-green-600 hover:to-blue-600 transition-all shadow-lg shadow-green-500/25 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 <Play className="w-6 h-6" />
                                 {quiz.isReattempt ? 'Start New Questions' : 'Start Quiz'}

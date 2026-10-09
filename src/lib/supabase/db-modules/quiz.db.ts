@@ -47,7 +47,7 @@ export const quizDb = {
             .from('Quiz')
             .select('*')
             .eq('id', id)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data
@@ -61,7 +61,7 @@ export const quizDb = {
             .from('Quiz')
             .select('id, title, description, duration, passingScore, status, accessPrice, quizType, isBumperPrize, startsAt, questions:Question(id, text, options, status, hasCorrectAnswer, createdAt)')
             .eq('id', id)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         if (!data) return null
@@ -145,7 +145,7 @@ export const questionDb = {
             .from('Question')
             .select('*')
             .eq('id', id)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data
@@ -263,7 +263,7 @@ export const quizAttemptDb = {
             .from('QuizAttempt')
             .select('*')
             .eq('id', id)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data

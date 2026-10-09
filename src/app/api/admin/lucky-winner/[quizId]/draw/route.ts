@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
-import { getAdminDb, notificationDb } from '@/lib/supabase/db';
+import { getAdminDb, notificationDb, mapWithConcurrency } from '@/lib/supabase/db';
 import { quizWinnerDb } from '@/lib/supabase/db-modules/winner.db';
 import { randomBytes } from 'crypto';
 
@@ -157,13 +157,23 @@ export async function POST(
         }
 
         // Add Consolation Points
+        // (This used to call `increment_users_points`, which does not exist in the database, and
+        // ignore the error, so consolation points were silently never awarded. The real function
+        // is the per-user `increment_user_points`.)
+        let losersAwarded = 0;
         if (consolationPoints > 0 && losers.length > 0) {
-            // Give points to losers via user update (we need to be careful with direct adminDb updates on User table)
-            const userIds = losers.map((l: any) => l.userId);
-            await adminDb.rpc('increment_users_points', { 
-                user_ids: userIds, 
-                amount: consolationPoints 
+            const results = await mapWithConcurrency(losers, 10, async (loser: any) => {
+                const { error } = await adminDb.rpc('increment_user_points', {
+                    p_user_id: loser.userId,
+                    p_delta: consolationPoints,
+                });
+                if (error) {
+                    console.error(`[lucky-winner/draw] consolation points failed for ${loser.userId}:`, error);
+                    return false;
+                }
+                return true;
             });
+            losersAwarded = results.filter(Boolean).length;
         }
 
         // 9. Send winner notification (best-effort — don't fail draw if notification fails)
@@ -199,7 +209,7 @@ export async function POST(
             })),
             consolation: {
                 points: consolationPoints,
-                losersAwarded: losers.length,
+                losersAwarded,
             },
             draw: {
                 totalAttempts: attemptsData.length,

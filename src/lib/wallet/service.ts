@@ -159,10 +159,16 @@ export interface GetPriceResult {
     error?: string;
 }
 
-/** Get the access price for quiz play (from the first active quiz, fallback 2 PKR). */
+/**
+ * Get the access price for quiz play (from the OLDEST active quiz, fallback 2 PKR).
+ *
+ * Must stay in step with `pay_quiz_access`, which charges the oldest active quiz's price when
+ * no quiz id is passed. This used to pick the NEWEST active quiz, so with two active quizzes
+ * at different prices the confirmation dialog quoted one price and the wallet was charged another.
+ */
 export async function getQuizAccessPrice(): Promise<GetPriceResult> {
     try {
-        const quizzes = await quizDb.findMany({ status: 'active', limit: 1, orderBy: 'createdAt' });
+        const quizzes = await quizDb.findMany({ status: 'active', limit: 1, orderBy: 'createdAt', orderDir: 'asc' });
         return { success: true, price: quizzes[0]?.accessPrice ?? 2.0 };
     } catch (err) {
         console.error('[wallet/service] getQuizAccessPrice error:', err);

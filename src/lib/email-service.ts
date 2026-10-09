@@ -5,6 +5,10 @@
 import logger from '@/lib/logger';
 import { emailShell } from '@/lib/email-theme';
 import { buildUnsubscribePageUrl, buildOneClickUnsubscribeUrl } from '@/lib/newsletter-unsubscribe';
+import { fetchWithRetry } from '@/lib/fetch-retry';
+
+/** Per-request ceiling for the Brevo API (seconds-long in practice; this only guards a hung connection). */
+const BREVO_TIMEOUT_MS = 15_000;
 
 interface SendEmailParams {
   senderEmail: string;
@@ -45,7 +49,11 @@ export async function sendNewsletterEmail({
     // One email per subscriber: each needs its own unsubscribe link, and Brevo only
     // allows headers (List-Unsubscribe) per request, not per recipient.
     const sendOne = async (email: string) => {
-      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      // Brevo rate-limits bulk sends with 429, and a hung connection used to stall the whole blast
+      // (there was no timeout). Retry only the cases where the email was certainly NOT accepted
+      // (429 rate limit, 503 unavailable) with jittered backoff, and never retry a timeout: that
+      // request may still have been processed, and repeating it could email someone twice.
+      const response = await fetchWithRetry('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
           'accept': 'application/json',
@@ -63,7 +71,7 @@ export async function sendNewsletterEmail({
             'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
           }
         })
-      });
+      }, { retries: 3, retryOn: [429, 503], baseDelayMs: 1_000, maxDelayMs: 20_000, timeoutMs: BREVO_TIMEOUT_MS, retryOnTimeout: false });
       if (!response.ok) {
         throw new Error(`Brevo API failed with status ${response.status}: ${await response.text()}`);
       }
