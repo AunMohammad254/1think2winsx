@@ -1,6 +1,6 @@
 # 1Think2Win: 50k-user scale project, handling report
 
-Updated: 2026-10-09 · Branch: `perf/phase-0-1-scale` (not merged, not deployed; the work below is **uncommitted** on top of commit `806b7fe`) · Status: Phase 0 + Phase 1 done, staging database built and benchmarked, further fixes made and tested; the app-level load test has **not** been run (it needs your Hostinger staging deploy and the staging secret key).
+Updated: 2026-10-09 · Branch: `perf/phase-0-1-scale` (not merged, not deployed; all work below is committed, latest `8d890ab`) · Status: Phase 0 + Phase 1 done, staging database built and benchmarked, further fixes made and tested; the app-level load test has **not** been run (it needs your Hostinger staging deploy and the staging secret key).
 
 ## 1. Goal and starting verdict
 
@@ -94,7 +94,7 @@ The private channel's per-join authorisation (a database transaction on each joi
 - Free-plan Realtime limits (200 connections, 100 messages/s) are unchanged; Pro is 500 / 500, and 10,000 / 2,500 with the spend cap off; 50k concurrent sockets needs Enterprise or a polling-first design.
 
 ## 10. Reference
-- Commits: `e19a4bc` (Phase 0/1), `806b7fe`. This session's changes are in the working tree.
+- Commits: `e19a4bc` (Phase 0/1), `806b7fe`, `bdf55c4` (Node 22), `8d890ab` (this session: fixes, hardening, staging deploy tooling).
 - Plan: `C:\Users\Aun Abbas\.claude\plans\deep-dive-into-my-calm-swan.md`.
 - Staging schema SQL (git-ignored, no data): `load-test/.data/staging-schema/`. Probe tool: `load-test/realtime-probe.ts`.
 - Local staging-pointed dev server config (git-ignored): `load-test/.data/run-staging-dev.cjs`, `.claude/launch.json` entry `staging-smoke`.
