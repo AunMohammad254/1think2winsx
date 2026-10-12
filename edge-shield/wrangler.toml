@@ -1,0 +1,68 @@
+#:schema node_modules/wrangler/config-schema.json
+# Wrangler configuration: https://developers.cloudflare.com/workers/wrangler/configuration/
+#
+# Every routed hostname needs a Proxied DNS record in the 1think2win.com zone. Set the secret before deploying:
+#   npx wrangler secret put CRON_SECRET                 (production)
+#   npx wrangler secret put CRON_SECRET --env staging   (staging)
+
+name = "1think2win-edge"
+main = "src/index.ts"
+compatibility_date = "2026-10-06"
+# account_id = "<id from `npx wrangler whoami`>"  # only needed if your login has several accounts
+workers_dev = false
+upload_source_maps = true
+
+# The apex and www both serve the app (no redirect), so both are routed
+[[routes]]
+pattern = "1think2win.com/api/*"
+zone_name = "1think2win.com"
+
+[[routes]]
+pattern = "www.1think2win.com/api/*"
+zone_name = "1think2win.com"
+
+[vars]
+SITE_URL = "https://1think2win.com"
+
+[secrets]
+required = ["CRON_SECRET"]
+
+# Every minute, replacing the app's in-process self-kick of /api/cron/process-scheduled
+[triggers]
+crons = ["* * * * *"]
+
+# period must be 10 or 60 seconds; namespace_id is any positive integer, unique in the account.
+# Starting values: tune them with the staging load test.
+[[ratelimits]]
+name = "SUBMIT_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 10 }
+
+[[ratelimits]]
+name = "API_LIMITER"
+namespace_id = "1002"
+simple = { limit = 600, period = 60 }
+
+[observability]
+enabled = true
+
+# Staging: vars, secrets and ratelimits are not inherited, so they are repeated here.
+# Deploy with `npx wrangler deploy --env staging`.
+[env.staging]
+routes = [{ pattern = "staging.1think2win.com/api/*", zone_name = "1think2win.com" }]
+
+[env.staging.vars]
+SITE_URL = "https://staging.1think2win.com"
+
+[env.staging.secrets]
+required = ["CRON_SECRET"]
+
+[[env.staging.ratelimits]]
+name = "SUBMIT_LIMITER"
+namespace_id = "2001"
+simple = { limit = 10, period = 10 }
+
+[[env.staging.ratelimits]]
+name = "API_LIMITER"
+namespace_id = "2002"
+simple = { limit = 600, period = 60 }

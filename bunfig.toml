@@ -3,3 +3,7 @@
 # because the binary validation returns empty string (AV/execution blocking).
 # The @esbuild/win32-x64 native package is installed directly instead.
 ignoredBuiltDependencies = ["esbuild"]
+
+[test]
+# The Cloudflare Worker has its own workerd-based runner: cd edge-shield && npx vitest run
+pathIgnorePatterns = ["edge-shield/**"]
