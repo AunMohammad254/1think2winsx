@@ -132,3 +132,7 @@ load-test/.data/
 
 # Hostinger env import file (contains secrets)
 .env.hostinger-import
+
+# My Skills: begin
+# CLAUDE.md
+# My Skills: end
