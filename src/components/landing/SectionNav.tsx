@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useActiveSection } from "./Primitives";
 
 const SECTIONS = [
@@ -15,25 +15,65 @@ const SECTIONS = [
   { id: "cta", label: "Get Started" },
 ];
 
-
+// Any of these means the user is steering the page themselves, so stop re-aiming.
+const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "mousedown"] as const;
 
 export default function SectionNav() {
   const { activeId, setActiveId } = useActiveSection(SECTIONS.map((s) => s.id));
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopFollowRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => stopFollowRef.current?.(), []);
+
+  // Every section after the hero is a LazySection: a short placeholder until it nears the
+  // viewport, then its full-height content. A smooth scroll to a far section mounts the
+  // sections it passes, which pushes the target further down, so a single scrollIntoView
+  // stops short of it. Re-aim whenever the target moves, until the scroll settles.
+  const scrollToSection = (target: HTMLElement) => {
+    stopFollowRef.current?.();
+
+    const targetTop = () => target.getBoundingClientRect().top + window.scrollY;
+    let aimedAt = targetTop();
+    let lastScrollY = window.scrollY;
+    let stillFrames = 0;
+    let frame = 0;
+    const giveUpAt = performance.now() + 5000;
+
+    const stop = () => {
+      cancelAnimationFrame(frame);
+      USER_SCROLL_EVENTS.forEach((type) => window.removeEventListener(type, stop));
+      stopFollowRef.current = null;
+    };
+
+    const follow = () => {
+      const top = targetTop();
+      if (Math.abs(top - aimedAt) > 1) {
+        aimedAt = top;
+        stillFrames = 0;
+        target.scrollIntoView({ behavior: "smooth" });
+      } else {
+        stillFrames = window.scrollY === lastScrollY ? stillFrames + 1 : 0;
+      }
+      lastScrollY = window.scrollY;
+
+      if (stillFrames >= 30 || performance.now() > giveUpAt) stop();
+      else frame = requestAnimationFrame(follow);
+    };
+
+    USER_SCROLL_EVENTS.forEach((type) => window.addEventListener(type, stop, { passive: true }));
+    stopFollowRef.current = stop;
+    target.scrollIntoView({ behavior: "smooth" });
+    frame = requestAnimationFrame(follow);
+  };
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>, sectionId: string) => {
     e.preventDefault();
-    
-    // Clear any pending scroll
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
+
     // Immediately set active state for instant feedback
     setActiveId(sectionId);
-    
+
     const target = document.getElementById(sectionId);
     if (target) {
-      target.scrollIntoView({ behavior: "smooth" });
+      scrollToSection(target);
       window.history.pushState(null, "", `#${sectionId}`);
     }
   };
