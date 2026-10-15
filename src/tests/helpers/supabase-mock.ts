@@ -28,7 +28,7 @@ export interface MockUser {
 }
 
 export interface SupabaseMockOptions {
-  /** Per-table result. An array is consumed one entry per query, the last entry repeating. */
+  /** Per-table result ('*' for any table). An array is consumed one entry per query, the last entry repeating. */
   tables?: Record<string, TableHandler>;
   rpc?: Record<string, RpcHandler>;
   /** The signed-in user, or null for an anonymous client. */
@@ -59,7 +59,8 @@ export function createSupabaseMock(options: SupabaseMockOptions = {}) {
   let user: MockUser | null = options.user === undefined ? null : options.user;
 
   const resolveTable = (call: QueryCall): MockResult => {
-    const handler = tables[call.table];
+    // '*' answers every table that has no handler of its own
+    const handler = tables[call.table] ?? tables['*'];
     if (handler === undefined) return { data: null, error: null };
     if (typeof handler === 'function') return handler(call);
     if (Array.isArray(handler)) {
