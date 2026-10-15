@@ -37,6 +37,15 @@ const QuizCard = React.memo(function QuizCard({
     const handleClick = (e: React.MouseEvent) => {
         if (onStartClick) {
             e.preventDefault();
+            // Check if upcoming internally
+            if (pushStatus === 'upcoming') {
+                const when = startsAt
+                    ? new Date(startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+                    : 'soon';
+                // Only alert, do not start
+                import('sonner').then(m => m.toast.info(`"${title}" hasn't started yet. It goes live ${when}.`));
+                return;
+            }
             onStartClick(id);
         }
     };

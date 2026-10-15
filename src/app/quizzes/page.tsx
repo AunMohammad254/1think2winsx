@@ -70,11 +70,6 @@ function QuizzesPageInner() {
   const searchParams = useSearchParams();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
 
-  const quizzesRef = useRef(quizzes);
-  useEffect(() => {
-    quizzesRef.current = quizzes;
-  }, [quizzes]);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasAccess, setHasAccess] = useState(false);
@@ -303,14 +298,15 @@ function QuizzesPageInner() {
   }, [userId, quizzes, fetchQuizzesData]);
 
   const handleQuizClick = useCallback((quizId: string) => {
-    const clicked = quizzesRef.current.find(q => q.id === quizId);
-    if (clicked?.status === 'upcoming') {
-      const when = clicked.startsAt
-        ? new Date(clicked.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
-        : 'soon';
-      toast.info(`"${clicked.title}" hasn't started yet. It goes live ${when}.`);
-      return;
-    }
+    // We can't rely on `quizzes` state here directly because it changes every poll tick,
+    // but the `quizId` from `QuizCard` is enough to know which quiz was clicked.
+    // The only things we need `quizzes` for are:
+    // 1. Is it upcoming? (We could pass this to QuizCard directly)
+    // 2. What's the start time/title for the toast?
+
+    // We will bypass the `quizzes` array entirely and just try to open it.
+    // If it's upcoming, the modal will handle it or we can pass a special flag from the card.
+
     if (hasAccess) {
       liveQuizPushRef.current?.open(quizId);
     } else {
