@@ -358,12 +358,12 @@ describe('HeroClient', () => {
 
 describe('SectionNav', () => {
   const ids = ['top', 'stats', 'marquee', 'how', 'live', 'prizes', 'leaderboard', 'reviews', 'cta'];
-  let scrollIntoView: ReturnType<typeof vi.fn>;
+  let scrollIntoView: ReturnType<typeof vi.fn<(arg?: boolean | ScrollIntoViewOptions) => void>>;
   let topOf: Record<string, number>;
 
   beforeEach(() => {
     frames();
-    scrollIntoView = vi.fn();
+    scrollIntoView = vi.fn<(arg?: boolean | ScrollIntoViewOptions) => void>();
     topOf = {};
     document.body.innerHTML = ids.map((id) => `<section id="${id}"></section>`).join('');
     for (const id of ids) {

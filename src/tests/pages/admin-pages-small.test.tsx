@@ -35,6 +35,7 @@ vi.mock('@/actions/media-actions', () => ({
   deleteCloudinaryResource: (id: string) => h.media.deleteCloudinaryResource(id),
 }));
 vi.mock('@/lib/logger', () => ({ default: { log: h.log } }));
+// eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
 vi.mock('next-cloudinary', () => ({ CldImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
 vi.mock('@/components/admin/DynamicAdminComponents', () => ({
   DynamicPlayerClaimsManager: () => <div>claims manager</div>,

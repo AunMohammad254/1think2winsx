@@ -89,6 +89,7 @@ describe('QuizManagement', () => {
       vi.stubGlobal('fetch', routes({ get }));
       const { unmount } = render(<QuizManagement quizId="z1" />);
       expect(await screen.findByText('Quiz not found')).toBeInTheDocument();
+      expect(screen.queryByText(message)).toBeNull();
       unmount();
     }
     expect(console.error).toHaveBeenCalledWith('Error fetching quiz:', expect.objectContaining({ message: 'Bad Gateway' }));

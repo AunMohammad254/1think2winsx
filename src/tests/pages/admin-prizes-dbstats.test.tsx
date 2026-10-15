@@ -19,6 +19,7 @@ vi.mock('@/actions/prizes', () => ({
   togglePrizeStatus: (...a: unknown[]) => h.actions.togglePrizeStatus(...a),
   togglePrizeActive: (...a: unknown[]) => h.actions.togglePrizeActive(...a),
 }));
+// eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
 vi.mock('next-cloudinary', () => ({ CldImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => h.auth }));
 vi.mock('next/navigation', () => ({ useRouter: () => h.router, usePathname: () => '/admin', useSearchParams: () => new URLSearchParams() }));

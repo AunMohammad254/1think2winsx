@@ -17,6 +17,7 @@ vi.mock('@/actions/prizes', () => ({
   getPublicPrizes: (...a: unknown[]) => h.getPublicPrizes(...a),
   redeemPrize: (...a: unknown[]) => h.redeemPrize(...a),
 }));
+// eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
 vi.mock('next-cloudinary', () => ({ CldImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
 vi.mock('framer-motion', async (importOriginal) => ({
   ...(await importOriginal<typeof import('framer-motion')>()),

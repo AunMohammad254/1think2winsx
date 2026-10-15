@@ -1,5 +1,5 @@
 import '@/tests/helpers/ui';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { jsonResponse } from '@/tests/helpers/ui';
 
@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   dynamics: [] as { loader: () => Promise<unknown>; opts: { loading: () => React.ReactNode } }[],
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
+// eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
 vi.mock('next-cloudinary', () => ({ CldImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
 vi.mock('next/dynamic', () => ({
   default: (loader: () => Promise<unknown>, opts: { loading: () => React.ReactNode }) => {

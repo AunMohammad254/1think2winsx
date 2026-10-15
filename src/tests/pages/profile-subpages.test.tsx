@@ -44,7 +44,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-const runTimer = (ms: number) => act(() => { (timers.mock.calls.find(([, d]) => d === ms)![0] as () => void)(); });
+const runTimer = (ms: number) => act(() => { (timers.mock.calls.find(([, d]: unknown[]) => d === ms)![0] as () => void)(); });
 const type = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
 
 describe('edit profile page', () => {

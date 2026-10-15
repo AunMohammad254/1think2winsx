@@ -6,6 +6,7 @@ import { Trophy } from 'lucide-react';
 const router = vi.hoisted(() => ({ prefetch: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
 vi.mock('next-cloudinary', () => ({
+  // eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
   CldImage: ({ alt, onError }: { alt: string; onError: () => void }) => <img alt={alt} onError={onError} />,
 }));
 
@@ -102,7 +103,7 @@ describe('profile pieces', () => {
 
 const prize = (over: Partial<Prize> = {}): Prize => ({
   id: 'p1', name: 'Smart Watch', description: 'A watch', imageUrl: 'watch.png', modelUrl: null, type: 'physical', pointsRequired: 1000,
-  isActive: true, category: 'electronics', stock: 10, status: 'active', value: 15000, createdAt: new Date(), updatedAt: new Date(), ...over,
+  isActive: true, category: 'electronics', stock: 10, status: 'published', value: 15000, createdAt: new Date(), updatedAt: new Date(), ...over,
 });
 
 describe('prizes', () => {
