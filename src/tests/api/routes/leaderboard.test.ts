@@ -52,7 +52,7 @@ describe('GET /api/leaderboard', () => {
 
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
-    adminDb.client.rpc.mockImplementation((_fn: string, args: Record<string, unknown>) => ({
+    adminDb.client.rpc.mockImplementation((_fn: string, args: Record<string, unknown> = {}) => ({
       then: (ok: (v: unknown) => unknown) => gate.then(() => ok({ data: [{ id: args.p_quiz_id }], error: null })),
     }) as never);
     const slow = Array.from({ length: 6 }, (_, i) => get(`?quizId=quiz-${i}`));

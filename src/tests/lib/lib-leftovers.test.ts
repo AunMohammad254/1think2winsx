@@ -528,7 +528,7 @@ describe('supabase clients, password flag and instrumentation', () => {
     shared = await import('@/lib/supabase/db-modules/shared');
     expect(shared.getAdminDb()).toBe(shared.getAdminDb());
     expect(createClient).toHaveBeenCalledTimes(1);
-    expect(createClient.mock.calls[0][2]).toMatchObject({ auth: { autoRefreshToken: false, persistSession: false } });
+    expect((createClient.mock.calls as unknown[][])[0][2]).toMatchObject({ auth: { autoRefreshToken: false, persistSession: false } });
     expect(shared.generateId()).toMatch(/^[a-z0-9]{20,}$/);
   });
 

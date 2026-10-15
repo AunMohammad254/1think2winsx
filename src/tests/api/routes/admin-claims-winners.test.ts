@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseMock, makeRequest, authOk, argOf, eqValue, hasOp, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { createSupabaseMock, makeRequest, authOk, argOf, hasOp, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
 const requireAuth = vi.fn();

@@ -58,7 +58,7 @@ describe('PUT /api/profile/change-password', () => {
     signInResults(null, { message: 'Invalid login credentials' });
     const res = await put();
     expect(await res.json()).toEqual({ message: 'Password changed successfully' });
-    expect(sb.auth.signInWithPassword.mock.calls.map((c) => c[0])).toEqual([{ email: 'p@example.test', password: 'Old@1234' }, { email: 'p@example.test', password: 'New@5678' }]);
+    expect((sb.auth.signInWithPassword.mock.calls as unknown[][]).map((c) => c[0])).toEqual([{ email: 'p@example.test', password: 'Old@1234' }, { email: 'p@example.test', password: 'New@5678' }]);
     expect(sb.auth.updateUser).toHaveBeenCalledWith({ password: 'New@5678' });
     expect(logger.logSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PASSWORD_CHANGE', userId: 'user-1' }));
   });

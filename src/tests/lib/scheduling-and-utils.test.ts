@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createSupabaseMock, argOf, eqValue, hasOp, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { createSupabaseMock, argOf, eqValue, hasOp, type SupabaseMock, type QueryCall } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
 const createBroadcast = vi.fn();
@@ -18,7 +18,7 @@ const cache = await import('@/lib/quiz-cache');
 const validation = await import('@/utils/validation');
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
-const isClaim = (call: { ops: { op: string }[] }) => hasOp(call, 'update');
+const isClaim = (call: QueryCall) => hasOp(call, 'update');
 
 beforeEach(() => {
   adminDb = createSupabaseMock();

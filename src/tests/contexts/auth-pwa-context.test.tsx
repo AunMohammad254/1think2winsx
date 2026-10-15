@@ -22,7 +22,7 @@ import { PWAProvider, usePWA } from '@/contexts/PWAContext';
 
 const ali = { id: 'u1', email: 'ali@example.test', updated_at: 't1' };
 const authWrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
-let hrefSetter: ReturnType<typeof vi.fn>;
+let hrefSetter: ReturnType<typeof vi.fn<(v: string) => void>>;
 
 beforeEach(() => {
   h.auth.getSession.mockReset().mockResolvedValue({ data: { session: { user: ali } }, error: null });
@@ -123,7 +123,6 @@ describe('PWAProvider', () => {
   afterEach(() => {
     // @ts-expect-error test cleanup
     delete navigator.serviceWorker;
-    // @ts-expect-error test cleanup
     delete (navigator as { standalone?: boolean }).standalone;
   });
 

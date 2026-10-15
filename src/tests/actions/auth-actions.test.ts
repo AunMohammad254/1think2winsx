@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createSupabaseMock, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { createSupabaseMock, mockArg, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let sb: SupabaseMock;
 let ssr: { getAll: () => unknown; setAll: (c: { name: string; value: string; options?: unknown }[]) => void } | undefined;
@@ -96,7 +96,7 @@ describe('registerAction', () => {
 
   it('leaves optional fields out and sends nulls to Supabase', async () => {
     await actions.registerAction(form);
-    expect(sb.auth.signUp.mock.calls[0][0].options.data).toEqual({ name: 'Ali', phone: null, date_of_birth: null });
+    expect(mockArg(sb.auth.signUp).options.data).toEqual({ name: 'Ali', phone: null, date_of_birth: null });
     expect(Object.keys(userUpdate.mock.calls[0][1]).sort()).toEqual(['authProvider', 'name', 'password']);
   });
 
@@ -157,7 +157,7 @@ describe('registerAction', () => {
   it('falls back to localhost when no site URL is configured', async () => {
     vi.stubEnv('NEXT_PUBLIC_SITE_URL', '');
     await actions.registerAction(form);
-    expect(sb.auth.signUp.mock.calls[0][0].options.emailRedirectTo).toBe('http://localhost:3000/auth/callback?next=/quizzes');
+    expect(mockArg(sb.auth.signUp).options.emailRedirectTo).toBe('http://localhost:3000/auth/callback?next=/quizzes');
   });
 });
 
@@ -177,7 +177,7 @@ describe('getGoogleOAuthUrl', () => {
       options: { redirectTo: 'https://site.example.test/auth/callback?next=/profile', skipBrowserRedirect: true },
     });
     await actions.getGoogleOAuthUrl();
-    expect(sb.auth.signInWithOAuth.mock.calls[1][0].options.redirectTo).toMatch(/next=\/quizzes$/);
+    expect(mockArg(sb.auth.signInWithOAuth, 1).options.redirectTo).toMatch(/next=\/quizzes$/);
   });
 
   it('returns null on errors', async () => {

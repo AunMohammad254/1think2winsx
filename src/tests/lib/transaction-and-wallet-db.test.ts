@@ -153,14 +153,14 @@ describe('TransactionManager', () => {
     const op = vi.fn().mockRejectedValue(new Error('Service unavailable'));
     const done = tm.executeTransaction(op, { maxRetries: 2 }).catch((e) => e);
     await vi.advanceTimersByTimeAsync(1000);
-    expect((await done).message).toMatch(/after 2 attempts: Service unavailable/);
+    expect(((await done) as Error).message).toMatch(/after 2 attempts: Service unavailable/);
   });
 
   it('times out slow operations', async () => {
     vi.useFakeTimers();
     const done = tm.executeTransaction(() => new Promise(() => {}), { timeout: 50, maxRetries: 1 }).catch((e) => e);
     await vi.advanceTimersByTimeAsync(50);
-    expect((await done).message).toMatch(/Transaction timeout after 50ms/);
+    expect(((await done) as Error).message).toMatch(/Transaction timeout after 50ms/);
   });
 
   it('throws a generic error when asked for zero attempts', async () => {

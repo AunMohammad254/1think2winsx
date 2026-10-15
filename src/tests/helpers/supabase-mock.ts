@@ -226,3 +226,6 @@ export function authOk(id = 'user-1', email = 'player@example.test', extra: Reco
     user: { id, email, name: email.split('@')[0], image: undefined, ...extra },
   };
 }
+
+/** Argument `arg` of call `call` on a vi.fn() whose parameters are untyped (its calls are typed as `[]`). */
+export const mockArg = (fn: { mock: { calls: unknown } }, call = 0, arg = 0): any => (fn.mock.calls as unknown[][])[call][arg];

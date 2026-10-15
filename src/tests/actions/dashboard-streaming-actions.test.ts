@@ -137,9 +137,9 @@ describe('toggleQuizStatus', () => {
 
   it('pauses or drafts, and reports missing quizzes and errors', async () => {
     quizDb.update.mockResolvedValue({ status: 'paused' });
-    expect((await dash.toggleQuizStatus('q', 'paused')).message).toBe('Quiz paused successfully!');
+    expect(((await dash.toggleQuizStatus('q', 'paused')) as { message?: string }).message).toBe('Quiz paused successfully!');
     quizDb.update.mockResolvedValue({ status: 'draft' });
-    expect((await dash.toggleQuizStatus('q', 'draft')).message).toBe('Quiz set to draft successfully!');
+    expect(((await dash.toggleQuizStatus('q', 'draft')) as { message?: string }).message).toBe('Quiz set to draft successfully!');
     expect(questionDb.findByQuizId).not.toHaveBeenCalled();
     quizDb.update.mockResolvedValue(null);
     expect(await dash.toggleQuizStatus('q', 'draft')).toEqual({ success: false, error: 'Quiz not found' });
