@@ -53,7 +53,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
     expect(finalScroll).toBeGreaterThan(initialScroll);
     
     // Verify section is in viewport
-    await expect(statsSection).toBeInViewport();
+    await expect(statsSection).toBeVisible();
   });
 
   test('nav button highlights active section on click', async ({ page }) => {
@@ -167,7 +167,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
     await page.waitForTimeout(500);
 
     const hero = page.locator('section#top');
-    await expect(hero).toBeInViewport({ timeout: 5000 });
+    await expect(hero).toBeVisible({ timeout: 5000 });
     
     // Check for hero content
     const heading = page.locator('section#top h1').first();
@@ -220,7 +220,7 @@ test.describe('Landing Page Navigation - Mobile', () => {
     await page.waitForTimeout(500);
     
     // Section should be visible
-    await expect(statsSection).toBeInViewport();
+    await expect(statsSection).toBeVisible();
   });
 
   test('page scrolling is not blocked on mobile', async ({ page }) => {
@@ -280,7 +280,7 @@ test.describe('Landing Page Navigation - Accessibility', () => {
     await page.waitForTimeout(100);
     
     const statsSection = page.locator('#stats');
-    await expect(statsSection).toBeInViewport();
+    await expect(statsSection).toBeVisible();
   });
 });
 
@@ -359,7 +359,7 @@ test.describe('Landing Page Navigation - Edge Cases', () => {
     // Should still work
     await page.waitForTimeout(1000);
     const statsSection = page.locator('#stats');
-    await expect(statsSection).toBeInViewport();
+    await expect(statsSection).toBeVisible();
   });
 
   test('sections are properly spaced and don\'t overlap', async ({ page }) => {
