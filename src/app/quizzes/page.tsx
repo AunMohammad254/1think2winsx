@@ -69,6 +69,12 @@ function QuizzesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+
+  const quizzesRef = useRef(quizzes);
+  useEffect(() => {
+    quizzesRef.current = quizzes;
+  }, [quizzes]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasAccess, setHasAccess] = useState(false);
@@ -296,8 +302,8 @@ function QuizzesPageInner() {
     return () => clearTimeout(timer);
   }, [userId, quizzes, fetchQuizzesData]);
 
-  const handleQuizClick = (quizId: string) => {
-    const clicked = quizzes.find(q => q.id === quizId);
+  const handleQuizClick = useCallback((quizId: string) => {
+    const clicked = quizzesRef.current.find(q => q.id === quizId);
     if (clicked?.status === 'upcoming') {
       const when = clicked.startsAt
         ? new Date(clicked.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
@@ -310,7 +316,7 @@ function QuizzesPageInner() {
     } else {
       setShowPaymentModal(true);
     }
-  };
+  }, [hasAccess]);
 
   // Fetch wallet balance and access price when payment modal opens
   const fetchWalletData = async (): Promise<{ balance: number; price: number }> => {

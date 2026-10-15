@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useRouter } from 'next/navigation';
 
 interface QuizCardProps {
@@ -20,7 +21,7 @@ interface QuizCardProps {
     startsAt?: string | null;
 }
 
-export default function QuizCard({
+const QuizCard = React.memo(function QuizCard({
     id,
     title,
     duration,
@@ -68,4 +69,6 @@ export default function QuizCard({
             </div>
         </div>
     );
-}
+});
+
+export default QuizCard;

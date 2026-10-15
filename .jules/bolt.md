@@ -1,0 +1,3 @@
+## 2024-05-14 - React.memo on QuizCard
+**Learning:** Applied `React.memo` to `QuizCard` in `src/components/quiz/QuizCard.tsx`. When mapping over components, the memoization only works if the props are stable. To keep the `onStartClick` prop stable across re-renders (especially caused by polling that updates the `quizzes` state), wrapped `handleQuizClick` in `useCallback` and used a `useRef` to store the latest `quizzes` array, avoiding `quizzes` from being a dependency that would invalidate the callback.
+**Action:** Always verify that memoized component props remain stable across the renders you intend to skip, especially callback props using state dependencies.
