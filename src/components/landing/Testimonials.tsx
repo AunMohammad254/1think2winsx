@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, memo } from "react";
 import { Section, SectionHeading, Reveal } from "./Primitives";
 
 const REVIEWS = [
@@ -23,7 +23,7 @@ function Stars({ count }: { count: number }) {
   );
 }
 
-function ReviewCard({ r, index }: { r: (typeof REVIEWS)[number]; index: number }) {
+const ReviewCard = memo(function ReviewCard({ r, index }: { r: (typeof REVIEWS)[number]; index: number }) {
   const cardRef = useRef<HTMLDivElement>(null);
 
   const onMouseMove = (e: React.MouseEvent) => {
@@ -62,7 +62,7 @@ function ReviewCard({ r, index }: { r: (typeof REVIEWS)[number]; index: number }
       <p className="mt-5 text-sm leading-relaxed text-white/75">"{r.quote}"</p>
     </article>
   );
-}
+});
 
 export default function Testimonials() {
   const items = [...REVIEWS, ...REVIEWS];
