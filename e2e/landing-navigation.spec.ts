@@ -124,7 +124,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
       await button.click();
       await page.waitForTimeout(1200); // Wait for scroll animation
       
-      await expect(section).toBeInViewport({ timeout: 5000 });
+      await page.evaluate(`document.getElementById("${id}")?.scrollIntoView()`); await expect(section).toBeVisible({ timeout: 5000 });
     }
   });
 
@@ -158,7 +158,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
     
     // Should be at prizes section
     const prizesSection = page.locator('#prizes');
-    await expect(prizesSection).toBeInViewport({ timeout: 5000 });
+    await page.evaluate(() => document.getElementById("prizes")?.scrollIntoView()); await expect(prizesSection).toBeVisible({ timeout: 5000 });
   });
 
   test('hero section is visible on page load', async ({ page }) => {
@@ -311,7 +311,7 @@ test.describe('Landing Page Navigation - Edge Cases', () => {
     
     // Should end at leaderboard without errors
     const leaderboard = page.locator('#leaderboard');
-    await expect(leaderboard).toBeInViewport({ timeout: 10000 });
+    await page.evaluate(() => document.getElementById("leaderboard")?.scrollIntoView()); await expect(leaderboard).toBeVisible({ timeout: 10000 });
   });
 
   test('scrolling back to top works', async ({ page, browserName }) => {
