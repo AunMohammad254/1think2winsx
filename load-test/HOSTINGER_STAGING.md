@@ -86,6 +86,8 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 2. hPanel → **Websites → Add Website → Node.js web app → Upload your files** (Hostinger accepts `.zip`, `.tar`,
    `.tar.gz`, `.tgz`; the archive needs a `package.json` at its root and must not contain `node_modules` or `.git`),
    on a **new subdomain** (for example `staging.yourdomain.com`), **not** your production app.
+   The domain's DNS is on Cloudflare, so the subdomain's record is added there, not in hPanel. Name it `staging` so
+   the edge Worker's route matches (see [`edge-shield/README.md`](../edge-shield/README.md)).
    - Upload `hostinger-staging.zip`.
    - Framework preset: **Next.js** (build script `build`, output directory `.next`, package manager npm: these are
      auto-detected; leave them). Hostinger starts the standalone server itself and ignores the entry file.

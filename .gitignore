@@ -115,6 +115,7 @@ graphify-out/
 
 # Deployment artifacts
 hostinger-deploy.zip
+hostinger-staging.zip
 hostinger-staging/
 claude-review/
 

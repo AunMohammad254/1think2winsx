@@ -8,16 +8,18 @@ const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 const ORIGIN = 'https://1think2win.com';
 const IP = '203.0.113.7';
 
-function makeEnv(allow = true) {
+function makeEnv(allow = true, allowIp = allow) {
 	const submit = vi.fn(async (_options: RateLimitOptions) => ({ success: allow }));
 	const api = vi.fn(async (_options: RateLimitOptions) => ({ success: allow }));
+	const perIp = vi.fn(async (_options: RateLimitOptions) => ({ success: allowIp }));
 	const env: Env = {
 		SUBMIT_LIMITER: { limit: submit },
 		API_LIMITER: { limit: api },
+		IP_LIMITER: { limit: perIp },
 		SITE_URL: ORIGIN,
 		CRON_SECRET: 'test-secret',
 	};
-	return { env, submit, api };
+	return { env, submit, api, perIp };
 }
 
 function mockOrigin(impl: () => Promise<Response> = async () => new Response('origin')) {
@@ -72,18 +74,50 @@ describe('rate limiting', () => {
 		expect(limit).toHaveBeenCalledWith({ key: `ip:${IP}` });
 	});
 
-	it('limits other API calls per IP', async () => {
+	it('limits other API calls per session, so a shared carrier IP is not one bucket', async () => {
 		const { env, submit: submitLimit, api } = makeEnv();
 		mockOrigin();
 
-		await worker.fetch(apiRequest('/api/quizzes'), env);
+		await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=base64-userA' }), env);
+		await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=base64-userB' }), env);
 
-		expect(api).toHaveBeenCalledWith({ key: IP });
+		const [a, b] = api.mock.calls.map(([options]) => options.key);
+		expect(a).toMatch(/^s:[0-9a-f]{24}$/);
+		expect(b).not.toBe(a);
 		expect(submitLimit).not.toHaveBeenCalled();
 	});
 
+	it('limits anonymous API calls per IP', async () => {
+		const { env, api } = makeEnv();
+		mockOrigin();
+
+		await worker.fetch(apiRequest('/api/leaderboard'), env);
+
+		expect(api).toHaveBeenCalledWith({ key: `ip:${IP}` });
+	});
+
+	it('applies the per-IP ceiling to every limited request', async () => {
+		const { env, perIp } = makeEnv();
+		mockOrigin();
+
+		await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=a' }), env);
+		await worker.fetch(submit('sb-ref-auth-token=a'), env);
+
+		expect(perIp.mock.calls).toEqual([[{ key: IP }], [{ key: IP }]]);
+	});
+
+	it('answers 429 when the IP is over its ceiling even if the session is not', async () => {
+		const { env } = makeEnv(true, false);
+		const origin = mockOrigin();
+
+		const response = await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=fresh' }), env);
+
+		expect(response.status).toBe(429);
+		expect(origin).not.toHaveBeenCalled();
+	});
+
 	it('never limits the cron endpoint', async () => {
-		const { env, submit: submitLimit, api } = makeEnv(false);
+		const { env, submit: submitLimit, api, perIp } = makeEnv(false);
 		mockOrigin();
 
 		const response = await worker.fetch(apiRequest('/api/cron/process-scheduled'), env);
@@ -91,6 +125,7 @@ describe('rate limiting', () => {
 		expect(response.status).toBe(200);
 		expect(api).not.toHaveBeenCalled();
 		expect(submitLimit).not.toHaveBeenCalled();
+		expect(perIp).not.toHaveBeenCalled();
 	});
 });
 
@@ -145,5 +180,17 @@ describe('scheduled', () => {
 		expect(origin).toHaveBeenCalledWith(`${ORIGIN}/api/cron/process-scheduled`, {
 			headers: { Authorization: 'Bearer test-secret' },
 		});
+	});
+
+	it('logs a failed scheduler call so it is visible in Workers Logs', async () => {
+		const { env } = makeEnv();
+		mockOrigin(async () => new Response('Unauthorized', { status: 401 }));
+		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+		const ctx = createExecutionContext();
+
+		await worker.scheduled(createScheduledController(), env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(error).toHaveBeenCalledWith('process-scheduled answered 401');
 	});
 });

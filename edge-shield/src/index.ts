@@ -24,11 +24,15 @@ export default {
 		const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
 
 		if (!url.pathname.startsWith('/api/cron/')) {
+			// Per caller, plus a high per-IP ceiling: mobile carriers put many players behind one IP,
+			// and the ceiling still bounds a client that rotates fake session cookies.
 			const isSubmit = request.method === 'POST' && SUBMIT_PATH.test(url.pathname);
-			const { success } = isSubmit
-				? await env.SUBMIT_LIMITER.limit({ key: await sessionKey(request, ip) })
-				: await env.API_LIMITER.limit({ key: ip });
-			if (!success) return busy(429);
+			const limiter = isSubmit ? env.SUBMIT_LIMITER : env.API_LIMITER;
+			const [perCaller, perIp] = await Promise.all([
+				limiter.limit({ key: await sessionKey(request, ip) }),
+				env.IP_LIMITER.limit({ key: ip }),
+			]);
+			if (!perCaller.success || !perIp.success) return busy(429);
 		}
 
 		const ttl = EDGE_CACHE[url.pathname];
@@ -48,6 +52,9 @@ export default {
 		ctx.waitUntil(
 			fetch(`${env.SITE_URL}/api/cron/process-scheduled`, {
 				headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
+			}).then((response) => {
+				// Shows up in Workers Logs, e.g. a 401 when CRON_SECRET differs from the app's
+				if (!response.ok) console.error(`process-scheduled answered ${response.status}`);
 			}),
 		);
 	},
@@ -65,7 +72,7 @@ async function toOrigin(request: Request, cf?: RequestInitCfProperties): Promise
 	}
 }
 
-// Key submits by session so users behind one carrier NAT don't share a bucket.
+// Key by session so users behind one carrier NAT don't share a bucket.
 // The cookie is not verified here; the origin still authenticates every request.
 async function sessionKey(request: Request, ip: string): Promise<string> {
 	const match = /sb-[^=]+-auth-token(?:\.0)?=([^;]+)/.exec(request.headers.get('Cookie') ?? '');
