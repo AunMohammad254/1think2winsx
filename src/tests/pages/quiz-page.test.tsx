@@ -76,15 +76,16 @@ describe('quiz page: loading', () => {
     expect(h.router.push).toHaveBeenCalledWith('/login');
   });
 
-  it('sends a finished quiz to its results page', async () => {
-    h.fetchWithRetry.mockImplementationOnce(async () => jsonResponse({ completed: true, attempt: { score: 7 } }, 403));
+  it('sends a finished quiz to its results page with its real question count', async () => {
+    h.fetchWithRetry.mockImplementationOnce(async () => jsonResponse({ completed: true, totalQuestions: 3, attempt: { score: 7 } }, 403));
     const { unmount } = render(<QuizPage />);
-    await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/quiz/q1/results?score=7&total=10'));
+    await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/quiz/q1/results?score=7&total=3'));
     expect(await screen.findByText('Quiz not found')).toBeInTheDocument();
     unmount();
+    // Without a count from the server, no total is made up
     h.fetchWithRetry.mockImplementationOnce(async () => jsonResponse({ completed: true, attempt: {} }, 403));
     render(<QuizPage />);
-    await waitFor(() => expect(h.router.push).toHaveBeenLastCalledWith('/quiz/q1/results?score=0&total=10'));
+    await waitFor(() => expect(h.router.push).toHaveBeenLastCalledWith('/quiz/q1/results?score=0'));
   });
 
   it('explains why the quiz cannot be opened', async () => {
@@ -219,6 +220,29 @@ describe('quiz page: answering', () => {
     await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/quiz/q1/results'));
     const body = JSON.parse(h.fetchWithRetry.mock.calls.find(([u]) => u.endsWith('/submit'))![1].body);
     expect(body.answers.filter((a: { selectedOption: number }) => a.selectedOption === -1)).toHaveLength(2);
+  });
+
+  it('stays on the quiz with the error when the time-up submit fails, and lets the player retry', async () => {
+    let failSubmit!: (r: Response) => void;
+    h.fetchWithRetry.mockImplementation(async (url: string) => (url.endsWith('/submit')
+      ? new Promise<Response>((r) => { failSubmit = r; })
+      : jsonResponse({ quiz: quiz() })));
+    render(<QuizPage />);
+    await start();
+    choose('Pakistan');
+    act(() => h.onExpire!());
+    fireEvent.click(screen.getByRole('button', { name: 'View Results' }));
+    expect(await screen.findByRole('button', { name: 'Submitting...' })).toBeDisabled();
+    await act(async () => failSubmit(jsonResponse({ error: 'Server busy' }, 503)));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Server busy');
+    expect(screen.getByText('Your Quiz Time is Over!')).toBeInTheDocument();
+    expect(h.router.push).not.toHaveBeenCalled();
+    // The retry is forced too, so the two unanswered questions do not block it
+    h.fetchWithRetry.mockImplementation(async () => jsonResponse({ message: 'Locked in!' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+    await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/quiz/q1/results'));
+    expect(screen.queryByText('Answer All Questions')).toBeNull();
+    expect(h.fetchWithRetry.mock.calls.filter(([u]) => u.endsWith('/submit'))).toHaveLength(2);
   });
 
   it('shows "Question not found" for a quiz without questions', async () => {

@@ -235,17 +235,25 @@ describe('change password page', () => {
     expect(await screen.findByText('An unexpected error occurred')).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: passwords are trimmed and their inner spaces collapsed before they are sent', async () => {
-    // sanitizeInput() is meant for names; applied to passwords it silently changes them, so the
-    // password the user typed is not the one that gets set.
+  it('sends passwords exactly as typed, keeping outer and inner spaces', async () => {
     canChange();
     render(<ChangePasswordPage />);
     await screen.findByText('Change password');
-    fill('Old@1234', ' My  Pass@1 ');
+    fill(' Old@1234', ' My  Pass@1 ');
     submit();
     expect(await screen.findByText('Password changed successfully!')).toBeInTheDocument();
     const [, init] = fetchMock.mock.calls.find(([u]) => u === '/api/profile/change-password')!;
-    expect(JSON.parse(init.body).newPassword).toBe('My Pass@1');
+    expect(JSON.parse(init.body)).toEqual({ currentPassword: ' Old@1234', newPassword: ' My  Pass@1 ' });
+  });
+
+  it('compares the confirmation as typed, so a stray space no longer matches', async () => {
+    canChange();
+    render(<ChangePasswordPage />);
+    await screen.findByText('Change password');
+    fill('Old@1234', 'New@5678', 'New@5678 ');
+    submit();
+    expect(await screen.findByText('New password and confirmation do not match')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([u]) => u === '/api/profile/change-password')).toBe(false);
   });
 
   it('reveals each password field', async () => {

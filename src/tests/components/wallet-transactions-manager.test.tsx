@@ -205,18 +205,36 @@ describe('WalletTransactionsManager', () => {
     expect(h.toast.error).toHaveBeenLastCalledWith('Failed to bulk approve');
   });
 
-  it('KNOWN BUG: "Reject Selected" sends a single reject for a transaction called "bulk"', async () => {
-    // The bulk button opens the reject modal with id 'bulk', and the modal's confirm calls
-    // handleReject(showRejectModal), so the bulk-process endpoint is never used for rejects.
+  it('"Reject Selected" rejects every selected deposit through bulk-process with the reason', async () => {
     render(<WalletTransactionsManager />);
     await loaded();
     fireEvent.click(screen.getByTitle('Select all pending on this page'));
     fireEvent.click(screen.getByRole('button', { name: /Reject Selected/ }));
     fireEvent.change(screen.getByPlaceholderText(/Invalid transaction ID/), { target: { value: 'Duplicates' } });
     fireEvent.click(screen.getByRole('button', { name: /Reject Deposit/ }));
-    await waitFor(() => expect(calls('PATCH')).toHaveLength(1));
-    expect(JSON.parse(calls('PATCH')[0][1].body)).toEqual({ transactionId: 'bulk', action: 'reject', notes: 'Duplicates' });
-    expect(fetchMock.mock.calls.some(([u]) => u === '/api/admin/wallet-transactions/bulk-process')).toBe(false);
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Done'));
+    const post = fetchMock.mock.calls.find(([u]) => u === '/api/admin/wallet-transactions/bulk-process')!;
+    expect(JSON.parse(post[1].body)).toEqual({ transactionIds: ['t1', 't2'], action: 'reject', notes: 'Duplicates' });
+    expect(calls('PATCH')).toHaveLength(0);
+    expect(screen.queryByText('Reject Deposit', { selector: 'h3' })).toBeNull();
+    expect(screen.queryByText(/selected$/)).toBeNull();
+  });
+
+  it('keeps the reject modal open with the selection when a bulk reject fails', async () => {
+    render(<WalletTransactionsManager />);
+    await loaded();
+    fireEvent.click(screen.getByTitle('Select all pending on this page'));
+    fireEvent.click(screen.getByRole('button', { name: /Reject Selected/ }));
+    fireEvent.change(screen.getByPlaceholderText(/Invalid transaction ID/), { target: { value: 'Duplicates' } });
+    let fail!: (r: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => { fail = r; }));
+    fireEvent.click(screen.getByRole('button', { name: /Reject Deposit/ }));
+    expect(await screen.findByRole('button', { name: /Processing/ })).toBeDisabled();
+    fail(jsonResponse({ error: 'Partial failure' }, 500));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Partial failure'));
+    expect(screen.getByText('Reject Deposit', { selector: 'h3' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Invalid transaction ID/)).toHaveValue('Duplicates');
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
   });
 
   describe('statement reconciliation', () => {

@@ -88,6 +88,8 @@ export const GET = withLoadShed(async function GET(
         {
           error: 'You have already completed this quiz',
           completed: true,
+          // For the results page's fallback when its own lookup fails
+          totalQuestions: activeQuestions.length,
           attempt: existingAttempt ? {
             id: existingAttempt.id,
             score: existingAttempt.score,

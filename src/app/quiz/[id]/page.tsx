@@ -91,8 +91,12 @@ export default function QuizPage() {
           const errorData = await response.json();
           // Check if user has already completed this quiz and there are no new questions
           if (errorData.completed && errorData.attempt) {
-            // Redirect to results page
-            router.push(`/quiz/${quizId}/results?score=${errorData.attempt.score || 0}&total=10`);
+            // Redirect to results page, passing the question count only when the server sent it
+            const resultParams = new URLSearchParams({ score: String(errorData.attempt.score || 0) });
+            if (typeof errorData.totalQuestions === 'number') {
+              resultParams.set('total', String(errorData.totalQuestions));
+            }
+            router.push(`/quiz/${quizId}/results?${resultParams}`);
             return;
           }
           throw new Error('You need to pay to access this quiz');
@@ -123,14 +127,15 @@ export default function QuizPage() {
   }, [quizId, router]);
 // Fetch quiz data
 
-  const handleSubmitQuiz = useCallback(async (forceSubmit: boolean = false) => {
-    if (isSubmitting) return;
+  // Resolves to true only when the server accepted the answers
+  const handleSubmitQuiz = useCallback(async (forceSubmit: boolean = false): Promise<boolean> => {
+    if (isSubmitting) return false;
 
     // Check if all questions are answered (unless forced or time expired)
     const unansweredCount = answers.filter(a => a.selectedOption === -1).length;
     if (!forceSubmit && unansweredCount > 0) {
       setShowUnansweredWarning(true);
-      return;
+      return false;
     }
 
     setShowUnansweredWarning(false);
@@ -142,7 +147,7 @@ export default function QuizPage() {
         localStorage.setItem(`pending_submit_${quizId}_${user?.id || 'anon'}`, JSON.stringify({ quizId, answers }));
         setSubmitError('You are currently offline. Your predictions have been saved locally. They will be submitted automatically when your internet connection is restored.');
         setIsSubmitting(false);
-        return;
+        return false;
       }
 
       // Get CSRF token for secure submission
@@ -173,8 +178,10 @@ export default function QuizPage() {
       // This is a prediction-based quiz system, so we show submission confirmation
       setSubmissionResult(result);
       setShowResults(true);
+      return true;
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Failed to submit quiz');
+      return false;
     } finally {
       setIsSubmitting(false);
     }
@@ -272,11 +279,13 @@ export default function QuizPage() {
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  // Handle time expired - submit and redirect to results (force submit even if incomplete)
+  // Handle time expired - submit and redirect to results (force submit even if incomplete).
+  // If the submit fails, the dialog stays open with the error so the player can retry;
+  // the Submit button would refuse an incomplete quiz.
   const handleTimeExpiredClose = async () => {
-    setShowTimeExpired(false);
-    await handleSubmitQuiz(true); // Force submit on time expiry
-    router.push(`/quiz/${quizId}/results`);
+    if (await handleSubmitQuiz(true)) {
+      router.push(`/quiz/${quizId}/results`);
+    }
   };
 
   const getAnsweredCount = () => {
@@ -681,11 +690,17 @@ export default function QuizPage() {
                   <p className="text-gray-300 mb-6">
                     Your time has expired. We&apos;ll submit your answers and take you to the results page.
                   </p>
+                  {submitError && !isSubmitting && (
+                    <p role="alert" className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-yellow-200 text-sm">
+                      ⚠️ {submitError}
+                    </p>
+                  )}
                   <button
                     onClick={handleTimeExpiredClose}
-                    className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg font-bold rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-200"
+                    disabled={isSubmitting}
+                    className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg font-bold rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-200 disabled:opacity-50"
                   >
-                    View Results
+                    {isSubmitting ? 'Submitting...' : submitError ? 'Try Again' : 'View Results'}
                   </button>
                 </div>
               </div>

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { getCSRFToken } from '@/lib/csrf';
-import { validatePasswordData, sanitizeInput, formatErrorMessage } from '@/utils/validation';
+import { validatePasswordData, formatErrorMessage } from '@/utils/validation';
 import Link from 'next/link';
 import { getUserAuthMethods, getProviderDisplayName, type AuthMethods } from '@/lib/auth-helpers';
 import SetPasswordByEmail from '@/components/profile/SetPasswordByEmail';
@@ -89,25 +89,6 @@ export default function ChangePasswordPage() {
     }));
   };
 
-  const _validatePassword = (password: string): string | null => {
-    if (password.length < 8) {
-      return 'Password must be at least 8 characters long';
-    }
-    if (!/(?=.*[a-z])/.test(password)) {
-      return 'Password must contain at least one lowercase letter';
-    }
-    if (!/(?=.*[A-Z])/.test(password)) {
-      return 'Password must contain at least one uppercase letter';
-    }
-    if (!/(?=.*\d)/.test(password)) {
-      return 'Password must contain at least one number';
-    }
-    if (!/(?=.*[@$!%*?&])/.test(password)) {
-      return 'Password must contain at least one special character (@$!%*?&)';
-    }
-    return null;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -115,15 +96,9 @@ export default function ChangePasswordPage() {
     setSuccess(null);
 
     try {
-      // Sanitize input data
-      const sanitizedData = {
-        currentPassword: sanitizeInput(formData.currentPassword),
-        newPassword: sanitizeInput(formData.newPassword),
-        confirmPassword: sanitizeInput(formData.confirmPassword)
-      };
-
-      // Validate form data
-      const validation = validatePasswordData(sanitizedData);
+      // Passwords are validated and sent exactly as typed: trimming or collapsing
+      // spaces would set a different password from the one the user entered
+      const validation = validatePasswordData(formData);
       if (!validation.isValid) {
         throw new Error(formatErrorMessage(validation.errors));
       }
@@ -140,8 +115,8 @@ export default function ChangePasswordPage() {
 
         credentials: 'include',
         body: JSON.stringify({
-          currentPassword: sanitizedData.currentPassword,
-          newPassword: sanitizedData.newPassword
+          currentPassword: formData.currentPassword,
+          newPassword: formData.newPassword
         }),
       });
 

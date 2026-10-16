@@ -68,14 +68,18 @@ describe('ProfilePictureUpload', () => {
     await waitFor(() => expect(console.error).toHaveBeenCalledWith('Upload failed:', expect.any(Error)));
   });
 
-  it('KNOWN BUG: a failed upload still shows its preview', async () => {
-    // The catch clears the preview, but FileReader's onload fires later and sets it again,
-    // so the user sees a picture that was never saved.
+  it('drops the preview of a failed upload, even when the file is read after the failure', async () => {
+    // The upload rejects at once, so FileReader's onload fires after the catch has cleared the preview.
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    const read = vi.spyOn(FileReader.prototype, 'readAsDataURL');
     const { container } = render(<ProfilePictureUpload onImageUpload={vi.fn().mockRejectedValue(new Error('rejected'))} />);
     fireEvent.change(input(container), { target: { files: [png()] } });
     await waitFor(() => expect(console.error).toHaveBeenCalled());
-    expect(await screen.findByRole('img', { name: 'Profile picture' })).toHaveAttribute('src', expect.stringContaining('data:image/png'));
+    const reader = read.mock.contexts[0] as FileReader;
+    await waitFor(() => expect(reader.readyState).toBe(FileReader.DONE));
+    await act(async () => {});
+    expect(screen.queryByRole('img', { name: 'Profile picture' })).toBeNull();
+    expect(screen.getByText('?')).toBeInTheDocument();
   });
 
   it('locks the drop zone while uploading', () => {
