@@ -171,14 +171,16 @@ describe('quizzes page: loading', () => {
 });
 
 describe('quizzes page: access and payment', () => {
-  it('shows the access countdown, and expires it', async () => {
-    const expiresAt = new Date(NOW + 2 * 3600_000 + 5 * 60_000 + 7_000).toISOString();
-    vi.spyOn(Date.prototype, 'getTime').mockImplementation(function (this: Date) { return this.valueOf() === 0 ? NOW : Date.prototype.valueOf.call(this); });
+  it('shows the access countdown', async () => {
+    // The countdown reads `new Date()`, which the Date.now mock doesn't reach, so the
+    // expiry is set from the real clock.
+    const expiresAt = new Date(new Date().valueOf() + 2 * 3600_000 + 5 * 60_000 + 7_000).toISOString();
     h.fetchWithRetry.mockImplementation(async () => ok({ hasAccess: true, paymentInfo: { id: 'p', expiresAt, timeRemaining: 1 } }));
     render(<QuizzesPage />);
     expect(await screen.findByText('Full Access Active')).toBeInTheDocument();
     expect(screen.getByText(/You have full access/)).toBeInTheDocument();
-    expect(screen.getByText(/^\d+h \d+m \d+s$/)).toBeInTheDocument();
+    // The countdown is filled in by an effect after the access banner renders.
+    expect(await screen.findByText(/^2h 5m [67]s$/)).toBeInTheDocument();
   });
 
   it('expires access that has already run out', async () => {
