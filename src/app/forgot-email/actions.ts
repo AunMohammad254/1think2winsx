@@ -36,7 +36,8 @@ async function findAccountByPhone(phone: string): Promise<PhoneLookup> {
     const { headers } = await import('next/headers');
     const { rateLimiters } = await import('@/lib/rate-limiter');
     const headersList = await headers();
-    const ip = headersList.get('x-forwarded-for') || 'unknown';
+    const { getClientIp } = await import('@/lib/client-ip');
+    const ip = getClientIp(headersList);
 
     // Mock NextRequest-like object for the rate limiter
     const mockRequest = { headers: headersList } as any;

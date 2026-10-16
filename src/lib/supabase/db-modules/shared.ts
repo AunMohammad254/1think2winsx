@@ -6,6 +6,7 @@ import { createClient } from '../server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import type { Database } from '../database.types'
 import { createId } from '@paralleldrive/cuid2'
+import { createTimeoutFetch, SUPABASE_ADMIN_FETCH_TIMEOUT_MS } from '../timeout-fetch'
 
 // Generate CUID for new records (matching Prisma's default)
 export const generateId = () => createId()
@@ -16,6 +17,62 @@ export const generateId = () => createId()
  */
 export async function getDb() {
     return await createClient()
+}
+
+/**
+ * PostgREST silently truncates every response to its `db-max-rows` setting (1000 on this
+ * project), so an un-paginated `select()` over a growing table quietly returns only the first
+ * thousand rows — which is how pushes/newsletters ended up reaching at most 1,000 people.
+ */
+export const POSTGREST_PAGE_SIZE = 1000
+
+/**
+ * Read EVERY row of a query by walking it in primary-key order ("keyset" pagination).
+ * Unlike offset/`range()` paging this stays fast on big tables and cannot skip or repeat rows
+ * when rows are inserted mid-walk.
+ *
+ * `fetchPage(afterKey, limit)` must return rows ordered by the key ascending, strictly greater
+ * than `afterKey` (or from the start when it is null), e.g.
+ *   (after, limit) => { let q = db.from('T').select('id').order('id').limit(limit); if (after) q = q.gt('id', after); return q }
+ *
+ * Termination is on an EMPTY page rather than a short one, so it stays correct even if the
+ * server's row cap is lower than `pageSize` (one cheap extra query at the end).
+ */
+export async function fetchAllByKeyset<T>(
+    fetchPage: (afterKey: string | null, limit: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+    keyOf: (row: T) => string,
+    pageSize: number = POSTGREST_PAGE_SIZE,
+): Promise<T[]> {
+    const all: T[] = []
+    let after: string | null = null
+    for (;;) {
+        const { data, error } = await fetchPage(after, pageSize)
+        if (error) throw error
+        const rows = data ?? []
+        if (rows.length === 0) break
+        for (const row of rows) all.push(row)
+        after = keyOf(rows[rows.length - 1])
+    }
+    return all
+}
+
+/** Run `fn` over `items` with at most `limit` in flight; results keep input order. */
+export async function mapWithConcurrency<T, R>(
+    items: readonly T[],
+    limit: number,
+    fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+    const results = new Array<R>(items.length)
+    let next = 0
+    const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+        for (;;) {
+            const i = next++
+            if (i >= items.length) return
+            results[i] = await fn(items[i], i)
+        }
+    })
+    await Promise.all(workers)
+    return results
 }
 
 type ServerDbClient = Awaited<ReturnType<typeof createClient>>
@@ -48,6 +105,10 @@ export function getAdminDb(): ServerDbClient {
         },
         db: {
             schema: 'public'
+        },
+        // Hard timeout so a saturated PostgREST can't pile requests up in Node memory
+        global: {
+            fetch: createTimeoutFetch(SUPABASE_ADMIN_FETCH_TIMEOUT_MS)
         }
     }) as unknown as ServerDbClient
 

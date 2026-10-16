@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { getCSRFToken } from '@/lib/csrf';
+import { fetchWithRetry } from '@/lib/fetch-retry';
 import { useAuth } from '@/contexts/AuthContext';
 import { X, Clock, HelpCircle, Target, AlertTriangle, Play, ChevronLeft, ChevronRight, Check, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import QuizResults from '@/components/QuizResults';
@@ -97,7 +98,8 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
         setPhase('loading');
         setError(null);
         try {
-            const response = await fetch(`/api/quizzes/${quizId}`);
+            // Retries 429/502/503/504 with jittered backoff (the server sheds load with 503 + Retry-After)
+            const response = await fetchWithRetry(`/api/quizzes/${quizId}`, undefined, { retries: 3 });
             if (!response.ok) {
                 if (response.status === 403) {
                     const errorData = await response.json();
@@ -182,14 +184,16 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                 throw new Error('Unable to verify security token. Please refresh the page and try again.');
             }
 
-            const response = await fetch(`/api/quizzes/${quizId}/submit`, {
+            // Idempotent in the database (one attempt per user and quiz), so overload responses
+            // (502/503/504) are retried with jittered backoff; 429 is the real per-user limit.
+            const response = await fetchWithRetry(`/api/quizzes/${quizId}/submit`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRF-Token': csrfToken || '',
                 },
                 body: JSON.stringify({ answers }),
-            });
+            }, { retries: 4, retryOn: [502, 503, 504] });
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));

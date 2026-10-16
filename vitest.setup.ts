@@ -29,41 +29,46 @@ vi.mock('next/dynamic', () => ({
     },
 }));
 
-// Mock window.matchMedia
-Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-    })),
-});
+// Browser-only mocks. Guarded so test files that opt into the Node environment
+// (`// @vitest-environment node`, e.g. server-side lib/route tests that need the real
+// AbortSignal.timeout/any) can share this setup file.
+if (typeof window !== 'undefined') {
+    // Mock window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        value: vi.fn().mockImplementation((query: string) => ({
+            matches: false,
+            media: query,
+            onchange: null,
+            addListener: vi.fn(),
+            removeListener: vi.fn(),
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            dispatchEvent: vi.fn(),
+        })),
+    });
 
-// Mock IntersectionObserver
-class MockIntersectionObserver {
-    observe = vi.fn();
-    disconnect = vi.fn();
-    unobserve = vi.fn();
+    // Mock IntersectionObserver
+    class MockIntersectionObserver {
+        observe = vi.fn();
+        disconnect = vi.fn();
+        unobserve = vi.fn();
+    }
+
+    Object.defineProperty(window, 'IntersectionObserver', {
+        writable: true,
+        value: MockIntersectionObserver,
+    });
+
+    // Mock ResizeObserver
+    class MockResizeObserver {
+        observe = vi.fn();
+        disconnect = vi.fn();
+        unobserve = vi.fn();
+    }
+
+    Object.defineProperty(window, 'ResizeObserver', {
+        writable: true,
+        value: MockResizeObserver,
+    });
 }
-
-Object.defineProperty(window, 'IntersectionObserver', {
-    writable: true,
-    value: MockIntersectionObserver,
-});
-
-// Mock ResizeObserver
-class MockResizeObserver {
-    observe = vi.fn();
-    disconnect = vi.fn();
-    unobserve = vi.fn();
-}
-
-Object.defineProperty(window, 'ResizeObserver', {
-    writable: true,
-    value: MockResizeObserver,
-});

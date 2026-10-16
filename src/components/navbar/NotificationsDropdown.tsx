@@ -40,10 +40,19 @@ export default function NotificationsDropdown() {
     markAsRead,
     markAllAsRead,
     deleteNotification,
+    loadNotifications,
+    listLoaded,
+    error: loadError,
   } = useNotifications();
 
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // The navbar only fetches the unread count on page load; the list is loaded the first
+  // time the bell is opened (a no-op afterwards).
+  useEffect(() => {
+    if (isOpen) loadNotifications();
+  }, [isOpen, loadNotifications]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -188,7 +197,7 @@ export default function NotificationsDropdown() {
 
               {/* Notifications List */}
               <div className="max-h-[280px] xs:max-h-[360px] md:max-h-[420px] overflow-y-auto divide-y divide-white/5 custom-scrollbar">
-                {loading ? (
+                {loading || (!listLoaded && !loadError) ? (
                   <div className="flex items-center justify-center py-10 text-gray-500 text-sm">
                     <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-500 border-t-transparent mr-2" />
                     <span>Loading notifications...</span>

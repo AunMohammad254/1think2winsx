@@ -6,7 +6,7 @@
  */
 
 // Shared utilities
-export { generateId, getDb, getAdminDb } from './shared'
+export { generateId, getDb, getAdminDb, fetchAllByKeyset, mapWithConcurrency, POSTGREST_PAGE_SIZE } from './shared'
 
 // Domain-specific modules
 export { userDb } from './user.db'

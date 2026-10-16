@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { User, Session } from '@supabase/supabase-js';
 
@@ -32,6 +32,18 @@ interface AuthProviderProps {
 
 const supabase = createClient();
 
+/**
+ * Supabase fires onAuthStateChange on tab refocus and every token refresh, each time with a
+ * brand-new `user` object for the SAME person. Replacing state with it re-ran every effect keyed
+ * on `user` (profile, notifications, quiz list ...) and turned a tab switch into a burst of
+ * API calls. Keep the previous reference unless the user really changed.
+ */
+function sameUser(a: User | null, b: User | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.id === b.id && a.updated_at === b.updated_at && a.email === b.email;
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
     const [user, setUser] = useState<User | null>(null);
     const [session, setSession] = useState<Session | null>(null);
@@ -58,7 +70,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 }
 
                 setSession(initialSession);
-                setUser(initialSession?.user ?? null);
+                setUser(prev => sameUser(prev, initialSession?.user ?? null) ? prev : (initialSession?.user ?? null));
             } catch (error) {
                 console.error('[AuthContext] Error getting initial session:', error);
                 // Clear session on unexpected errors
@@ -84,7 +96,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                     setUser(null);
                 } else {
                     setSession(newSession);
-                    setUser(newSession?.user ?? null);
+                    setUser(prev => sameUser(prev, newSession?.user ?? null) ? prev : (newSession?.user ?? null));
                 }
                 setIsLoading(false);
             }
@@ -95,9 +107,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         };
     }, []);
 
-    // ⚡ Bolt Performance Optimization:
-    // Memoize the signOut function so its reference remains stable across renders.
-    const signOut = React.useCallback(async () => {
+    const signOut = async () => {
         try {
             await supabase.auth.signOut();
             // Clear local state
@@ -113,21 +123,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
             // Still redirect to login
             window.location.href = '/login';
         }
-    }, []);
-
-    // ⚡ Bolt Performance Optimization:
-    // Memoize the Context value object to prevent consumers from re-rendering
-    // unnecessarily when AuthProvider re-renders due to unrelated state changes.
-    // Expected impact: Reduces re-renders of all components utilizing useAuth()
-    const value = React.useMemo(() => ({
-        user,
-        session,
-        isLoading,
-        signOut
-    }), [user, session, isLoading, signOut]);
+    };
 
     return (
-        <AuthContext.Provider value={value}>
+        <AuthContext.Provider value={{ user, session, isLoading, signOut }}>
             {children}
         </AuthContext.Provider>
     );

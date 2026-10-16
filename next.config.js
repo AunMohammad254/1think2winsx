@@ -23,8 +23,12 @@ const nextConfig = {
 
   // Compiler optimizations
   compiler: {
-    // Remove console logs in production
-    removeConsole: process.env.NODE_ENV === 'production',
+    // Remove console.log/info/debug in production, but KEEP console.error and console.warn:
+    // they are the only record of failed pushes/emails, RPC errors and the [SECURITY EVENT]
+    // sink, and stripping them leaves nothing to look at during an incident.
+    removeConsole: process.env.NODE_ENV === 'production'
+      ? { exclude: ['error', 'warn'] }
+      : false,
   },
 
   // Modular imports for better tree-shaking

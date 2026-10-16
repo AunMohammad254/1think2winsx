@@ -28,7 +28,53 @@ import { createClient as createServerClient } from '@/lib/supabase/server';
 // ============================================================================
 
 let _walletEnabledCache: { value: boolean; fetchedAt: number } | null = null;
+let _walletFlagInflight: Promise<boolean> | null = null;
+// While the env override is set it is mirrored into AppSettings so DB RPCs (pay_quiz_access,
+// submit_quiz_attempt, ...) agree with Node — an admin toggle can't drift away from the env value.
+// This runs on every quiz-list request, so it must NOT write per call: the old per-call upsert
+// hammered a single AppSettings row with one write per request. Now: at most one read per
+// minute per process, and a write only when the DB value actually differs.
+let _envFlagLastSyncAt = 0;
 const FLAG_CACHE_TTL_MS = 60_000; // cache the flag for 1 minute
+
+function syncEnvFlagToDb(envFlag: 'true' | 'false'): void {
+    const now = Date.now();
+    if (now - _envFlagLastSyncAt < FLAG_CACHE_TTL_MS) return;
+    _envFlagLastSyncAt = now; // claim first so concurrent callers don't each sync
+    (async () => {
+        try {
+            const adminDb = getAdminDb();
+            const { data, error: readError } = await adminDb
+                .from('AppSettings')
+                .select('value')
+                .eq('key', 'wallet_enabled')
+                .maybeSingle();
+            if (readError) throw readError;
+            if (data?.value === envFlag) return; // already in sync: no write
+            const res = await adminDb.from('AppSettings').upsert({
+                key: 'wallet_enabled',
+                value: envFlag
+            }, { onConflict: 'key' });
+            if (res.error) throw res.error;
+        } catch (err: unknown) {
+            // Retry after the next interval rather than immediately, so a DB outage can't turn
+            // this into a per-request retry storm.
+            console.error('AppSettings sync failed:', err);
+        }
+    })();
+}
+
+async function readWalletFlagFromDb(): Promise<boolean> {
+    const { data, error } = await getAdminDb()
+        .from('AppSettings')
+        .select('value')
+        .eq('key', 'wallet_enabled')
+        .maybeSingle();
+    if (error) throw error;
+    const enabled = data?.value !== 'false'; // missing row → default ON
+    _walletEnabledCache = { value: enabled, fetchedAt: Date.now() };
+    return enabled;
+}
 
 /**
  * Check whether the wallet feature is enabled.
@@ -42,19 +88,7 @@ export async function isWalletEnabled(): Promise<boolean> {
     // 1. Env-var override — fastest path, no DB round-trip
     const envFlag = process.env.WALLET_FEATURE_ENABLED;
     if (envFlag === 'false' || envFlag === 'true') {
-        // Asynchronously sync the env flag to the database so DB RPCs match the Node state
-        (async () => {
-            try {
-                const res = await getAdminDb().from('AppSettings').upsert({
-                    key: 'wallet_enabled',
-                    value: envFlag
-                }, { onConflict: 'key' });
-                if (res.error) console.error('AppSettings sync error:', res.error);
-            } catch (err: any) {
-                console.error('AppSettings sync exception:', err);
-            }
-        })();
-        
+        syncEnvFlagToDb(envFlag);
         return envFlag === 'true';
     }
 
@@ -64,26 +98,30 @@ export async function isWalletEnabled(): Promise<boolean> {
         return _walletEnabledCache.value;
     }
 
+    // Single-flight: concurrent misses share one query instead of each hitting the DB.
+    if (!_walletFlagInflight) {
+        _walletFlagInflight = readWalletFlagFromDb().finally(() => { _walletFlagInflight = null; });
+    }
     try {
-        const adminDb = getAdminDb();
-        const { data } = await adminDb
-            .from('AppSettings')
-            .select('value')
-            .eq('key', 'wallet_enabled')
-            .single();
-
-        const enabled = data?.value !== 'false'; // missing row → default ON
-        _walletEnabledCache = { value: enabled, fetchedAt: now };
-        return enabled;
+        return await _walletFlagInflight;
     } catch {
-        // If the AppSettings table doesn't exist yet (before migration), default ON
-        return true;
+        // DB hiccup or AppSettings missing (before migration). Keep serving the last known
+        // value so an outage doesn't silently flip an admin's "wallet disabled" back to enabled;
+        // only default to ON when we have never read it.
+        return _walletEnabledCache ? _walletEnabledCache.value : true;
     }
 }
 
 /** Invalidate the in-memory wallet-enabled flag cache (call after admin toggles it). */
 export function invalidateWalletEnabledCache(): void {
     _walletEnabledCache = null;
+}
+
+/** Test hook: reset module state. */
+export function __resetWalletFlagStateForTests(): void {
+    _walletEnabledCache = null;
+    _walletFlagInflight = null;
+    _envFlagLastSyncAt = 0;
 }
 
 // ============================================================================

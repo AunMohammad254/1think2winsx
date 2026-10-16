@@ -124,6 +124,9 @@ loadtest/jwks-public.json
 loadtest/node_modules/
 loadtest/
 
+# Load-test generated data: seeded users, signed-in sessions (cookies/tokens), results, monitor logs
+load-test/.data/
+
 # Ignore files from Gemini IDE
 .claude/
 

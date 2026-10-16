@@ -1,15 +1,70 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'node:crypto';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { TransactionManager } from '@/lib/transaction-manager';
 import { securityLogger } from '@/lib/security-logger';
 import { getAdminDb } from '@/lib/supabase/db';
 import { securityMonitor } from '@/lib/security-monitoring';
+import { getLoadStats } from '@/lib/load-shed';
+import { describeClientIpHeaders } from '@/lib/client-ip';
 
 /**
- * Health check endpoint for monitoring database connections and transaction system
- * GET /api/health
+ * Health endpoint.
+ *
+ * GET /api/health              public liveness probe. NO database access and nothing sensitive:
+ *                              Docker, uptime monitors and the hosting platform hit this every few
+ *                              seconds, and it used to run 3 database queries (including a
+ *                              `count: exact` over the whole User table) per hit, on an
+ *                              unauthenticated route, while leaking memory/env details.
+ * GET /api/health?stats=1      process stats (event-loop lag, in-flight requests, memory). No DB.
+ * GET /api/health?deep=1       full report incl. database round-trips.
+ *   The last two require `Authorization: Bearer <CRON_SECRET>`; scripts/loadtest polls ?stats=1.
  */
-export async function GET() {
+
+function hasValidSecret(request: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+  const given = Buffer.from(request.headers.get('authorization') || '');
+  const expected = Buffer.from(`Bearer ${secret}`);
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
+export async function GET(request: NextRequest) {
+  const params = request.nextUrl.searchParams;
+  const wantsDeep = params.get('deep') === '1';
+  const wantsStats = params.get('stats') === '1';
+
+  if (!wantsDeep && !wantsStats) {
+    return NextResponse.json(
+      { status: 'ok', timestamp: new Date().toISOString() },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+
+  if (!hasValidSecret(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  if (!wantsDeep) {
+    return NextResponse.json(
+      {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        uptimeSeconds: Math.round(process.uptime()),
+        nodeVersion: process.version,
+        load: getLoadStats(),
+        // What this server received for the visitor's IP, and which value it would use. Lets you pick
+        // TRUSTED_PROXY_HOPS / TRUSTED_IP_HEADER with one curl (see load-test/README.md).
+        client: describeClientIpHeaders(request.headers),
+      },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
+  }
+
+  return deepHealth();
+}
+
+async function deepHealth() {
   const startTime = Date.now();
 
   try {
@@ -46,18 +101,6 @@ export async function GET() {
     // Determine overall system health
     const overallStatus = determineOverallHealth(txHealth.status, databaseHealth.status);
 
-    // Log health check results
-    securityLogger.logSecurityEvent({
-      type: 'SUSPICIOUS_ACTIVITY',
-      userId: 'system',
-      endpoint: '/api/health',
-      details: {
-        action: 'health_check',
-        overallStatus: overallStatus,
-        responseTime: responseTime
-      }
-    });
-
     const healthReport = {
       status: overallStatus,
       timestamp: new Date().toISOString(),
@@ -72,6 +115,7 @@ export async function GET() {
         memory: process.memoryUsage(),
         nodeVersion: process.version
       },
+      load: getLoadStats(),
       performance: securityMonitor.getPerfSummary()
     };
 
@@ -126,13 +170,6 @@ async function checkDatabaseHealth() {
 
     if (readError) throw readError;
 
-    // Test count capability
-    const { count, error: countError } = await supabase
-      .from('User')
-      .select('*', { count: 'exact', head: true });
-
-    if (countError) throw countError;
-
     const latency = Date.now() - startTime;
 
     return {
@@ -161,9 +198,9 @@ async function checkDatabaseHealth() {
  */
 async function checkAuthHealth() {
   try {
-    // Check if auth configuration is valid
+    // Only report whether configuration is present — never echo values
     const authConfig = {
-      nextAuthUrl: process.env.NEXTAUTH_URL,
+      nextAuthUrl: process.env.NEXTAUTH_URL ? '[SET]' : '[NOT SET]',
       nextAuthSecret: process.env.NEXTAUTH_SECRET ? '[SET]' : '[NOT SET]',
       adminEmails: process.env.ADMIN_EMAILS ? '[SET]' : '[NOT SET]'
     };

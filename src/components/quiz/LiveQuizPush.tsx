@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, forwardRef, useImperativeHandle } from '
 import { X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
+import { fetchWithRetry } from '@/lib/fetch-retry';
 
 interface PushedQuestion {
     id: string;
@@ -64,7 +65,9 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     // bell) without losing what the viewer already picked.
     const loadQuiz = useCallback(async (quizId: string) => {
         try {
-            const res = await fetch(`/api/quizzes/${quizId}`);
+            // When thousands of players open the quiz at once the server may shed load with a
+            // 503 + Retry-After; retry with jittered backoff instead of showing an error.
+            const res = await fetchWithRetry(`/api/quizzes/${quizId}`, undefined, { retries: 3 });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 if (data.upcoming && data.startsAt) {
@@ -151,13 +154,16 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         setSubmitting(true);
         try {
             const csrfToken = await getCSRFToken();
-            const res = await fetch(`/api/quizzes/${quiz.id}/submit`, {
+            // Submitting is idempotent (one attempt per user and quiz is enforced in the database),
+            // so overload responses (502/503/504) are retried with jittered backoff. 429 is
+            // deliberately NOT retried: that is the per-user submission limit, not overload.
+            const res = await fetchWithRetry(`/api/quizzes/${quiz.id}/submit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
                 body: JSON.stringify({
                     answers: quiz.questions.map((q) => ({ questionId: q.id, selectedOption: answers[q.id] })),
                 }),
-            });
+            }, { retries: 4, retryOn: [502, 503, 504] });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 toast.error(data.error || 'Failed to submit');

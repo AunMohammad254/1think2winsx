@@ -1,74 +1,88 @@
 import { NextResponse } from 'next/server';
 import { securityLogger } from '@/lib/security-logger';
-import { createClient } from '@supabase/supabase-js';
+import { getAdminDb } from '@/lib/supabase/db';
 
 /**
  * Public Streaming Active API
- * 
+ *
  * Returns the active stream configuration for public consumption.
  * Uses DATABASE-ONLY storage - no file-based fallback.
+ *
+ * SCALE: this is polled by every player on /quizzes and /quiz/[id], and the answer is the same
+ * for everybody. It therefore
+ *   - reuses the shared admin client (the old code built a brand-new Supabase client on every
+ *     cache miss; each one started a never-stopped auth timer, leaking memory),
+ *   - loads with single-flight (all concurrent callers share ONE RPC) and
+ *   - serves the last value while a refresh is in flight / the DB is slow (stale-while-revalidate),
+ *     so a database blip doesn't make a live stream disappear for every viewer.
  */
 
-let cachedConfig: { embedHtml: string; isActive: boolean; title?: string } | null = null;
-let cachedAt = 0;
-const CACHE_TTL_MS = 5_000; // 5 seconds - short TTL for quick admin refresh
+type StreamConfigData = { embedHtml: string; isActive: boolean; title?: string } | null;
 
-// Create Supabase admin client for RPC calls
-function getSupabaseAdmin() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const CACHE_TTL_MS = 5_000; // short TTL so an admin start/stop shows up quickly
+const STALE_MAX_MS = 60_000; // how long a stale value may be served while refreshing/failing
 
-  if (!supabaseUrl || !supabaseServiceKey) {
+let cached: { value: StreamConfigData; at: number } | null = null;
+let inflight: Promise<StreamConfigData> | null = null;
+
+// Get stream config from database (throws on RPC failure so callers can fall back to stale)
+async function fetchStreamConfig(): Promise<StreamConfigData> {
+  const { data, error } = await getAdminDb().rpc('get_live_stream_config');
+  if (error) throw error;
+
+  if (!data?.success || !data.isActive) {
     return null;
   }
 
-  return createClient(supabaseUrl, supabaseServiceKey);
+  // Return config if there's embed content
+  if (data.embedHtml || data.embedUrl) {
+    return {
+      embedHtml: data.embedHtml || (data.embedUrl ? `<iframe src="${data.embedUrl}" allowfullscreen></iframe>` : ''),
+      isActive: data.isActive,
+      title: data.title,
+    };
+  }
+
+  return null;
 }
 
-// Get stream config from database
-async function getStreamConfig(): Promise<{ embedHtml: string; isActive: boolean; title?: string } | null> {
-  try {
-    const supabase = getSupabaseAdmin();
-    if (!supabase) return null;
-
-    const { data, error } = await supabase.rpc('get_live_stream_config');
-
-    if (error) {
-      console.error('RPC error fetching stream config:', error);
-      return null;
-    }
-
-    if (!data?.success || !data.isActive) {
-      return null;
-    }
-
-    // Return config if there's embed content
-    if (data.embedHtml || data.embedUrl) {
-      return {
-        embedHtml: data.embedHtml || (data.embedUrl ? `<iframe src="${data.embedUrl}" allowfullscreen></iframe>` : ''),
-        isActive: data.isActive,
-        title: data.title,
-      };
-    }
-
-    return null;
-  } catch (err) {
-    console.error('Error fetching stream config:', err);
-    return null;
+function refresh(): Promise<StreamConfigData> {
+  if (!inflight) {
+    inflight = fetchStreamConfig()
+      .then((value) => {
+        cached = { value, at: Date.now() };
+        return value;
+      })
+      .catch((err) => {
+        console.error('Error fetching stream config:', err);
+        if (cached && Date.now() - cached.at < STALE_MAX_MS) return cached.value;
+        // Nothing usable: remember "no stream" briefly so a failing DB isn't re-queried per request
+        cached = { value: null, at: Date.now() };
+        return null;
+      })
+      .finally(() => {
+        inflight = null;
+      });
   }
+  return inflight;
 }
 
 // Get cached stream config
-async function getCachedStreamConfig(): Promise<{ embedHtml: string; isActive: boolean; title?: string } | null> {
+async function getCachedStreamConfig(): Promise<StreamConfigData> {
   const now = Date.now();
-  if (cachedConfig && now - cachedAt < CACHE_TTL_MS) {
-    return cachedConfig;
+  if (cached && now - cached.at < CACHE_TTL_MS) {
+    return cached.value;
   }
-
-  cachedConfig = await getStreamConfig();
-  cachedAt = now;
-  return cachedConfig;
+  const pending = refresh();
+  // Stale-while-revalidate: answer instantly from the previous value, refresh in the background.
+  if (cached && now - cached.at < STALE_MAX_MS) {
+    return cached.value;
+  }
+  return pending;
 }
+
+// Identical for every viewer, so shared caches (CDN / host proxy) may hold it briefly.
+const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-while-revalidate=30' };
 
 // GET - Get active stream for public consumption
 export async function GET() {
@@ -99,13 +113,13 @@ export async function GET() {
           session: null,
         },
       }, {
-        headers: { 'Cache-Control': 'no-store, max-age=0' }
+        headers: CACHE_HEADERS
       });
     }
 
     return NextResponse.json(
       { hasActiveStream: false, stream: null },
-      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      { headers: CACHE_HEADERS }
     );
   } catch (error) {
     console.error('Error fetching active stream:', error);

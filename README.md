@@ -222,6 +222,14 @@ The 2026-09 migration prepared the system for **~50,000 users**:
 - Landing page: server-rendered hero with small client islands (`HeroClient`), plus lazy-loaded below-the-fold sections.
 - Navigation: quiz cards prefetch the quiz route on hover or focus; a `preconnect` hint warms the Cloudinary CDN.
 
+**Overload protection and measurement (Phase 0/1 of the 50k plan):**
+
+- Hot read routes (`/api/quizzes`, `/api/quizzes/[id]`) shed load with `503 + Retry-After` instead of queueing; browsers retry with jittered backoff (`src/lib/load-shed.ts`, `src/lib/fetch-retry.ts`). The quiz list poll is jittered, pauses in hidden tabs and backs off on errors (`src/hooks/useJitteredPolling.ts`).
+- Server-side Supabase calls have hard timeouts, and every "send to all" read (push subscribers, newsletter, results notices) is fully paginated rather than silently capped at PostgREST's 1,000 rows (`fetchAllByKeyset`).
+- `/api/health` is a database-free liveness probe; `?stats=1` (with `Authorization: Bearer $CRON_SECRET`) reports event-loop lag, in-flight requests and memory for load tests.
+- Tunables are listed in `.env.example` (`TRUSTED_PROXY_HOPS`, `LOAD_SHED_*`, `SUPABASE_*_TIMEOUT_MS`, `CHATBOT_MAX_CONCURRENT`).
+- Load tests live in [`load-test/`](./load-test/README.md) (k6 scenarios, staging user seeding, a process monitor, and the owner's pre-launch checklist; start with `load-test/RUNBOOK.md`). The Phase 1 database changes are in `SQL/supabase/migrations/20261008120000_phase1_scale_hardening.sql` (idempotent).
+
 ---
 
 ## 🚀 Getting Started

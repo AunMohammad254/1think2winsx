@@ -94,6 +94,8 @@ const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
 export function useNotifications() {
   const { user } = useAuth();
+  // Key everything on the id: the `user` object is replaced on token refresh / tab refocus
+  const userId = user?.id ?? null;
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -137,14 +139,20 @@ export function useNotifications() {
     }
   }, []);
 
-  // Fetch initial notifications
+  // Whether the full list has been loaded for the current user (it is loaded lazily).
+  // The ref guards re-fetching; the state lets the UI show a spinner instead of "All caught up!"
+  // before the first load.
+  const listLoadedRef = useRef(false);
+  const [listLoaded, setListLoaded] = useState(false);
+
+  // Fetch the full notification list (+ unread count)
   const fetchNotifications = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     try {
       setLoading(true);
       setError(null);
       const res = await fetch('/api/notifications');
-      
+
       if (!res.ok) {
         if (res.status === 401) {
           setNotifications([]);
@@ -155,21 +163,43 @@ export function useNotifications() {
         console.error(`[useNotifications] Fetch failed with status ${res.status}:`, errText);
         throw new Error(`Failed to fetch notifications (Status ${res.status})`);
       }
-      
+
       const data = await res.json();
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
+      listLoadedRef.current = true;
+      setListLoaded(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       console.error('[useNotifications] fetch error:', err);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
+
+  // Light fetch for the badge: runs on every page load, so it asks for the count only
+  // (one cheap query) instead of the 50-row list.
+  const fetchUnreadCount = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const res = await fetch('/api/notifications?countOnly=1');
+      if (!res.ok) return;
+      const data = await res.json();
+      setUnreadCount(data.unreadCount || 0);
+    } catch (err) {
+      console.error('[useNotifications] unread count fetch error:', err);
+    }
+  }, [userId]);
+
+  // Load the list the first time the bell is opened
+  const loadNotifications = useCallback(async () => {
+    if (listLoadedRef.current) return;
+    await fetchNotifications();
+  }, [fetchNotifications]);
 
   // Mark a single notification as read
   const markAsRead = useCallback(async (notificationId: string) => {
-    if (!user) return;
+    if (!userId) return;
     
     setNotifications(prev => 
       prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
@@ -192,11 +222,11 @@ export function useNotifications() {
       console.error('Mark read error:', err);
       fetchNotifications();
     }
-  }, [user, fetchNotifications]);
+  }, [userId, fetchNotifications]);
 
   // Mark all notifications as read
   const markAllAsRead = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
 
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     setUnreadCount(0);
@@ -217,11 +247,11 @@ export function useNotifications() {
       console.error('Mark all read error:', err);
       fetchNotifications();
     }
-  }, [user, fetchNotifications]);
+  }, [userId, fetchNotifications]);
 
   // Delete a single notification
   const deleteNotification = useCallback(async (notificationId: string) => {
-    if (!user) return;
+    if (!userId) return;
     
     let wasUnread = false;
     setNotifications(prev => {
@@ -252,7 +282,7 @@ export function useNotifications() {
       console.error('Delete notification error:', err);
       fetchNotifications();
     }
-  }, [user, fetchNotifications]);
+  }, [userId, fetchNotifications]);
 
   // Subscribe user to Web Push
   const subscribeToPush = useCallback(async () => {
@@ -260,7 +290,7 @@ export function useNotifications() {
       console.warn('Web push notifications not supported.');
       return false;
     }
-    if (!user) return false;
+    if (!userId) return false;
     if (!VAPID_PUBLIC_KEY) {
       console.error('VAPID public key is missing.');
       return false;
@@ -304,7 +334,7 @@ export function useNotifications() {
       console.error('Error subscribing to push:', err);
       return false;
     }
-  }, [user]);
+  }, [userId]);
 
   // Unsubscribe user from Web Push
   const unsubscribeFromPush = useCallback(async () => {
@@ -337,15 +367,17 @@ export function useNotifications() {
     }
   }, []);
 
-  // Fetch on load / login
+  // On load / login fetch only the unread count for the badge; the list loads when the bell opens.
   useEffect(() => {
-    if (user) {
-      fetchNotifications();
+    listLoadedRef.current = false;
+    setListLoaded(false);
+    if (userId) {
+      fetchUnreadCount();
     } else {
       setNotifications([]);
       setUnreadCount(0);
     }
-  }, [user, fetchNotifications]);
+  }, [userId, fetchUnreadCount]);
 
   // Check support, register service worker, check subscription status, and handle permissions
   useEffect(() => {
@@ -356,7 +388,7 @@ export function useNotifications() {
       setPushSupported(isSupported);
       setPermissionState(Notification.permission);
 
-      if (isSupported && user) {
+      if (isSupported && userId) {
         try {
           const registration = await navigator.serviceWorker.register('/sw.js');
           const subscription = await registration.pushManager.getSubscription();
@@ -373,20 +405,20 @@ export function useNotifications() {
     };
 
     initPush();
-  }, [user, subscribeToPush]);
+  }, [userId, subscribeToPush]);
 
   // Real-time subscription to Notification insertions.
   // Uses the module-level supabaseClient singleton — no new client per mount.
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
 
     const channel = supabaseClient
-      .channel(`user-notifications-${user.id}`)
+      .channel(`user-notifications-${userId}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'Notification',
-        filter: `userId=eq.${user.id}`
+        filter: `userId=eq.${userId}`
       }, (payload) => {
         const newNotif = payload.new as Notification;
 
@@ -413,7 +445,7 @@ export function useNotifications() {
     return () => {
       supabaseClient.removeChannel(channel);
     };
-  }, [user]);
+  }, [userId]);
 
   return {
     notifications,
@@ -426,6 +458,8 @@ export function useNotifications() {
     markAllAsRead,
     deleteNotification,
     refresh: fetchNotifications,
+    loadNotifications,
+    listLoaded,
     pushSupported,
     pushSubscribed,
     permissionState,

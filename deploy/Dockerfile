@@ -28,7 +28,7 @@ RUN bun run build
 # ============================================================================
 # STAGE 3: Production Runner
 # ============================================================================
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 # Security: Don't run as root

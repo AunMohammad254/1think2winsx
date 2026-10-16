@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { securityLogger } from './security-logger';
+import { getClientIp } from './client-ip';
 
 interface RateLimitConfig {
   windowMs: number; // Time window in milliseconds
@@ -80,9 +81,7 @@ export class RateLimiter {
     this.name = name;
     this.config = {
       keyGenerator: (request: NextRequest, userId?: string) => {
-        const xff = request.headers.get('x-forwarded-for');
-        const ip = xff ? xff.split(',')[0].trim() : request.headers.get('x-real-ip') || 'unknown';
-        return userId || ip;
+        return userId || getClientIp(request.headers);
       },
       skipSuccessfulRequests: false,
       ...config
@@ -222,6 +221,14 @@ export const rateLimiters = {
     windowMs: 60 * 1000, // 1 minute
     maxRequests: 60 // 60 requests per minute
   }, 'general'),
+
+  // Result share-card images (CPU-heavy renders on a public URL), keyed per IP. Generous on
+  // purpose: many players behind one carrier NAT open their results together right after a
+  // quiz is evaluated, and the response is cacheable anyway.
+  shareCard: new RateLimiter({
+    windowMs: 60 * 1000,
+    maxRequests: 240
+  }, 'shareCard'),
 
   // Prize redemption
   prizeRedemption: new RateLimiter({
