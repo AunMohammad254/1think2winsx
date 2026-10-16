@@ -188,9 +188,7 @@ describe('QuizAttemptModal: answering', () => {
     fireEvent.click(container.querySelector('.fixed button')!);
   });
 
-  it('KNOWN BUG: a failed submission shows nothing to the player', async () => {
-    // handleSubmitQuiz stores the error, but the active phase never renders it, so the
-    // spinner simply stops and the player is left guessing.
+  it('tells the player why a submission failed, keeping their answers for a retry', async () => {
     const results = [jsonResponse({ error: 'Window closed' }, 409), jsonResponse({ message: 'Rate limited' }, 429), new Response('<html>', { status: 500 })];
     vi.stubGlobal('fetch', (fetchMock = routes({ submit: () => results.shift()! })));
     open();
@@ -199,20 +197,21 @@ describe('QuizAttemptModal: answering', () => {
       choose(option);
       if (next) fireEvent.click(screen.getByRole('button', { name: /Next/ }));
     }
-    for (let i = 0; i < 3; i++) {
+    const submit = async (message: string | RegExp) => {
       fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
       await waitFor(() => expect(screen.getByRole('button', { name: 'Submit' })).toBeEnabled());
-    }
+      expect(screen.getByRole('alert')).toHaveTextContent(message);
+    };
+    await submit('Window closed');
+    await submit('Rate limited');
+    await submit('Failed to submit quiz');
     h.getCSRFToken.mockResolvedValueOnce(null);
-    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Submit' })).toBeEnabled());
+    await submit(/Unable to verify security token/);
     h.getCSRFToken.mockRejectedValueOnce('odd');
-    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Submit' })).toBeEnabled());
-    for (const text of ['Window closed', 'Rate limited', 'Failed to submit quiz', /Unable to verify security token/]) {
-      expect(screen.queryByText(text)).toBeNull();
-    }
+    await submit('Failed to submit quiz');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(screen.getByText('Most sixes?')).toBeInTheDocument();
+    expect(screen.getByText('3', { selector: '.text-green-400' })).toBeInTheDocument(); // all three answers kept
   });
 
   it('switches to theater mode, and drops the stream column when nothing is live', async () => {

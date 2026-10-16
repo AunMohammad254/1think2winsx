@@ -94,6 +94,16 @@ function QuizzesPageInner() {
   // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
   const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const liveQuizPushRef = useRef<LiveQuizPushHandle>(null);
+  // A deep link that arrived before LiveQuizPush mounted (page skeleton, or its lazy chunk
+  // still loading); opened as soon as the component attaches its handle
+  const pendingOpenQuizRef = useRef<string | null>(null);
+  const attachLiveQuizPush = useCallback((handle: LiveQuizPushHandle | null) => {
+    liveQuizPushRef.current = handle;
+    if (handle && pendingOpenQuizRef.current) {
+      handle.open(pendingOpenQuizRef.current);
+      pendingOpenQuizRef.current = null;
+    }
+  }, []);
   // Last pushedAt we've already reacted to, per quiz - so re-fetches or
   // unrelated edits to an already-pushed quiz don't re-fire the toast.
   const seenPushedAtRef = useRef<Map<string, string | null>>(new Map());
@@ -193,7 +203,8 @@ function QuizzesPageInner() {
     if (isLoading || !userId) return;
     const openQuiz = searchParams.get('openQuiz');
     if (!openQuiz) return;
-    liveQuizPushRef.current?.open(openQuiz);
+    if (liveQuizPushRef.current) liveQuizPushRef.current.open(openQuiz);
+    else pendingOpenQuizRef.current = openQuiz;
     const rest = new URLSearchParams(searchParams.toString());
     rest.delete('openQuiz');
     const query = rest.toString();
@@ -504,7 +515,7 @@ function QuizzesPageInner() {
                   </Suspense>
                 </div>
               </div>
-              <LiveQuizPush ref={liveQuizPushRef} onAnswered={() => fetchQuizzesData(true)} />
+              <LiveQuizPush ref={attachLiveQuizPush} onAnswered={() => fetchQuizzesData(true)} />
             </div>
           </div>
         </div>

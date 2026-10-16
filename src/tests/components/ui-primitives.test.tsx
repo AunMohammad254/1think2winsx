@@ -223,7 +223,7 @@ describe('DateTimePicker', () => {
     expect(screen.getByRole('button', { name: 'March' })).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: changing the time after browsing months moves the date to the viewed month', () => {
+  it('keeps the picked date when the time changes after browsing months', () => {
     const onChange = vi.fn();
     render(<DateTimePicker onChange={onChange} />);
     fireEvent.click(screen.getByText('Select date and time'));
@@ -231,7 +231,7 @@ describe('DateTimePicker', () => {
     fireEvent.click(screen.getAllByRole('button')[4]); // next month
     fireEvent.change(selects()[1], { target: { value: '45' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
-    expect(onChange).toHaveBeenLastCalledWith('2026-11-20T12:45');
+    expect(onChange).toHaveBeenLastCalledWith('2026-10-20T12:45');
   });
 
   it('browses months and years, jumps to today, clears and closes outside', async () => {

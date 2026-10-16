@@ -230,6 +230,16 @@ describe('prize.db specifics', () => {
     both({ error: { message: 'x' } });
     await expect(prizeRedemptionDb.findAllAdmin()).rejects.toBeTruthy();
   });
+
+  it('countByStatus counts every status with head-only queries', async () => {
+    const counts: Record<string, number | null> = { pending: 3, approved: 5, fulfilled: null, rejected: 1 };
+    adminDb.setTable('PrizeRedemption', (call) => ({ count: counts[eqValue(call, 'status') as string] }));
+    expect(await prizeRedemptionDb.countByStatus()).toEqual({ pending: 3, approved: 5, fulfilled: 0, rejected: 1 });
+    expect(adminDb.callsTo('PrizeRedemption').map((c) => argOf(c, 'select'))).toEqual(['id', 'id', 'id', 'id']);
+    expect(adminDb.calls[0].ops.find((o) => o.op === 'select')?.args[1]).toEqual({ count: 'exact', head: true });
+    adminDb.setTable('PrizeRedemption', { error: { message: 'x' } });
+    await expect(prizeRedemptionDb.countByStatus()).rejects.toEqual({ message: 'x' });
+  });
 });
 
 describe('user.db specifics', () => {

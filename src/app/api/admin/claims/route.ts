@@ -47,6 +47,13 @@ export async function GET(request: NextRequest) {
 
     const supabase = getAdminDb();
 
+    // The status tiles show totals, not just the page returned here; a failed count
+    // should not take the claim list down with it
+    const statusCounts = await prizeRedemptionDb.countByStatus().catch((countError) => {
+      console.warn('Failed to count claims by status:', countError);
+      return null;
+    });
+
     // Try RPC first
     try {
       const { data, error } = await supabase.rpc('get_admin_claims', {
@@ -74,6 +81,7 @@ export async function GET(request: NextRequest) {
         return createSecureJsonResponse({
           claims: data.claims || [],
           pagination: data.pagination,
+          statusCounts,
         });
       }
     } catch (rpcError) {
@@ -117,6 +125,7 @@ export async function GET(request: NextRequest) {
         total: result.count,
         totalPages: result.totalPages,
       },
+      statusCounts,
     });
 
   } catch (error) {

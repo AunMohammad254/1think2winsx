@@ -174,6 +174,8 @@ describe('admin prize actions', () => {
 
     expect(await actions.createPrize({ name: 'Bike', type: 'bike', pointsRequired: 1, imageUrl: 'https://evil.example/a.png' } as never))
       .toEqual({ success: false, error: expect.stringContaining('Cloudinary') });
+    expect(await actions.createPrize({ name: 'Watch', type: 'watch', pointsRequired: 1, imageUrl: '/prizes/watch.svg' } as never)).toEqual({ success: true, data: { id: 'new' } });
+    expect(prizeDb.create).toHaveBeenLastCalledWith(expect.objectContaining({ imageUrl: '/prizes/watch.svg' }));
     expect(await actions.createPrize({ name: '', type: 'bike', pointsRequired: 1 } as never)).toEqual({ success: false, error: 'Name is required' });
 
     prizeDb.create.mockRejectedValue(new Error('x'));

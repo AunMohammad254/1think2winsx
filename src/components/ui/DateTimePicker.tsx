@@ -134,9 +134,9 @@ export default function DateTimePicker({
         return days;
     };
 
-    const getInternalDateString = (day: number, hour: number, minute: number, ampm: string) => {
-        const year = viewDate.getFullYear();
-        const month = viewDate.getMonth();
+    // Takes the date explicitly: picking a day uses the month on screen, but a time change keeps
+    // the picked date even after browsing to another month
+    const getInternalDateString = (year: number, month: number, day: number, hour: number, minute: number, ampm: string) => {
         let h = hour;
         if (ampm === 'PM' && h !== 12) h += 12;
         if (ampm === 'AM' && h === 12) h = 0;
@@ -144,7 +144,7 @@ export default function DateTimePicker({
     };
 
     const handleSelectDay = (day: number) => {
-        setInternalDate(getInternalDateString(day, selectedHour, selectedMinute, selectedAmPm));
+        setInternalDate(getInternalDateString(viewDate.getFullYear(), viewDate.getMonth(), day, selectedHour, selectedMinute, selectedAmPm));
     };
 
     const handleTimeChange = (type: 'hour' | 'minute' | 'ampm', val: any) => {
@@ -158,7 +158,7 @@ export default function DateTimePicker({
 
         if (internalDate) {
             const d = new Date(internalDate);
-            setInternalDate(getInternalDateString(d.getDate(), newHour, newMinute, newAmPm));
+            setInternalDate(getInternalDateString(d.getFullYear(), d.getMonth(), d.getDate(), newHour, newMinute, newAmPm));
         }
     };
 

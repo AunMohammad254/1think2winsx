@@ -32,7 +32,7 @@ import type {
 const prizeFields = {
     name: z.string().min(1, 'Name is required').max(100, 'Name too long'),
     description: z.string().max(500, 'Description too long').optional(),
-    imageUrl: z.string().url('Invalid image URL').refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
+    imageUrl: z.string().refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
     modelUrl: z.string().url('Invalid model URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
     pointsRequired: z.number().min(1, 'Points must be at least 1'),

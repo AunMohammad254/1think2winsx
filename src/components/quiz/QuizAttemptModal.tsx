@@ -169,6 +169,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
 
         setShowUnansweredWarning(false);
         setIsSubmitting(true);
+        setError(null);
         try {
             const csrfToken = await getCSRFToken();
             if (!csrfToken) {
@@ -597,6 +598,14 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                                 )}
                             </div>
                         </div>
+
+                        {/* Submission error: the answers are kept, so the player can submit again */}
+                        {error && (
+                            <div role="alert" className="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300">
+                                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                                <p className="text-sm">{error}</p>
+                            </div>
+                        )}
 
                         {/* Question Navigator Grid */}
                         <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4 md:p-6 mb-4 max-lg:landscape:hidden">

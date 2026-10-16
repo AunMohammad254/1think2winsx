@@ -140,9 +140,9 @@ describe('admin quiz list page', () => {
     fireEvent.click(status);
     expect([titles()[0], titles()[6]]).toEqual(['Upcoming Final', 'Cricket Basics']);
     fireEvent.click(questions);
-    expect(titles().slice(0, 2)).toEqual(['Cricket Basics', 'Upcoming Final']);
+    expect(titles().slice(0, 3)).toEqual(['Cricket Basics', 'History Quiz', 'Upcoming Final']); // History's count comes from stats
     fireEvent.click(attempts);
-    expect(titles()[0]).toBe('Cricket Basics');
+    expect(titles().slice(0, 2)).toEqual(['Cricket Basics', 'History Quiz']);
     fireEvent.click(created);
     expect(titles()[0]).toBe('Later');
     fireEvent.click(created);
@@ -151,13 +151,12 @@ describe('admin quiz list page', () => {
     expect(titles()[0]).toBe('Later');
   });
 
-  it('KNOWN BUG: sorting by questions ignores the stats counts the table shows', async () => {
-    // The column shows _count ?? stats, but the sort only reads _count.
+  it('sorts by questions using the same counts the table shows, from _count or stats', async () => {
     render(<AdminQuizManagementPage />);
     await loaded();
     fireEvent.click(headerButtons()[2]);
     expect(within(row('History Quiz')).getByText('5')).toBeInTheDocument();
-    expect(titles().indexOf('History Quiz')).toBeGreaterThan(titles().indexOf('Upcoming Final')); // 5 questions sorted below 3
+    expect(titles().indexOf('History Quiz')).toBeLessThan(titles().indexOf('Upcoming Final')); // 5 questions sorted above 3
   });
 
   it('paginates long lists with a sliding window of page numbers', async () => {
@@ -190,15 +189,16 @@ describe('admin quiz list page', () => {
     expect(within(pager()).getAllByRole('button').map((b) => b.textContent).filter(Boolean)).toEqual(['1', '2', '3']);
   });
 
-  it('KNOWN BUG: the page is not clamped when quizzes disappear, hiding the rest of the list', async () => {
+  it('steps back to the last page when quizzes disappear from the open one', async () => {
     vi.stubGlobal('fetch', routes(() => jsonResponse({ quizzes: many(11) })));
     render(<AdminQuizManagementPage />);
     await loaded('Quiz 11');
     fireEvent.click(within(pager()).getByRole('button', { name: '2' }));
     expect(titles()).toEqual(['Quiz 01']);
     realtime('DELETE', { old: { id: 'm1' } });
-    expect(screen.getByText('Get started by creating your first quiz')).toBeInTheDocument();
-    expect(screen.queryByText(/^Showing/)).toBeNull(); // no pager left to get back to page 1
+    expect(titles()).toHaveLength(10);
+    expect(titles()[0]).toBe('Quiz 11');
+    expect(screen.queryByText('Get started by creating your first quiz')).toBeNull();
   });
 
   it('selects quizzes and deletes them in bulk', async () => {
@@ -228,31 +228,41 @@ describe('admin quiz list page', () => {
     expect(h.actions.deleteQuiz).not.toHaveBeenCalled();
     click(/Delete Selected/);
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Deleted 1 quiz(es)'));
+    expect(h.toast.error).toHaveBeenCalledWith('Failed to delete 1 quiz(es)');
     expect(h.actions.deleteQuiz.mock.calls).toEqual([['q3'], ['q6']]);
     expect(screen.queryByText(/selected$/)).toBeNull();
+
+    h.toast.error.mockClear();
+    fireEvent.click(box('Science'));
+    click(/Delete Selected/);
+    await waitFor(() => expect(h.toast.success).toHaveBeenLastCalledWith('Deleted 1 quiz(es)'));
+    expect(h.actions.deleteQuiz).toHaveBeenCalledTimes(3);
+    expect(h.toast.error).not.toHaveBeenCalled(); // nothing failed, so no failure toast
   });
 
-  it('KNOWN BUG: bulk delete reports success even when every delete failed', async () => {
+  it('reports a bulk delete in which every delete failed as a failure', async () => {
     h.actions.deleteQuiz.mockResolvedValue({ success: false, error: 'FK violation' });
     render(<AdminQuizManagementPage />);
     await loaded();
     fireEvent.click(within(row('Science')).getByRole('checkbox'));
     click(/Delete Selected/);
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Deleted 0 quiz(es)'));
-    expect(h.toast.error).not.toHaveBeenCalled();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Failed to delete 1 quiz(es)'));
+    expect(h.toast.success).not.toHaveBeenCalled();
   });
 
-  it('KNOWN BUG: select-all compares counts, so a full page 1 selection looks like page 2 is selected', async () => {
+  it('select-all reflects the quizzes on the current page, not the selection count', async () => {
     vi.stubGlobal('fetch', routes(() => jsonResponse({ quizzes: many(20) })));
     render(<AdminQuizManagementPage />);
     await loaded('Quiz 20');
     const selectAll = () => screen.getAllByRole('checkbox')[0];
     fireEvent.click(selectAll());
     fireEvent.click(within(pager()).getByRole('button', { name: '2' }));
-    expect(selectAll()).toBeChecked();
+    expect(selectAll()).not.toBeChecked();
     expect(within(row('Quiz 01')).getByRole('checkbox')).not.toBeChecked();
-    fireEvent.click(selectAll()); // clears page 1's selection instead of selecting page 2
-    expect(screen.queryByText(/selected$/)).toBeNull();
+    fireEvent.click(selectAll()); // selects page 2
+    expect(screen.getByText('10 selected')).toBeInTheDocument();
+    expect(selectAll()).toBeChecked();
+    expect(within(row('Quiz 01')).getByRole('checkbox')).toBeChecked();
   });
 
   it('publishes, pushes, pauses and deletes from the action menu', async () => {
@@ -444,15 +454,13 @@ describe('admin quiz list page', () => {
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Failed to duplicate quiz', { id: 'toast-1' }));
   });
 
-  it('KNOWN BUG: a failed duplicate leaves the loading toast spinning', async () => {
-    // The catch block posts a new error toast instead of replacing the loading toast by id.
+  it('replaces the loading toast when a duplicate fails', async () => {
     vi.stubGlobal('fetch', routes(undefined, () => jsonResponse({}, 404)));
     render(<AdminQuizManagementPage />);
     await loaded();
     openMenu('Science');
     click('Reuse Quiz');
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('An unexpected error occurred while duplicating'));
-    expect(h.toast.error.mock.calls.at(-1)).toHaveLength(1);
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('An unexpected error occurred while duplicating', { id: 'toast-1' }));
     expect(h.actions.createQuiz).not.toHaveBeenCalled();
   });
 
@@ -484,7 +492,7 @@ describe('admin quiz list page', () => {
     expect(await screen.findByText('Failed to load quizzes', { selector: 'div' })).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: the error banner stays after a successful refresh', async () => {
+  it('clears the error banner after a successful refresh', async () => {
     const results = [jsonResponse({}, 500), jsonResponse({ quizzes })];
     vi.stubGlobal('fetch', routes(() => results.shift()!));
     render(<AdminQuizManagementPage />);
@@ -492,7 +500,7 @@ describe('admin quiz list page', () => {
     const refresh = screen.getAllByRole('button', { name: /Create Quiz/ })[0].previousElementSibling as HTMLElement;
     fireEvent.click(refresh);
     await loaded();
-    expect(screen.getByText('Failed to fetch quizzes')).toBeInTheDocument();
+    expect(screen.queryByText('Failed to fetch quizzes')).toBeNull();
   });
 
   it('keeps in sync through realtime events, debouncing refetches', async () => {

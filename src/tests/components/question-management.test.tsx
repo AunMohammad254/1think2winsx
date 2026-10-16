@@ -115,9 +115,7 @@ describe('QuestionManagement', () => {
     expect(writes()).toHaveLength(0);
   });
 
-  it('KNOWN BUG: a validation error wipes what the admin typed in the add form', async () => {
-    // defaultFormState is rebuilt on every render; the form resets whenever initialData changes,
-    // and setError re-renders the parent.
+  it('keeps what the admin typed in the add form after a validation error', async () => {
     render(<QuestionManagement quizId="z1" />);
     await loaded();
     openAdd();
@@ -125,20 +123,22 @@ describe('QuestionManagement', () => {
     fireEvent.change(option(1), { target: { value: 'Only option' } });
     save();
     await screen.findByText('At least 2 options are required');
-    expect(within(dialog()).getByLabelText('Question Text')).toHaveValue('');
+    expect(within(dialog()).getByLabelText('Question Text')).toHaveValue('Typed carefully');
+    expect(option(1)).toHaveValue('Only option');
   });
 
-  it('KNOWN BUG: an option with surrounding spaces cannot be marked correct', async () => {
+  it('trims options, so one with surrounding spaces can be marked correct', async () => {
     render(<QuestionManagement quizId="z1" />);
     await loaded();
     openAdd();
     setText('Spaces?');
     fireEvent.change(option(1), { target: { value: ' Padded ' } });
-    fireEvent.change(option(2), { target: { value: 'Plain' } });
-    fireEvent.click(within(dialog()).getAllByRole('button', { name: 'Set Correct' })[0]);
+    fireEvent.change(option(3), { target: { value: 'Plain' } });
+    fireEvent.change(option(4), { target: { value: 'Plain' } });
+    fireEvent.click(within(dialog()).getAllByRole('button', { name: 'Set Correct' })[3]); // the second "Plain", after a blank
     save();
-    expect(await screen.findByText('Selected correct option is empty')).toBeInTheDocument();
-    expect(writes()).toHaveLength(0);
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(JSON.parse(writes()[0][1].body)).toEqual({ quizId: 'z1', text: 'Spaces?', options: ['Padded', 'Plain', 'Plain'], correctOption: 2 });
   });
 
   it('explains create failures from the server', async () => {

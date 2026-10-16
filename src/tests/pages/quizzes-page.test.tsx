@@ -302,14 +302,15 @@ describe('quizzes page: live updates', () => {
     expect(h.router.replace).toHaveBeenLastCalledWith('/quizzes', { scroll: false });
   });
 
-  it('KNOWN BUG: a deep link on a fresh page load is dropped', async () => {
-    // The effect runs while the page still shows its skeleton (walletEnabled is null), before the
-    // LiveQuizPush ref exists, so open() is a no-op; it then strips ?openQuiz, so nothing retries.
+  it('opens a deep-linked quiz on a fresh page load, once LiveQuizPush has mounted', async () => {
     h.params = new URLSearchParams('openQuiz=abc');
-    render(<QuizzesPage />);
+    const { rerender } = render(<QuizzesPage />);
     await loaded();
     expect(h.router.replace).toHaveBeenCalledWith('/quizzes', { scroll: false });
-    expect(h.push.open).not.toHaveBeenCalled();
+    expect(h.push.open).toHaveBeenCalledTimes(1);
+    expect(h.push.open).toHaveBeenCalledWith('abc');
+    rerender(<QuizzesPage />); // the handle re-attaching does not reopen it
+    expect(h.push.open).toHaveBeenCalledTimes(1);
   });
 
   it('reacts to realtime inserts, pushes and deletes', async () => {

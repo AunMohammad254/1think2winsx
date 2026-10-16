@@ -214,18 +214,20 @@ describe('client-checked admin pages', () => {
     }
   });
 
-  it('KNOWN BUG: quiz evaluation treats a 401 as an admin and sends a 403 to the player login', async () => {
-    fetchMock.mockImplementationOnce(async () => jsonResponse({}, 401));
+  it('quiz evaluation: lets admins in and sends others to the admin login', async () => {
     const { unmount } = render(<QuizEvaluationPage />);
     expect(await screen.findByText('Quiz Evaluation')).toBeInTheDocument();
     unmount();
-    fetchMock.mockImplementationOnce(async () => jsonResponse({}, 403));
-    const second = render(<QuizEvaluationPage />);
-    await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/login'));
-    second.unmount();
-    fetchMock.mockImplementationOnce(async () => { throw new Error('x'); });
-    render(<QuizEvaluationPage />);
-    await waitFor(() => expect(console.error).toHaveBeenCalledWith('Admin check failed:', expect.any(Error)));
+    for (const response of [() => jsonResponse({}, 401), () => jsonResponse({}, 403), () => { throw new Error('x'); }]) {
+      h.router.push.mockClear();
+      fetchMock.mockImplementationOnce(async () => response());
+      const r = render(<QuizEvaluationPage />);
+      await waitFor(() => expect(h.router.push).toHaveBeenLastCalledWith('/admin/login'));
+      expect(screen.queryByText('Quiz Evaluation')).toBeNull();
+      r.unmount();
+    }
+    expect(h.router.push).not.toHaveBeenCalledWith('/login');
+    expect(console.error).toHaveBeenCalledWith('Admin check failed:', expect.any(Error));
   });
 
   it('renders the lazy managers with their loading skeletons', async () => {
@@ -321,16 +323,13 @@ describe('admin quiz detail page', () => {
     expect(await screen.findByText('Quiz Management', { selector: 'h1' })).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: requires a player session too, redirecting from render', () => {
-    // The admin session already guards /admin, but this page also demands a player login
-    // (useAuth) and calls router.push during render.
+  it('needs only the admin login: loads for an admin who is not signed in as a player', async () => {
+    // The (protected) layout checks the admin session; the page must not ask for a player one
     h.auth = { user: null, isLoading: false };
-    const { container } = render(<QuizManagementPage />);
-    expect(h.router.push).toHaveBeenCalledWith('/login');
-    expect(container).toBeEmptyDOMElement();
-    h.auth = { user: null, isLoading: true };
+    fetchMock.mockImplementation(async () => jsonResponse({ quiz: { id: 'z1', title: 'Cricket Cup' } }));
     render(<QuizManagementPage />);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(await screen.findByText('Cricket Cup')).toBeInTheDocument();
+    expect(h.router.push).not.toHaveBeenCalled();
   });
 
   it('does nothing without a quiz id', () => {

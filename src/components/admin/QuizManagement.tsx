@@ -234,7 +234,8 @@ export default function QuizManagement({ quizId, onQuizChange }: QuizManagementP
       <div className="glass-card glass-border p-6 rounded-lg">
         <div className="flex items-center justify-center">
           <AlertCircle className="h-8 w-8 text-red-400 mr-2" />
-          <span className="text-red-300">Quiz not found</span>
+          {/* A failed load leaves no quiz, so say why instead of just "not found" */}
+          <span className="text-red-300">{error || 'Quiz not found'}</span>
         </div>
       </div>
     );

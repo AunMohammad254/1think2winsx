@@ -162,6 +162,22 @@ export const prizeRedemptionDb = {
         return { data: data || [], count: count || 0, page, limit, totalPages: Math.ceil((count || 0) / limit) }
     },
 
+    // Totals for the admin status tiles, whatever page or status filter is being viewed
+    async countByStatus() {
+        const supabase = getAdminDb()
+        const statuses = ['pending', 'approved', 'fulfilled', 'rejected'] as const
+        const counts = await Promise.all(statuses.map(async (status) => {
+            const { count, error } = await supabase
+                .from('PrizeRedemption')
+                .select('id', { count: 'exact', head: true })
+                .eq('status', status)
+
+            if (error) throw error
+            return [status, count || 0] as const
+        }))
+        return Object.fromEntries(counts) as Record<typeof statuses[number], number>
+    },
+
     async create(redemptionData: Insertable<'PrizeRedemption'>) {
         const supabase = getAdminDb()
         const { data, error } = await supabase

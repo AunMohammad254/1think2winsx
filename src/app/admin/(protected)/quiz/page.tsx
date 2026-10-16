@@ -76,6 +76,10 @@ const statusConfig = {
     upcoming: { label: 'Upcoming', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
 };
 
+// The list reports counts as _count or as stats depending on the quiz; the table and the sort use both
+const questionCountOf = (quiz: Quiz) => quiz._count?.questions || quiz.stats?.totalQuestions || 0;
+const attemptCountOf = (quiz: Quiz) => quiz._count?.attempts || quiz.stats?.totalAttempts || 0;
+
 // ============================================
 // Component
 // ============================================
@@ -122,6 +126,7 @@ export default function AdminQuizManagementPage() {
 
             const data: AdminQuizzesResponse = await response.json();
             setQuizzes(data.quizzes || []);
+            setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load quizzes');
             toast.error('Failed to load quizzes');
@@ -262,7 +267,9 @@ export default function AdminQuizManagementPage() {
             if (result.success) successCount++;
         }
 
-        toast.success(`Deleted ${successCount} quiz(es)`);
+        const failedCount = selectedQuizzes.length - successCount;
+        if (successCount > 0) toast.success(`Deleted ${successCount} quiz(es)`);
+        if (failedCount > 0) toast.error(`Failed to delete ${failedCount} quiz(es)`);
         setSelectedQuizzes([]);
         // Realtime DELETE events will remove from state
     };
@@ -315,9 +322,10 @@ export default function AdminQuizManagementPage() {
     };
 
     const handleReuse = async (quiz: Quiz) => {
+        // Outside the try so a failure can replace the loading toast instead of leaving it spinning
+        const toastId = toast.loading('Loading quiz details to copy...');
         try {
             setLoading(true);
-            const toastId = toast.loading('Loading quiz details to copy...');
             const response = await fetch(`/api/admin/quizzes/${quiz.id}`);
 
             if (!response.ok) throw new Error('Failed to load quiz details');
@@ -361,7 +369,7 @@ export default function AdminQuizManagementPage() {
                 toast.error(result.error || 'Failed to duplicate quiz', { id: toastId });
             }
         } catch (err) {
-            toast.error('An unexpected error occurred while duplicating');
+            toast.error('An unexpected error occurred while duplicating', { id: toastId });
             console.error(err);
         } finally {
             setLoading(false);
@@ -414,10 +422,10 @@ export default function AdminQuizManagementPage() {
                     comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
                     break;
                 case 'questions':
-                    comparison = (a._count?.questions || 0) - (b._count?.questions || 0);
+                    comparison = questionCountOf(a) - questionCountOf(b);
                     break;
                 case 'attempts':
-                    comparison = (a._count?.attempts || 0) - (b._count?.attempts || 0);
+                    comparison = attemptCountOf(a) - attemptCountOf(b);
                     break;
             }
 
@@ -426,6 +434,9 @@ export default function AdminQuizManagementPage() {
 
     // Pagination
     const totalPages = Math.ceil(filteredQuizzes.length / pageSize);
+    // Realtime deletes can empty the open page; step back to the last page that still has quizzes
+    const lastPage = Math.max(totalPages, 1);
+    if (currentPage > lastPage) setCurrentPage(lastPage);
     const paginatedQuizzes = filteredQuizzes.slice(
         (currentPage - 1) * pageSize,
         currentPage * pageSize
@@ -440,8 +451,11 @@ export default function AdminQuizManagementPage() {
         }
     };
 
+    // Compares ids, not counts: a full selection on another page is not this page selected
+    const allOnPageSelected = paginatedQuizzes.length > 0 && paginatedQuizzes.every(q => selectedQuizzes.includes(q.id));
+
     const toggleSelectAll = () => {
-        if (selectedQuizzes.length === paginatedQuizzes.length) {
+        if (allOnPageSelected) {
             setSelectedQuizzes([]);
         } else {
             setSelectedQuizzes(paginatedQuizzes.map(q => q.id));
@@ -586,7 +600,7 @@ export default function AdminQuizManagementPage() {
                         <div className="col-span-1 flex items-center">
                             <input
                                 type="checkbox"
-                                checked={selectedQuizzes.length === paginatedQuizzes.length && paginatedQuizzes.length > 0}
+                                checked={allOnPageSelected}
                                 onChange={toggleSelectAll}
                                 className="w-4 h-4 rounded bg-gray-800 border-gray-600 text-purple-600 focus:ring-purple-500"
                             />
@@ -656,8 +670,8 @@ export default function AdminQuizManagementPage() {
                         <div className="divide-y divide-white/5">
                             {paginatedQuizzes.map((quiz) => {
                                 const status = statusConfig[quiz.status] || statusConfig.draft;
-                                const questionCount = quiz._count?.questions || quiz.stats?.totalQuestions || 0;
-                                const attemptCount = quiz._count?.attempts || quiz.stats?.totalAttempts || 0;
+                                const questionCount = questionCountOf(quiz);
+                                const attemptCount = attemptCountOf(quiz);
 
                                 return (
                                     <div

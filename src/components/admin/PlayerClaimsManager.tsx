@@ -33,6 +33,13 @@ export default function PlayerClaimsManager() {
     total: 0,
     totalPages: 0,
   });
+  // Totals across all claims from the API; the loaded list is only one filtered page
+  const [statusCounts, setStatusCounts] = useState<Record<ClaimStatus, number>>({
+    pending: 0,
+    approved: 0,
+    fulfilled: 0,
+    rejected: 0,
+  });
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -63,6 +70,8 @@ export default function PlayerClaimsManager() {
         const data = await response.json();
         setClaims(data.claims || []);
         setPagination(data.pagination);
+        // Missing when the server could not count; keep the last known totals
+        if (data.statusCounts) setStatusCounts(data.statusCounts);
 
         if (showRefreshState) {
           toast.success('Claims refreshed');
@@ -139,14 +148,6 @@ export default function PlayerClaimsManager() {
       claim.fullName?.toLowerCase().includes(query)
     );
   });
-
-  // Count claims by status
-  const statusCounts: Record<ClaimStatus, number> = {
-    pending: claims.filter(c => c.status === 'pending').length,
-    approved: claims.filter(c => c.status === 'approved').length,
-    fulfilled: claims.filter(c => c.status === 'fulfilled').length,
-    rejected: claims.filter(c => c.status === 'rejected').length,
-  };
 
   // ============================================
   // Render

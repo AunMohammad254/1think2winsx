@@ -35,14 +35,14 @@ export default function QuizEvaluationPage() {
         const checkAdmin = async () => {
             try {
                 const response = await fetch('/api/admin/quizzes');
-                if (response.status === 403) {
-                    router.push('/login');
+                if (response.status === 401 || response.status === 403) {
+                    router.push('/admin/login');
                     return;
                 }
                 setIsAdmin(true);
             } catch (error) {
                 console.error('Admin check failed:', error);
-                router.push('/login');
+                router.push('/admin/login');
             } finally {
                 setLoading(false);
             }
