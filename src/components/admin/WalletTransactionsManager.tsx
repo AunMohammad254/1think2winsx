@@ -198,11 +198,6 @@ export default function WalletTransactionsManager() {
 
     const handleBulkProcess = async (action: 'approve' | 'reject') => {
         if (selectedIds.size === 0 || isProcessingBulk) return;
-        
-        if (action === 'reject' && !rejectNotes) {
-            setShowRejectModal('bulk');
-            return;
-        }
 
         setIsProcessingBulk(true);
         try {
@@ -314,6 +309,10 @@ export default function WalletTransactionsManager() {
     });
 
     const pendingCount = transactions.filter(t => t.status === 'pending').length;
+
+    // "Reject Selected" opens the reject modal with this id instead of a transaction id
+    const isBulkReject = showRejectModal === 'bulk';
+    const isRejecting = isBulkReject ? isProcessingBulk : processingId === showRejectModal;
 
     // ============================================
     // Render
@@ -721,11 +720,11 @@ export default function WalletTransactionsManager() {
                                 Cancel
                             </button>
                             <button
-                                onClick={() => handleReject(showRejectModal)}
-                                disabled={processingId === showRejectModal}
+                                onClick={() => isBulkReject ? handleBulkProcess('reject') : handleReject(showRejectModal)}
+                                disabled={isRejecting}
                                 className="flex-1 px-4 py-3 bg-red-500/20 border border-red-500/30 text-red-300 rounded-xl hover:bg-red-500/30 transition-all duration-200 font-medium disabled:opacity-50 flex items-center justify-center gap-2"
                             >
-                                {processingId === showRejectModal ? (
+                                {isRejecting ? (
                                     <>
                                         <Loader2 className="w-4 h-4 animate-spin" />
                                         Processing...
