@@ -79,7 +79,9 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const installApp = async () => {
+  // ⚡ Bolt Performance Optimization:
+  // Memoize installApp to maintain referential stability.
+  const installApp = React.useCallback(async () => {
     if (!deferredPrompt) return null;
 
     try {
@@ -92,26 +94,32 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
       console.error('Failed to trigger PWA install prompt:', error);
       return null;
     }
-  };
+  }, [deferredPrompt]);
 
-  const dismissBanner = () => {
+  // ⚡ Bolt Performance Optimization:
+  // Memoize dismissBanner to maintain referential stability.
+  const dismissBanner = React.useCallback(() => {
     setIsBannerDismissed(true);
     // Dismiss for 7 days
     const expiration = Date.now() + 7 * 24 * 60 * 60 * 1000;
     localStorage.setItem('pwa_banner_dismissed', expiration.toString());
-  };
+  }, []);
+
+  // ⚡ Bolt Performance Optimization:
+  // Memoize the Context value object to prevent consumers from re-rendering
+  // unnecessarily when PWAProvider re-renders due to unrelated state changes.
+  // Expected impact: Reduces re-renders of all components utilizing usePWA()
+  const value = React.useMemo(() => ({
+    deferredPrompt,
+    isInstallable,
+    isInstalled,
+    installApp,
+    dismissBanner,
+    isBannerDismissed,
+  }), [deferredPrompt, isInstallable, isInstalled, installApp, dismissBanner, isBannerDismissed]);
 
   return (
-    <PWAContext.Provider
-      value={{
-        deferredPrompt,
-        isInstallable,
-        isInstalled,
-        installApp,
-        dismissBanner,
-        isBannerDismissed,
-      }}
-    >
+    <PWAContext.Provider value={value}>
       {children}
     </PWAContext.Provider>
   );
