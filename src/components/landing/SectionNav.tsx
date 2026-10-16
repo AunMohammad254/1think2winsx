@@ -18,6 +18,10 @@ const SECTIONS = [
 // Any of these means the user is steering the page themselves, so stop re-aiming.
 const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "mousedown"] as const;
 
+// An explicit `behavior` overrides the reduced-motion rule in globals.css, so check it here.
+const scrollBehavior = (): ScrollBehavior =>
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+
 export default function SectionNav() {
   const { activeId, setActiveId } = useActiveSection(SECTIONS.map((s) => s.id));
   const stopFollowRef = useRef<(() => void) | null>(null);
@@ -49,7 +53,7 @@ export default function SectionNav() {
       if (Math.abs(top - aimedAt) > 1) {
         aimedAt = top;
         stillFrames = 0;
-        target.scrollIntoView({ behavior: "smooth" });
+        target.scrollIntoView({ behavior: scrollBehavior() });
       } else {
         stillFrames = window.scrollY === lastScrollY ? stillFrames + 1 : 0;
       }
@@ -61,7 +65,7 @@ export default function SectionNav() {
 
     USER_SCROLL_EVENTS.forEach((type) => window.addEventListener(type, stop, { passive: true }));
     stopFollowRef.current = stop;
-    target.scrollIntoView({ behavior: "smooth" });
+    target.scrollIntoView({ behavior: scrollBehavior() });
     frame = requestAnimationFrame(follow);
   };
 

@@ -382,6 +382,7 @@ describe('SectionNav', () => {
     fireEvent.click(link('Prizes'));
     expect(link('Prizes').querySelector('span')!.className).toContain('text-emerald-400');
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'smooth' });
     expect(window.history.pushState).toHaveBeenCalledWith(null, '', '#prizes');
     topOf.prizes = 1800; // content mounted above pushed the target down
     advance(20);
@@ -412,6 +413,15 @@ describe('SectionNav', () => {
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
     fireEvent.click(link('Home'));
     unmount();
+  });
+
+  it('jumps without animation when the user prefers reduced motion', () => {
+    media([REDUCED]);
+    render(<SectionNav />, { container: document.body.appendChild(document.createElement('div')) });
+    fireEvent.click(link('Prizes'));
+    topOf.prizes = 1800;
+    advance(20);
+    expect(scrollIntoView.mock.calls).toEqual([[{ behavior: 'auto' }], [{ behavior: 'auto' }]]);
   });
 
   it('only highlights when the target section is missing', () => {
