@@ -124,17 +124,23 @@ describe('ChatbotWidget', () => {
     await waitFor(() => expect(document.getElementById('chatbot-panel')).toBeNull());
   });
 
-  it('KNOWN BUG: a reply that arrives after closing never shows the unread badge', async () => {
-    // sendMessage reads isOpen from the render it was created in (always true), so the
-    // `if (!isOpen) setHasUnread(true)` branch can never fire.
+  it('shows the unread badge for a reply that arrives after closing, and for a late error', async () => {
     let release!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (release = r)));
+    const { unmount } = render(<ChatbotWidget />);
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: '❓ How does the quiz work?' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close chat' }));
+    await act(async () => release(jsonResponse({ message: 'Late answer' })));
+    expect(await screen.findByRole('button', { name: 'Open AI support chat' })).toHaveTextContent('!');
+    unmount();
+
     fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (release = r)));
     render(<ChatbotWidget />);
     await open();
     fireEvent.click(screen.getByRole('button', { name: '❓ How does the quiz work?' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close chat' }));
-    await act(async () => release(jsonResponse({ message: 'Late answer' })));
-    const trigger = await screen.findByRole('button', { name: 'Open AI support chat' });
-    expect(trigger).not.toHaveTextContent('!');
+    await act(async () => release(jsonResponse({ error: 'busy' }, 500)));
+    expect(await screen.findByRole('button', { name: 'Open AI support chat' })).toHaveTextContent('!');
   });
 });

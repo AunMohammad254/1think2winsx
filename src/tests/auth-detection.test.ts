@@ -126,6 +126,29 @@ describe('detectAuth() - other cases', () => {
         expect(d.currentMethod).toBe('other_oauth');
         expect(d.label).toBe('GitHub sign-in');
     });
+
+    it('capitalises a provider it has no label for', () => {
+        expect(detectAuth({ app_metadata: { provider: 'discord' } }, []).label).toBe('Discord sign-in');
+    });
+
+    it('treats entries without a timestamp as oldest', () => {
+        const d = detectAuth(googleWithPassword, [{ method: 'password' }, { method: 'oauth', provider: 'google' }, { method: 'recovery', timestamp: 5 }]);
+        expect(d.currentMethod).toBe('email_link');
+        expect(detectAuth(googleWithPassword, [{ method: 'password', timestamp: 3 }, { method: 'oauth', provider: 'google' }]).currentMethod).toBe('password');
+    });
+
+    it('falls back to the account when only housekeeping entries are present', () => {
+        expect(detectAuth(emailAccount, [{ method: 'token_refresh', timestamp: 9 }]).currentMethod).toBe('password');
+    });
+
+    it('cannot name an OAuth provider the token omits when several are linked', () => {
+        const d = detectAuth({ identities: [{ provider: 'google' }, { provider: 'github' }] }, [{ method: 'oauth', timestamp: 1 }]);
+        expect(d.currentMethod).toBe('google');
+    });
+
+    it('labels an unrecognised sign-in method generically', () => {
+        expect(detectAuth(googleOnly, [{ method: 'totp', timestamp: 1 }])).toMatchObject({ currentMethod: 'unknown', label: 'Signed in' });
+    });
 });
 
 describe('passwordDialogTitle()', () => {

@@ -101,6 +101,16 @@ describe('GET /api/admin/db-stats', () => {
     expect(adminDb.rpcCalls.map((c) => c.fn)).not.toContain('get_quiz_attempt_counts_by_quiz');
   });
 
+  it('copes with no attempt counts from the RPC and no completed-attempt count', async () => {
+    adminDb.setTable('*', (call) => {
+      if (isHead(call)) return { count: eqValue(call, 'isCompleted') ? null : 4 };
+      return { data: [{ id: 'q1', title: 'A' }] };
+    });
+    const body = await (await get()).json();
+    expect(body.overview.completionRate).toBe(0);
+    expect(body.topQuizzes).toEqual([{ id: 'q1', title: 'A', attemptCount: 0 }]);
+  });
+
   it('logs refused access, honours the rate limit and reports errors', async () => {
     requireAuth.mockResolvedValueOnce(NextResponse.json({}, { status: 403 }));
     expect((await get()).status).toBe(403);

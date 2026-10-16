@@ -182,6 +182,11 @@ export default function ChatbotWidget() {
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [hasUnread, setHasUnread] = useState(false);
+  // The reply arrives after an await, so read whether the panel is open now, not when the message was sent
+  const isOpenRef = useRef(isOpen);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastUserMessageRef = useRef<string>('');
@@ -275,7 +280,7 @@ export default function ChatbotWidget() {
         ]);
 
         // Show unread badge if panel is closed
-        if (!isOpen) setHasUnread(true);
+        if (!isOpenRef.current) setHasUnread(true);
         return;
       }
 
@@ -289,7 +294,7 @@ export default function ChatbotWidget() {
       };
 
       setMessages((prev) => [...prev, aiMsg]);
-      if (!isOpen) setHasUnread(true);
+      if (!isOpenRef.current) setHasUnread(true);
     } catch {
       setMessages((prev) => [
         ...prev,

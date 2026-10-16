@@ -138,8 +138,7 @@ async function loadLeaderboard(cacheKey: string, limit: number, timeframe: strin
     }
     // Hard cap: a Map iterates in insertion order, so this drops the oldest entries first
     while (leaderboardCache.size > MAX_CACHE_ENTRIES) {
-      const oldest = leaderboardCache.keys().next().value;
-      if (oldest === undefined) break;
+      const oldest = leaderboardCache.keys().next().value!; // the loop only runs while the Map has entries
       leaderboardCache.delete(oldest);
     }
 

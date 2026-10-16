@@ -37,7 +37,7 @@ async function fetchStreamConfig(): Promise<StreamConfigData> {
   // Return config if there's embed content
   if (data.embedHtml || data.embedUrl) {
     return {
-      embedHtml: data.embedHtml || (data.embedUrl ? `<iframe src="${data.embedUrl}" allowfullscreen></iframe>` : ''),
+      embedHtml: data.embedHtml || `<iframe src="${data.embedUrl}" allowfullscreen></iframe>`,
       isActive: data.isActive,
       title: data.title,
     };

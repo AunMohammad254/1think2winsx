@@ -102,6 +102,9 @@ describe('getQuizzes and getQuizById', () => {
     expect(eqValue(q, 'status')).toBe('active');
     expect(q.ops.find((o) => o.op === 'order')?.args).toEqual(['title', { ascending: true }]);
     expect(q.ops.find((o) => o.op === 'range')?.args).toEqual([20, 29]);
+
+    adminDb.setTable('Question', { count: null });
+    expect((await dash.getQuizzes({})).quizzes[0]._count).toEqual({ questions: 0, attempts: 0 });
   });
 
   it('falls back to createdAt ordering, defaults, and an empty page on error', async () => {

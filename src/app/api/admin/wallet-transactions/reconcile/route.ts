@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
 import { getAdminDb, notificationDb } from '@/lib/supabase/db';
-import * as pdfParseModule from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 import { isWalletEnabled } from '@/lib/wallet/service';
 
 // ============================================================================
@@ -225,7 +225,6 @@ function matchTransactions(pending: PendingTx[], entries: StatementEntry[]): Mat
 
     // Pass 1: Exact transaction ID match (high confidence)
     for (const tx of pending) {
-        if (matchedPendingIds.has(tx.id)) continue;
         for (let i = 0; i < entries.length; i++) {
             if (matchedEntryIndexes.has(i)) continue;
             const entry = entries[i];
@@ -308,13 +307,15 @@ export async function POST(request: NextRequest) {
         let textContent = '';
 
         if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+            // pdf-parse v2 is class-based; it has no default export to call
+            const parser = new PDFParse({ data: buffer });
             try {
-                const parsePdf = (pdfParseModule as any).default || pdfParseModule;
-                const pdfData = await parsePdf(buffer);
-                textContent = pdfData.text;
+                textContent = (await parser.getText()).text;
             } catch (err) {
                 console.error('Failed to parse PDF:', err);
                 return NextResponse.json({ error: 'Failed to parse PDF file' }, { status: 500 });
+            } finally {
+                await parser.destroy();
             }
         } else {
             textContent = buffer.toString('utf-8');

@@ -111,8 +111,6 @@ export default function UserSupportPage() {
 
     const handleUpdateProfile = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!userData) return;
-        
         setIsSavingProfile(true);
         setError(null);
         setSuccessMsg(null);
@@ -160,8 +158,8 @@ export default function UserSupportPage() {
         setIsSuspending(false);
     };
 
+    // Account actions are only rendered once a user is loaded
     const handleResendVerification = async () => {
-        if (!userData) return;
         setIsResendingVerify(true);
         const result = await resendVerificationEmailAction(userData.id);
         if (result.success) setSuccessMsg('Verification email sent to the user.');
@@ -179,7 +177,6 @@ export default function UserSupportPage() {
     };
 
     const handleImpersonate = async () => {
-        if (!userData) return;
         setIsImpersonating(true);
         const result = await generateImpersonationLinkAction(userData.id);
         if (result.success) {
@@ -232,7 +229,6 @@ export default function UserSupportPage() {
     };
 
     const handleExportGDPR = async () => {
-        if (!userData) return;
         setIsExporting(true);
         const result = await generateGDPRExportAction(userData.id);
         if (result.success && result.data) {

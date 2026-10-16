@@ -109,9 +109,7 @@ class SecurityMonitor {
         // evict oldest-inserted keys
         const it = this.counters.keys();
         for (let i = 0; i < 1000; i++) {
-          const k = it.next().value;
-          if (k === undefined) break;
-          this.counters.delete(k);
+          this.counters.delete(it.next().value!); // over 50,000 keys, so 1,000 always exist
         }
       }
       return 1;
@@ -153,7 +151,6 @@ class SecurityMonitor {
   getPerfSummary() {
     const result: Record<string, { count: number; avg: number; p50: number; p95: number; p99: number; last: number }> = {};
     for (const [name, values] of this.perf.entries()) {
-      if (values.length === 0) continue;
       const sorted = [...values].sort((a, b) => a - b);
       const count = sorted.length;
       const avg = sorted.reduce((s, v) => s + v, 0) / count;
@@ -195,7 +192,7 @@ class SecurityMonitor {
    * Trigger security alert with cooldown
    */
   private triggerAlert(alertType: string, details: Record<string, unknown>) {
-    const alertKey = `${alertType}:${details.userId || details.ip || 'global'}`;
+    const alertKey = `${alertType}:${details.userId || details.ip}`; // every alert names a user or an IP
     const now = Date.now();
     const lastAlert = this.alertCooldowns.get(alertKey);
     if (lastAlert && (now - lastAlert) < SECURITY_THRESHOLDS.ALERT_COOLDOWN) {
@@ -215,11 +212,7 @@ class SecurityMonitor {
    * Send alert to external monitoring service
    */
   private async sendAlert(alertType: string, details: Record<string, unknown>) {
-    try {
-      console.error(`SECURITY ALERT: ${alertType}`, details);
-    } catch (error) {
-      console.error('Failed to send security alert:', error);
-    }
+    console.error(`SECURITY ALERT: ${alertType}`, details);
   }
 
   /**

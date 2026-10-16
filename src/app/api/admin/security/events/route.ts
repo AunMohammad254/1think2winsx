@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
         endpoint: '/api/admin/security/events',
         details: {
           reason: 'Non-admin user attempted to access security events',
-          userRole: session?.user?.isAdmin ? 'admin' : 'user'
+          userRole: 'user'
         },
         severity: 'HIGH'
       });

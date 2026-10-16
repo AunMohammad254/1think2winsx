@@ -44,6 +44,13 @@ describe('AuthProvider', () => {
     expect(result.current.session).toEqual({ user: ali });
   });
 
+  it('starts signed out when there is no session', async () => {
+    h.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+    const { result } = renderHook(() => useAuth(), { wrapper: authWrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.user).toBeNull();
+  });
+
   it('signs out a dead refresh token instead of looping on it', async () => {
     h.auth.getSession.mockResolvedValue({ data: { session: null }, error: { message: 'Invalid Refresh Token: Not Found' } });
     const { result } = renderHook(() => useAuth(), { wrapper: authWrapper });

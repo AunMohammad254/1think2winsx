@@ -38,7 +38,6 @@ export enum SecurityEventType {
   CSRF_TOKEN_INVALID_FORMAT = 'csrf_token_invalid_format',
   CSRF_TOKEN_INVALID_PATTERN = 'csrf_token_invalid_pattern',
   SESSION_TOKEN_MISSING = 'session_token_missing',
-  SESSION_TOKEN_RETRIEVAL_FAILED = 'session_token_retrieval_failed',
   CSRF_VALIDATION_SUCCESS = 'csrf_validation_success',
   CSRF_VALIDATION_ERROR = 'csrf_validation_error',
   VERCEL_COMPATIBILITY_BYPASS = 'vercel_compatibility_bypass',
@@ -95,11 +94,8 @@ export class SecurityLogger {
       case 'warn':
         console.warn(`[SECURITY][${event.environment.toUpperCase()}]`, logEntry);
         break;
-      case 'info':
+      default: // 'info'
         console.info(`[SECURITY][${event.environment.toUpperCase()}]`, logEntry);
-        break;
-      default:
-        console.log(`[SECURITY][${event.environment.toUpperCase()}]`, logEntry);
     }
 
     // In production, you might want to send to external monitoring service
@@ -119,11 +115,8 @@ export class SecurityLogger {
       case SecurityEventType.SESSION_TOKEN_MISSING:
       case SecurityEventType.CSRF_VALIDATION_ERROR:
         return 'error';
-      case SecurityEventType.SESSION_TOKEN_RETRIEVAL_FAILED:
       case SecurityEventType.VERCEL_COMPATIBILITY_BYPASS:
         return 'warn';
-      case SecurityEventType.CSRF_VALIDATION_SUCCESS:
-        return 'info';
       default:
         return 'info';
     }
@@ -389,7 +382,7 @@ export async function requireCSRFToken(request: NextRequest): Promise<Response |
   return new Response(
     JSON.stringify({
       error: 'CSRF validation failed',
-      message: result.error || 'CSRF token is invalid or missing',
+      message: result.error,
     }),
     {
       status: 403,
@@ -447,7 +440,7 @@ export function requireCSRFTokenForPages(handler: (req: { method?: string; heade
         });
 
         return res.status(403).json({
-          error: validation.error || 'Invalid CSRF token',
+          error: validation.error,
           ...SECURITY_CONFIG.SECURITY_HEADERS
         });
       }
