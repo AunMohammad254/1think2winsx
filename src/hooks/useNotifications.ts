@@ -16,7 +16,6 @@ const supabaseClient = createClient();
 // instances (typically at 6). Reusing one instance prevents resource exhaustion.
 let _audioCtx: AudioContext | null = null;
 function getAudioContext(): AudioContext | null {
-  if (typeof window === 'undefined') return null;
   if (!_audioCtx || _audioCtx.state === 'closed') {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextClass) return null;
@@ -99,6 +98,12 @@ export function useNotifications() {
   // Key everything on the id: the `user` object is replaced on token refresh / tab refocus
   const userId = user?.id ?? null;
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Latest list for callbacks: reading it inside a setNotifications updater is too late,
+  // because React runs updaters after the callback returns
+  const notificationsRef = useRef<Notification[]>([]);
+  useEffect(() => {
+    notificationsRef.current = notifications;
+  }, [notifications]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -181,8 +186,8 @@ export function useNotifications() {
 
   // Light fetch for the badge: runs on every page load, so it asks for the count only
   // (one cheap query) instead of the 50-row list.
+  // Only called with a signed-in user (see the effect below)
   const fetchUnreadCount = useCallback(async () => {
-    if (!userId) return;
     try {
       const res = await fetch('/api/notifications?countOnly=1');
       if (!res.ok) return;
@@ -255,16 +260,9 @@ export function useNotifications() {
   const deleteNotification = useCallback(async (notificationId: string) => {
     if (!userId) return;
     
-    let wasUnread = false;
-    setNotifications(prev => {
-      const target = prev.find(n => n.id === notificationId);
-      if (target && !target.read) {
-        wasUnread = true;
-      }
-      return prev.filter(n => n.id !== notificationId);
-    });
-    
-    if (wasUnread) {
+    const target = notificationsRef.current.find(n => n.id === notificationId);
+    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+    if (target && !target.read) {
       setUnreadCount(prev => Math.max(0, prev - 1));
     }
 
@@ -383,8 +381,6 @@ export function useNotifications() {
 
   // Check support, register service worker, check subscription status, and handle permissions
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
     const initPush = async () => {
       const isSupported = 'serviceWorker' in navigator && 'PushManager' in window;
       setPushSupported(isSupported);

@@ -95,7 +95,7 @@ export async function requirePaymentAccess(
   if (!accessResult.hasAccess) {
     return NextResponse.json(
       {
-        error: accessResult.error || 'Payment required',
+        error: accessResult.error,
         requiresPayment: true
       },
       { status: 402 } // Payment Required

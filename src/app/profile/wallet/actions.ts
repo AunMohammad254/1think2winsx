@@ -96,33 +96,29 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
             return { success: false, error: 'Proof of payment screenshot is required. Please upload your transaction screenshot.' };
         }
 
-        // Handle image upload if present
-        let proofImageUrl = null;
-        if (proofImage && proofImage.size > 0) {
-            if (proofImage.size > 5 * 1024 * 1024) {
-                return { success: false, error: 'Receipt image must be less than 5MB' };
-            }
-            
-            const ext = proofImage.name.split('.').pop() || 'png';
-            const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
-            
-            const { data: uploadData, error: uploadError } = await supabase
-                .storage
-                .from('receipts')
-                .upload(fileName, proofImage);
-                
-            if (uploadError) {
-                console.error('Error uploading receipt:', uploadError);
-                return { success: false, error: 'Failed to upload receipt image. Please try again.' };
-            }
-            
-            const { data: { publicUrl } } = supabase
-                .storage
-                .from('receipts')
-                .getPublicUrl(fileName);
-                
-            proofImageUrl = publicUrl;
+        // Upload the image
+        if (proofImage.size > 5 * 1024 * 1024) {
+            return { success: false, error: 'Receipt image must be less than 5MB' };
         }
+
+        // A name without a usable extension ("receipt", "receipt.") is stored as .png
+        const ext = /\.([a-z0-9]+)$/i.exec(proofImage.name)?.[1] ?? 'png';
+        const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+
+        const { error: uploadError } = await supabase
+            .storage
+            .from('receipts')
+            .upload(fileName, proofImage);
+
+        if (uploadError) {
+            console.error('Error uploading receipt:', uploadError);
+            return { success: false, error: 'Failed to upload receipt image. Please try again.' };
+        }
+
+        const { data: { publicUrl: proofImageUrl } } = supabase
+            .storage
+            .from('receipts')
+            .getPublicUrl(fileName);
 
         // Call Supabase RPC function
         const { data, error } = await supabase.rpc('submit_deposit_request', {

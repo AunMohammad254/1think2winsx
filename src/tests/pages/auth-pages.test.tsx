@@ -258,6 +258,9 @@ describe('update password', () => {
     await screen.findByText('Set New Password');
     submitForm(/Update Password/);
     expect(await screen.findByText('Password must be at least 8 characters')).toBeInTheDocument();
+    type('New Password', '___'); // underscores meet none of the five checks
+    expect(screen.getByText('Very Weak')).toBeInTheDocument();
+    expect(screen.getByText('Very Weak').previousElementSibling!.firstElementChild).toHaveClass('bg-slate-600');
     type('New Password', 'abC'); // lower + upper = 2 of 5
     expect(screen.getByText('Weak')).toBeInTheDocument();
     type('New Password', 'Str0ng!pass');

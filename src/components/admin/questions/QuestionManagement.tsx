@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Plus, AlertCircle } from "lucide-react";
@@ -17,14 +17,23 @@ export default function QuestionManagement({ quizId, onQuestionsChange }: Questi
   const [showAddForm, setShowAddForm] = useState(false);
   const [csrfToken, setCsrfToken] = useState<string | null>(null);
 
-  const defaultFormState: Omit<Question, 'id' | 'quizId' | 'stats'> = {
+  // Memoised: QuestionForm resets whenever its initialData changes, so a new object on
+  // every render would wipe what the admin typed (e.g. when a validation error re-renders)
+  const formInitialData = useMemo<Omit<Question, 'id' | 'quizId' | 'stats'>>(() => editingQuestion ? {
+    text: editingQuestion.text,
+    options: [...editingQuestion.options],
+    correctOption: editingQuestion.correctOption,
+    hasCorrectAnswer: editingQuestion.hasCorrectAnswer,
+    status: editingQuestion.status,
+    order: editingQuestion.order
+  } : {
     text: '',
     options: ['', '', '', ''],
     correctOption: null,
     hasCorrectAnswer: false,
     status: 'active',
     order: questions.length
-  };
+  }, [editingQuestion, questions.length]);
 
   const fetchCSRFToken = async () => {
     try {
@@ -81,7 +90,7 @@ export default function QuestionManagement({ quizId, onQuestionsChange }: Questi
       return null;
     }
 
-    const validOptions = formData.options.filter(opt => opt.trim());
+    const validOptions = formData.options.map(opt => opt.trim()).filter(Boolean);
     if (validOptions.length < 2) {
       setError('At least 2 options are required');
       return null;
@@ -95,11 +104,8 @@ export default function QuestionManagement({ quizId, onQuestionsChange }: Questi
       }
       const originalOption = formData.options[formData.correctOption];
       if (originalOption && originalOption.trim()) {
-        mappedCorrectOption = validOptions.findIndex(opt => opt === originalOption.trim());
-        if (mappedCorrectOption === -1) {
-          setError('Selected correct option is empty');
-          return null;
-        }
+        // Blank options are dropped, so the answer moves up by the blanks before it
+        mappedCorrectOption = formData.options.slice(0, formData.correctOption).filter(opt => opt.trim()).length;
       }
     }
 
@@ -286,14 +292,7 @@ export default function QuestionManagement({ quizId, onQuestionsChange }: Questi
       <QuestionForm
         isOpen={showAddForm || editingQuestion !== null}
         isEditing={editingQuestion !== null}
-        initialData={editingQuestion ? {
-          text: editingQuestion.text,
-          options: [...editingQuestion.options],
-          correctOption: editingQuestion.correctOption,
-          hasCorrectAnswer: editingQuestion.hasCorrectAnswer,
-          status: editingQuestion.status,
-          order: editingQuestion.order
-        } : defaultFormState}
+        initialData={formInitialData}
         isLoading={isLoading}
         onSave={handleSaveQuestion}
         onClose={() => {

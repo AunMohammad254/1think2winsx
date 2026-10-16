@@ -191,6 +191,14 @@ describe('NotificationsDropdown', () => {
     expect(screen.getByText('Loading notifications...')).toBeInTheDocument();
   });
 
+  it('leaves the time blank for an unparseable date', async () => {
+    notifState({ notifications: [{ ...items[4], createdAt: 'not a date' }], unreadCount: 0 });
+    render(<NotificationsDropdown />);
+    open();
+    expect(await screen.findByText('Old')).toBeInTheDocument();
+    expect(screen.queryByText('Invalid Date')).toBeNull();
+  });
+
   it('lists notifications with times, links and actions', async () => {
     notifState({ notifications: items, unreadCount: 12, soundEnabled: false });
     render(<NotificationsDropdown />);

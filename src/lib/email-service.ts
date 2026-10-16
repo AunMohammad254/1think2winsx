@@ -102,7 +102,7 @@ export async function sendNewsletterEmail({
       error: failures.length ? `${failures.length} of ${recipients.length} failed. First error: ${failures[0]}` : undefined
     };
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown email dispatch error';
+    const msg = (error as Error).message; // everything above throws Error instances
     console.error('Error dispatching newsletter email:', error);
     return {
       success: false,

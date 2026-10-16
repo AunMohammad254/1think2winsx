@@ -76,26 +76,27 @@ export const GET = withLoadShed(async function GET(
     }
 
     const activeQuestions = quiz.questions;
-    const hasCompleted = existingAttempt?.isCompleted === true;
+    const completedAttempt = existingAttempt?.isCompleted === true ? existingAttempt : null;
+    const hasCompleted = completedAttempt !== null;
     const attemptedQuestionIds = new Set(attemptedQuestions.map((qa: { questionId: string }) => qa.questionId));
 
     // Filter out questions that have already been attempted
     const unattemptedQuestions = activeQuestions.filter(question => !attemptedQuestionIds.has(question.id));
 
     // If user has completed the quiz but there are new questions, allow reattempt
-    if (hasCompleted && unattemptedQuestions.length === 0) {
+    if (completedAttempt && unattemptedQuestions.length === 0) {
       return NextResponse.json(
         {
           error: 'You have already completed this quiz',
           completed: true,
           // For the results page's fallback when its own lookup fails
           totalQuestions: activeQuestions.length,
-          attempt: existingAttempt ? {
-            id: existingAttempt.id,
-            score: existingAttempt.score,
-            points: existingAttempt.points,
-            completedAt: existingAttempt.completedAt
-          } : null
+          attempt: {
+            id: completedAttempt.id,
+            score: completedAttempt.score,
+            points: completedAttempt.points,
+            completedAt: completedAttempt.completedAt
+          }
         },
         { status: 403 }
       );

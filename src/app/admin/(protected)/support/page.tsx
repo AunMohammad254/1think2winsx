@@ -111,8 +111,6 @@ export default function UserSupportPage() {
 
     const handleUpdateProfile = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!userData) return;
-        
         setIsSavingProfile(true);
         setError(null);
         setSuccessMsg(null);
@@ -154,15 +152,19 @@ export default function UserSupportPage() {
     const handleSuspend = async () => {
         if (!userData || !window.confirm('Are you sure you want to suspend this user?')) return;
         setIsSuspending(true);
+        setError(null);
+        setSuccessMsg(null);
         const result = await suspendUserAction(userData.id, true);
         if (result.success) setSuccessMsg('User suspended successfully.');
         else setError(result.error);
         setIsSuspending(false);
     };
 
+    // Account actions are only rendered once a user is loaded
     const handleResendVerification = async () => {
-        if (!userData) return;
         setIsResendingVerify(true);
+        setError(null);
+        setSuccessMsg(null);
         const result = await resendVerificationEmailAction(userData.id);
         if (result.success) setSuccessMsg('Verification email sent to the user.');
         else setError(result.error);
@@ -172,6 +174,8 @@ export default function UserSupportPage() {
     const handleVerifyEmail = async () => {
         if (!userData || !window.confirm('WARNING: Force verifying skips actual email validation. Only use this if the user completely cannot receive emails. Continue?')) return;
         setIsVerifying(true);
+        setError(null);
+        setSuccessMsg(null);
         const result = await forceVerifyEmailAction(userData.id);
         if (result.success) setSuccessMsg('Email forcefully verified (Backup).');
         else setError(result.error);
@@ -179,8 +183,9 @@ export default function UserSupportPage() {
     };
 
     const handleImpersonate = async () => {
-        if (!userData) return;
         setIsImpersonating(true);
+        setError(null);
+        setSuccessMsg(null);
         const result = await generateImpersonationLinkAction(userData.id);
         if (result.success) {
             setSuccessMsg('Impersonation link generated! Check below.');
@@ -194,6 +199,8 @@ export default function UserSupportPage() {
         e.preventDefault();
         if (!userData || !notifTitle || !notifMessage) return;
         setIsSendingNotif(true);
+        setError(null);
+        setSuccessMsg(null);
         const result = await sendNotificationAction(userData.id, notifTitle, notifMessage, sendAsEmail);
         if (result.success) {
             setSuccessMsg(result.emailSent ? 'Notification sent directly to user dashboard and via Email!' : 'Notification sent directly to user dashboard.');
@@ -207,6 +214,8 @@ export default function UserSupportPage() {
     const handleRefund = async (attemptId: string) => {
         if (!window.confirm('Are you sure you want to refund this attempt?')) return;
         setRefundingId(attemptId);
+        setError(null);
+        setSuccessMsg(null);
         const result = await refundQuizAttemptAction(attemptId);
         if (result.success) {
             setSuccessMsg('Quiz attempt refunded and deleted.');
@@ -219,6 +228,8 @@ export default function UserSupportPage() {
         e.preventDefault();
         if (!userData || !newNote) return;
         setIsSavingNote(true);
+        setError(null);
+        setSuccessMsg(null);
         const tags = newTag ? newTag.split(',').map(t => t.trim()).filter(Boolean) : [];
         const result = await addAdminNoteAction(userData.id, newNote, tags);
         if (result.success) {
@@ -232,8 +243,9 @@ export default function UserSupportPage() {
     };
 
     const handleExportGDPR = async () => {
-        if (!userData) return;
         setIsExporting(true);
+        setError(null);
+        setSuccessMsg(null);
         const result = await generateGDPRExportAction(userData.id);
         if (result.success && result.data) {
             const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' });

@@ -189,8 +189,8 @@ export async function getFraudAlerts(): Promise<FraudAlert[]> {
     // Sort alerts by severity (CRITICAL -> HIGH -> MEDIUM) and timestamp descending
     const severityWeight = { CRITICAL: 3, HIGH: 2, MEDIUM: 1 };
     return alerts.sort((a, b) => {
-        const wA = severityWeight[a.severity] || 0;
-        const wB = severityWeight[b.severity] || 0;
+        const wA = severityWeight[a.severity];
+        const wB = severityWeight[b.severity];
         if (wA !== wB) return wB - wA;
         return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     });

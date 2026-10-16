@@ -48,6 +48,33 @@ describe('<SignInMethodBadge /> on the profile', () => {
         expect(screen.getByTestId('signin-method').textContent).not.toContain('Google sign-in');
     });
 
+    it('shows the plain Google logo for an unverified Google session', async () => {
+        mount({ currentMethod: 'google', label: 'Google sign-in', verifiedGoogle: false, hasPassword: false, linkedProviders: ['google'] });
+        await waitFor(() => expect(screen.getByTestId('signin-method').textContent).toContain('Google sign-in'));
+        const icons = screen.getByTestId('signin-method').querySelectorAll('svg');
+        expect(icons).toHaveLength(1);
+        expect(icons[0].querySelector('path[fill="#4285F4"]')).not.toBeNull();
+    });
+
+    it('shows a neutral mail badge for an emailed-link session', async () => {
+        mount({ currentMethod: 'email_link', label: 'Email link sign-in', verifiedGoogle: false, hasPassword: false, linkedProviders: [] });
+        await waitFor(() => expect(screen.getByTestId('signin-method').textContent).toContain('Email link sign-in'));
+        const badge = screen.getByTestId('signin-method');
+        expect(badge.className).toContain('bg-slate-500/15');
+        expect(badge.querySelector('svg.lucide-mail')).not.toBeNull();
+        expect(badge).toHaveAttribute('aria-label', 'Email link sign-in');
+    });
+
+    it('ignores a detection that arrives after unmounting', async () => {
+        let respondNow!: (r: Response) => void;
+        (fetch as ReturnType<typeof vi.fn>).mockReturnValue(new Promise<Response>((r) => (respondNow = r)));
+        const { container, unmount } = render(<SignInMethodBadge />);
+        unmount();
+        respondNow({ ok: true, json: async () => ({ currentMethod: 'password', label: 'Email & password', verifiedGoogle: false, hasPassword: true, linkedProviders: [] }) } as Response);
+        await new Promise((r) => setTimeout(r, 0));
+        expect(container).toBeEmptyDOMElement();
+    });
+
     it('shows nothing (and does not crash) when detection is unavailable', async () => {
         (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: false, json: async () => ({}) });
         render(<SignInMethodBadge />);

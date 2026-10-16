@@ -11,6 +11,8 @@ const recordSecurityEvent = vi.fn();
 const validateAdminSession = vi.fn();
 const logger = { logSecurityEvent: vi.fn(), logInvalidInput: vi.fn() };
 const findAllAdmin = vi.fn();
+const countByStatus = vi.fn();
+const statusCounts = { pending: 2, approved: 1, fulfilled: 0, rejected: 4 };
 const winnerDb = { findByQuizId: vi.fn(), existsForQuiz: vi.fn(), create: vi.fn(), markNotificationSent: vi.fn() };
 const createNotification = vi.fn();
 
@@ -19,7 +21,7 @@ vi.mock('@/lib/supabase/db', async () => {
   return {
     getAdminDb: () => adminDb.client,
     mapWithConcurrency: shared.mapWithConcurrency,
-    prizeRedemptionDb: { findAllAdmin: (...a: unknown[]) => findAllAdmin(...a) },
+    prizeRedemptionDb: { findAllAdmin: (...a: unknown[]) => findAllAdmin(...a), countByStatus: (...a: unknown[]) => countByStatus(...a) },
     userDb: {},
     notificationDb: { create: (...a: unknown[]) => createNotification(...a) },
   };
@@ -38,11 +40,12 @@ const draw = await import('@/app/api/admin/lucky-winner/[quizId]/draw/route');
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, validateAdminSession, findAllAdmin, createNotification, ...Object.values(logger), ...Object.values(winnerDb)]) fn.mockReset();
+  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, validateAdminSession, findAllAdmin, countByStatus, createNotification, ...Object.values(logger), ...Object.values(winnerDb)]) fn.mockReset();
   requireAuth.mockResolvedValue(authOk('admin-1'));
   requireCSRFToken.mockResolvedValue(null);
   applyRateLimit.mockResolvedValue(null);
   validateAdminSession.mockResolvedValue({ valid: true, email: 'boss@example.test' });
+  countByStatus.mockResolvedValue(statusCounts);
   winnerDb.existsForQuiz.mockResolvedValue(false);
   winnerDb.findByQuizId.mockResolvedValue(null);
   winnerDb.create.mockImplementation(async (data: Record<string, unknown>) => ({ id: `w-${data.userId}`, ...data }));
@@ -58,7 +61,7 @@ describe('GET /api/admin/claims', () => {
     adminDb.setRpc('get_admin_claims', { data: { success: true, claims: [{ id: 'c1' }], pagination: { page: 1 } } });
     const body = await (await get('?status=pending&page=1&limit=500', { 'x-real-ip': '9.9.9.9', 'user-agent': 'UA' })).json();
     expect(adminDb.rpcCalls[0].args).toEqual({ p_status: 'pending', p_page: 1, p_limit: 100 });
-    expect(body).toEqual({ claims: [{ id: 'c1' }], pagination: { page: 1 } });
+    expect(body).toEqual({ claims: [{ id: 'c1' }], pagination: { page: 1 }, statusCounts });
     expect(logger.logSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'ADMIN_ACCESS', ip: '9.9.9.9', userAgent: 'UA', details: expect.objectContaining({ method: 'supabase_rpc', resultCount: 1 }) }));
     adminDb.setRpc('get_admin_claims', { data: { success: true } });
     expect((await (await get()).json()).claims).toEqual([]);
@@ -69,12 +72,23 @@ describe('GET /api/admin/claims', () => {
     findAllAdmin.mockResolvedValue({ data: [{ id: 'c1', User: [{ name: 'A' }], Prize: { name: 'Watch' } }], page: 2, limit: 20, count: 21, totalPages: 2 });
     const body = await (await get('?page=2', { 'x-forwarded-for': '1.1.1.1' })).json();
     expect(findAllAdmin).toHaveBeenCalledWith({ status: undefined, page: 2, limit: 20 });
-    expect(body).toEqual({ claims: [{ id: 'c1', User: [{ name: 'A' }], Prize: { name: 'Watch' }, user: { name: 'A' }, prize: { name: 'Watch' } }], pagination: { page: 2, limit: 20, total: 21, totalPages: 2 } });
+    expect(body).toEqual({ claims: [{ id: 'c1', User: [{ name: 'A' }], Prize: { name: 'Watch' }, user: { name: 'A' }, prize: { name: 'Watch' } }], pagination: { page: 2, limit: 20, total: 21, totalPages: 2 }, statusCounts });
+
+    // PostgREST returns a to-one join as an object or a one-element array; both are flattened
+    findAllAdmin.mockResolvedValue({ data: [{ id: 'c2', User: { name: 'B' }, Prize: [{ name: 'Bike' }] }], page: 1, limit: 20, count: 1, totalPages: 1 });
+    expect((await (await get()).json()).claims[0]).toMatchObject({ user: { name: 'B' }, prize: { name: 'Bike' } });
 
     adminDb.client.rpc.mockImplementationOnce(() => { throw new Error('rpc down'); });
     findAllAdmin.mockResolvedValue({ data: null, page: 1, limit: 20, count: 0, totalPages: 0 });
     expect((await (await get()).json()).claims).toEqual([]);
     expect(logger.logSecurityEvent).toHaveBeenLastCalledWith(expect.objectContaining({ ip: 'unknown' }));
+  });
+
+  it('still lists claims when the status totals cannot be counted', async () => {
+    countByStatus.mockRejectedValueOnce(new Error('count down'));
+    adminDb.setRpc('get_admin_claims', { data: { success: true, claims: [{ id: 'c1' }], pagination: { page: 1 } } });
+    expect(await (await get()).json()).toEqual({ claims: [{ id: 'c1' }], pagination: { page: 1 }, statusCounts: null });
+    expect(console.warn).toHaveBeenCalledWith('Failed to count claims by status:', expect.objectContaining({ message: 'count down' }));
   });
 
   it('guards and reports errors', async () => {
@@ -120,6 +134,8 @@ describe('PUT /api/admin/claims', () => {
     adminDb.setRpc('reject_claim_with_refund', { data: { success: true, points_refunded: 20 } });
     expect((await (await put({ claimId: 'c1', status: 'approved' })).json()).message).toBe('Claim approved successfully');
     expect((await (await put({ claimId: 'c1', status: 'rejected' }, { 'x-forwarded-for': '2.2.2.2' })).json()).message).toBe('Claim rejected and points refunded');
+    await put({ claimId: 'c1', status: 'rejected' });
+    expect(logger.logSecurityEvent).toHaveBeenLastCalledWith(expect.objectContaining({ ip: 'unknown', details: expect.objectContaining({ method: 'supabase_rpc_reject' }) }));
 
     adminDb.setRpc('approve_claim', { data: { success: false, error: 'Out of stock' } });
     expect(await (await put({ claimId: 'c1', status: 'approved' })).json()).toEqual({ message: 'Out of stock' });

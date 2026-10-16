@@ -1,3 +1,4 @@
+/* v8 ignore next -- an import line has no logic; Vitest's rewrite of it reports a phantom branch */
 import { timingSafeEqual } from 'node:crypto';
 
 /**

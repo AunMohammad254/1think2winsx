@@ -95,7 +95,7 @@ export async function POST(
       const status = RPC_ERROR_STATUS[r.code || ''] ?? 500;
       // A late submit ('closed') is normal user behaviour, not a security event
       if ((status === 400 || status === 403) && r.code !== 'closed') {
-        recordSecurityEvent('INVALID_INPUT', request, userId, { endpoint: '/api/quizzes/[id]/submit', code: r.code || 'unknown' });
+        recordSecurityEvent('INVALID_INPUT', request, userId, { endpoint: '/api/quizzes/[id]/submit', code: r.code });
       }
       return NextResponse.json(
         { error: r.error || 'Failed to submit quiz', ...(status === 402 ? { requiresPayment: true } : {}) },

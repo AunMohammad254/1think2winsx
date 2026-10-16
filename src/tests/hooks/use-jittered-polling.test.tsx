@@ -48,6 +48,44 @@ describe('useJitteredPolling', () => {
     expect(task).toHaveBeenCalledTimes(1);
   });
 
+  it('waits a full interval when the tab returns before the next poll is due', async () => {
+    const task = vi.fn().mockResolvedValue(true);
+    renderHook(() => useJitteredPolling(task, { intervalMs: 10_000, jitterMs: 0 }));
+    await vi.advanceTimersByTimeAsync(10_001);
+    expect(task).toHaveBeenCalledTimes(1);
+    setHidden(true);
+    setHidden(false); // it only just polled, so it is not overdue
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(task).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect(task).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reschedule when a slow task finishes after unmount', async () => {
+    let finish!: (ok: boolean) => void;
+    const task = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    const { unmount } = renderHook(() => useJitteredPolling(task, { intervalMs: 1_000, jitterMs: 0 }));
+    await vi.advanceTimersByTimeAsync(1_001);
+    unmount();
+    finish(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(task).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the tab to return when a slow task finishes while it is hidden', async () => {
+    let finish!: (ok: boolean) => void;
+    const task = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    renderHook(() => useJitteredPolling(task, { intervalMs: 1_000, jitterMs: 0 }));
+    await vi.advanceTimersByTimeAsync(1_001);
+    setHidden(true);
+    finish(true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(task).toHaveBeenCalledTimes(1);
+    setHidden(false);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(task).toHaveBeenCalledTimes(2);
+  });
+
   it('backs off exponentially while the task keeps failing, and resets after a success', async () => {
     const task = vi.fn()
       .mockResolvedValueOnce(false)

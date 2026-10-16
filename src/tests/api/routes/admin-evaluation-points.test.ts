@@ -196,6 +196,14 @@ describe('POST /api/admin/points-allocation', () => {
     expect(adminDb.rpcCalls).toHaveLength(0);
   });
 
+  it('still awards a winner whose user row is missing from the join', async () => {
+    adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
+    adminDb.setTable('QuizAttempt', (call) => (hasOp(call, 'update') ? { data: null } : { data: [{ id: 'a0', userId: 'u0', score: 50, User: null }] }));
+    adminDb.setTable('User', { data: { points: 5 } });
+    const body = await (await post({ quizId: 'quiz-1', pointsPerWinner: 10, percentageThreshold: 100 })).json();
+    expect(body.winners).toEqual([{ userId: 'u0', userEmail: '', userName: null, score: 50, pointsAwarded: 10, newTotalPoints: 15 }]);
+  });
+
   it('awards AGAIN when run twice for the same quiz (no idempotency guard)', async () => {
     adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
     adminDb.setTable('QuizAttempt', (call) => (hasOp(call, 'update') ? { data: null } : { data: attempts([90]) }));

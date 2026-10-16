@@ -67,8 +67,7 @@ class QuizListCache {
   set(key: string, entry: CacheEntry): void {
     // Evict oldest entry when the cap is reached to prevent unbounded growth.
     if (this.store.size >= MAX_CACHE_ENTRIES) {
-      const oldest = this.store.keys().next().value;
-      if (oldest) this.store.delete(oldest);
+      this.store.delete(this.store.keys().next().value!); // the store is full, so it has a first key
     }
     this.store.set(key, entry);
   }

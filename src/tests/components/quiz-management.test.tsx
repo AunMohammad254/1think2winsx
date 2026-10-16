@@ -75,9 +75,7 @@ describe('QuizManagement', () => {
     expect(await screen.findByText('archived')).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: load failures are logged but shown only as "Quiz not found"', async () => {
-    // With no quiz loaded the component returns early, so the error banner (and the
-    // specific message, e.g. a 5xx or a network failure) never reaches the admin.
+  it('shows why a quiz failed to load', async () => {
     const cases: [() => Response | Promise<Response>, string][] = [
       [() => jsonResponse({ error: 'Quiz deleted' }, 404), 'Quiz deleted'],
       [() => jsonResponse({}, 500), 'Failed to fetch quiz'],
@@ -88,8 +86,8 @@ describe('QuizManagement', () => {
     for (const [get, message] of cases) {
       vi.stubGlobal('fetch', routes({ get }));
       const { unmount } = render(<QuizManagement quizId="z1" />);
-      expect(await screen.findByText('Quiz not found')).toBeInTheDocument();
-      expect(screen.queryByText(message)).toBeNull();
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      expect(screen.queryByText('Quiz not found')).toBeNull();
       unmount();
     }
     expect(console.error).toHaveBeenCalledWith('Error fetching quiz:', expect.objectContaining({ message: 'Bad Gateway' }));

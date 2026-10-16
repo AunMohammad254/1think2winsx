@@ -203,8 +203,11 @@ describe('GET /api/health', () => {
     const clock = vi.spyOn(Date, 'now');
     clock.mockReturnValueOnce(now).mockReturnValueOnce(now).mockReturnValueOnce(now + 2000);
     body = await (await get('?deep=1', 'cron-s3cret')).json();
+    expect(body.components.database.status).toBe('degraded');
+    clock.mockReturnValueOnce(now).mockReturnValueOnce(now).mockReturnValueOnce(now + 3500);
+    body = await (await get('?deep=1', 'cron-s3cret')).json();
     clock.mockRestore();
-    expect(['degraded', 'unhealthy']).toContain(body.components.database.status);
+    expect(body.components.database.status).toBe('unhealthy');
   });
 
   it('deep report: the whole report failing answers 503 and is logged', async () => {

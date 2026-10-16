@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
 
 interface SecurityEvent {
   id: string;
@@ -37,8 +35,6 @@ interface FraudAlert {
 }
 
 export default function SecurityPage() {
-  const { user, isLoading } = useAuth();
-  const router = useRouter();
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
   const [securityStats, setSecurityStats] = useState<SecurityStats | null>(null);
   const [fraudAlerts, setFraudAlerts] = useState<FraudAlert[]>([]);
@@ -50,6 +46,7 @@ export default function SecurityPage() {
   const fetchSecurityData = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
 
       const [statsResponse, eventsResponse, alertsResponse] = await Promise.all([
         fetch(`/api/admin/security/stats?timeframe=${timeframe}`),
@@ -75,16 +72,11 @@ export default function SecurityPage() {
     }
   }, [timeframe, severityFilter]);
 
+  // The (protected) layout has already checked the admin session; no player login is needed.
+  // fetchSecurityData changes with the timeframe and severity filters, refetching on each change.
   useEffect(() => {
-    if (isLoading) return;
-
-    if (!user) {
-      router.push('/admin');
-      return;
-    }
-
     fetchSecurityData();
-  }, [user, isLoading, router, timeframe, severityFilter, fetchSecurityData]);
+  }, [fetchSecurityData]);
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -107,7 +99,7 @@ export default function SecurityPage() {
     }
   };
 
-  if (isLoading || loading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">

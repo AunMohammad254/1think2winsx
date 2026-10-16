@@ -91,7 +91,7 @@ function LeaderboardRow({
             <motion.div
               className={`flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-linear-to-r ${rankGradient} shadow-lg`}
               whileHover={hasHover ? { scale: 1.1, transition: springGentle } : undefined}
-              style={glow !== 'none' ? { boxShadow: glow } : undefined}
+              style={{ boxShadow: glow }} // every top-3 rank has a glow
             >
               <span className="text-white font-extrabold text-base sm:text-lg">{entry.rank}</span>
             </motion.div>

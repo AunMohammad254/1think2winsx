@@ -166,8 +166,39 @@ describe('QuizEvaluationManager: answers and evaluation', () => {
     expect(await screen.findByText('Failed to fetch quizzes')).toBeInTheDocument();
     second.unmount();
     vi.stubGlobal('fetch', routes({ 'GET /api/admin/quizzes': () => jsonResponse({ quizzes: 'not-a-list' }) }));
-    render(<QuizEvaluationManager />);
+    const third = render(<QuizEvaluationManager />);
     expect(await screen.findByText('No quizzes found. Create a quiz first.')).toBeInTheDocument();
+    third.unmount();
+    vi.stubGlobal('fetch', routes({ 'GET /api/admin/quizzes': () => jsonResponse({}) }));
+    const fourth = render(<QuizEvaluationManager />);
+    expect(await screen.findByText('No quizzes found. Create a quiz first.')).toBeInTheDocument();
+    fourth.unmount();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', routes({ 'GET /api/admin/quizzes': () => { throw new Error('offline'); } }));
+    render(<QuizEvaluationManager />);
+    expect(await screen.findByText('Failed to fetch quizzes')).toBeInTheDocument();
+  });
+
+  it('opens no question when every question already has its answer', async () => {
+    const done = evaluation(false);
+    done.questions = done.questions.map((q, i) => ({ ...q, correctOption: i % 2, hasCorrectAnswer: true }));
+    vi.stubGlobal('fetch', routes({ 'GET /api/admin/quiz-evaluation': () => jsonResponse(done) }));
+    render(<QuizEvaluationManager />);
+    await select();
+    expect(isOpen('Lahore')).toBe(false);
+    expect(isOpen('Under 10')).toBe(false);
+  });
+
+  it('reads options stored as JSON text, and shows none for an empty value', async () => {
+    const stored = evaluation(false);
+    stored.questions[0] = { ...stored.questions[0], options: '["Multan","Quetta"]' as unknown as string[] };
+    stored.questions[2] = { ...stored.questions[2], options: '' as unknown as string[] };
+    vi.stubGlobal('fetch', routes({ 'GET /api/admin/quiz-evaluation': () => jsonResponse(stored) }));
+    render(<QuizEvaluationManager />);
+    await select();
+    expect(screen.getByText('Quetta')).toBeInTheDocument();
+    expect(screen.getByText('Total sixes?')).toBeInTheDocument();
+    expect(screen.queryByText('Under 10')).toBeNull();
   });
 });
 

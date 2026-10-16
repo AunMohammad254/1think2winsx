@@ -41,7 +41,7 @@ export function useLeaderboard(timeframe: 'weekly' | 'monthly' | 'allTime') {
           return cached.data.leaderboard;
         });
         setLastUpdated(cached.data.lastUpdated);
-        if (dataLoadedRef.current && !skipCounter) setPlayCounter(true);
+        // Only a timeframe switch reads the cache, and that starts a fresh board: no count-up animation
         dataLoadedRef.current = true;
         setLoading(false);
         return;

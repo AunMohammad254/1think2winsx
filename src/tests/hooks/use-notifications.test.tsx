@@ -157,15 +157,13 @@ describe('useNotifications: list and badge', () => {
     expect(result.current.unreadCount).toBe(0);
   });
 
-  it('KNOWN BUG: deleting an unread notification leaves the badge count unchanged', async () => {
-    // wasUnread is set inside the setNotifications updater, which React runs later, at render,
-    // so the synchronous `if (wasUnread)` check reads false and the count is never decremented.
+  it('lowers the badge count when an unread notification is deleted', async () => {
     const { result } = renderHook(() => mod.useNotifications());
     await act(() => result.current.loadNotifications());
     expect(result.current.unreadCount).toBe(1);
     await act(() => result.current.deleteNotification('n1'));
     expect(result.current.notifications.map((n) => n.id)).toEqual(['n2']);
-    expect(result.current.unreadCount).toBe(1);
+    expect(result.current.unreadCount).toBe(0);
   });
 
   it('deletes a notification, re-fetching if the server refuses', async () => {
@@ -268,6 +266,10 @@ describe('playChime', () => {
     FakeAudio.instances[0].state = 'suspended';
     mod.playChime();
     expect(FakeAudio.instances[0].resume).toHaveBeenCalled();
+    // A refused resume (autoplay policy) is swallowed
+    FakeAudio.instances[0].resume.mockRejectedValueOnce(new Error('NotAllowedError'));
+    mod.playChime();
+    await Promise.resolve();
     FakeAudio.instances[0].state = 'closed';
     mod.playChime();
     expect(FakeAudio.instances).toHaveLength(2);

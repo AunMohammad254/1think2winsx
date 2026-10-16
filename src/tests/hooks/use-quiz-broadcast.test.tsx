@@ -126,6 +126,11 @@ describe('useQuizBroadcast', () => {
     await flush();
     expect(() => fake.state.statusCb!('CHANNEL_ERROR', new Error('Unauthorized'))).not.toThrow();
     expect(warn).toHaveBeenCalled();
+    fake.state.statusCb!('TIMED_OUT');
+    expect(warn).toHaveBeenLastCalledWith('[useQuizBroadcast] channel TIMED_OUT', '');
+    warn.mockClear();
+    fake.state.statusCb!('SUBSCRIBED'); // normal statuses are not logged
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 });

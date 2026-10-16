@@ -196,9 +196,8 @@ export default function WalletTransactionsManager() {
         }
     };
 
+    // The bulk buttons only show with a selection, and are disabled while processing
     const handleBulkProcess = async (action: 'approve' | 'reject') => {
-        if (selectedIds.size === 0 || isProcessingBulk) return;
-
         setIsProcessingBulk(true);
         try {
             const response = await fetch('/api/admin/wallet-transactions/bulk-process', {
@@ -285,9 +284,7 @@ export default function WalletTransactionsManager() {
             toast.error(err instanceof Error ? err.message : 'Error reconciling statement');
         } finally {
             setIsReconciling(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
+            fileInputRef.current!.value = ''; // the file input is always rendered
         }
     };
 
