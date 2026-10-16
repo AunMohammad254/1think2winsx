@@ -382,6 +382,96 @@ async function AnalyticsDashboardContent() {
           </div>
         </div>
       </div>
+
+      {/* Row 4: Recent Feature Metrics */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        {/* Live Quiz Engagement */}
+        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl p-6">
+          <h3 className="text-lg font-bold text-white mb-2">Live Quiz Engagement</h3>
+          <p className="text-xs text-gray-400 mb-6">Pushed quizzes vs active participants</p>
+          
+          <div className="flex items-center justify-between p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl mb-4">
+            <div>
+              <p className="text-purple-300 text-xs uppercase tracking-wider font-semibold">Total Pushed</p>
+              <p className="text-2xl font-bold text-white">{data.liveQuizEngagement.totalLiveQuizzes}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-purple-300 text-xs uppercase tracking-wider font-semibold">Total Attempts</p>
+              <p className="text-2xl font-bold text-white">{data.liveQuizEngagement.totalLiveAttempts}</p>
+            </div>
+          </div>
+          <div className="text-center text-sm text-gray-300">
+            Average of <span className="font-bold text-white">{data.liveQuizEngagement.avgAttemptsPerLiveQuiz}</span> attempts per live quiz.
+          </div>
+        </div>
+
+        {/* Score Distribution */}
+        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl p-6">
+          <h3 className="text-lg font-bold text-white mb-2">Score Distribution</h3>
+          <p className="text-xs text-gray-400 mb-6">Bell curve of recently evaluated quizzes</p>
+
+          <div className="space-y-4 mt-2">
+            {data.scoreDistribution.map((dist, idx) => {
+              const maxCount = Math.max(...data.scoreDistribution.map(d => d.count), 1);
+              const percent = (dist.count / maxCount) * 100;
+              return (
+                <div key={idx} className="flex items-center gap-3 text-sm">
+                  <div className="w-14 text-right font-semibold text-gray-400">{dist.range}</div>
+                  <div className="flex-1 h-3 bg-gray-800/80 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-1000" 
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                  <div className="w-8 text-white font-bold">{dist.count}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Notification Efficacy */}
+        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl p-6 flex flex-col">
+          <h3 className="text-lg font-bold text-white mb-2">Notification Efficacy</h3>
+          <p className="text-xs text-gray-400 mb-6">Click-through rate for Quiz Results</p>
+
+          <div className="flex-1 flex flex-col items-center justify-center mt-2">
+            <div className="relative w-32 h-32 flex items-center justify-center">
+              <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                <circle cx="64" cy="64" r="56" stroke="rgba(255,255,255,0.05)" strokeWidth="12" fill="none" />
+                <circle 
+                  cx="64" 
+                  cy="64" 
+                  r="56" 
+                  stroke="#ec4899" 
+                  strokeWidth="12" 
+                  fill="none" 
+                  strokeDasharray="351.858" 
+                  strokeDashoffset={351.858 - (351.858 * data.notificationEfficacy.ctr) / 100}
+                  className="transition-all duration-1000 ease-out"
+                />
+              </svg>
+              <div className="text-center">
+                <span className="text-3xl font-bold text-white">{data.notificationEfficacy.ctr}%</span>
+                <p className="text-[10px] uppercase tracking-wider text-pink-400 font-semibold mt-1">CTR</p>
+              </div>
+            </div>
+            
+            <div className="mt-6 flex justify-between w-full text-sm max-w-[200px]">
+              <div className="text-center">
+                <p className="text-gray-400">Sent</p>
+                <p className="font-bold text-white">{data.notificationEfficacy.totalSent.toLocaleString()}</p>
+              </div>
+              <div className="w-px bg-white/10"></div>
+              <div className="text-center">
+                <p className="text-gray-400">Read</p>
+                <p className="font-bold text-white">{data.notificationEfficacy.totalRead.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -404,6 +494,11 @@ function AnalyticsSkeleton() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="h-60 rounded-2xl border border-white/10 bg-white/5" />
         <div className="h-60 rounded-2xl border border-white/10 bg-white/5" />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="h-60 rounded-2xl border border-white/10 bg-white/5" />
+        ))}
       </div>
     </div>
   );

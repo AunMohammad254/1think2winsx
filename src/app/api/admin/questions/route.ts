@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { getDb, generateId } from '@/lib/supabase/db';
+import { getAdminDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { quizId, text, options, correctOption } = validationResult.data;
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Verify quiz exists
     const { data: quiz, error: quizError } = await supabase
@@ -174,7 +174,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
 
     const offset = (page - 1) * limit;
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Build query
     let query = supabase

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dailyPaymentDb, getDb } from '@/lib/supabase/db';
 import { recordSecurityEvent } from './security-monitoring';
+import { isWalletEnabled } from '@/lib/wallet/service';
 
 export interface PaymentAccessResult {
   hasAccess: boolean;
@@ -20,6 +21,12 @@ export async function checkPaymentAccess(
   request?: NextRequest
 ): Promise<PaymentAccessResult> {
   try {
+    // Wallet disabled (admin toggle or WALLET_FEATURE_ENABLED=false) => quizzes
+    // are free for everyone; skip the payment lookup entirely.
+    if (!(await isWalletEnabled())) {
+      return { hasAccess: true };
+    }
+
     const now = new Date();
 
     // Find active payment within 24 hours using Supabase

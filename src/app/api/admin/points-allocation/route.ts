@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { quizDb, userDb, quizAttemptDb, getDb } from '@/lib/supabase/db';
+import { quizDb, userDb, quizAttemptDb, getAdminDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     const { quizId, pointsPerWinner, percentageThreshold } = validationResult.data;
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Get quiz
     const { data: quiz, error: quizError } = await supabase
@@ -257,7 +257,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(cached.data);
     }
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Build query
     let query = supabase

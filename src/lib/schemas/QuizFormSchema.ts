@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toUtcIso } from '@/lib/schedule-time';
 
 // ============================================
 // Option Schema
@@ -40,15 +41,20 @@ export const QuizFormBaseSchema = z.object({
     duration: z.number()
         .min(1, 'Duration must be at least 1 minute')
         .max(180, 'Duration cannot exceed 180 minutes'),
+    // How long a quiz stays listed as "Time-up" after its duration ends
+    timeUpDuration: z.number()
+        .min(1, 'Time-up duration must be at least 1 minute')
+        .max(1440, 'Time-up duration cannot exceed 1440 minutes (24 hours)')
+        .default(60),
     passingScore: z.number()
         .min(0, 'Passing score must be 0 or higher')
         .max(100, 'Passing score cannot exceed 100'),
     accessPrice: z.number()
-        .min(0.5, 'Access price must be at least 0.5 PKR')
+        .min(0, 'Access price must be at least 0 PKR')
         .max(1000, 'Access price cannot exceed 1000 PKR')
         .default(2),
     difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
-    status: z.enum(['draft', 'active', 'paused', 'scheduled']).default('draft'),
+    status: z.enum(['draft', 'active', 'paused', 'scheduled', 'upcoming']).default('draft'),
     startsAt: z.string().nullable().optional(),
     // Prize-link fields (optional — non-prize quizzes leave these unset)
     prizeId: z.string().nullable().optional(),
@@ -58,7 +64,22 @@ export const QuizFormBaseSchema = z.object({
         .min(1, 'At least 1 question required'),
 });
 
-const validatePredictableQuiz = (data: { quizType: string, questions: any[] }, ctx: z.RefinementCtx) => {
+const validatePredictableQuiz = (
+    data: { quizType: string, questions: any[], status?: string, startsAt?: string | null },
+    ctx: z.RefinementCtx
+) => {
+    // Scheduled/upcoming quizzes go live on their own at startsAt; without a valid
+    // date the scheduler would never pick them up.
+    if (data.status === 'scheduled' || data.status === 'upcoming') {
+        if (!toUtcIso(data.startsAt)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Pick a valid date and time for the schedule',
+                path: ['startsAt']
+            });
+        }
+    }
+
     // If it's a normal quiz, ensure every question has a correct option selected
     if (data.quizType === 'normal') {
         data.questions.forEach((q, idx) => {
@@ -147,6 +168,7 @@ export const defaultQuiz: QuizFormData = {
     title: '',
     description: '',
     duration: 30,
+    timeUpDuration: 60,
     passingScore: 70,
     accessPrice: 2,
     difficulty: 'medium',

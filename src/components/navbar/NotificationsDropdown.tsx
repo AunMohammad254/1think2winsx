@@ -40,10 +40,19 @@ export default function NotificationsDropdown() {
     markAsRead,
     markAllAsRead,
     deleteNotification,
+    loadNotifications,
+    listLoaded,
+    error: loadError,
   } = useNotifications();
 
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // The navbar only fetches the unread count on page load; the list is loaded the first
+  // time the bell is opened (a no-op afterwards).
+  useEffect(() => {
+    if (isOpen) loadNotifications();
+  }, [isOpen, loadNotifications]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -91,6 +100,17 @@ export default function NotificationsDropdown() {
       markAsRead(notification.id);
     }
     setIsOpen(false);
+  };
+
+  // A quiz notification's link is `/quiz/<id>` (the standalone full-page
+  // attempt flow). Route it through /quizzes?openQuiz=<id> instead, so it
+  // opens straight into the live-stream popup/split experience — same quiz,
+  // same submit endpoint, just the richer view — instead of navigating away
+  // from the stream entirely.
+  const resolveNotificationHref = (link: string) => {
+    if (link.includes('/results')) return link;
+    const match = link.match(/\/quiz\/([^/?#]+)/);
+    return match ? `/quizzes?openQuiz=${encodeURIComponent(match[1])}` : link;
   };
 
   return (
@@ -177,7 +197,7 @@ export default function NotificationsDropdown() {
 
               {/* Notifications List */}
               <div className="max-h-[280px] xs:max-h-[360px] md:max-h-[420px] overflow-y-auto divide-y divide-white/5 custom-scrollbar">
-                {loading ? (
+                {loading || (!listLoaded && !loadError) ? (
                   <div className="flex items-center justify-center py-10 text-gray-500 text-sm">
                     <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-500 border-t-transparent mr-2" />
                     <span>Loading notifications...</span>
@@ -231,7 +251,7 @@ export default function NotificationsDropdown() {
                             <div className="flex items-center gap-3">
                               {notif.link ? (
                                 <Link
-                                  href={notif.link}
+                                  href={resolveNotificationHref(notif.link)}
                                   onClick={() => handleNotificationClick(notif)}
                                   className="text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:underline"
                                 >

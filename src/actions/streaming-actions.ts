@@ -1,5 +1,7 @@
 'use server';
 
+import { adminActionGuard } from '@/lib/admin-guard';
+
 /**
  * Server Actions for Live Stream Configuration
  * Uses Supabase RPC functions for database-only storage
@@ -8,9 +10,8 @@
  * and can be called directly from Client Components.
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
-import { notificationDb } from '@/lib/supabase/db';
+import { notificationDb, getAdminDb } from '@/lib/supabase/db';
 
 // ============================================================
 // Types
@@ -48,14 +49,8 @@ interface ActionResult<T = void> {
 // ============================================================
 
 function getSupabaseAdmin() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !supabaseServiceKey) {
-        throw new Error('Supabase credentials not configured');
-    }
-
-    return createClient(supabaseUrl, supabaseServiceKey);
+    // Shared singleton: a fresh createClient() per call leaks an auth refresh timer each time
+    return getAdminDb();
 }
 
 // ============================================================
@@ -160,6 +155,8 @@ export async function updateStreamConfig(
     input: UpdateStreamConfigInput,
     adminEmail: string = 'admin'
 ): Promise<ActionResult<StreamConfig>> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // Validate input
         if (!input.embedHtml && !input.embedUrl) {
@@ -291,6 +288,8 @@ export async function toggleStreamStatus(
     isActive: boolean,
     adminEmail: string = 'admin'
 ): Promise<ActionResult<{ isActive: boolean }>> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         const supabase = getSupabaseAdmin();
 

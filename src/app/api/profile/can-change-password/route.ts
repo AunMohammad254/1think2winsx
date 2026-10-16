@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import logger from '@/lib/logger';
+import { detectForUser } from '@/lib/auth-detection-server';
 
 /**
  * GET /api/profile/can-change-password
@@ -34,13 +35,16 @@ export async function GET() {
             .filter(identity => identity.provider !== 'email')
             .map(identity => identity.provider);
 
-        // User can change password ONLY if they have an 'email' identity
-        // (meaning they signed up with email/password)
-        const canChangePassword = hasEmailIdentity;
+        // hasPassword = a fact about the ACCOUNT (it can sign in with a password; see lib/password-status).
+        // The "Change password" form asks for the current password, so it is only offered to a session that
+        // signed in WITH a password. Anyone signed in another way (Google, or an emailed link) gets the
+        // "Set up password" flow instead: an emailed link, which works whether or not a password exists yet.
+        const { hasPassword, currentMethod } = await detectForUser(supabase, user);
+        const canChangePassword = hasPassword && currentMethod === 'password';
 
         // Determine the primary auth provider
         let authProvider = 'unknown';
-        if (hasEmailIdentity) {
+        if (hasPassword) {
             authProvider = 'email';
         } else if (oAuthProviders.length > 0) {
             authProvider = oAuthProviders[0]; // Use first OAuth provider
@@ -57,9 +61,10 @@ export async function GET() {
 
         return NextResponse.json({
             canChangePassword: canChangePassword,
-            hasPassword: hasEmailIdentity, // Email identity = has password in Supabase Auth
+            hasPassword,
+            currentMethod,
             authProvider: authProvider,
-            authMethod: hasEmailIdentity ? 'email' : 'oauth',
+            authMethod: hasPassword ? 'email' : 'oauth',
             // Include OAuth providers for display purposes
             oAuthProviders: oAuthProviders
         }, { status: 200 });

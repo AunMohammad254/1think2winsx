@@ -81,7 +81,7 @@ const Footer = memo(function Footer() {
                 </div>
               </div>
               <p className="mt-5 text-sm leading-relaxed text-white/55">
-                Test your cricket knowledge and win amazing prizes in our innovative quiz competition.
+                Test your sports knowledge and win amazing prizes in our innovative quiz competition.
                 Join thousands of smart thinkers in this exciting journey of knowledge and rewards!
               </p>
               <div className="mt-5 flex items-center gap-2 text-xs text-white/40">
@@ -192,7 +192,7 @@ const Footer = memo(function Footer() {
                 <span>Stay Updated</span>
               </h3>
               <p className="mt-2 text-sm text-white/55">
-                Get the latest quiz updates, cricket news, and exclusive prizes delivered to your inbox!
+                Get the latest quiz updates, sports news, and exclusive prizes delivered to your inbox!
               </p>
               <form onSubmit={handleSubscribe} className="mt-6 flex flex-col gap-2 sm:gap-3 md:flex-row">
                 <input
@@ -233,7 +233,7 @@ const Footer = memo(function Footer() {
                     &copy; 2025 <span className="font-semibold text-white">1Think 2Win</span>. All rights reserved.
                   </p>
                   <p className="mt-1 flex items-center justify-center gap-1 text-xs text-white/35 md:justify-start">
-                    Crafted for cricket enthusiasts worldwide
+                    Crafted for sports enthusiasts worldwide
                   </p>
                 </div>
                 <div className="flex items-center gap-4">

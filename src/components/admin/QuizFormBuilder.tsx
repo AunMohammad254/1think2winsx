@@ -12,6 +12,7 @@ import {
     defaultQuiz
 } from '@/lib/schemas/QuizFormSchema';
 import { createQuiz, updateQuiz } from '@/actions/quiz-actions';
+import DateTimePicker from '@/components/ui/DateTimePicker';
 
 interface QuizFormBuilderProps {
     initialData?: QuizFormData;
@@ -30,13 +31,18 @@ const statusOptions = [
     { value: 'active', label: 'Published', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
     { value: 'paused', label: 'Paused', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
     { value: 'scheduled', label: 'Scheduled', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+    { value: 'upcoming', label: 'Upcoming', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
 ];
+
+// Statuses that go live on their own at `startsAt`, so they need a date.
+const isTimedStatus = (status?: string) => status === 'scheduled' || status === 'upcoming';
 
 export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: QuizFormBuilderProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [expandedQuestions, setExpandedQuestions] = useState<number[]>([0]);
     const [showPrizeSection, setShowPrizeSection] = useState(!!initialData?.prizeId);
     const [prizes, setPrizes] = useState<Array<{ id: string; name: string; description: string | null }>>([]);
+    const [walletEnabled, setWalletEnabled] = useState(true);
 
     const isEditing = !!initialData?.id;
 
@@ -69,7 +75,6 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     const watchedPrizeId = watch('prizeId');
     const watchedQuizType = watch('quizType');
 
-    // Fetch prizes when prize section is opened
     useEffect(() => {
         if (showPrizeSection && prizes.length === 0) {
             fetch('/api/prizes')
@@ -78,6 +83,14 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                 .catch(() => {});
         }
     }, [showPrizeSection, prizes.length]);
+
+    // Fetch wallet enabled status
+    useEffect(() => {
+        fetch('/api/settings/wallet-enabled')
+            .then(res => res.json())
+            .then(data => setWalletEnabled(data.walletEnabled))
+            .catch(console.error);
+    }, []);
 
     // Toggle question expansion
     const toggleQuestion = useCallback((index: number) => {
@@ -155,10 +168,16 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     const onSubmit = async (data: QuizFormData) => {
         setIsSubmitting(true);
         try {
-            // Clean up startsAt if status is not scheduled
+            // Clean up startsAt unless the quiz is still waiting to go live
             const payload = {
                 ...data,
-                startsAt: data.status === 'scheduled' ? data.startsAt : null,
+                // The picker yields a zone-less local time ("2026-12-01T16:30"). Convert it to an
+                // absolute instant HERE, in the admin's browser: if the server parsed it, it would
+                // read it in the server's timezone (UTC) and shift the quiz by the viewer's offset.
+                startsAt: isTimedStatus(data.status) && data.startsAt
+                    ? new Date(data.startsAt).toISOString()
+                    : null,
+                accessPrice: walletEnabled ? data.accessPrice : 0,
             };
             const result = isEditing
                 ? await updateQuiz(payload)
@@ -193,7 +212,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
             {/* Quiz Basic Info */}
-            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6">
+            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6 relative z-50">
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-xl font-bold text-white">Quiz Details</h2>
                     
@@ -283,6 +302,23 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                         )}
                     </div>
 
+                    {/* Time-Up Display Duration */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                            "Time-up" Display Duration (minutes) <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            {...register('timeUpDuration', { valueAsNumber: true })}
+                            min={1}
+                            max={1440}
+                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+                        />
+                        {errors.timeUpDuration && (
+                            <p className="mt-1 text-sm text-red-400">{errors.timeUpDuration.message as string}</p>
+                        )}
+                    </div>
+
                     {/* Passing Score */}
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -301,7 +337,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                     </div>
 
                     {/* Access Price */}
-                    <div>
+                    <div className={walletEnabled ? 'block' : 'hidden'}>
                         <label className="block text-sm font-medium text-gray-300 mb-2">
                             Access Price (PKR) <span className="text-red-400">*</span>
                         </label>
@@ -309,7 +345,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                             <input
                                 type="number"
                                 {...register('accessPrice', { valueAsNumber: true })}
-                                min={0.5}
+                                min={0}
                                 max={1000}
                                 step={0.5}
                                 className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
@@ -360,7 +396,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                             name="status"
                             control={control}
                             render={({ field }) => (
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                                     {statusOptions.map((option) => (
                                         <button
                                             key={option.value}
@@ -380,17 +416,27 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                     </div>
 
                     {/* Schedule Date-Time Picker */}
-                    {watchedStatus === 'scheduled' && (
-                        <div className="md:col-span-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                    {isTimedStatus(watchedStatus) && (
+                        <div className="md:col-span-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200 relative z-50">
                             <label className="block text-sm font-medium text-gray-300">
                                 Publish Schedule Date & Time <span className="text-red-400">*</span>
                             </label>
-                            <input
-                                type="datetime-local"
-                                {...register('startsAt')}
-                                required={watchedStatus === 'scheduled'}
-                                className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+                            <Controller
+                                name="startsAt"
+                                control={control}
+                                render={({ field }) => (
+                                    <DateTimePicker
+                                        id="startsAt"
+                                        value={field.value || ''}
+                                        onChange={field.onChange}
+                                        placeholder="Select date and time"
+                                        className="w-full"
+                                    />
+                                )}
                             />
+                            {errors.startsAt && (
+                                <p className="text-xs text-red-400">{errors.startsAt.message}</p>
+                            )}
                             <p className="text-xs text-gray-500">Select when this quiz should automatically go live and notify users.</p>
                         </div>
                     )}
@@ -654,6 +700,20 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                     );
                 })}
             </div>
+
+            {/* Global Error Display for Debugging */}
+            {Object.keys(errors).length > 0 && (
+                <div className="mt-4 p-4 bg-red-500/10 border border-red-500/50 rounded-xl">
+                    <h3 className="text-red-400 font-semibold mb-2">Please fix the following errors to save:</h3>
+                    <ul className="list-disc list-inside text-sm text-red-300">
+                        {Object.entries(errors).map(([key, error]: any) => (
+                            <li key={key}>
+                                {key}: {error?.message || (Array.isArray(error) ? 'Errors in list' : JSON.stringify(error))}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
 
             {/* Form Actions */}
             <div className="flex items-center justify-between pt-6 border-t border-white/10">

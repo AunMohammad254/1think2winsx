@@ -13,18 +13,68 @@
  * FEATURE FLAG:
  *   isWalletEnabled() reads from the AppSettings DB table (key='wallet_enabled').
  *   Fallback: WALLET_FEATURE_ENABLED env var. Default: enabled.
- *   When disabled: the wallet UI is fully hidden, quiz access is blocked for all users,
- *   and wallet API routes return 503 WALLET_DISABLED.
+ *   When disabled: quizzes are FREE for everyone (no payment prompt, no
+ *   DailyPayment row required - see checkPaymentAccess() and
+ *   submit_quiz_attempt()'s wallet_enabled check), the wallet UI (balance,
+ *   deposit, transaction history) is hidden, and wallet API routes return
+ *   503 WALLET_DISABLED. Admin-toggleable from /admin/wallet.
  */
 
-import { getAdminDb, walletTransactionDb, dailyPaymentDb, userDb, quizDb, generateId } from '@/lib/supabase/db';
+import { getAdminDb, userDb, quizDb } from '@/lib/supabase/db';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 // ============================================================================
 // FEATURE FLAG
 // ============================================================================
 
 let _walletEnabledCache: { value: boolean; fetchedAt: number } | null = null;
+let _walletFlagInflight: Promise<boolean> | null = null;
+// While the env override is set it is mirrored into AppSettings so DB RPCs (pay_quiz_access,
+// submit_quiz_attempt, ...) agree with Node — an admin toggle can't drift away from the env value.
+// This runs on every quiz-list request, so it must NOT write per call: the old per-call upsert
+// hammered a single AppSettings row with one write per request. Now: at most one read per
+// minute per process, and a write only when the DB value actually differs.
+let _envFlagLastSyncAt = 0;
 const FLAG_CACHE_TTL_MS = 60_000; // cache the flag for 1 minute
+
+function syncEnvFlagToDb(envFlag: 'true' | 'false'): void {
+    const now = Date.now();
+    if (now - _envFlagLastSyncAt < FLAG_CACHE_TTL_MS) return;
+    _envFlagLastSyncAt = now; // claim first so concurrent callers don't each sync
+    (async () => {
+        try {
+            const adminDb = getAdminDb();
+            const { data, error: readError } = await adminDb
+                .from('AppSettings')
+                .select('value')
+                .eq('key', 'wallet_enabled')
+                .maybeSingle();
+            if (readError) throw readError;
+            if (data?.value === envFlag) return; // already in sync: no write
+            const res = await adminDb.from('AppSettings').upsert({
+                key: 'wallet_enabled',
+                value: envFlag
+            }, { onConflict: 'key' });
+            if (res.error) throw res.error;
+        } catch (err: unknown) {
+            // Retry after the next interval rather than immediately, so a DB outage can't turn
+            // this into a per-request retry storm.
+            console.error('AppSettings sync failed:', err);
+        }
+    })();
+}
+
+async function readWalletFlagFromDb(): Promise<boolean> {
+    const { data, error } = await getAdminDb()
+        .from('AppSettings')
+        .select('value')
+        .eq('key', 'wallet_enabled')
+        .maybeSingle();
+    if (error) throw error;
+    const enabled = data?.value !== 'false'; // missing row → default ON
+    _walletEnabledCache = { value: enabled, fetchedAt: Date.now() };
+    return enabled;
+}
 
 /**
  * Check whether the wallet feature is enabled.
@@ -37,8 +87,10 @@ const FLAG_CACHE_TTL_MS = 60_000; // cache the flag for 1 minute
 export async function isWalletEnabled(): Promise<boolean> {
     // 1. Env-var override — fastest path, no DB round-trip
     const envFlag = process.env.WALLET_FEATURE_ENABLED;
-    if (envFlag === 'false') return false;
-    if (envFlag === 'true') return true;
+    if (envFlag === 'false' || envFlag === 'true') {
+        syncEnvFlagToDb(envFlag);
+        return envFlag === 'true';
+    }
 
     // 2. Cached DB read
     const now = Date.now();
@@ -46,26 +98,30 @@ export async function isWalletEnabled(): Promise<boolean> {
         return _walletEnabledCache.value;
     }
 
+    // Single-flight: concurrent misses share one query instead of each hitting the DB.
+    if (!_walletFlagInflight) {
+        _walletFlagInflight = readWalletFlagFromDb().finally(() => { _walletFlagInflight = null; });
+    }
     try {
-        const adminDb = getAdminDb();
-        const { data } = await adminDb
-            .from('AppSettings')
-            .select('value')
-            .eq('key', 'wallet_enabled')
-            .single();
-
-        const enabled = data?.value !== 'false'; // missing row → default ON
-        _walletEnabledCache = { value: enabled, fetchedAt: now };
-        return enabled;
+        return await _walletFlagInflight;
     } catch {
-        // If the AppSettings table doesn't exist yet (before migration), default ON
-        return true;
+        // DB hiccup or AppSettings missing (before migration). Keep serving the last known
+        // value so an outage doesn't silently flip an admin's "wallet disabled" back to enabled;
+        // only default to ON when we have never read it.
+        return _walletEnabledCache ? _walletEnabledCache.value : true;
     }
 }
 
 /** Invalidate the in-memory wallet-enabled flag cache (call after admin toggles it). */
 export function invalidateWalletEnabledCache(): void {
     _walletEnabledCache = null;
+}
+
+/** Test hook: reset module state. */
+export function __resetWalletFlagStateForTests(): void {
+    _walletEnabledCache = null;
+    _walletFlagInflight = null;
+    _envFlagLastSyncAt = 0;
 }
 
 // ============================================================================
@@ -132,86 +188,53 @@ export interface DeductionResult {
 /**
  * Atomically deduct wallet balance and grant 24-hour quiz access.
  *
- * @param authUserId  - Supabase auth user ID (from session)
- * @param userEmail   - Email for looking up the DB user record
- * @param amount      - Amount to deduct in PKR
- * @param quizId      - Optional quiz ID for the transaction audit note
+ * SECURITY: the price is decided by the database (`pay_quiz_access` reads the
+ * quiz's accessPrice). The `amount` argument is kept only for backwards
+ * compatibility and is ignored — it used to come straight from the browser, so a
+ * user could buy 24h access for 0.01 PKR. Balance deduction, the transaction
+ * record and the DailyPayment row are written in ONE transaction (previously three
+ * separate requests: a failure after the deduction charged the user without
+ * granting access).
+ *
+ * Must be called in a request context that carries the user's Supabase session.
  */
 export async function deductForQuizAccess(
-    authUserId: string,
-    userEmail: string,
-    amount: number,
+    _authUserId: string,
+    _userEmail: string,
+    _amount: number,
     quizId?: string
 ): Promise<DeductionResult> {
-    if (amount <= 0) return { success: false, error: 'Invalid amount' };
-
     try {
-        const dbUser = await userDb.findByEmail(userEmail);
-        if (!dbUser) {
-            return { success: false, error: 'User not found. Please try logging out and back in.' };
+        const supabase = await createServerClient();
+        const { data, error } = await supabase.rpc('pay_quiz_access', { p_quiz_id: quizId ?? null });
+
+        if (error || !data) {
+            console.error('[wallet/service] pay_quiz_access failed:', error);
+            return { success: false, error: 'Failed to process payment. Please try again.' };
         }
 
-        if (dbUser.walletBalance < amount) {
+        const r = data as {
+            success: boolean; error?: string; alreadyActive?: boolean; paymentId?: string;
+            newBalance?: number; insufficientBalance?: boolean; requiredAmount?: number; currentBalance?: number;
+        };
+
+        if (!r.success) {
             return {
                 success: false,
-                error: 'Insufficient wallet balance',
-                insufficientBalance: true,
-                requiredAmount: amount,
-                currentBalance: dbUser.walletBalance,
+                error: r.error || 'Payment failed',
+                insufficientBalance: !!r.insufficientBalance,
+                requiredAmount: r.requiredAmount,
+                currentBalance: r.currentBalance,
             };
-        }
-
-        const adminDb = getAdminDb();
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-        // 1. Atomic deduction via RPC (prevents race conditions)
-        const { data: rpcResult, error: rpcError } = await adminDb.rpc('deduct_wallet_balance', {
-            p_user_id: authUserId,
-            p_amount: amount,
-        });
-
-        if (rpcError || !rpcResult || !rpcResult.success) {
-            console.error('[wallet/service] Deduction RPC failed:', rpcError || rpcResult?.error);
-            return {
-                success: false,
-                error: (rpcResult?.error as string) || 'Insufficient balance or transaction failed',
-                insufficientBalance: rpcResult?.error === 'Insufficient funds',
-            };
-        }
-
-        const newBalance = rpcResult.new_balance as number;
-
-        // 2. Record transaction history + daily payment (best-effort — deduction already happened)
-        try {
-            await walletTransactionDb.create({
-                userId: dbUser.id,
-                amount: -amount,
-                paymentMethod: 'QuizAccess',
-                transactionId: `quiz_access_${Date.now()}_${dbUser.id}`,
-                status: 'approved',
-                adminNotes: quizId ? `Quiz access payment for quiz: ${quizId}` : '24-hour quiz access payment',
-                processedAt: now.toISOString(),
-            });
-
-            await dailyPaymentDb.create({
-                userId: dbUser.id,
-                amount,
-                status: 'completed',
-                paymentMethod: 'wallet',
-                transactionId: `wallet_${Date.now()}_${dbUser.id}`,
-                expiresAt: expiresAt.toISOString(),
-            });
-        } catch (logError) {
-            // Non-fatal — deduction occurred. Log for ops team but don't surface to user.
-            console.error('[wallet/service] Failed to log transaction history (deduction already succeeded):', logError);
         }
 
         return {
             success: true,
-            message: 'Payment successful! You now have 24-hour quiz access.',
-            newBalance,
-            paymentId: `wallet_${Date.now()}_${dbUser.id}`,
+            message: r.alreadyActive
+                ? 'You already have active quiz access.'
+                : 'Payment successful! You now have 24-hour quiz access.',
+            newBalance: r.newBalance,
+            paymentId: r.paymentId,
         };
     } catch (err) {
         console.error('[wallet/service] deductForQuizAccess error:', err);

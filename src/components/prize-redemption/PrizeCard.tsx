@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 import type { Prize } from './types';
 
 interface PrizeCardProps {
@@ -32,6 +33,7 @@ export function PrizeCard({
                 <div className="h-32 w-32 rounded-2xl overflow-hidden">
                     <Image
                         src={prize.imageUrl || `/prizes/${prize.type}.svg`}
+                        loader={loaderFor(prize.imageUrl)}
                         alt={prize.name}
                         width={128}
                         height={128}

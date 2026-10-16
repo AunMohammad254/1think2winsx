@@ -2,7 +2,7 @@
  * Wallet Transaction and Daily Payment Database Operations
  */
 
-import { getDb, generateId } from './shared'
+import { getDb, getAdminDb, generateId } from './shared'
 import type { Insertable } from '../database.types'
 
 // ============================================================================
@@ -23,7 +23,7 @@ export const walletTransactionDb = {
     },
 
     async findPending(options?: { limit?: number; offset?: number }) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const limit = options?.limit ?? 50
         const offset = options?.offset ?? 0
         const { data, error } = await supabase
@@ -50,7 +50,7 @@ export const walletTransactionDb = {
     },
 
     async create(transactionData: Insertable<'WalletTransaction'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('WalletTransaction')
@@ -68,7 +68,7 @@ export const walletTransactionDb = {
     },
 
     async approve(id: string, processedBy: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('WalletTransaction')
             .update({
@@ -86,7 +86,7 @@ export const walletTransactionDb = {
     },
 
     async reject(id: string, processedBy: string, adminNotes?: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('WalletTransaction')
             .update({
@@ -156,7 +156,7 @@ export const dailyPaymentDb = {
     },
 
     async create(paymentData: Insertable<'DailyPayment'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('DailyPayment')

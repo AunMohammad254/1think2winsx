@@ -16,16 +16,19 @@ const nextConfig = {
 
   // Mobile performance optimizations
   experimental: {
-    // Disable optimizeCss as it's causing build issues
-    // optimizeCss: true,
+    // optimizeCss needs the `critters` package (not installed) and broke builds before
     optimizePackageImports: ['framer-motion'],
   },
   serverExternalPackages: ['pdf-parse'],
 
   // Compiler optimizations
   compiler: {
-    // Remove console logs in production
-    removeConsole: process.env.NODE_ENV === 'production',
+    // Remove console.log/info/debug in production, but KEEP console.error and console.warn:
+    // they are the only record of failed pushes/emails, RPC errors and the [SECURITY EVENT]
+    // sink, and stripping them leaves nothing to look at during an incident.
+    removeConsole: process.env.NODE_ENV === 'production'
+      ? { exclude: ['error', 'warn'] }
+      : false,
   },
 
   // Modular imports for better tree-shaking
@@ -115,6 +118,14 @@ const nextConfig = {
         hostname: '*.pakwheels.com',
         port: '',
         pathname: '/**',
+      },
+      {
+        // Cloudinary (prize images and videos). Most <Image>s use the Cloudinary loader
+        // in src/lib/cloudinary.ts; this entry covers any that go through Next's optimizer.
+        protocol: 'https',
+        hostname: 'res.cloudinary.com',
+        port: '',
+        pathname: `/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dszrz6s6u'}/**`,
       },
     ],
     unoptimized: false,

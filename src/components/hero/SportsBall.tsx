@@ -41,7 +41,9 @@ export const SportsBall = memo(({ className = "", type = "cricket" }: SportsBall
 
   return (
     <motion.div
-      className={`relative w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80 ${className}`}
+      // Default sizes only apply when the caller supplies none: the responsive defaults
+      // (md:/lg:) would otherwise beat a caller's `w-full h-full` and blow the ball up to 320px.
+      className={`relative ${className || 'w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80'}`}
       initial={{ scale: 0, rotateY: -180 }}
       animate={{ scale: 1, rotateY: 0 }}
       transition={{ duration: 0.8, delay: 0.4, type: "spring", stiffness: 100 }}

@@ -1,8 +1,25 @@
 'use server';
 
-import { prizeDb, prizeRedemptionDb, userDb, getDb, generateId } from '@/lib/supabase/db';
+import { adminActionGuard } from '@/lib/admin-guard';
+
+import { prizeDb, getDb, getAdminDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT, cloudinaryPublicIdFromUrl } from '@/lib/cloudinary';
+import { deleteCloudinaryImageByUrl } from '@/lib/cloudinary-server';
+
+/**
+ * Delete a prize's old Cloudinary image, unless something else still needs it:
+ * another prize using the same image (any transformation), or a site asset in "assets/".
+ */
+async function deletePrizeImageIfUnused(url: string, prizeId: string): Promise<void> {
+    const publicId = cloudinaryPublicIdFromUrl(url);
+    if (!publicId || publicId.startsWith('assets/')) return;
+    const { data, error } = await getAdminDb().from('Prize').select('id, imageUrl').neq('id', prizeId);
+    if (error) throw error; // can't prove it's unused, so keep it
+    const stillUsed = (data || []).some((p: { imageUrl: string | null }) => cloudinaryPublicIdFromUrl(p.imageUrl) === publicId);
+    if (!stillUsed) await deleteCloudinaryImageByUrl(url);
+}
 import type {
     Prize,
     PrizeFormData,
@@ -15,7 +32,7 @@ import type {
 const prizeSchema = z.object({
     name: z.string().min(1, 'Name is required').max(100, 'Name too long'),
     description: z.string().max(500, 'Description too long').optional(),
-    imageUrl: z.string().url('Invalid image URL').optional().or(z.literal('')),
+    imageUrl: z.string().url('Invalid image URL').refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
     modelUrl: z.string().url('Invalid model URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
     pointsRequired: z.number().min(1, 'Points must be at least 1'),
@@ -88,7 +105,7 @@ export async function getPublicPrizes(
  * Redeem a prize (user action with optimistic UI support)
  */
 export async function redeemPrize(
-    userId: string,
+    _userId: string,
     formData: {
         prizeId: string;
         fullName: string;
@@ -96,8 +113,11 @@ export async function redeemPrize(
         address: string;
     }
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+    // SECURITY: `_userId` used to be trusted from the browser, letting anyone spend
+    // another player's points. The user is now taken from the verified session and
+    // the whole redemption runs atomically in the `redeem_prize` DB function
+    // (points were previously read-then-written, so double-clicks could double-spend).
     try {
-        // Validate input
         const validation = redemptionSchema.safeParse(formData);
         if (!validation.success) {
             return {
@@ -106,84 +126,58 @@ export async function redeemPrize(
             };
         }
 
-        const { prizeId, fullName, whatsappNumber, address } = validation.data;
         const supabase = await getDb();
-
-        // Get user and prize in parallel
-        const [user, prize] = await Promise.all([
-            userDb.findById(userId),
-            prizeDb.findById(prizeId),
-        ]);
-
-        if (!user) {
-            return { success: false, error: 'User not found' };
+        const { data: claims } = await supabase.auth.getClaims();
+        const userId = claims?.claims?.sub;
+        if (!userId) {
+            return { success: false, error: 'You must be logged in to redeem prizes' };
         }
 
-        if (!prize) {
-            return { success: false, error: 'Prize not found' };
-        }
+        const { prizeId, fullName, whatsappNumber, address } = validation.data;
 
-        if (!prize.isActive || prize.status !== 'published') {
-            return { success: false, error: 'This prize is no longer available' };
-        }
-
-        if (prize.stock !== null && prize.stock <= 0) {
-            return { success: false, error: 'This prize is out of stock' };
-        }
-
-        if (user.points < prize.pointsRequired) {
-            return {
-                success: false,
-                error: `Insufficient points. You need ${prize.pointsRequired} points but have ${user.points}`
-            };
-        }
-
-        // Check for existing pending redemption
         const { data: existingRedemption } = await supabase
             .from('PrizeRedemption')
             .select('id')
             .eq('userId', userId)
             .eq('prizeId', prizeId)
             .eq('status', 'pending')
-            .single();
-
+            .maybeSingle();
         if (existingRedemption) {
-            return {
-                success: false,
-                error: 'You already have a pending redemption for this prize'
-            };
+            return { success: false, error: 'You already have a pending redemption for this prize' };
         }
 
-        // Perform operations (no native transaction in Supabase, so do sequentially)
-        // 1. Deduct points
-        await userDb.update(userId, {
-            points: user.points - prize.pointsRequired
-        });
-
-        // 2. Decrease stock if applicable
-        if (prize.stock !== null && prize.stock > 0) {
-            await prizeDb.update(prizeId, {
-                stock: prize.stock - 1
-            });
+        const prize = await prizeDb.findById(prizeId);
+        if (!prize || !prize.isActive || prize.status !== 'published') {
+            return { success: false, error: 'This prize is no longer available' };
         }
 
-        // 3. Create redemption record
-        const redemption = await prizeRedemptionDb.create({
-            userId,
-            prizeId,
-            pointsUsed: prize.pointsRequired,
-            status: 'pending',
-            fullName,
-            whatsappNumber,
-            address,
+        const { data: rpc, error: rpcError } = await supabase.rpc('redeem_prize', {
+            p_user_id: userId,
+            p_prize_id: prizeId,
+            p_full_name: fullName,
+            p_whatsapp_number: whatsappNumber,
+            p_address: address,
         });
+        if (rpcError || !rpc?.success) {
+            const msg = rpc?.error === 'Insufficient points'
+                ? `Insufficient points. You need ${rpc.required} points but have ${rpc.available}`
+                : (rpc?.error as string) || 'Failed to process redemption';
+            return { success: false, error: msg };
+        }
 
         revalidatePath('/prizes');
         revalidatePath('/profile');
 
         return {
             success: true,
-            data: { ...redemption, prize: { name: prize.name, imageUrl: prize.imageUrl } },
+            data: {
+                id: rpc.redemption_id,
+                userId,
+                prizeId,
+                pointsUsed: rpc.points_used,
+                status: 'pending',
+                prize: { name: prize.name, imageUrl: prize.imageUrl },
+            },
         };
     } catch (error) {
         console.error('Error redeeming prize:', error);
@@ -204,8 +198,10 @@ export async function getAllPrizesAdmin(
         search?: string;
     }
 ): Promise<{ success: boolean; data?: Prize[]; error?: string }> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
-        const supabase = await getDb();
+        const supabase = getAdminDb();
 
         let query = supabase.from('Prize').select('*');
 
@@ -293,6 +289,8 @@ export async function getPrizeById(
 export async function createPrize(
     formData: PrizeFormData
 ): Promise<{ success: boolean; data?: Prize; error?: string }> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // Validate input
         const validation = prizeSchema.safeParse(formData);
@@ -334,6 +332,8 @@ export async function updatePrize(
     id: string,
     formData: Partial<PrizeFormData>
 ): Promise<{ success: boolean; data?: Prize; error?: string }> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         // Check if prize exists
         const existing = await prizeDb.findById(id);
@@ -366,6 +366,16 @@ export async function updatePrize(
 
         const prize = await prizeDb.update(id, updateData);
 
+        // If the image URL changed, delete the old image from Cloudinary
+        if (
+            existing.imageUrl && 
+            updateData.imageUrl !== undefined && 
+            existing.imageUrl !== updateData.imageUrl
+        ) {
+            // Non-blocking delete
+            deletePrizeImageIfUnused(existing.imageUrl, id).catch(console.error);
+        }
+
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');
 
@@ -382,6 +392,8 @@ export async function updatePrize(
 export async function deletePrize(
     id: string
 ): Promise<{ success: boolean; error?: string }> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         const supabase = await getDb();
 
@@ -398,8 +410,17 @@ export async function deletePrize(
             };
         }
 
+        // Fetch prize to get the image URL before deletion
+        const prize = await prizeDb.findById(id);
+
         // Use prizeDb.delete which uses admin client to bypass RLS
         await prizeDb.delete(id);
+
+        // Clean up Cloudinary image if it exists
+        if (prize?.imageUrl) {
+            // Non-blocking delete
+            deletePrizeImageIfUnused(prize.imageUrl, id).catch(console.error);
+        }
 
         revalidatePath('/prizes');
         revalidatePath('/admin/prizes');
@@ -417,6 +438,8 @@ export async function deletePrize(
 export async function togglePrizeStatus(
     id: string
 ): Promise<{ success: boolean; data?: Prize; error?: string }> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         const prize = await prizeDb.findById(id);
         if (!prize) {
@@ -443,6 +466,8 @@ export async function togglePrizeStatus(
 export async function togglePrizeActive(
     id: string
 ): Promise<{ success: boolean; data?: Prize; error?: string }> {
+    const denied = await adminActionGuard();
+    if (denied) return denied as any;
     try {
         const prize = await prizeDb.findById(id);
         if (!prize) {

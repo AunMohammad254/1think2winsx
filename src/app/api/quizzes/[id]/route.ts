@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { requirePaymentAccess } from '@/lib/payment-middleware';
-import { quizDb, quizAttemptDb, questionAttemptDb } from '@/lib/supabase/db';
+import { quizAttemptDb, questionAttemptDb } from '@/lib/supabase/db';
+import { getCatalogQuiz } from '@/lib/quiz-catalog';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { withLoadShed } from '@/lib/load-shed';
 
 // GET /api/quizzes/[id] - Get quiz details and start attempt
-export async function GET(
+// Wrapped in withLoadShed: when the process is saturated it answers 503 + Retry-After
+// quickly instead of queueing (callers retry with jitter via fetchWithRetry).
+export const GET = withLoadShed(async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -37,42 +41,45 @@ export async function GET(
       return rateLimitResponse;
     }
 
-    // Check payment access
-    const paymentAccessResponse = await requirePaymentAccess(userId, request);
+    // Payment check, attempt lookup and answered-question lookup are independent:
+    // run them in parallel (previously 4 sequential round-trips + quiz fetch).
+    const [paymentAccessResponse, quiz, existingAttempt, attemptedQuestions] = await Promise.all([
+      requirePaymentAccess(userId, request),
+      getCatalogQuiz(quizId),
+      quizAttemptDb.findByUserAndQuiz(userId, quizId),
+      questionAttemptDb.findByUserAndQuiz(userId, quizId),
+    ]);
     if (paymentAccessResponse) {
       return paymentAccessResponse;
     }
 
-    // Get quiz with active questions
-    const quiz = await quizDb.findByIdWithQuestions(quizId);
-
-    if (!quiz || quiz.status !== 'active') {
-      recordSecurityEvent('QUIZ_NOT_FOUND', request, userId, {
-        quizId,
-      });
+    if (!quiz) {
+      recordSecurityEvent('QUIZ_NOT_FOUND', request, userId, { quizId });
       return NextResponse.json(
         { error: 'Quiz not found or inactive' },
         { status: 404 }
       );
     }
 
-    // Filter active questions
-    const activeQuestions = (quiz.questions || []).filter(
-      (q: { status: string }) => q.status === 'active'
-    );
+    // Scheduled quizzes are listed as "Upcoming" before they start, but must not be
+    // playable (or have their questions readable) until the scheduler makes them active.
+    if (quiz.status === 'upcoming') {
+      return NextResponse.json(
+        {
+          error: "This quiz hasn't started yet.",
+          upcoming: true,
+          startsAt: quiz.startsAt,
+        },
+        { status: 409 }
+      );
+    }
 
-    // Check if user has already completed this quiz
-    const existingAttempt = await quizAttemptDb.findByUserAndQuiz(userId, quizId);
+    const activeQuestions = quiz.questions;
     const hasCompleted = existingAttempt?.isCompleted === true;
-
-    // Get questions that the user has already attempted
-    const attemptedQuestions = await questionAttemptDb.findByUserAndQuiz(userId, quizId);
-    const attemptedQuestionIds = attemptedQuestions.map((qa: { questionId: string }) => qa.questionId);
+    const attemptedQuestionIds = new Set(attemptedQuestions.map((qa: { questionId: string }) => qa.questionId));
 
     // Filter out questions that have already been attempted
-    const unattemptedQuestions = activeQuestions.filter(
-      (question: { id: string }) => !attemptedQuestionIds.includes(question.id)
-    );
+    const unattemptedQuestions = activeQuestions.filter(question => !attemptedQuestionIds.has(question.id));
 
     // If user has completed the quiz but there are new questions, allow reattempt
     if (hasCompleted && unattemptedQuestions.length === 0) {
@@ -96,10 +103,10 @@ export async function GET(
     const isReattempt = hasCompleted && unattemptedQuestions.length > 0;
 
     // Format questions for frontend
-    const formattedQuestions = questionsToShow.map((question: { id: string; text: string; options: string }) => ({
+    const formattedQuestions = questionsToShow.map(question => ({
       id: question.id,
       text: question.text,
-      options: JSON.parse(question.options),
+      options: question.options,
     }));
 
     recordSecurityEvent('QUIZ_ACCESSED', request, userId, {
@@ -139,4 +146,4 @@ export async function GET(
       { status: 500 }
     );
   }
-}
+});

@@ -2,12 +2,18 @@
  * User Database Operations
  */
 
-import { getDb, generateId } from './shared'
+import { getAdminDb, generateId } from './shared'
 import type { Insertable, Updatable } from '../database.types'
 
+/**
+ * All User access goes through the service-role client: after the security
+ * migration, clients can only SELECT their own row and cannot write at all
+ * (they previously could set their own walletBalance/points). Every caller is
+ * server-side code that has already resolved the user id from the session.
+ */
 export const userDb = {
     async findByEmail(email: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('User')
             .select('*')
@@ -19,7 +25,7 @@ export const userDb = {
     },
 
     async findById(id: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('User')
             .select('*')
@@ -31,7 +37,7 @@ export const userDb = {
     },
 
     async create(userData: Insertable<'User'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('User')
             .insert({ id: generateId(), ...userData })
@@ -43,7 +49,7 @@ export const userDb = {
     },
 
     async update(id: string, userData: Updatable<'User'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('User')
             .update({ ...userData, updatedAt: new Date().toISOString() })
@@ -56,7 +62,7 @@ export const userDb = {
     },
 
     async updateByEmail(email: string, userData: Updatable<'User'>) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('User')
             .update({ ...userData, updatedAt: new Date().toISOString() })
@@ -69,7 +75,7 @@ export const userDb = {
     },
 
     async delete(id: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { error } = await supabase
             .from('User')
             .delete()
@@ -79,7 +85,7 @@ export const userDb = {
     },
 
     async count() {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { count, error } = await supabase
             .from('User')
             .select('*', { count: 'exact', head: true })
@@ -89,7 +95,7 @@ export const userDb = {
     },
 
     async getLeaderboard(limit = 10) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('User')
             .select('id, name, email, points, profilePicture')
@@ -101,7 +107,7 @@ export const userDb = {
     },
 
     async addPoints(id: string, points: number) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         // Use atomic RPC to avoid read-then-write race condition
         const { data, error } = await supabase
             .rpc('increment_user_points', { p_user_id: id, p_delta: points })
@@ -111,7 +117,7 @@ export const userDb = {
     },
 
     async updateWalletBalance(id: string, amount: number) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
         // Use atomic RPC to avoid read-then-write race condition
         const { data, error } = await supabase
             .rpc('increment_user_wallet', { p_user_id: id, p_delta: amount })
@@ -121,7 +127,7 @@ export const userDb = {
     },
 
     async findByPhone(phone: string, normalizedPhone?: string) {
-        const supabase = await getDb()
+        const supabase = getAdminDb()
 
         // Build OR query for phone variations
         const phoneVariants = [phone]

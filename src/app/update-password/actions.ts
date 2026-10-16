@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
+import { markPasswordSet } from '@/lib/password-flag';
 
 const updatePasswordSchema = z.object({
     password: z.string()
@@ -12,18 +13,6 @@ const updatePasswordSchema = z.object({
     message: "Passwords don't match",
     path: ['confirmPassword'],
 });
-
-/**
- * Check if a user is OAuth-only (cannot change password)
- */
-function isOAuthOnlyUser(user: { identities?: Array<{ provider: string }> | null }): boolean {
-    const identities = user.identities || [];
-
-    // User is OAuth-only if they have identities but none are 'email' provider
-    if (identities.length === 0) return false;
-
-    return !identities.some(identity => identity.provider === 'email');
-}
 
 export async function updatePassword(formData: FormData) {
     const password = formData.get('password') as string;
@@ -44,17 +33,9 @@ export async function updatePassword(formData: FormData) {
         return { error: 'Session expired. Please try the password reset link again.' };
     }
 
-    // Check if user is OAuth-only
-    if (isOAuthOnlyUser(user)) {
-        const providers = user.identities
-            ?.filter(i => i.provider !== 'email')
-            .map(i => i.provider)
-            .join(', ') || 'social login';
-        return {
-            error: `Cannot set password for accounts created with ${providers}. Please manage your password through your OAuth provider.`
-        };
-    }
-
+    // Accounts created with Google (no password yet) may set one here too. The person got to this
+    // page through the link we emailed to their address, which is what proves they own the account;
+    // it adds email + password sign-in alongside Google.
     const { error } = await supabase.auth.updateUser({
         password: password,
     });
@@ -66,6 +47,10 @@ export async function updatePassword(formData: FormData) {
         }
         return { error: 'Failed to update password. Please try again.' };
     }
+
+    // Supabase adds no 'email' sign-in method when a Google account sets a password, so record it;
+    // the profile then offers "Change password" instead of "Set a password".
+    await markPasswordSet(user.id);
 
     return { success: true, message: 'Password updated successfully!' };
 }

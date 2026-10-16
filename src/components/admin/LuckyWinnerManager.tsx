@@ -160,7 +160,7 @@ export default function LuckyWinnerManager() {
             const res = await fetch('/api/admin/quizzes');
             if (!res.ok) throw new Error('Failed to fetch quizzes');
             const data = await res.json();
-            const prizeQuizzes = (data.quizzes || []).filter((q: any) => q.prizeId);
+            const prizeQuizzes = (data.quizzes || []).filter((q: any) => q.prizeId || q.isBumperPrize);
             setQuizzes(prizeQuizzes);
         } catch (err) {
             setError('Failed to load quizzes');

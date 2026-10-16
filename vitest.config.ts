@@ -21,6 +21,7 @@ export default defineConfig({
             : ['verbose'],
         coverage: {
             provider: 'v8',
+            // json-summary writes coverage/coverage-summary.json, which the CI workflows read
             reporter: ['text', 'json', 'json-summary', 'html'],
             reportsDirectory: './coverage',
             include: ['src/**/*.{ts,tsx}'],

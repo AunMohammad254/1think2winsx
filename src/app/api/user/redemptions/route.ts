@@ -6,18 +6,6 @@ import { createSecureJsonResponse } from '@/lib/security-headers';
 // GET /api/user/redemptions - Get user's prize redemption history
 export async function GET() {
   try {
-    // Check if NEXTAUTH_SECRET is configured
-    if (!process.env.NEXTAUTH_SECRET) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Server configuration error',
-          message: 'Authentication not properly configured'
-        },
-        { status: 500 }
-      );
-    }
-
     // Get user session
     const session = await auth();
 

@@ -1,17 +1,25 @@
 'use client';
 
+import '../live-quiz.css';
+
 import { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Search, Filter, Clock, CheckCircle, Sparkles } from 'lucide-react';
 import QuizCard from '@/components/quiz/QuizCard';
 import { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
-import QuizDetailModal from '@/components/quiz/QuizDetailModal';
-import QuizAttemptModal from '@/components/quiz/QuizAttemptModal';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
+import dynamic from 'next/dynamic';
+import type { LiveQuizPushHandle } from '@/components/quiz/LiveQuizPush';
+
+const LiveQuizPush = dynamic(() => import('@/components/quiz/LiveQuizPush'), {
+  ssr: false,
+});
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 import { createClient } from '@/lib/supabase/client';
+import { fetchWithRetry } from '@/lib/fetch-retry';
+import { useJitteredPolling } from '@/hooks/useJitteredPolling';
 import PaymentModal from '@/components/quiz/PaymentModal';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
 import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
@@ -22,7 +30,8 @@ interface Quiz {
   description: string;
   duration: number;
   passingScore: number;
-  status: 'active' | 'paused' | 'scheduled';
+  status: 'active' | 'paused' | 'scheduled' | 'upcoming';
+  startsAt?: string | null;
   questionCount: number;
   hasAccess: boolean;
   createdAt: string;
@@ -33,6 +42,9 @@ interface Quiz {
   lastAttemptDate?: string;
   score?: number;
   attemptCount?: number;
+  totalAttempts?: number;
+  pushedAt?: string | null;
+  pushStatus?: 'unanswered' | 'answered' | 'upcoming' | 'time-up' | null;
 }
 
 interface PaymentInfo {
@@ -44,8 +56,18 @@ interface PaymentInfo {
 type FilterTab = 'all' | 'available' | 'completed' | 'new';
 
 export default function QuizzesPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4"><div className="max-w-7xl mx-auto"><QuizCardSkeletonGrid count={6} /></div></div>}>
+      <QuizzesPageInner />
+    </Suspense>
+  );
+}
+
+function QuizzesPageInner() {
   const { user, isLoading } = useAuth();
+  const userId = user?.id ?? null;
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -60,20 +82,28 @@ export default function QuizzesPage() {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
-  const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
-  const [attemptQuizId, setAttemptQuizId] = useState<string | null>(null);
   const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null); // null = loading
 
   // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
   const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const liveQuizPushRef = useRef<LiveQuizPushHandle>(null);
+  // Last pushedAt we've already reacted to, per quiz - so re-fetches or
+  // unrelated edits to an already-pushed quiz don't re-fire the toast.
+  const seenPushedAtRef = useRef<Map<string, string | null>>(new Map());
 
-  const fetchQuizzesData = useCallback(async (fresh = false) => {
+  // Resolves true on success (incl. 304) and false on failure, so the poller can back off.
+  // `background` fetches (the poll) don't retry on their own: the poller already backs off, and
+  // retrying inside every poll would multiply load exactly when the server is struggling.
+  const fetchQuizzesData = useCallback(async (fresh = false, background = false): Promise<boolean> => {
+    let ok = false;
     try {
       const url = fresh ? '/api/quizzes?fresh=1' : '/api/quizzes';
-      const response = await fetch(url, { cache: 'no-store' });
+      // User-triggered loads retry 429/502/503/504 with jittered backoff (the server sheds load
+      // with 503 + Retry-After when saturated).
+      const response = await fetchWithRetry(url, undefined, { retries: background ? 0 : 2 });
       if (response.status === 304) {
         setLoading(false);
-        return;
+        return true;
       }
       if (!response.ok) {
         try {
@@ -88,19 +118,29 @@ export default function QuizzesPage() {
         } catch {
           setError('Failed to fetch quizzes');
         }
-        return;
+        return false;
       }
       const data = await response.json();
-      setQuizzes(data.quizzes || []);
+      const fetchedQuizzes: Quiz[] = data.quizzes || [];
+      setQuizzes(fetchedQuizzes);
+      for (const q of fetchedQuizzes) seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
       setHasAccess(data.hasAccess || false);
       setPaymentInfo(data.paymentInfo);
       setError(data.accessError || null);
+      // The list response carries the wallet flag, so no separate /api/settings/wallet-enabled call
+      if (typeof data.walletEnabled === 'boolean') setWalletEnabled(data.walletEnabled);
+      ok = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load quizzes');
       toast.error('Failed to load quizzes');
     } finally {
+      // null means "still loading"; if we never learned the flag (failed load), default to
+      // enabled — the same fallback the old separate flag request used — rather than hanging
+      // on the skeleton forever.
+      setWalletEnabled(prev => prev ?? true);
       setLoading(false);
     }
+    return ok;
   }, []);
 
   // Debounced realtime re-fetch to avoid rapid consecutive API calls
@@ -108,35 +148,54 @@ export default function QuizzesPage() {
     if (realtimeDebounceRef.current) {
       clearTimeout(realtimeDebounceRef.current);
     }
+    // Spread re-fetches over 2-15 s: a single admin edit is broadcast to every
+    // connected player at once, and a fixed 500 ms delay turned it into a
+    // synchronized stampede of thousands of simultaneous /api/quizzes calls.
     realtimeDebounceRef.current = setTimeout(() => {
       fetchQuizzesData(true);
-    }, 500);
+    }, 2000 + Math.random() * 13000);
   }, [fetchQuizzesData]);
 
   // Redirect to login if not authenticated, and check wallet feature flag
   useEffect(() => {
     if (isLoading) return;
 
-    if (!user) {
+    if (!userId) {
       router.push('/login');
       return;
     }
 
-    // Check wallet feature flag first — if disabled, quizzes are unavailable
-    fetch('/api/settings/wallet-enabled')
-      .then(r => r.json())
-      .then((d: { walletEnabled: boolean }) => {
-        setWalletEnabled(d.walletEnabled);
-        if (d.walletEnabled) {
-          fetchQuizzesData();
-        }
-      })
-      .catch(() => {
-        // If flag check fails, default to enabled to avoid locking users out
-        setWalletEnabled(true);
-        fetchQuizzesData();
-      });
-  }, [user, isLoading, router, fetchQuizzesData]);
+    // The wallet feature flag (disabled means quizzes are free, not blocked; it only controls
+    // whether the payment UI shows) now arrives in the /api/quizzes response itself, which
+    // also removes the old flag-then-quizzes request waterfall.
+    fetchQuizzesData();
+    // Depend on the user's id, not the object: Supabase hands out a new `user` object on tab
+    // refocus / token refresh, which used to re-run this and refetch for no reason.
+  }, [userId, isLoading, router, fetchQuizzesData]);
+
+  // Periodic polling to keep data fresh and ensure the server's scheduled cron
+  // gets kicked even if no other users are navigating the site.
+  // 60 s base + 0-20 s jitter so clients that loaded together (e.g. after a push) drift apart,
+  // paused while the tab is hidden, and exponential backoff while the server is failing/shedding.
+  const pollQuizzes = useCallback(() => fetchQuizzesData(true, true), [fetchQuizzesData]);
+  useJitteredPolling(pollQuizzes, { intervalMs: 60_000, jitterMs: 20_000, enabled: !!userId });
+
+  // Deep link from the notification bell / a "View Details" link on a
+  // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
+  // straight into the popup instead of the toast. Reactive (useSearchParams,
+  // not a one-time window.location read) so clicking a bell notification
+  // while ALREADY on /quizzes also opens it, not just on first load. Strips
+  // the param afterward so a refresh or back-navigation doesn't reopen it.
+  useEffect(() => {
+    if (isLoading || !userId) return;
+    const openQuiz = searchParams.get('openQuiz');
+    if (!openQuiz) return;
+    liveQuizPushRef.current?.open(openQuiz);
+    const rest = new URLSearchParams(searchParams.toString());
+    rest.delete('openQuiz');
+    const query = rest.toString();
+    router.replace(query ? `/quizzes?${query}` : '/quizzes', { scroll: false });
+  }, [isLoading, userId, router, searchParams]);
 
   // Realtime subscription for live quiz updates
   useEffect(() => {
@@ -153,7 +212,15 @@ export default function QuizzesPage() {
       )
       .on('postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'Quiz' },
-        () => {
+        (payload) => {
+          // Admin "push to live" support: the row's pushedAt changed to a
+          // new (non-null) value we haven't already reacted to -> show the
+          // live toast. Reuses this same subscription, no new channel.
+          const next = payload.new as { id: string; title: string; pushedAt: string | null };
+          if (next.pushedAt && seenPushedAtRef.current.get(next.id) !== next.pushedAt) {
+            seenPushedAtRef.current.set(next.id, next.pushedAt);
+            liveQuizPushRef.current?.notify(next.id, next.title);
+          }
           debouncedFreshFetch();
         }
       )
@@ -173,6 +240,8 @@ export default function QuizzesPage() {
       }
     };
   }, [debouncedFreshFetch]);
+
+  // Throwback behavior removed as requested.
 
   // Update time remaining every second
   useEffect(() => {
@@ -207,16 +276,43 @@ export default function QuizzesPage() {
   // Legacy fetchQuizzes alias for components that call it
   const fetchQuizzes = fetchQuizzesData;
 
-  const handleQuizClick = (quizId: string) => {
-    const quiz = quizzes.find(q => q.id === quizId);
-    if (!quiz) return;
+  // When an upcoming quiz reaches its start time, re-fetch so its card flips to
+  // live without waiting for the 60 s poll (the server activates it on that read).
+  useEffect(() => {
+    if (!userId) return;
+    const now = Date.now();
+    const starts = quizzes
+      .filter(q => q.status === 'upcoming' && q.startsAt)
+      .map(q => new Date(q.startsAt as string).getTime())
+      .filter(t => t > now);
+    if (starts.length === 0) return;
+    // +1 s so the server has activated the quiz, plus 0-5 s of random jitter: every player's
+    // clock hits startsAt within a couple of seconds of each other, and without jitter this was
+    // a synchronized stampede of tens of thousands of /api/quizzes calls at the moment of go-live.
+    const delay = Math.min(...starts) - now + 1000 + Math.random() * 5000;
+    // setTimeout overflows past ~24.8 days; the 60 s poll covers anything further out
+    if (delay > 2_000_000_000) return;
+    const timer = setTimeout(() => fetchQuizzesData(true), delay);
+    return () => clearTimeout(timer);
+  }, [userId, quizzes, fetchQuizzesData]);
 
+  // ⚡ Bolt: Wrapped in useCallback to preserve stable function reference.
+  // Impact: Essential for React.memo on QuizCard to work, preventing ~90% of re-renders.
+  const handleQuizClick = useCallback((quizId: string) => {
+    const clicked = quizzes.find(q => q.id === quizId);
+    if (clicked?.status === 'upcoming') {
+      const when = clicked.startsAt
+        ? new Date(clicked.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+        : 'soon';
+      toast.info(`"${clicked.title}" hasn't started yet. It goes live ${when}.`);
+      return;
+    }
     if (hasAccess) {
-      setSelectedQuiz(quiz);
+      liveQuizPushRef.current?.open(quizId);
     } else {
       setShowPaymentModal(true);
     }
-  };
+  }, [quizzes, hasAccess]); // router is not strictly needed for App Router, but it is available.
 
   // Fetch wallet balance and access price when payment modal opens
   const fetchWalletData = async (): Promise<{ balance: number; price: number }> => {
@@ -329,34 +425,16 @@ export default function QuizzesPage() {
     );
   }
 
-  // Wallet disabled — quizzes entirely unavailable
-  if (!walletEnabled) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center px-4">
-        <div className="max-w-md w-full text-center">
-          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-3xl border border-white/10 p-12">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gray-700/40 flex items-center justify-center">
-              <Clock className="w-10 h-10 text-gray-400" />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-3">Quizzes Unavailable</h2>
-            <p className="text-gray-400">
-              Quiz access is currently unavailable. Please check back later.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-200 to-white">
+        <div className="mb-4">
+          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2 bg-clip-text text-transparent bg-gradient-to-r from-white via-purple-200 to-white">
             Quiz Arena
           </h1>
-          <p className="text-gray-400 text-lg max-w-2xl">
+          <p className="text-gray-400 text-sm max-w-2xl">
             {hasAccess
               ? 'You have full access to all quizzes! Choose one to test your knowledge.'
               : 'Unlock 24-hour access for just 2 PKR and play unlimited quizzes.'}
@@ -384,12 +462,28 @@ export default function QuizzesPage() {
           </div>
         )}
 
-        {/* Live Stream Section */}
-        <div className="mb-8">
-          <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-4">
-            <Suspense fallback={<div className="h-64 bg-gray-800 rounded-xl animate-pulse" />}>
-              <LazyStreamPlayer autoPlay={false} />
-            </Suspense>
+        {/* Live Stream Section — everything push/toast/split-related is scoped
+            to this one relative+overflow-hidden box; it never affects the
+            quiz grid below or any other part of the page. */}
+        <div className="mb-8 live-quiz-theme" id="live-stream-section">
+          <div id="live-stream-fullscreen-target" className="stream-section h-full w-full">
+            <div className="stream-row w-full flex-1">
+              <div className="player flex-1">
+                <div className="absolute inset-0 z-10 pointer-events-none">
+                  <div className="badge-live"><span className="rec"></span>LIVE</div>
+                  <div className="viewers">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+                    <span className="num">2,481</span>
+                  </div>
+                </div>
+                <div className="w-full relative z-0">
+                  <Suspense fallback={<div className="aspect-video w-full bg-gray-800 rounded-xl animate-pulse" />}>
+                    <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" />
+                  </Suspense>
+                </div>
+              </div>
+              <LiveQuizPush ref={liveQuizPushRef} onAnswered={() => fetchQuizzesData(true)} />
+            </div>
           </div>
         </div>
 
@@ -466,56 +560,30 @@ export default function QuizzesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredQuizzes.map((quiz) => (
-              <QuizCard
-                key={quiz.id}
+          <div className="live-quiz-theme">
+            <div className="section-label">Today's quizzes — pushed by admin</div>
+            <div className="quiz-grid">
+              {filteredQuizzes.map((quiz) => (
+                <QuizCard
+                  key={quiz.id}
                 id={quiz.id}
                 title={quiz.title}
                 description={quiz.description}
                 duration={quiz.duration}
                 questionCount={quiz.questionCount}
-                attemptCount={quiz.attemptCount}
+                attemptCount={quiz.attemptCount ?? quiz.totalAttempts}
                 difficulty="medium"
                 status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : (quiz.status as any)}
                 hasAccess={hasAccess}
                 isCompleted={quiz.isCompleted}
                 score={quiz.score}
                 onStartClick={handleQuizClick}
+                pushStatus={quiz.pushStatus}
+                startsAt={quiz.startsAt}
               />
             ))}
+            </div>
           </div>
-        )}
-
-        {/* Quiz Detail Modal */}
-        {selectedQuiz && (
-          <QuizDetailModal
-            quiz={{
-              ...selectedQuiz,
-              difficulty: 'medium',
-            }}
-            isOpen={!!selectedQuiz}
-            onClose={() => setSelectedQuiz(null)}
-            onStartQuiz={(quizId) => {
-              setSelectedQuiz(null);
-              setAttemptQuizId(quizId);
-            }}
-          />
-        )}
-
-        {/* Quiz Attempt Modal */}
-        {attemptQuizId && (
-          <QuizAttemptModal
-            quizId={attemptQuizId}
-            isOpen={!!attemptQuizId}
-            onClose={() => {
-              setAttemptQuizId(null);
-              fetchQuizzes();
-            }}
-            onQuizCompleted={() => {
-              fetchQuizzes();
-            }}
-          />
         )}
 
         {/* Payment Modal */}

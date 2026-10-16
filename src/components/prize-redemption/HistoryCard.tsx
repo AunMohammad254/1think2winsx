@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 import { getStatusColor, type RedemptionHistory } from './types';
 
 interface HistoryCardProps {
@@ -22,6 +23,7 @@ export function HistoryCard({ redemption, onPreview }: HistoryCardProps) {
                     >
                         <Image
                             src={redemption.prize.imageUrl || `/prizes/${redemption.prize.type}.svg`}
+                            loader={loaderFor(redemption.prize.imageUrl)}
                             alt={redemption.prize.name}
                             width={48}
                             height={48}

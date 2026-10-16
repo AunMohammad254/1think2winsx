@@ -5,3 +5,4 @@ export { default as BalanceCard } from './BalanceCard';
 export { default as QuickActions } from './QuickActions';
 export { default as StatsGrid } from './StatsGrid';
 export { default as ChangePasswordModal } from './ChangePasswordModal';
+export { default as SignInMethodBadge } from './SignInMethodBadge';

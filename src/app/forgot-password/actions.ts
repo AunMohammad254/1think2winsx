@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
+import { siteUrl } from '@/lib/site-url';
 
 const forgotPasswordSchema = z.object({
     email: z.string().email('Please enter a valid email address'),
@@ -19,7 +20,7 @@ export async function resetPassword(formData: FormData) {
     const supabase = await createClient();
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/update-password`,
+        redirectTo: `${siteUrl()}/auth/callback?next=/update-password`,
     });
 
     if (error) {

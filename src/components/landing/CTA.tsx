@@ -13,7 +13,7 @@ const WINNERS = [
   "Hassan from Faisalabad won Sports Kit",
   "Zain from Rawalpindi won Wireless Mouse",
   "Fatima from Peshawar won Gaming Headset",
-  "Omar from Quetta won Cricket Bat",
+  "Omar from Quetta won Sports Gear",
   "Sara from Sialkot won Bluetooth Speaker",
 ];
 
@@ -75,7 +75,7 @@ export default function CTA() {
             }}
           />
           <div className="absolute inset-0 bg-grid opacity-30" />
-          <span className="absolute left-[6%] top-[14%] hidden text-4xl opacity-50 anim-float lg:block">🏏</span>
+          <span className="absolute left-[6%] top-[14%] hidden text-4xl opacity-50 anim-float lg:block">⚽</span>
           <span className="absolute right-[8%] top-[20%] hidden text-3xl opacity-50 anim-float lg:block" style={{ animationDelay: "-3s" }}>🏆</span>
           <span className="absolute left-[10%] bottom-[18%] hidden text-3xl opacity-40 anim-float lg:block" style={{ animationDelay: "-5s" }}>⚡</span>
           <span className="absolute right-[10%] bottom-[22%] hidden text-3xl opacity-40 anim-float lg:block" style={{ animationDelay: "-2s" }}>🎯</span>

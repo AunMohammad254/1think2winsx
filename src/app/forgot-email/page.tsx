@@ -5,8 +5,8 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { lookupEmailByPhone } from './actions';
-import { Phone, ArrowLeft, Loader2, CheckCircle2, AlertCircle, Mail, Search } from 'lucide-react';
+import { lookupEmailByPhone, sendEmailReminder } from './actions';
+import { Phone, ArrowLeft, Loader2, CheckCircle2, AlertCircle, Mail, Search, Send } from 'lucide-react';
 
 const phoneSchema = z.object({
     phone: z.string()
@@ -20,6 +20,10 @@ export default function ForgotEmailPage() {
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [maskedEmail, setMaskedEmail] = useState<string>('');
+    // The phone number that was looked up, kept so the reminder email can be requested for it
+    const [phone, setPhone] = useState<string>('');
+    const [reminderStatus, setReminderStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
+    const [reminderError, setReminderError] = useState<string | null>(null);
 
     const {
         register,
@@ -46,6 +50,9 @@ export default function ForgotEmailPage() {
             } else if (result.success && result.maskedEmail) {
                 setSuccess(true);
                 setMaskedEmail(result.maskedEmail);
+                setPhone(data.phone);
+                setReminderStatus('idle');
+                setReminderError(null);
             }
         } catch {
             setError('An error occurred. Please try again.');
@@ -54,10 +61,35 @@ export default function ForgotEmailPage() {
         }
     };
 
+    const handleSendReminder = async () => {
+        setReminderStatus('sending');
+        setReminderError(null);
+
+        try {
+            const formData = new FormData();
+            formData.append('phone', phone);
+
+            const result = await sendEmailReminder(formData);
+
+            if (result.error) {
+                setReminderError(result.error);
+                setReminderStatus('idle');
+            } else {
+                setReminderStatus('sent');
+            }
+        } catch {
+            setReminderError('An error occurred. Please try again.');
+            setReminderStatus('idle');
+        }
+    };
+
     const handleReset = () => {
         setSuccess(false);
         setError(null);
         setMaskedEmail('');
+        setPhone('');
+        setReminderStatus('idle');
+        setReminderError(null);
         reset();
     };
 
@@ -112,9 +144,54 @@ export default function ForgotEmailPage() {
                                         <span className="text-xl font-mono text-white">{maskedEmail}</span>
                                     </div>
                                 </div>
-                                <p className="text-slate-400 text-sm mb-6">
+                                <p className="text-slate-400 text-sm mb-4">
                                     For security, we&apos;ve masked part of your email address.
                                 </p>
+
+                                {/* Full address goes to the inbox itself, never to this screen. */}
+                                <div className="mb-6" aria-live="polite">
+                                    {reminderStatus === 'sent' ? (
+                                        <div className="bg-green-500/10 border border-green-500/20 text-green-100 px-4 py-3 rounded-xl text-sm text-left">
+                                            <div className="flex items-start">
+                                                <CheckCircle2 className="w-5 h-5 mr-3 mt-0.5 text-green-300 flex-shrink-0" />
+                                                <span>
+                                                    We sent a reminder to <span className="font-mono">{maskedEmail}</span>. Check
+                                                    that inbox (and your spam folder). It shows your full sign-in email.
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <p className="text-slate-300 text-sm mb-3">
+                                                Not sure which email that is? We&apos;ll send the full address to your inbox.
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={handleSendReminder}
+                                                disabled={reminderStatus === 'sending'}
+                                                className="w-full flex justify-center items-center py-3 px-4 rounded-xl text-sm font-semibold text-white bg-white/10 border border-white/20 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                            >
+                                                {reminderStatus === 'sending' ? (
+                                                    <>
+                                                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                                                        Sending...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Send className="w-5 h-5 mr-2" />
+                                                        Email me a reminder
+                                                    </>
+                                                )}
+                                            </button>
+                                            {reminderError && (
+                                                <p className="mt-3 text-sm text-red-300 flex items-start text-left">
+                                                    <AlertCircle className="w-4 h-4 mr-1 mt-0.5 flex-shrink-0" />
+                                                    {reminderError}
+                                                </p>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
                                 <div className="space-y-3">
                                     <Link
                                         href="/login"

@@ -14,6 +14,7 @@ interface StreamData {
 interface StreamPlayerProps {
   className?: string;
   onError?: (error: string) => void;
+  fullscreenTargetId?: string;
 }
 
 // Responsive helper (exported for tests)
@@ -24,7 +25,7 @@ export function getResponsiveClasses(width: number): string {
   return 'aspect-video w-full';
 }
 
-export default function StreamPlayer({ className = '', onError }: StreamPlayerProps) {
+export default function StreamPlayer({ className = '', onError, fullscreenTargetId }: StreamPlayerProps) {
   const [streamData, setStreamData] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
 
   const fetchStreamData = useCallback(async () => {
     try {
-      const response = await fetch('/api/streaming/active', { cache: 'no-store' });
+      const response = await fetch('/api/streaming/active');
       const data = await response.json();
       if (data.hasActiveStream && data.stream) {
         const s = data.stream.facebookLiveVideo
@@ -60,20 +61,62 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
 
   // (Removed) responsiveClasses state was unused; container uses fixed responsive CSS
 
-  const toggleFullscreen = useCallback(() => {
-    if (!containerRef.current) return;
-    if (!isFullscreen) {
-      if (containerRef.current.requestFullscreen) {
-        containerRef.current.requestFullscreen();
-        setIsFullscreen(true);
+  const toggleFullscreen = useCallback(async () => {
+    const target = fullscreenTargetId 
+      ? document.getElementById(fullscreenTargetId) 
+      : containerRef.current;
+    
+    if (!target) return;
+    
+    try {
+      if (!isFullscreen) {
+        if (target.requestFullscreen) {
+          await target.requestFullscreen();
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
       }
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-        setIsFullscreen(false);
-      }
+    } catch (err) {
+      console.error('Fullscreen toggle failed', err);
     }
-  }, [isFullscreen]);
+  }, [isFullscreen, fullscreenTargetId]);
+
+  // Sync fullscreen state with native browser events
+  useEffect(() => {
+    const handleFullscreenChange = async () => {
+      const target = fullscreenTargetId 
+        ? document.getElementById(fullscreenTargetId) 
+        : containerRef.current;
+      
+      const currentFullscreenElement = document.fullscreenElement;
+      setIsFullscreen(currentFullscreenElement === target || currentFullscreenElement === iframeRef.current);
+
+      if (currentFullscreenElement) {
+        // Force landscape on mobile devices when entering any fullscreen (including native iframe)
+        const screenOrientation: any = window.screen?.orientation;
+        if (screenOrientation && screenOrientation.lock) {
+          try {
+            await screenOrientation.lock('landscape');
+          } catch {
+            console.log('Screen orientation lock not supported or denied');
+          }
+        }
+      } else {
+        // Unlock orientation when exiting fullscreen
+        const screenOrientation: any = window.screen?.orientation;
+        if (screenOrientation && screenOrientation.unlock) {
+          screenOrientation.unlock();
+        }
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [fullscreenTargetId]);
 
   // Keyboard controls (F toggles fullscreen).
   // Uses a ref so the listener does not need to be re-attached on every
@@ -115,17 +158,17 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
       ? getYouTubeVideoId(streamData.embedHtml)
       : null;
     if (ytId) {
-      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1`;
+      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&fs=1`;
     }
     return buildEmbedDataUri(streamData.embedHtml);
   }, [streamData]);
 
   if (loading) {
     return (
-      <div className={`flex items-center justify-center bg-gray-900 rounded-lg ${className}`} role="status" aria-live="polite">
+      <div className={`flex items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="status" aria-live="polite">
         <div className="text-center text-white p-8">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
-          <p>Loading stream...</p>
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-400" />
+          <p className="text-gray-300">Loading stream...</p>
         </div>
       </div>
     );
@@ -133,12 +176,12 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
 
   if (error || !streamData) {
     return (
-      <div className={`flex items-center justify-center bg-gray-900 rounded-lg ${className}`} role="alert" aria-live="assertive">
+      <div className={`flex items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="alert" aria-live="assertive">
         <div className="text-center text-white p-8">
-          <p className="mb-4">{error || 'No stream available'}</p>
+          <p className="mb-4 text-gray-300">{error || 'No stream available'}</p>
           <button
             onClick={fetchStreamData}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 transition-all"
             aria-label="Retry loading stream"
           >
             Retry
@@ -156,8 +199,7 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
         ref={iframeRef}
         src={embedSrc}
         className={isYouTubeContent(streamData.embedHtml) ? 'w-full h-full border-0' : 'yt-player-frame'}
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        allowFullScreen
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
         loading="lazy"
         aria-label={streamData.title}
         onLoad={handleIframeLoad}
@@ -168,48 +210,66 @@ export default function StreamPlayer({ className = '', onError }: StreamPlayerPr
   };
 
   return (
-    <div
-      ref={containerRef}
-      className={`relative bg-black rounded-lg overflow-hidden yt-responsive-player ${className} ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}
-      role="application"
-      aria-label="Live stream viewer"
-      tabIndex={0}
-    >
-      {/* Stream iframe */}
-      <div className="relative w-full h-full">
-        {renderStreamContent()}
+    <div className={`flex flex-col w-full h-full ${className}`}>
+      {/* Mobile-only visible header above stream */}
+      <div className="flex sm:hidden items-center justify-between bg-gray-900 p-3 rounded-t-xl border border-white/10 border-b-0">
+        <div className="flex items-center space-x-2">
+          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+          <span className="text-sm font-bold text-white line-clamp-1">{streamData.name}</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <button onClick={() => setShowSettings(!showSettings)} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-white" aria-label="Toggle settings">
+            <Settings className="w-4 h-4" />
+          </button>
+          <button onClick={toggleFullscreen} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-white" aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
 
-      {/* Controls overlay */}
-      <div className="absolute inset-0 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-        {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent p-4">
-          <div className="flex items-center justify-between text-white">
-            <div className="flex items-center space-x-3">
-              <div className="text-sm text-gray-300">
-                {streamData.name}
+      <div
+        ref={containerRef}
+        className={`relative bg-black overflow-hidden yt-responsive-player w-full flex-1 sm:rounded-2xl max-sm:rounded-b-xl ${isFullscreen ? '!rounded-none' : ''}`}
+        role="application"
+        aria-label="Live stream viewer"
+        tabIndex={0}
+      >
+        {/* Stream iframe */}
+        <div className="relative w-full h-full">
+          {renderStreamContent()}
+        </div>
+
+        {/* Desktop-only controls overlay */}
+        <div className="hidden sm:block absolute inset-0 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+          {/* Top bar */}
+          <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent p-4">
+            <div className="flex items-center justify-between text-white">
+              <div className="flex items-center space-x-3">
+                <div className="text-sm text-gray-300">
+                  {streamData.name}
+                </div>
               </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <button onClick={() => setShowSettings(!showSettings)} className="p-2 hover:bg-white/20 rounded-lg transition-colors pointer-events-auto" aria-label="Toggle settings">
-                <Settings className="w-4 h-4" />
-              </button>
-              <button onClick={toggleFullscreen} className="p-2 hover:bg-white/20 rounded-lg transition-colors pointer-events-auto" aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
-                {isFullscreen ? (
-                  <Minimize2 className="w-4 h-4" />
-                ) : (
-                  <Maximize2 className="w-4 h-4" />
-                )}
-              </button>
+              <div className="flex items-center space-x-2">
+                <button onClick={() => setShowSettings(!showSettings)} className="p-2 hover:bg-white/20 rounded-lg transition-colors pointer-events-auto" aria-label="Toggle settings">
+                  <Settings className="w-4 h-4" />
+                </button>
+                <button onClick={toggleFullscreen} className="p-2 hover:bg-white/20 rounded-lg transition-colors pointer-events-auto" aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
+                  {isFullscreen ? (
+                    <Minimize2 className="w-4 h-4" />
+                  ) : (
+                    <Maximize2 className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Settings panel */}
+        {/* Settings panel: outside the desktop-only overlay so the mobile header button works too */}
         {showSettings && (
-          <div className="absolute top-16 right-4 bg-black/90 rounded-lg p-4 text-white min-w-48 pointer-events-auto">
+          <div className="absolute top-3 right-3 sm:top-16 sm:right-4 z-10 bg-black/90 rounded-lg p-4 text-white min-w-48">
             <h3 className="text-sm font-semibold mb-3">Viewer Settings</h3>
-            <p className="text-xs text-gray-300">Keyboard: press F to toggle fullscreen.</p>
+            <p className="text-xs text-gray-300">Keyboard: press F or use YouTube native controls for fullscreen.</p>
             <p className="text-xs text-gray-300">Captions are controlled by the embed provider.</p>
           </div>
         )}

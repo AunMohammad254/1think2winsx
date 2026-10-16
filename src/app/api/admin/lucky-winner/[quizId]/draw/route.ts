@@ -51,7 +51,7 @@ export async function POST(
             return NextResponse.json({ error: 'Quiz not found' }, { status: 404 });
         }
 
-        if (!quiz.prizeId) {
+        if (!quiz.prizeId && !quiz.isBumperPrize) {
             return NextResponse.json(
                 { error: 'Quiz is not linked to a prize. Link a prize before running the draw.' },
                 { status: 422 }
@@ -139,9 +139,8 @@ export async function POST(
         // 8. Insert QuizWinner records and Consolation Points
         const winnerRecords = [];
         for (const winner of winners) {
-            const winnerRecord = await quizWinnerDb.create({
+            const winnerData: any = {
                 quizId,
-                prizeId: quiz.prizeId as string,
                 userId: winner.userId,
                 score: winner.score,
                 completedAt: winner.completedAt,
@@ -149,7 +148,11 @@ export async function POST(
                 selectedBy: adminSession.email ?? 'admin',
                 seed,
                 selectedAt: new Date().toISOString(),
-            });
+            };
+            if (quiz.prizeId) {
+                winnerData.prizeId = quiz.prizeId;
+            }
+            const winnerRecord = await quizWinnerDb.create(winnerData);
             winnerRecords.push({ ...winnerRecord, user: winner.user });
         }
 

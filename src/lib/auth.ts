@@ -5,6 +5,7 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { createTimeoutFetch, SUPABASE_FETCH_TIMEOUT_MS } from './supabase/timeout-fetch';
 
 interface Session {
     user: {
@@ -29,6 +30,7 @@ export async function auth(): Promise<Session | null> {
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
             {
+                global: { fetch: createTimeoutFetch(SUPABASE_FETCH_TIMEOUT_MS) },
                 cookies: {
                     getAll() {
                         return cookieStore.getAll();
@@ -47,15 +49,19 @@ export async function auth(): Promise<Session | null> {
             }
         );
 
-        const { data: { user }, error } = await supabase.auth.getUser();
+        // getClaims(): local JWT verification with asymmetric signing keys
+        // (falls back to a getUser() network call with legacy HS256 keys).
+        const { data, error } = await supabase.auth.getClaims();
 
-        if (error || !user) {
+        if (error || !data?.claims?.sub) {
             return null;
         }
+        const claims = data.claims as { sub: string; email?: string; user_metadata?: Record<string, string> };
+        const user = { id: claims.sub, email: claims.email, user_metadata: claims.user_metadata || {} };
 
         // Check if user is admin
-        const adminEmails = process.env.ADMIN_EMAILS?.split(',') || [];
-        const isAdmin = user.email ? adminEmails.includes(user.email) : false;
+        const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+        const isAdmin = user.email ? adminEmails.includes(user.email.toLowerCase()) : false;
 
         return {
             user: {

@@ -78,6 +78,9 @@ export class SecurityLogger {
    * Log security events with structured data
    */
   logSecurityEvent(event: SecurityEvent): void {
+    // Success/info events fire on every request; logging them floods stdout under load.
+    if (this.getSeverityLevel(event.type) === 'info' && process.env.NODE_ENV === 'production') return;
+
     const logEntry = {
       ...event,
       severity: this.getSeverityLevel(event.type),
@@ -187,7 +190,7 @@ async function validateCSRFTokenForApiRoute(request: { method?: string; headers:
         environment,
         timestamp: new Date().toISOString(),
         ...requestMetadata,
-        details: { headers: request.headers }
+        details: { method: request.method }
       });
 
       return {
@@ -266,6 +269,25 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
   const requestMetadata = extractRequestMetadata(request);
 
   try {
+    // Real CSRF defence: browsers always send Origin on cross-site POST/PUT/PATCH/DELETE.
+    // Reject when it doesn't match the host we are serving.
+    const origin = request.headers.get('origin');
+    if (origin) {
+      const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+      let originHost: string | null = null;
+      try { originHost = new URL(origin).host; } catch { originHost = null; }
+      if (!host || originHost !== host) {
+        securityLogger.logSecurityEvent({
+          type: SecurityEventType.CSRF_VALIDATION_ERROR,
+          environment,
+          timestamp: new Date().toISOString(),
+          ...requestMetadata,
+          details: { reason: 'cross-origin request', origin }
+        });
+        return { isValid: false, error: 'Cross-origin request blocked' };
+      }
+    }
+
     // Get the CSRF token from headers
     const csrfToken = request.headers.get('x-csrf-token') ||
       request.headers.get('X-CSRF-Token') ||
@@ -278,7 +300,7 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
         environment,
         timestamp: new Date().toISOString(),
         ...requestMetadata,
-        details: { headers: Object.fromEntries(request.headers.entries()) }
+        details: { method: request.method } // never log raw headers: they contain session cookies
       });
 
       return {
@@ -319,77 +341,7 @@ export async function validateCSRFToken(request: NextRequest): Promise<CSRFValid
       };
     }
 
-    // Try to get the Supabase session cookie
-    let hasSession = false;
-
-    try {
-      // Check for Supabase session cookies
-      const supabaseAuthCookie = request.cookies.get('sb-access-token') ||
-        request.cookies.get('sb-refresh-token');
-
-      // Check for admin session cookie
-      const adminSessionCookie = request.cookies.get('admin-session');
-
-      // Also check for the Supabase auth token pattern
-      const allCookies = request.cookies.getAll();
-      const hasSupabaseCookie = allCookies.some(cookie =>
-        cookie.name.includes('sb-') && cookie.name.includes('-auth-token')
-      );
-
-      if (supabaseAuthCookie || hasSupabaseCookie || adminSessionCookie) {
-        console.info(`[${environment.toUpperCase()}] Session found via ${adminSessionCookie ? 'Admin' : 'Supabase'} cookie`);
-        hasSession = true;
-      }
-    } catch (cookieError) {
-      securityLogger.logSecurityEvent({
-        type: SecurityEventType.SESSION_TOKEN_RETRIEVAL_FAILED,
-        environment,
-        timestamp: new Date().toISOString(),
-        ...requestMetadata,
-        details: {
-          error: cookieError instanceof Error ? cookieError.message : String(cookieError)
-        }
-      });
-    }
-
-    // Session is required in all environments for security
-    if (!hasSession) {
-      securityLogger.logSecurityEvent({
-        type: SecurityEventType.SESSION_TOKEN_MISSING,
-        environment,
-        timestamp: new Date().toISOString(),
-        ...requestMetadata,
-        details: { csrfTokenPresent: !!csrfToken }
-      });
-
-      // Enhanced validation: Check if CSRF token format is valid but session is missing
-      // This indicates a potential security issue that should be blocked in all environments
-      const isValidFormat = typeof csrfToken === 'string' && csrfToken.length >= SECURITY_CONFIG.MIN_TOKEN_LENGTH;
-      const hasValidPattern = SECURITY_CONFIG.TOKEN_PATTERN.test(csrfToken);
-
-      if (isValidFormat && hasValidPattern) {
-        // In production environments, this might be acceptable for certain deployment scenarios
-        // but we should log it as a security concern
-        if (process.env.NODE_ENV === 'production' && process.env.VERCEL_ENV) {
-          securityLogger.logSecurityEvent({
-            type: SecurityEventType.VERCEL_COMPATIBILITY_BYPASS,
-            environment,
-            timestamp: new Date().toISOString(),
-            ...requestMetadata,
-            details: { reason: 'Valid CSRF token but missing session in Vercel deployment' }
-          });
-
-          return {
-            isValid: true
-          };
-        }
-      }
-
-      return {
-        isValid: false,
-        error: 'Invalid or missing session token'
-      };
-    }
+    // Removed session requirement to allow public endpoints like registration and newsletter
 
     securityLogger.logSecurityEvent({
       type: SecurityEventType.CSRF_VALIDATION_SUCCESS,

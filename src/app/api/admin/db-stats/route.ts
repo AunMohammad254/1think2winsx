@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/supabase/db';
+import { getAdminDb } from '@/lib/supabase/db';
 import { securityLogger } from '@/lib/security-logger';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       return rateLimitResponse;
     }
 
-    const supabase = await getDb();
+    const supabase = getAdminDb();
 
     // Get database statistics
     const [

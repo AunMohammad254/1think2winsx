@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { v2 as cloudinary } from 'cloudinary';
 import { auth } from '@/lib/auth';
 import { userDb } from '@/lib/supabase/db';
-import { writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
-import { existsSync } from 'fs';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { securityLogger } from '@/lib/security-logger';
 import { createSecureFileUploadResponse } from '@/lib/security-headers';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { requireCSRFToken } from '@/lib/csrf-protection';
-import sharp from 'sharp';
+import { deleteCloudinaryImageByUrl } from '@/lib/cloudinary-server';
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,37 +27,32 @@ export async function POST(request: NextRequest) {
     const session = await auth();
 
     if (!session || !session.user) {
-      return NextResponse.json(
-        { message: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
+    const userId = session.user.id;
+
     // Apply rate limiting for file uploads
-    const rateLimitResult = await applyRateLimit(rateLimiters.fileUpload, request, session.user.id);
+    const rateLimitResult = await applyRateLimit(rateLimiters.fileUpload, request, userId);
     if (rateLimitResult) {
-      recordSecurityEvent('RATE_LIMIT_EXCEEDED', request, session.user.id, {
+      recordSecurityEvent('RATE_LIMIT_EXCEEDED', request, userId, {
         endpoint: '/api/profile/upload-picture',
         rateLimiter: 'fileUpload'
       });
       securityLogger.logSecurityEvent({
         type: 'RATE_LIMIT_EXCEEDED',
-        userId: session.user.id,
+        userId,
         endpoint: '/api/profile/upload-picture',
         ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
       });
       return rateLimitResult;
     }
 
-    const userId = session.user.id;
     const formData = await request.formData();
     const file = formData.get('profilePicture') as File;
 
     if (!file) {
-      return NextResponse.json(
-        { message: 'No file provided' },
-        { status: 400 }
-      );
+      return NextResponse.json({ message: 'No file provided' }, { status: 400 });
     }
 
     // Enhanced MIME type validation
@@ -66,11 +66,7 @@ export async function POST(request: NextRequest) {
       securityLogger.logSecurityEvent({
         type: 'INVALID_INPUT',
         userId,
-        details: {
-          fileName: file.name,
-          fileType: file.type,
-          reason: 'Invalid file type'
-        },
+        details: { fileName: file.name, fileType: file.type, reason: 'Invalid file type' },
         ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
       });
       return NextResponse.json(
@@ -90,11 +86,7 @@ export async function POST(request: NextRequest) {
       securityLogger.logSecurityEvent({
         type: 'INVALID_INPUT',
         userId,
-        details: {
-          fileName: file.name,
-          fileSize: file.size,
-          reason: 'File size exceeded'
-        },
+        details: { fileName: file.name, fileSize: file.size, reason: 'File size exceeded' },
         ip: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
       });
       return NextResponse.json(
@@ -103,42 +95,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Convert file to buffer
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = join(process.cwd(), 'public', 'uploads', 'profile-pictures');
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true });
-    }
-
-    // Generate unique filename
-    const timestamp = Date.now();
-    const filename = `${userId}-${timestamp}.avif`;
-    const filepath = join(uploadsDir, filename);
+    // Get current user to see if they have an existing profile picture on Cloudinary
+    const currentUser = await userDb.findById(userId);
 
     try {
-      // Process image with Sharp - convert to AVIF format
-      const processedBuffer = await sharp(buffer)
-        .resize(400, 400, {
-          fit: 'cover',
-          position: 'center'
-        })
-        .avif({
-          quality: 80,
-          effort: 4
-        })
-        .toBuffer();
+      // Upload to Cloudinary using a stream
+      const uploadResult: any = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { 
+            folder: 'avatars',
+            transformation: [
+              { width: 400, height: 400, crop: 'fill', gravity: 'face' }, // Automatically frame around faces!
+              { quality: 'auto', fetch_format: 'avif' }
+            ]
+          },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result);
+          }
+        );
+        uploadStream.end(buffer);
+      });
 
-      // Save processed image
-      await writeFile(filepath, processedBuffer);
+      const imageUrl = uploadResult.secure_url;
 
       // Update user profile in database
-      const imageUrl = `/uploads/profile-pictures/${filename}`;
-
       await userDb.update(userId, {
         profilePicture: imageUrl,
       });
+
+      // Clean up old avatar if it was on Cloudinary (to save storage)
+      if (currentUser?.profilePicture && currentUser.profilePicture.includes('cloudinary.com')) {
+        await deleteCloudinaryImageByUrl(currentUser.profilePicture).catch(e => {
+          console.error('Failed to delete old avatar:', e);
+        });
+      }
 
       return createSecureFileUploadResponse({
         message: 'Profile picture uploaded successfully',
@@ -146,40 +139,36 @@ export async function POST(request: NextRequest) {
       }, { status: 200 });
 
     } catch (imageError) {
-      console.error('Image processing error:', imageError);
-      return NextResponse.json(
-        { message: 'Failed to process image' },
-        { status: 500 }
-      );
+      console.error('Cloudinary Image processing error:', imageError);
+      return NextResponse.json({ message: 'Failed to process image through Cloudinary' }, { status: 500 });
     }
 
   } catch (error) {
     console.error('Profile picture upload error:', error);
-    return NextResponse.json(
-      { message: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
-    // Apply CSRF protection
     const csrfValidation = await requireCSRFToken(request);
-    if (csrfValidation) {
-      return csrfValidation;
-    }
+    if (csrfValidation) return csrfValidation;
 
     const session = await auth();
 
     if (!session || !session.user) {
-      return NextResponse.json(
-        { message: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
     const userId = session.user.id;
+    const currentUser = await userDb.findById(userId);
+
+    // If they have a Cloudinary picture, delete it from the CDN cloud too!
+    if (currentUser?.profilePicture && currentUser.profilePicture.includes('cloudinary.com')) {
+      await deleteCloudinaryImageByUrl(currentUser.profilePicture).catch(e => {
+        console.error('Failed to delete avatar from Cloudinary:', e);
+      });
+    }
 
     // Remove profile picture from database
     await userDb.update(userId, {
@@ -192,9 +181,6 @@ export async function DELETE(request: NextRequest) {
 
   } catch (error) {
     console.error('Profile picture removal error:', error);
-    return NextResponse.json(
-      { message: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
   }
 }

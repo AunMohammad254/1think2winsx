@@ -7,6 +7,7 @@
 
 import { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/client';
+import { userHasPassword } from '@/lib/password-status';
 
 /**
  * Represents the authentication methods available for a user
@@ -37,6 +38,9 @@ export interface AuthMethods {
  */
 export function isOAuthOnlyUser(user: User | null): boolean {
     if (!user) return false;
+
+    // A Google account that has since set a password can sign in with it and change it.
+    if (userHasPassword(user)) return false;
 
     // Check identities array for authentication methods
     const identities = user.identities || [];
@@ -96,6 +100,7 @@ export function getUserAuthMethods(user: User | null): AuthMethods {
     }
 
     const hasOAuth = oAuthProviders.length > 0;
+    const hasPassword = userHasPassword(user);
     const primaryProvider = user.app_metadata?.provider as string | undefined;
 
     // Determine primary auth method
@@ -111,10 +116,10 @@ export function getUserAuthMethods(user: User | null): AuthMethods {
     }
 
     return {
-        hasEmailPassword: hasEmailIdentity,
+        hasEmailPassword: hasPassword,
         hasOAuth,
         oAuthProviders,
-        canChangePassword: hasEmailIdentity,
+        canChangePassword: hasPassword,
         primaryAuthMethod,
     };
 }

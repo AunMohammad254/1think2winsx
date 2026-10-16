@@ -2,6 +2,7 @@
 
 import { getAdminDb } from '@/lib/supabase/db';
 import { requireAdminSession } from '@/lib/admin-session';
+import { unstable_cache } from 'next/cache';
 
 export type RevenueDataPoint = {
     date: string;
@@ -34,190 +35,84 @@ export type AnalyticsData = {
         stockByCategory: { category: string; stock: number }[];
         totalClaimedValue: number;
     };
+    liveQuizEngagement: {
+        totalLiveQuizzes: number;
+        totalLiveAttempts: number;
+        avgAttemptsPerLiveQuiz: number;
+    };
+    scoreDistribution: {
+        range: string;
+        count: number;
+    }[];
+    notificationEfficacy: {
+        totalSent: number;
+        totalRead: number;
+        ctr: number;
+    };
 };
+
+const fetchCachedAnalytics = unstable_cache(
+    async () => {
+        // Aggregation runs server-side in get_admin_analytics()
+        const adminDb = getAdminDb();
+        const { data, error } = await adminDb.rpc('get_admin_analytics');
+        if (error || !data) {
+            throw new Error(error?.message || 'Failed to load analytics data');
+        }
+
+        const typedData = data as any;
+
+        // 1. Live Quiz Engagement
+        const { data: liveQuizzes } = await adminDb.from('Quiz').select('id').not('pushedAt', 'is', null).limit(100);
+        const liveQuizIds = liveQuizzes?.map(q => q.id) || [];
+        let totalLiveAttempts = 0;
+        if (liveQuizIds.length > 0) {
+            const { count } = await adminDb.from('QuizAttempt').select('*', { count: 'exact', head: true }).in('quizId', liveQuizIds);
+            totalLiveAttempts = count || 0;
+        }
+        typedData.liveQuizEngagement = {
+            totalLiveQuizzes: liveQuizIds.length,
+            totalLiveAttempts: totalLiveAttempts,
+            avgAttemptsPerLiveQuiz: liveQuizIds.length > 0 ? Math.round(totalLiveAttempts / liveQuizIds.length) : 0,
+        };
+
+        // 2. Score Distribution (limited to recent 1000 for snapshot to avoid unbounded memory)
+        const { data: scores } = await adminDb.from('QuizAttempt').select('score').not('score', 'is', null).limit(1000);
+        const dist = { '0-20': 0, '21-40': 0, '41-60': 0, '61-80': 0, '81-100': 0 };
+        (scores || []).forEach(s => {
+            const score = s.score || 0;
+            if (score <= 20) dist['0-20']++;
+            else if (score <= 40) dist['21-40']++;
+            else if (score <= 60) dist['41-60']++;
+            else if (score <= 80) dist['61-80']++;
+            else dist['81-100']++;
+        });
+        typedData.scoreDistribution = Object.entries(dist).map(([range, count]) => ({ range, count }));
+
+        // 3. Notification Efficacy (limited to recent 1000 to save memory)
+        const { data: notifications } = await adminDb.from('Notification').select('read').eq('type', 'quiz_results').limit(1000);
+        const notifs = notifications || [];
+        const totalSent = notifs.length;
+        const totalRead = notifs.filter(n => n.read).length;
+        typedData.notificationEfficacy = {
+            totalSent,
+            totalRead,
+            ctr: totalSent > 0 ? Math.round((totalRead / totalSent) * 100) : 0,
+        };
+
+        return typedData as AnalyticsData;
+    },
+    ['admin_analytics_data'],
+    {
+        revalidate: 300, // Cache for 5 minutes to prevent excessive DB hits
+        tags: ['admin_analytics_data']
+    }
+);
 
 export async function getAnalyticsData(): Promise<AnalyticsData> {
     // 1. Ensure caller is authenticated admin
     await requireAdminSession();
 
-    const adminDb = getAdminDb();
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-
-    // Run primary queries in parallel
-    const [
-        paymentsResult,
-        attemptsResult,
-        quizzesResult,
-        redemptionsResult,
-        prizesResult,
-        usersResult,
-    ] = await Promise.all([
-        adminDb.from('Payment').select('amount, createdAt').eq('status', 'completed').gte('createdAt', thirtyDaysAgo),
-        adminDb.from('QuizAttempt').select('id, userId, score, quizId, isCompleted, createdAt').gte('createdAt', thirtyDaysAgo),
-        adminDb.from('Quiz').select('id, passingScore'),
-        adminDb.from('PrizeRedemption').select('status, pointsUsed, prizeId'),
-        adminDb.from('Prize').select('id, name, category, stock, value'),
-        adminDb.from('User').select('id, createdAt').gte('createdAt', thirtyDaysAgo),
-    ]);
-
-    const payments = paymentsResult.data || [];
-    const attempts = attemptsResult.data || [];
-    const quizzes = quizzesResult.data || [];
-    const redemptions = redemptionsResult.data || [];
-    const prizes = prizesResult.data || [];
-    const users = usersResult.data || [];
-
-    // ============================================
-    // 1. Revenue aggregation (Last 30 days)
-    // ============================================
-    const revenueMap = new Map<string, number>();
-    // Pre-fill last 30 days
-    for (let i = 29; i >= 0; i--) {
-        const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-        const dateString = d.toISOString().split('T')[0];
-        revenueMap.set(dateString, 0);
-    }
-
-    payments.forEach((p: any) => {
-        const dateString = p.createdAt.split('T')[0];
-        if (revenueMap.has(dateString)) {
-            revenueMap.set(dateString, (revenueMap.get(dateString) || 0) + (p.amount || 0));
-        }
-    });
-
-    const revenue: RevenueDataPoint[] = Array.from(revenueMap.entries()).map(([date, amount]) => ({
-        date,
-        amount,
-    }));
-
-    // ============================================
-    // 2. Quiz Funnel calculation
-    // ============================================
-    const totalAttempts = attempts.length;
-    const completedAttempts = attempts.filter((a: any) => a.isCompleted).length;
-    
-    // Build quiz passing score map
-    const passingScores = new Map<string, number>();
-    quizzes.forEach((q: any) => passingScores.set(q.id, q.passingScore || 80));
-
-    const passedAttempts = attempts.filter((a: any) => {
-        if (!a.isCompleted) return false;
-        const passingScore = passingScores.get(a.quizId) || 80;
-        return (a.score || 0) >= passingScore;
-    }).length;
-
-    const funnel = [
-        { stage: 'Quiz Started', count: totalAttempts, percentage: 100 },
-        { stage: 'Completed', count: completedAttempts, percentage: totalAttempts > 0 ? Math.round((completedAttempts / totalAttempts) * 100) : 0 },
-        { stage: 'Passed Quiz', count: passedAttempts, percentage: totalAttempts > 0 ? Math.round((passedAttempts / totalAttempts) * 100) : 0 },
-    ];
-
-    // ============================================
-    // 3. Player Retention & Stickiness
-    // ============================================
-    // DAU attempts
-    const dauUsers = new Set(
-        attempts
-            .filter((a: any) => a.createdAt >= oneDayAgo)
-            .map((a: any) => a.userId)
-    );
-    // WAU attempts
-    const wauUsers = new Set(
-        attempts
-            .filter((a: any) => a.createdAt >= sevenDaysAgo)
-            .map((a: any) => a.userId)
-    );
-    // MAU attempts
-    const mauUsers = new Set(attempts.map((a: any) => a.userId));
-
-    const dau = dauUsers.size;
-    const wau = wauUsers.size;
-    const mau = mauUsers.size;
-    const stickiness = mau > 0 ? Math.round((dau / mau) * 1000) / 10 : 0;
-
-    // Cohort analysis (last 4 weeks)
-    const cohorts: RetentionCohort[] = [];
-    const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
-    
-    for (let w = 0; w < 4; w++) {
-        const cohortStart = new Date(now.getTime() - (w + 1) * MS_PER_WEEK);
-        const cohortEnd = new Date(now.getTime() - w * MS_PER_WEEK);
-        const cohortName = `Week -${w + 1}`;
-
-        // Users registered in this cohort
-        const cohortUsers = users.filter((u: any) => {
-            const date = new Date(u.createdAt);
-            return date >= cohortStart && date < cohortEnd;
-        });
-
-        if (cohortUsers.length === 0) {
-            cohorts.push({ cohortName, registered: 0, active: 0, rate: 0 });
-            continue;
-        }
-
-        const cohortUserIds = new Set(cohortUsers.map((u: any) => u.id));
-
-        // Attempts by these users
-        const activeCohortUsers = attempts.filter((a: any) => cohortUserIds.has(a.userId));
-        const activeCount = new Set(activeCohortUsers.map((a: any) => a.userId)).size;
-
-        cohorts.push({
-            cohortName,
-            registered: cohortUsers.length,
-            active: activeCount,
-            rate: Math.round((activeCount / cohortUsers.length) * 100),
-        });
-    }
-
-    // ============================================
-    // 4. Prize breakdown & redemptions
-    // ============================================
-    const redemptionsMap = new Map<string, number>();
-    redemptions.forEach((r: any) => {
-        redemptionsMap.set(r.status, (redemptionsMap.get(r.status) || 0) + 1);
-    });
-
-    const redemptionsByStatus = Array.from(redemptionsMap.entries()).map(([status, count]) => ({
-        status,
-        count,
-    }));
-
-    const stockMap = new Map<string, number>();
-    prizes.forEach((p: any) => {
-        const cat = p.category || 'General';
-        stockMap.set(cat, (stockMap.get(cat) || 0) + (p.stock || 0));
-    });
-
-    const stockByCategory = Array.from(stockMap.entries()).map(([category, stock]) => ({
-        category,
-        stock,
-    }));
-
-    // Calculate total claimed prize values (from approved redemptions)
-    const prizeValues = new Map<string, number>();
-    prizes.forEach((p: any) => prizeValues.set(p.id, p.value || 0));
-
-    const totalClaimedValue = redemptions
-        .filter((r: any) => r.status === 'approved')
-        .reduce((sum: number, r: any) => sum + (prizeValues.get(r.prizeId) || 0), 0);
-
-    return {
-        revenue,
-        funnel,
-        retention: {
-            dau,
-            wau,
-            mau,
-            stickiness,
-            cohorts,
-        },
-        prizes: {
-            redemptionsByStatus,
-            stockByCategory,
-            totalClaimedValue,
-        },
-    };
+    // 2. Return cached DB results
+    return fetchCachedAnalytics();
 }
