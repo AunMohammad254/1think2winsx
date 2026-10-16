@@ -250,9 +250,8 @@ export default function AdminQuizManagementPage() {
         setActionMenuOpen(null);
     };
 
+    // Only offered while at least one quiz is selected
     const handleBulkDelete = async () => {
-        if (selectedQuizzes.length === 0) return;
-
         if (!confirm(`Delete ${selectedQuizzes.length} selected quiz(es)?`)) {
             return;
         }
@@ -545,7 +544,7 @@ export default function AdminQuizManagementPage() {
                                     : 'bg-white/5 text-gray-400 hover:bg-white/10'
                                     }`}
                             >
-                                {status === 'all' ? 'All' : (statusConfig[status as keyof typeof statusConfig]?.label || status)}
+                                {status === 'all' ? 'All' : statusConfig[status].label}
                             </button>
                         ))}
                     </div>

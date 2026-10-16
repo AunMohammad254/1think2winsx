@@ -139,6 +139,17 @@ describe('POST /api/chatbot', () => {
     expect((await chat(hello, '8.8.8.8')).status).toBe(200);
   });
 
+  it('says "1 second" when the next token is under a second away', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    fetchMock.mockRejectedValue(new Error('network'));
+    // Every request tries each model that still has a token, so 14 requests empty all of them
+    for (let i = 0; i < 14; i++) await chat(hello, '5.5.5.5');
+    clock.mockReturnValue(now + 3_785); // the 14-rpm models refill every 4,285 ms, so 500 ms remain
+    expect((await (await chat(hello, '5.5.5.5')).json()).error).toMatch(/Please wait 1 second before/);
+    clock.mockRestore();
+  });
+
   it('refills tokens over time', async () => {
     const now = Date.now();
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);

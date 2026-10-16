@@ -69,7 +69,7 @@ export function RedemptionFormModal({
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRF-Token': csrfToken || '',
+                    'X-CSRF-Token': csrfToken, // checked above
                 },
                 body: JSON.stringify({
                     prizeId: prize.id,

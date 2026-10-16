@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
         endpoint: '/api/admin/security/fraud-alerts',
         details: {
           reason: 'Non-admin user attempted to access security fraud alerts',
-          userRole: session?.user?.isAdmin ? 'admin' : 'user'
+          userRole: 'user'
         },
         severity: 'HIGH'
       });

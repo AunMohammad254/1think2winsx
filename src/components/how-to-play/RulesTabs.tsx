@@ -101,7 +101,7 @@ const tabs = [
 export default function RulesTabs() {
     const [activeTab, setActiveTab] = useState('quiz');
 
-    const currentRules = tabs.find(t => t.id === activeTab)?.rules || quizRules;
+    const currentRules = tabs.find(t => t.id === activeTab)!.rules; // activeTab is always a tab id
 
     return (
         <div className="w-full">

@@ -6,19 +6,18 @@ export default function ScrollProgress() {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // The bar is always rendered; a frame that lands after unmount writes to a detached node
+    const bar = ref.current!;
     let raf = 0;
     let ticking = false;
-    
+
     const onScroll = () => {
       if (ticking) return;
       ticking = true;
       raf = requestAnimationFrame(() => {
-        if (ref.current) {
-          const scrollTop = window.scrollY || document.documentElement.scrollTop;
-          const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-          const progress = docHeight > 0 ? Math.min(scrollTop / docHeight, 1) : 0;
-          ref.current.style.transform = `scaleX(${progress})`;
-        }
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        const progress = docHeight > 0 ? Math.min(window.scrollY / docHeight, 1) : 0;
+        bar.style.transform = `scaleX(${progress})`;
         ticking = false;
       });
     };

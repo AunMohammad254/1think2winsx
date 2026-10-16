@@ -146,6 +146,16 @@ describe('PrizeRedemption', () => {
     expect(screen.queryByText('Prize Details')).toBeNull();
   });
 
+  it('previews a prize as needing all its points before the profile loads', async () => {
+    h.profile = null;
+    render(<PrizeRedemption />);
+    await screen.findByText('Watch');
+    fireEvent.click(screen.getByRole('img', { name: 'Watch' }).closest('div[class*="cursor-pointer"]')!);
+    const dialog = screen.getByText('Prize Details').closest('div.fixed') as HTMLElement;
+    expect(within(dialog).getByText('0 points')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Need 300 more points' })).toBeDisabled();
+  });
+
   it('previews a past redemption with its status and notes', async () => {
     render(<PrizeRedemption />);
     await screen.findByText('Watch');

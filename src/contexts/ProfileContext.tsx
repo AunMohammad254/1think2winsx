@@ -168,26 +168,24 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       console.error('Error fetching profile:', err);
-      // Use Supabase user data as fallback
-      if (user) {
-        const userName = user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
-        const fallbackProfile: UserProfile = {
-          id: user.id,
-          name: userName,
-          email: user.email || 'user@example.com',
-          profilePicture: user.user_metadata?.avatar_url || null,
-          createdAt: user.created_at || new Date().toISOString(),
-          points: 0,
-          walletBalance: 0,
-          quizzesTaken: 0,
-          correctAnswers: 0,
-          totalScore: 0,
-          winCount: 0,
-          quizHistory: [],
-          prizes: [],
-        };
-        setProfile(fallbackProfile);
-      }
+      // Use Supabase user data as fallback (the user was checked above)
+      const userName = user.user_metadata?.name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+      const fallbackProfile: UserProfile = {
+        id: user.id,
+        name: userName,
+        email: user.email || 'user@example.com',
+        profilePicture: user.user_metadata?.avatar_url || null,
+        createdAt: user.created_at || new Date().toISOString(),
+        points: 0,
+        walletBalance: 0,
+        quizzesTaken: 0,
+        correctAnswers: 0,
+        totalScore: 0,
+        winCount: 0,
+        quizHistory: [],
+        prizes: [],
+      };
+      setProfile(fallbackProfile);
       setError('Failed to load profile data');
     } finally {
       setLoading(false);

@@ -421,6 +421,14 @@ describe('GET /api/quizzes/[id]/results', () => {
     expect(adminDb.calls).toHaveLength(0);
   });
 
+  it('shows no correct option when the answer-key lookup returns nothing', async () => {
+    db.setTable('QuizAttempt', { data: attempt() });
+    db.setTable('Answer', { data: [{ questionId: 'q1', selectedOption: 0, isCorrect: true, Question: { id: 'q1', text: 'Toss?', options: '["A","B"]', hasCorrectAnswer: true } }] });
+    adminDb.setTable('Question', { data: null });
+    const body = await (await results()).json();
+    expect(body.results.answers[0]).toMatchObject({ questionId: 'q1', correctOption: null });
+  });
+
   it('reports not passed when the quiz join is missing', async () => {
     db.setTable('QuizAttempt', { data: attempt({ Quiz: null }) });
     db.setTable('Answer', { data: [] });

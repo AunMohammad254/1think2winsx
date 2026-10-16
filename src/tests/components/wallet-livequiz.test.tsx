@@ -107,6 +107,18 @@ describe('DepositForm', () => {
     expect(screen.getByLabelText('Amount (PKR)')).toHaveValue(null);
   });
 
+  it('forgets the proof when the file chooser is cancelled', async () => {
+    const onSubmit = vi.fn();
+    render(<DepositForm onSubmit={onSubmit} />);
+    fill('50', 'TX9', new File(['x'], 'proof.png'));
+    expect(screen.getByText('Selected')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Proof of Payment/), { target: { files: [] } });
+    expect(screen.queryByText('Selected')).toBeNull();
+    submit();
+    expect(await screen.findByText('Please upload a screenshot of your payment as proof')).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it('shows the server error, or a default one', async () => {
     const onSubmit = vi.fn().mockResolvedValueOnce({ success: false, error: 'Duplicate transaction ID' }).mockResolvedValueOnce({ success: false });
     render(<DepositForm onSubmit={onSubmit} />);
@@ -171,6 +183,18 @@ describe('LiveQuizPush', () => {
     act(() => ref.current!.notify('q1', 'Live Cricket')); // a second push restarts the timer
     act(() => { vi.advanceTimersByTime(8000); });
     expect(screen.queryByText('New quiz just dropped')).toBeNull();
+  });
+
+  it('slides the toast in on the next frame, and its timer leaves a closed toast closed', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+    const { container } = setup();
+    act(() => ref.current!.notify('q1', 'Live Cricket'));
+    expect(container.querySelector('.toast')).not.toHaveClass('show');
+    act(() => { vi.advanceTimersByTime(20); });
+    expect(container.querySelector('.toast')).toHaveClass('show');
+    fireEvent.click(screen.getByRole('button', { name: 'Close notification' }));
+    act(() => { vi.advanceTimersByTime(8000); });
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('closes the toast from its X button', () => {

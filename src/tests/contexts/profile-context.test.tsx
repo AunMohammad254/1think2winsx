@@ -141,6 +141,12 @@ describe('ProfileProvider', () => {
     expect((init.body as FormData).get('profilePicture')).toBeInstanceOf(File);
     expect(result.current.profile?.profilePicture).toBe('https://cdn/new.avif');
 
+    // Without a CSRF token it still sends the header (empty), and the server decides
+    getCSRFToken.mockResolvedValueOnce(null);
+    fetchMock.mockResolvedValueOnce(json({ imageUrl: 'https://cdn/again.avif' }));
+    await act(() => result.current.uploadProfilePicture(new File(['x'], 'me.png', { type: 'image/png' })));
+    expect(fetchMock.mock.calls.at(-1)![1].headers['X-CSRF-Token']).toBe('');
+
     fetchMock.mockResolvedValueOnce(json({ message: 'Too large' }, 400));
     await act(async () => { await expect(result.current.uploadProfilePicture(new File(['x'], 'big.png'))).rejects.toThrow('Too large'); });
     fetchMock.mockResolvedValueOnce(json({}, 400));

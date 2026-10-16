@@ -77,7 +77,6 @@ function QuizzesPageInner() {
   useEffect(() => {
     quizzesRef.current = quizzes;
   }, [quizzes]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasAccess, setHasAccess] = useState(false);
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
@@ -109,10 +108,7 @@ function QuizzesPageInner() {
       // User-triggered loads retry 429/502/503/504 with jittered backoff (the server sheds load
       // with 503 + Retry-After when saturated).
       const response = await fetchWithRetry(url, undefined, { retries: background ? 0 : 2 });
-      if (response.status === 304) {
-        setLoading(false);
-        return true;
-      }
+      if (response.status === 304) return true;
       if (!response.ok) {
         try {
           const errorData = await response.json();
@@ -144,9 +140,8 @@ function QuizzesPageInner() {
     } finally {
       // null means "still loading"; if we never learned the flag (failed load), default to
       // enabled — the same fallback the old separate flag request used — rather than hanging
-      // on the skeleton forever.
+      // on the skeleton forever. Setting it is what ends the first-load skeleton.
       setWalletEnabled(prev => prev ?? true);
-      setLoading(false);
     }
     return ok;
   }, []);
@@ -561,10 +556,8 @@ function QuizzesPageInner() {
           </div>
         </div>
 
-        {/* Quizzes Grid */}
-        {loading ? (
-          <QuizCardSkeletonGrid count={6} />
-        ) : filteredQuizzes.length === 0 ? (
+        {/* Quizzes Grid (the first load shows the skeleton above) */}
+        {filteredQuizzes.length === 0 ? (
           <div className="text-center py-16">
             <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-3xl border border-white/10 p-12 max-w-md mx-auto">
               <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-purple-500/10 flex items-center justify-center">

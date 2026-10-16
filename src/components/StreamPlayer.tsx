@@ -141,10 +141,6 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
     setLoading(false);
   }, []);
 
-  const handleIframeError = useCallback(() => {
-    setError('Stream failed to load');
-  }, []);
-
   // Initialize stream
   useEffect(() => {
     fetchStreamData();
@@ -178,7 +174,7 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
     return (
       <div className={`flex items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="alert" aria-live="assertive">
         <div className="text-center text-white p-8">
-          <p className="mb-4 text-gray-300">{error || 'No stream available'}</p>
+          <p className="mb-4 text-gray-300">{error /* a finished load sets either streamData or error */}</p>
           <button
             onClick={fetchStreamData}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 transition-all"
@@ -193,7 +189,6 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
 
   // For YouTube, render iframe directly (avoids Error 153)
   const renderStreamContent = () => {
-    if (!streamData) return null;
     return (
       <iframe
         ref={iframeRef}
@@ -203,7 +198,6 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
         loading="lazy"
         aria-label={streamData.title}
         onLoad={handleIframeLoad}
-        onError={handleIframeError}
         title={streamData.title}
       />
     );

@@ -217,3 +217,17 @@ describe('GET /api/csrf-token', () => {
     spy.mockRestore();
   });
 });
+
+describe('environment label', () => {
+  it('logs as "development" when NODE_ENV is empty', async () => {
+    vi.stubEnv('NODE_ENV', '');
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    csrf.generateCSRFToken();
+    expect(info).toHaveBeenCalledWith('[SECURITY][DEVELOPMENT]', expect.anything());
+    const json = vi.fn();
+    await csrf.requireCSRFTokenForPages(vi.fn())({ method: 'POST', headers: { 'x-csrf-token': 'short' } }, { status: vi.fn(() => ({ json })), setHeader: vi.fn() });
+    expect(error).toHaveBeenCalledWith('[SECURITY][DEVELOPMENT]', expect.anything());
+    vi.unstubAllEnvs();
+  });
+});

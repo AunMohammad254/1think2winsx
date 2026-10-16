@@ -56,7 +56,8 @@ export async function GET(
                 .eq('id', quiz.prizeId as string)
                 .maybeSingle();
             prize = data;
-        } else if (quiz.isBumperPrize) {
+        } else {
+            // A quiz with neither a prize nor a bumper prize was refused above
             prize = { id: 'bumper', name: 'Bumper Prize', description: 'Bumper Prize for this quiz', imageUrl: null };
         }
 

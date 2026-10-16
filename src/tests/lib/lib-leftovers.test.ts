@@ -407,6 +407,13 @@ describe('quiz catalogue', () => {
     expect(await cat.getCatalogQuiz('ghost')).toBeUndefined();
   });
 
+  it('shows 0 attempts when the count RPC returns no rows', async () => {
+    cat.invalidateQuizCatalog();
+    adminDb.setTable('Quiz', { data: [{ id: 'soon', status: 'upcoming' }] });
+    adminDb.setTable('Question', { data: [] });
+    expect((await cat.getActiveQuizCatalog())[0].totalAttempts).toBe(0);
+  });
+
   it('caches for 15 s, shares one load, and is invalidated on demand or when a quiz is due', async () => {
     adminDb.setTable('Quiz', { data: [] });
     await Promise.all([cat.getActiveQuizCatalog(), cat.getActiveQuizCatalog()]);

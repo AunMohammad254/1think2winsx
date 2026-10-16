@@ -56,14 +56,12 @@ export async function GET(
             title = quiz.title;
           }
           if (user) {
-            name = user.name || user.email.split('@')[0] || name;
+            name = user.name || user.email.split('@')[0];
           }
-          if (attempt.score !== undefined) {
-            const totalQs = count || 10;
-            score = attempt.score.toString();
-            total = totalQs.toString();
-            pct = Math.round((attempt.score / (totalQs * 10)) * 100).toString();
-          }
+          const totalQs = count || 10;
+          score = attempt.score.toString();
+          total = totalQs.toString();
+          pct = Math.round((attempt.score / (totalQs * 10)) * 100).toString();
         }
       } catch (dbErr) {
         console.error('[Share Card] Error fetching real db attempt data:', dbErr);

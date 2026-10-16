@@ -332,3 +332,20 @@ describe('admin.db', () => {
     await expect(securityEventDb.countByType('X', new Date())).rejects.toBeTruthy();
   });
 });
+
+describe('claims and admin list edge cases', () => {
+  const bareClaims = { data: { claims: { sub: 'u3', email: 'e@example.test' } }, error: null } as never;
+
+  it('treats claims without user_metadata as empty metadata', async () => {
+    sb.auth.getClaims.mockResolvedValueOnce(bareClaims);
+    expect((await am.getVerifiedUser())!.user_metadata).toEqual({});
+    sb.auth.getClaims.mockResolvedValueOnce(bareClaims);
+    expect(await authLib.auth()).toMatchObject({ user: { id: 'u3', email: 'e@example.test' } });
+  });
+
+  it('treats an unset ADMIN_EMAILS as "no admins"', async () => {
+    vi.stubEnv('ADMIN_EMAILS', undefined as unknown as string);
+    sb.setUser({ id: 'z1', email: 'boss2@example.test' });
+    expect(((await am.requireAuth({ adminOnly: true })) as NextResponse).status).toBe(403);
+  });
+});

@@ -71,6 +71,10 @@ describe('GET /api/admin/claims', () => {
     expect(findAllAdmin).toHaveBeenCalledWith({ status: undefined, page: 2, limit: 20 });
     expect(body).toEqual({ claims: [{ id: 'c1', User: [{ name: 'A' }], Prize: { name: 'Watch' }, user: { name: 'A' }, prize: { name: 'Watch' } }], pagination: { page: 2, limit: 20, total: 21, totalPages: 2 } });
 
+    // PostgREST returns a to-one join as an object or a one-element array; both are flattened
+    findAllAdmin.mockResolvedValue({ data: [{ id: 'c2', User: { name: 'B' }, Prize: [{ name: 'Bike' }] }], page: 1, limit: 20, count: 1, totalPages: 1 });
+    expect((await (await get()).json()).claims[0]).toMatchObject({ user: { name: 'B' }, prize: { name: 'Bike' } });
+
     adminDb.client.rpc.mockImplementationOnce(() => { throw new Error('rpc down'); });
     findAllAdmin.mockResolvedValue({ data: null, page: 1, limit: 20, count: 0, totalPages: 0 });
     expect((await (await get()).json()).claims).toEqual([]);
@@ -120,6 +124,8 @@ describe('PUT /api/admin/claims', () => {
     adminDb.setRpc('reject_claim_with_refund', { data: { success: true, points_refunded: 20 } });
     expect((await (await put({ claimId: 'c1', status: 'approved' })).json()).message).toBe('Claim approved successfully');
     expect((await (await put({ claimId: 'c1', status: 'rejected' }, { 'x-forwarded-for': '2.2.2.2' })).json()).message).toBe('Claim rejected and points refunded');
+    await put({ claimId: 'c1', status: 'rejected' });
+    expect(logger.logSecurityEvent).toHaveBeenLastCalledWith(expect.objectContaining({ ip: 'unknown', details: expect.objectContaining({ method: 'supabase_rpc_reject' }) }));
 
     adminDb.setRpc('approve_claim', { data: { success: false, error: 'Out of stock' } });
     expect(await (await put({ claimId: 'c1', status: 'approved' })).json()).toEqual({ message: 'Out of stock' });

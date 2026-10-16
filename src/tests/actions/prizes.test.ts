@@ -128,13 +128,13 @@ describe('admin prize actions', () => {
   it('getAllPrizesAdmin applies filters and adds redemption/winning counts', async () => {
     adminDb.setTable('Prize', { data: [{ id: 'a' }, { id: 'b' }] });
     adminDb.setTable('PrizeRedemption', (call) => ({ count: eqValue(call, 'prizeId') === 'a' ? 3 : null }));
-    adminDb.setTable('Winning', { count: 1 });
+    adminDb.setTable('Winning', (call) => ({ count: eqValue(call, 'prizeId') === 'a' ? 1 : null }));
 
     const res = await actions.getAllPrizesAdmin({ category: 'vehicles', status: 'draft', search: 'bike' });
 
     expect(res.data).toEqual([
       { id: 'a', _count: { redemptions: 3, winnings: 1 } },
-      { id: 'b', _count: { redemptions: 0, winnings: 1 } },
+      { id: 'b', _count: { redemptions: 0, winnings: 0 } },
     ]);
     const query = adminDb.callsTo('Prize')[0];
     expect(eqValue(query, 'category')).toBe('vehicles');
@@ -155,6 +155,8 @@ describe('admin prize actions', () => {
     db.setTable('PrizeRedemption', { count: 2 });
     db.setTable('Winning', { count: null });
     expect(await actions.getPrizeById('prize-1')).toEqual({ success: true, data: { ...prize(), _count: { redemptions: 2, winnings: 0 } } });
+    db.setTable('PrizeRedemption', { count: null });
+    expect(((await actions.getPrizeById('prize-1')).data as { _count?: unknown } | undefined)?._count).toEqual({ redemptions: 0, winnings: 0 });
     prizeDb.findById.mockResolvedValue(null);
     expect(await actions.getPrizeById('nope')).toEqual({ success: false, error: 'Prize not found' });
     prizeDb.findById.mockRejectedValue(new Error('x'));
@@ -188,12 +190,11 @@ describe('admin prize actions', () => {
     expect(deleteCloudinaryImageByUrl).not.toHaveBeenCalled();
   });
 
-  it('currently also writes the schema defaults on a partial update (latent bug: zod .partial() keeps .default())', async () => {
-    // The admin page always sends the whole form, so this only bites a caller that sends some fields
+  it('leaves the fields a partial update omits untouched, instead of resetting them to the create defaults', async () => {
     prizeDb.findById.mockResolvedValue(prize({ imageUrl: null }));
     prizeDb.update.mockResolvedValue({});
     await actions.updatePrize('prize-1', { name: 'Renamed' });
-    expect(prizeDb.update).toHaveBeenLastCalledWith('prize-1', { name: 'Renamed', category: 'general', stock: 0, status: 'published', value: 0 });
+    expect(prizeDb.update).toHaveBeenLastCalledWith('prize-1', { name: 'Renamed' });
   });
 
   it('updatePrize deletes the replaced Cloudinary image only when no other prize uses it', async () => {
@@ -211,6 +212,12 @@ describe('admin prize actions', () => {
     await actions.updatePrize('prize-1', { imageUrl: `${CLOUD}/v2/prizes/new.jpg` });
     await flush();
     expect(deleteCloudinaryImageByUrl).not.toHaveBeenCalled();
+
+    // No other prizes at all
+    adminDb.setTable('Prize', { data: null });
+    await actions.updatePrize('prize-1', { imageUrl: `${CLOUD}/v2/prizes/new.jpg` });
+    await flush();
+    expect(deleteCloudinaryImageByUrl).toHaveBeenCalledWith(prize().imageUrl);
   });
 
   it('keeps shared site assets, foreign images, and images it cannot check', async () => {

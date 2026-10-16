@@ -73,6 +73,15 @@ describe('LoginForm', () => {
     expect(await screen.findByText('An error occurred during login')).toBeInTheDocument();
   });
 
+  it('shows a busy, disabled button while signing in', async () => {
+    h.loginAction.mockReturnValueOnce(new Promise(() => {}));
+    render(<LoginForm onSwitchToRegister={vi.fn()} />);
+    type('Email Address', 'ali@example.com');
+    type('Password', 'secret');
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/ }));
+    expect(await screen.findByRole('button', { name: /Signing in/ })).toBeDisabled();
+  });
+
   it('starts Google sign-in, and reports when it cannot', async () => {
     h.getGoogleOAuthUrl.mockResolvedValueOnce('https://accounts.google.com/o').mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('x'));
     render(<LoginForm onSwitchToRegister={vi.fn()} />);
@@ -150,6 +159,8 @@ describe('RegisterForm', () => {
 
   it('rates password strength as you type', () => {
     render(<RegisterForm onSwitchToLogin={vi.fn()} />);
+    type('Password', '___'); // underscores meet none of the five checks
+    expect(screen.getByText('Very Weak').previousElementSibling!.firstElementChild).toHaveClass('bg-slate-600');
     type('Password', 'a');
     expect(screen.getByText('Very Weak')).toBeInTheDocument();
     type('Password', 'aB1');
@@ -176,6 +187,14 @@ describe('RegisterForm', () => {
     const call = timers.mock.calls.find(([, ms]) => ms === 2000)!;
     (call[0] as () => void)();
     expect(onSwitch).toHaveBeenCalled();
+  });
+
+  it('shows a busy, disabled button while creating the account', async () => {
+    h.registerAction.mockReturnValueOnce(new Promise(() => {}));
+    render(<RegisterForm onSwitchToLogin={vi.fn()} />);
+    fillValid();
+    submit();
+    expect(await screen.findByRole('button', { name: /Creating Account/ })).toBeDisabled();
   });
 
   it('sends no phone when left empty, and shows server errors', async () => {
