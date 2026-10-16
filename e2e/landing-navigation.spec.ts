@@ -95,17 +95,16 @@ test.describe('Landing Page Navigation - Desktop', () => {
   });
 
   test('scrolling manually updates active nav button', async ({ page }) => {
-    // Scroll down to the "how" section via hash
-    await page.evaluate(() => {
-      window.location.hash = '#how';
-    });
-    
-    await page.waitForTimeout(1500); // Wait for state update
-    
-    // Check if the "how" nav button is now active
     const howNav = page.locator('nav[aria-label="Page sections"] a[href="#how"]');
     const activeDot = howNav.locator('span[class*="section-nav-dot-active"]');
-    await expect(activeDot).toBeVisible({ timeout: 10000 });
+
+    // Scroll the "how" section to the top without using the nav. The lazy sections above it
+    // render as they come near the viewport and push it down; Chromium and Firefox keep it in
+    // place (scroll anchoring) but WebKit does not, so scroll again until the layout settles.
+    await expect(async () => {
+      await page.locator('#how').evaluate((el) => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+      await expect(activeDot).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 10000 });
   });
 
   test('multiple section clicks work correctly', async ({ page }) => {
