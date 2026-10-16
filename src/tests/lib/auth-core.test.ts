@@ -52,6 +52,8 @@ describe('auth-middleware', () => {
     expect(await am.getVerifiedUser()).toEqual({ id: 'user-1', email: 'Player@Example.test', user_metadata: player.user_metadata });
     sb.setUser({ id: 'u2' });
     expect((await am.getVerifiedUser())!.user_metadata).toEqual({});
+    sb.auth.getClaims.mockResolvedValueOnce({ data: { claims: { sub: 'u2' } }, error: null } as never);
+    expect((await am.getVerifiedUser())!.user_metadata).toEqual({});
     sb.setUser(null);
     expect(await am.getVerifiedUser()).toBeNull();
   });
@@ -123,6 +125,11 @@ describe('auth-middleware', () => {
 
     sb.setUser({ id: 'u10' });
     expect(((await am.requireAuth({ adminOnly: true })) as NextResponse).status).toBe(403);
+
+    // nobody is an admin when ADMIN_EMAILS is unset
+    vi.stubEnv('ADMIN_EMAILS', undefined);
+    sb.setUser({ id: 'u11', email: 'unset@example.test' });
+    expect(((await am.requireAuth({ adminOnly: true })) as NextResponse).status).toBe(403);
   });
 
   it('adminOnly falls back to the admin-panel session cookie', async () => {
@@ -133,6 +140,47 @@ describe('auth-middleware', () => {
 
     adminDb.setTable('AdminSession', { data: null });
     expect(((await am.requireAuth({ adminOnly: true })) as NextResponse).status).toBe(401);
+
+    // an admin-panel login for an email no longer in ADMIN_EMAILS is still refused
+    adminDb.setTable('AdminSession', { data: { email: 'ex-admin@example.test' } });
+    expect(((await am.requireAuth({ adminOnly: true, context: 'gone' })) as NextResponse).status).toBe(403);
+    expect(logger.logUnauthorizedAccess).toHaveBeenCalledWith('admin-user', 'gone');
+  });
+
+  it('adminOnly does not let a non-admin player session shadow the admin-panel login', async () => {
+    sb.setUser({ id: 'p1', email: 'shadow@example.test' });
+    cookieJar.set('admin-session', 'tok');
+    adminDb.setTable('AdminSession', { data: { email: 'boss@example.test' } });
+    expect(await am.requireAuth({ adminOnly: true })).toMatchObject({ user: { id: 'admin-user', email: 'boss@example.test', name: 'Admin' } });
+
+    // the player's own email is not cached as admin
+    cookieJar.delete('admin-session');
+    expect(((await am.requireAuth({ adminOnly: true })) as NextResponse).status).toBe(403);
+    expect(await am.isCurrentUserAdmin()).toBe(false);
+
+    // a player without an email falls back too
+    sb.setUser({ id: 'p2' });
+    cookieJar.set('admin-session', 'tok');
+    expect(await am.requireAuth({ adminOnly: true })).toMatchObject({ user: { id: 'admin-user' } });
+  });
+
+  it('adminOnly keeps the player identity when the admin-panel login does not grant admin', async () => {
+    sb.setUser({ id: 'p3', email: 'shadow2@example.test' });
+    cookieJar.set('admin-session', 'tok');
+    adminDb.setTable('AdminSession', { data: { email: 'ex-admin2@example.test' } });
+    const res = (await am.requireAuth({ adminOnly: true, context: 'both_refused' })) as NextResponse;
+    expect(res.status).toBe(403);
+    expect(logger.logUnauthorizedAccess).toHaveBeenCalledWith('p3', 'both_refused');
+  });
+
+  it('adminOnly does not consult the admin-panel login for an admin player, nor without adminOnly', async () => {
+    cookieJar.set('admin-session', 'tok');
+    adminDb.setTable('AdminSession', { data: { email: 'other@example.test' } });
+    sb.setUser({ id: 'a2', email: 'boss@example.test' });
+    expect(await am.requireAuth({ adminOnly: true })).toMatchObject({ user: { id: 'a2' } });
+    sb.setUser({ id: 'p4', email: 'shadow3@example.test' });
+    expect(await am.requireAuth()).toMatchObject({ user: { id: 'p4' } });
+    expect(adminDb.callsTo('AdminSession')).toHaveLength(0);
   });
 
   it('isCurrentUserAdmin checks the email list, the cache, and the admin cookie', async () => {
@@ -149,6 +197,12 @@ describe('auth-middleware', () => {
     cookieJar.set('admin-session', 'tok');
     adminDb.setTable('AdminSession', { data: { email: 'boss@example.test' } });
     expect(await am.isCurrentUserAdmin()).toBe(true);
+
+    // a non-admin player session does not shadow the admin cookie
+    sb.setUser({ id: 'y', email: 'fresh@example.test' });
+    expect(await am.isCurrentUserAdmin()).toBe(true);
+    adminDb.setTable('AdminSession', { data: null });
+    expect(await am.isCurrentUserAdmin()).toBe(false);
   });
 
   it('expires cached admin decisions after five minutes', async () => {
