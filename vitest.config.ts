@@ -21,7 +21,7 @@ export default defineConfig({
             : ['verbose'],
         coverage: {
             provider: 'v8',
-            reporter: ['text', 'json', 'json-summary', 'html'],
+            reporter: ['text', 'json', 'html'],
             reportsDirectory: './coverage',
             include: ['src/**/*.{ts,tsx}'],
             exclude: [

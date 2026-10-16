@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Wallet,
     Search,
@@ -313,17 +313,7 @@ export default function WalletTransactionsManager() {
         );
     });
 
-    const pendingCount = useMemo(() => {
-        return transactions.filter(t => t.status === 'pending').length;
-    }, [transactions]);
-
-    const approvedCount = useMemo(() => {
-        return transactions.filter(t => t.status === 'approved').length;
-    }, [transactions]);
-
-    const approvedTotalAmount = useMemo(() => {
-        return transactions.reduce((sum, t) => t.status === 'approved' ? sum + t.amount : sum, 0).toLocaleString();
-    }, [transactions]);
+    const pendingCount = transactions.filter(t => t.status === 'pending').length;
 
     // ============================================
     // Render
@@ -350,7 +340,7 @@ export default function WalletTransactionsManager() {
                         </div>
                         <div>
                             <p className="text-2xl font-bold text-white">
-                                {approvedCount}
+                                {transactions.filter(t => t.status === 'approved').length}
                             </p>
                             <p className="text-sm text-gray-400">Approved Today</p>
                         </div>
@@ -363,7 +353,7 @@ export default function WalletTransactionsManager() {
                         </div>
                         <div>
                             <p className="text-2xl font-bold text-white">
-                                PKR {approvedTotalAmount}
+                                PKR {transactions.reduce((sum, t) => t.status === 'approved' ? sum + t.amount : sum, 0).toLocaleString()}
                             </p>
                             <p className="text-sm text-gray-400">Total Approved</p>
                         </div>
