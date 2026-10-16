@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Section, Eyebrow, Reveal, Button, useScrollReveal, useAnimatedCounter } from "./Primitives";
 import Link from "next/link";
@@ -20,6 +20,62 @@ function Metric({ label, value, tone = "default" }: { label: string; value: stri
     </div>
   );
 }
+
+// ⚡ Bolt: Wrapped QuizCarouselCard in React.memo to prevent unnecessary re-renders when parent state (like the active interval or animated counter) changes.
+const QuizCarouselCard = React.memo(function QuizCarouselCard({
+  q,
+  isActive,
+  livePlayers,
+  isLoggedIn
+}: {
+  q: typeof QUIZ_DATA[0];
+  isActive: boolean;
+  livePlayers: number;
+  isLoggedIn: boolean;
+}) {
+  return (
+    <div className="w-full shrink-0 snap-start lg:w-full">
+      <div className="glass relative overflow-hidden rounded-3xl p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)] transition-all duration-500">
+        <div className={`pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-linear-to-br ${q.accent} opacity-25 blur-3xl transition-opacity duration-500`} />
+        <div className="relative">
+          <div className="flex items-center justify-between">
+            <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-white">{q.badge}</span>
+            {isActive && (
+              <span className="flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-red-300">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                </span>
+                Live
+              </span>
+            )}
+          </div>
+          <h3 className="mt-5 font-display text-2xl font-bold text-white">{q.title}</h3>
+          <div className="mt-6 grid grid-cols-3 gap-3">
+            <Metric label="Prize pool" value={`${q.prize.toLocaleString()} PKR`} tone="trophy" />
+            <Metric label="Players" value={livePlayers.toLocaleString()} />
+            <Metric label="Starts in" value={q.timeLeft} tone={q.timeLeft === "Live now" ? "live" : "default"} />
+          </div>
+          <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-5">
+            <div className="flex items-center gap-2">
+              <span className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/60">{q.difficulty}</span>
+              <span className="text-xs text-white/40">10 questions</span>
+            </div>
+            <Link
+              href={isLoggedIn ? "/quizzes" : "/register"}
+              className={`group/btn flex items-center gap-1.5 rounded-full bg-linear-to-r ${q.accent} px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition-transform hover:scale-105`}
+            >
+              Join
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition-transform group-hover/btn:translate-x-0.5" fill="currentColor">
+                <path d="M13.4 5.6 12 7l4 4H4v2h12l-4 4 1.4 1.4L20 12l-6.6-6.4Z" />
+              </svg>
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default function LiveQuiz() {
   const { user } = useAuth();
@@ -130,46 +186,13 @@ export default function LiveQuiz() {
               style={{ cursor: isDragging ? "grabbing" : "grab" }}
             >
               {QUIZ_DATA.map((q, i) => (
-                <div key={q.title} className="w-full shrink-0 snap-start lg:w-full">
-                  <div className="glass relative overflow-hidden rounded-3xl p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)] transition-all duration-500">
-                    <div className={`pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-linear-to-br ${q.accent} opacity-25 blur-3xl transition-opacity duration-500`} />
-                    <div className="relative">
-                      <div className="flex items-center justify-between">
-                        <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-white">{q.badge}</span>
-                        {i === active && (
-                          <span className="flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-red-300">
-                            <span className="relative flex h-1.5 w-1.5">
-                              <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" />
-                              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
-                            </span>
-                            Live
-                          </span>
-                        )}
-                      </div>
-                      <h3 className="mt-5 font-display text-2xl font-bold text-white">{q.title}</h3>
-                      <div className="mt-6 grid grid-cols-3 gap-3">
-                        <Metric label="Prize pool" value={`${q.prize.toLocaleString()} PKR`} tone="trophy" />
-                        <Metric label="Players" value={i === active ? livePlayers.toLocaleString() : q.players.toLocaleString()} />
-                        <Metric label="Starts in" value={q.timeLeft} tone={q.timeLeft === "Live now" ? "live" : "default"} />
-                      </div>
-                      <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-5">
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/60">{q.difficulty}</span>
-                          <span className="text-xs text-white/40">10 questions</span>
-                        </div>
-                        <Link
-                          href={isLoggedIn ? "/quizzes" : "/register"}
-                          className={`group/btn flex items-center gap-1.5 rounded-full bg-linear-to-r ${q.accent} px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition-transform hover:scale-105`}
-                        >
-                          Join
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition-transform group-hover/btn:translate-x-0.5" fill="currentColor">
-                            <path d="M13.4 5.6 12 7l4 4H4v2h12l-4 4 1.4 1.4L20 12l-6.6-6.4Z" />
-                          </svg>
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <QuizCarouselCard
+                  key={q.title}
+                  q={q}
+                  isActive={i === active}
+                  livePlayers={i === active ? livePlayers : q.players}
+                  isLoggedIn={isLoggedIn}
+                />
               ))}
             </div>
             <div className="mt-8 flex justify-center gap-2">
