@@ -18,7 +18,7 @@ export const userDb = {
             .from('User')
             .select('*')
             .eq('email', email)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data
@@ -30,7 +30,7 @@ export const userDb = {
             .from('User')
             .select('*')
             .eq('id', id)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data
@@ -146,7 +146,7 @@ export const userDb = {
             .select('id, email, name')
             .in('phone', phoneVariants)
             .limit(1)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data

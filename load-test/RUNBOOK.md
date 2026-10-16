@@ -92,6 +92,12 @@ time; if you can't find one, write "not found" and move on.
 
 ## Part 3 — Create the STAGING database (45–60 min)
 
+> **Status 2026-10-09: 3.1–3.3 are already DONE.** The staging project `veymkpalrmknhprvxqja`
+> (`1think2win-staging`) was rebuilt from production's structure through the Supabase connector and verified
+> identical (27 tables, 56 functions, 54 policies, 77 indexes, grants, trigger, cron job; no user data), and
+> its signing key is already **ES256**. You can skip to 3.4 (only "Confirm email" and the Auth rate limits
+> are left) and then copy the keys. If the project was paused or deleted, say "rebuild staging" and I redo it.
+
 ### 3.1 Create the project
 Supabase dashboard → **New project** (same organization), name `1think2win-staging`, **same region as
 production** (Northeast Asia / Tokyo), a strong database password (save it in your password manager).
@@ -170,7 +176,9 @@ Supabase dashboard → switch to the **staging** project → SQL Editor → past
 1. Run `scripts\build-hostinger.ps1` (it creates `hostinger-deploy.zip` — same as for production).
 2. hPanel → add a **second Node.js Web App** on a **separate subdomain** (for example
    `staging.yourdomain.com`), application type Next.js, uploading the zip, build script `build`, output
-   directory `.next`, Node 20.9+ — the same settings you used for production.
+   directory `.next`, **Node 22.12 or newer** (the repo's `engines` now require it; pick the newest 22.x
+   Hostinger offers) — otherwise the same settings you used for production.
+   **Step-by-step version with safety checks: [`HOSTINGER_STAGING.md`](./HOSTINGER_STAGING.md).**
 3. **Before the first build**, in that staging app's *Environment variables* add (by hand):
 
    | Variable | Value |

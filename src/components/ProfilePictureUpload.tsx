@@ -32,10 +32,12 @@ export default function ProfilePictureUpload({
       return;
     }
 
-    // Create preview
+    // Create preview. The read can finish after a failed upload has already cleared it,
+    // so skip it then rather than showing a picture that was never saved.
+    let uploadFailed = false;
     const reader = new FileReader();
     reader.onload = (e) => {
-      setPreview(e.target?.result as string);
+      if (!uploadFailed) setPreview(e.target?.result as string);
     };
     reader.readAsDataURL(file);
 
@@ -44,6 +46,7 @@ export default function ProfilePictureUpload({
       await onImageUpload(file);
     } catch (error) {
       console.error('Upload failed:', error);
+      uploadFailed = true;
       setPreview(null);
     }
   };

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { timingSafeEqual } from 'node:crypto';
+import { hasValidCronSecret } from '@/lib/cron-auth';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { TransactionManager } from '@/lib/transaction-manager';
 import { securityLogger } from '@/lib/security-logger';
@@ -22,11 +22,7 @@ import { describeClientIpHeaders } from '@/lib/client-ip';
  */
 
 function hasValidSecret(request: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  const given = Buffer.from(request.headers.get('authorization') || '');
-  const expected = Buffer.from(`Bearer ${secret}`);
-  return given.length === expected.length && timingSafeEqual(given, expected);
+  return hasValidCronSecret(request.headers.get('authorization'));
 }
 
 export async function GET(request: NextRequest) {

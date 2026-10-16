@@ -5,6 +5,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { useJitteredPolling } from '@/hooks/useJitteredPolling';
+import { LIVE_BROADCAST_ENABLED } from '@/lib/live-config';
 
 // Module-level Supabase client singleton — avoids recreating the client on each
 // realtime subscription mount/unmount cycle.
@@ -407,10 +409,41 @@ export function useNotifications() {
     initPush();
   }, [userId, subscribeToPush]);
 
-  // Real-time subscription to Notification insertions.
+  // With NEXT_PUBLIC_LIVE_BROADCAST=1 there is NO per-user realtime subscription: a blast writes one
+  // Notification row per user, and Supabase evaluates every row against every subscriber's filter
+  // (50,000 rows x 50,000 subscriptions). Instead the badge is refreshed by a cheap jittered poll of
+  // the unread count (new notifications still arrive instantly as Web Push).
+  const unreadCountRef = useRef(0);
+  useEffect(() => {
+    unreadCountRef.current = unreadCount;
+  }, [unreadCount]);
+  const pollUnreadCount = useCallback(async (): Promise<boolean> => {
+    if (!userId) return true;
+    try {
+      const res = await fetch('/api/notifications?countOnly=1');
+      if (!res.ok) return false;
+      const data = await res.json();
+      const next: number = data.unreadCount || 0;
+      if (next > unreadCountRef.current) {
+        // Something new arrived since the last check. The full list reloads when the bell opens.
+        listLoadedRef.current = false;
+        setListLoaded(false);
+        toast('You have new notifications', { duration: 4000 });
+        if (soundEnabledRef.current) playChime();
+      }
+      unreadCountRef.current = next;
+      setUnreadCount(next);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [userId]);
+  useJitteredPolling(pollUnreadCount, { intervalMs: 90_000, jitterMs: 30_000, enabled: LIVE_BROADCAST_ENABLED && !!userId });
+
+  // Real-time subscription to Notification insertions (legacy path, used while the flag is off).
   // Uses the module-level supabaseClient singleton — no new client per mount.
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || LIVE_BROADCAST_ENABLED) return;
 
     const channel = supabaseClient
       .channel(`user-notifications-${userId}`)

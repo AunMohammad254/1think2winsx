@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth-middleware';
 import { requirePaymentAccess } from '@/lib/payment-middleware';
 import { quizAttemptDb, questionAttemptDb } from '@/lib/supabase/db';
 import { getCatalogQuiz } from '@/lib/quiz-catalog';
+import { computeQuizEndsAt } from '@/lib/quiz-clock';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -87,6 +88,8 @@ export const GET = withLoadShed(async function GET(
         {
           error: 'You have already completed this quiz',
           completed: true,
+          // For the results page's fallback when its own lookup fails
+          totalQuestions: activeQuestions.length,
           attempt: existingAttempt ? {
             id: existingAttempt.id,
             score: existingAttempt.score,
@@ -120,6 +123,11 @@ export const GET = withLoadShed(async function GET(
         title: quiz.title,
         description: quiz.description,
         duration: quiz.duration,
+        // Server clock + deadline, so the countdown follows the database's answering window
+        // (pushedAt + duration) instead of restarting from a full `duration` for late joiners
+        pushedAt: quiz.pushedAt,
+        endsAt: computeQuizEndsAt(quiz.pushedAt, quiz.duration),
+        serverNow: Date.now(),
         passingScore: quiz.passingScore,
         questionCount: formattedQuestions.length,
         totalQuestions: activeQuestions.length,

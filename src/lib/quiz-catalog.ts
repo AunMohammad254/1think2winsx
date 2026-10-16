@@ -109,9 +109,14 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     byQuiz.set(q.quizId, list);
   }
   const counts = new Map<string, number>();
-  if (!countsRes.error) {
-    for (const row of (countsRes.data || []) as Array<{ quizId: string; count: number }>) {
-      counts.set(row.quizId, Number(row.count) || 0);
+  if (countsRes.error) {
+    // Counts are cosmetic: keep serving the catalogue, but do not hide the failure
+    console.error('[QuizCatalog] get_quiz_attempt_counts_by_quiz failed:', countsRes.error);
+  } else {
+    // The RPC returns `{ quiz_id, attempt_count }` (this used to read `quizId`/`count`,
+    // so every quiz showed 0 attempts)
+    for (const row of (countsRes.data || []) as Array<{ quiz_id: string; attempt_count: number | string }>) {
+      counts.set(row.quiz_id, Number(row.attempt_count) || 0);
     }
   }
 

@@ -34,7 +34,7 @@ export const prizeDb = {
             .from('Prize')
             .select('*')
             .eq('id', id)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data
@@ -128,7 +128,7 @@ export const prizeRedemptionDb = {
                 prize:prizeId (*)
             `)
             .eq('id', id)
-            .single()
+            .maybeSingle()
 
         if (error && error.code !== 'PGRST116') throw error
         return data

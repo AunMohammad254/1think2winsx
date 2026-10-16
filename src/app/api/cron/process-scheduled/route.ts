@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { runScheduledJobs } from '@/lib/scheduled-jobs';
+import { hasValidCronSecret } from '@/lib/cron-auth';
 
 /**
  * HTTP trigger for the scheduled jobs (go-live of scheduled quizzes, 10-minute
@@ -12,16 +13,10 @@ import { runScheduledJobs } from '@/lib/scheduled-jobs';
  */
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    const { searchParams } = new URL(request.url);
-    const secretParam = searchParams.get('secret');
-    const cronSecret = process.env.CRON_SECRET;
-
-    if (cronSecret) {
-      const isAuthorized =
-        authHeader === `Bearer ${cronSecret}` || secretParam === cronSecret;
-
-      if (!isAuthorized) {
+    // Header only (`Authorization: Bearer <CRON_SECRET>`), compared in constant time. The old
+    // `?secret=` form leaked the secret into access logs and is no longer accepted.
+    if (process.env.CRON_SECRET) {
+      if (!hasValidCronSecret(request.headers.get('authorization'))) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
     } else if (process.env.NODE_ENV === 'production') {

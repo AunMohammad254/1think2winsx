@@ -115,6 +115,7 @@ graphify-out/
 
 # Deployment artifacts
 hostinger-deploy.zip
+hostinger-staging.zip
 hostinger-staging/
 claude-review/
 
@@ -132,3 +133,7 @@ load-test/.data/
 
 # Hostinger env import file (contains secrets)
 .env.hostinger-import
+
+# My Skills: begin
+# CLAUDE.md
+# My Skills: end
