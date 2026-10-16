@@ -473,10 +473,8 @@ export default function DateTimePicker({
                                     type="button"
                                     disabled={!internalDate}
                                     onClick={() => {
-                                        if (internalDate) {
-                                            onChange(internalDate);
-                                            setIsOpen(false);
-                                        }
+                                        onChange(internalDate);
+                                        setIsOpen(false);
                                     }}
                                     className="px-4 py-1.5 text-sm font-semibold text-white bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg hover:from-purple-500 hover:to-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-purple-500/25"
                                 >

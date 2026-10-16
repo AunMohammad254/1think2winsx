@@ -156,7 +156,7 @@ describe('admin prize actions', () => {
     db.setTable('Winning', { count: null });
     expect(await actions.getPrizeById('prize-1')).toEqual({ success: true, data: { ...prize(), _count: { redemptions: 2, winnings: 0 } } });
     db.setTable('PrizeRedemption', { count: null });
-    expect((await actions.getPrizeById('prize-1')).data?._count).toEqual({ redemptions: 0, winnings: 0 });
+    expect(((await actions.getPrizeById('prize-1')).data as { _count?: unknown } | undefined)?._count).toEqual({ redemptions: 0, winnings: 0 });
     prizeDb.findById.mockResolvedValue(null);
     expect(await actions.getPrizeById('nope')).toEqual({ success: false, error: 'Prize not found' });
     prizeDb.findById.mockRejectedValue(new Error('x'));

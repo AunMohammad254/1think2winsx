@@ -190,6 +190,17 @@ describe('QuestionManagement', () => {
     expect(await screen.findByText('Failed to update question')).toBeInTheDocument();
   });
 
+  it('refuses to save a stored answer that points past the options', async () => {
+    const broken = { ...apiQuestions[0], options: ['India', 'Pakistan'], correctOption: 5 };
+    vi.stubGlobal('fetch', (fetchMock = routes({ quiz: () => jsonResponse({ quiz: { questions: [broken] } }) })));
+    render(<QuestionManagement quizId="z1" />);
+    await loaded();
+    fireEvent.click(within(card(1)).getAllByRole('button')[0]);
+    save();
+    expect(await screen.findByText('Invalid correct option selected')).toBeInTheDocument();
+    expect(writes()).toHaveLength(0);
+  });
+
   it('turns network failures while saving into a message', async () => {
     vi.stubGlobal('fetch', (fetchMock = routes({ write: () => { throw 'down'; } })));
     render(<QuestionManagement quizId="z1" />);
@@ -200,8 +211,8 @@ describe('QuestionManagement', () => {
   });
 
   it('pauses and resumes questions', async () => {
-    const responses = [jsonResponse({ ok: true }), jsonResponse({ ok: true }), jsonResponse({ error: 'Nope' }, 400), jsonResponse({}, 500)];
-    vi.stubGlobal('fetch', (fetchMock = routes({ write: () => responses.shift()! })));
+    const responses: (Response | 'throw')[] = [jsonResponse({ ok: true }), jsonResponse({ ok: true }), jsonResponse({ error: 'Nope' }, 400), 'throw', jsonResponse({}, 500)];
+    vi.stubGlobal('fetch', (fetchMock = routes({ write: () => { const r = responses.shift()!; if (r === 'throw') throw 'down'; return r; } })));
     render(<QuestionManagement quizId="z1" />);
     await loaded();
     const toggle = (n: number) => fireEvent.click(within(card(n)).getAllByRole('button')[1]);
@@ -215,13 +226,16 @@ describe('QuestionManagement', () => {
     await screen.findByText('Question 1');
     toggle(1);
     expect(await screen.findByText('Nope')).toBeInTheDocument();
+    toggle(1); // a non-Error throw
+    expect(await screen.findByText('Failed to update question status')).toBeInTheDocument();
     toggle(1);
+    await waitFor(() => expect(writes()).toHaveLength(5));
     expect(await screen.findByText('Failed to update question status')).toBeInTheDocument();
   });
 
   it('deletes after confirmation, and reports delete failures', async () => {
-    const responses = [jsonResponse({ ok: true }), jsonResponse({ error: 'Has answers' }, 409), jsonResponse({}, 500)];
-    vi.stubGlobal('fetch', (fetchMock = routes({ write: () => responses.shift()! })));
+    const responses: (Response | 'throw')[] = [jsonResponse({ ok: true }), jsonResponse({ error: 'Has answers' }, 409), 'throw', jsonResponse({}, 500)];
+    vi.stubGlobal('fetch', (fetchMock = routes({ write: () => { const r = responses.shift()!; if (r === 'throw') throw 'down'; return r; } })));
     render(<QuestionManagement quizId="z1" />);
     await loaded();
     const del = () => fireEvent.click(within(card(1)).getAllByRole('button')[2]);
@@ -236,7 +250,10 @@ describe('QuestionManagement', () => {
     del();
     fireEvent.click(within(dialog()).getByRole('button', { name: /Delete Question/ }));
     expect(await screen.findByText('Has answers')).toBeInTheDocument();
+    fireEvent.click(within(dialog()).getByRole('button', { name: /Delete Question/ })); // a non-Error throw
+    expect(await screen.findByText('Failed to delete question')).toBeInTheDocument();
     fireEvent.click(within(dialog()).getByRole('button', { name: /Delete Question/ }));
+    await waitFor(() => expect(writes()).toHaveLength(4));
     expect(await screen.findByText('Failed to delete question')).toBeInTheDocument();
     fireEvent.keyDown(dialog(), { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

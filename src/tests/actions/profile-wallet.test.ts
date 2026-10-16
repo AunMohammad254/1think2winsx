@@ -55,6 +55,14 @@ describe('submitDepositRequest', () => {
     expect(revalidatePath).toHaveBeenCalled();
   });
 
+  it.each(['noext', 'receipt.', 'receipt.j?g'])('stores a receipt named %j as .png', async (name) => {
+    counts(0, 0);
+    sb.setRpc('submit_deposit_request', { data: { success: true, id: 'tx-1' } });
+    await actions.submitDepositRequest(depositForm({ proofImage: receipt(10, name) }));
+    const [path] = sb.storage.upload.mock.calls[0] as [string];
+    expect(path).toMatch(/^user-1\/\d+_[a-z0-9]+\.png$/);
+  });
+
   it.each([
     ['a missing amount', { amount: null }, 'Minimum deposit amount is 5 PKR'],
     ['an amount below the minimum', { amount: '4.99' }, 'Minimum deposit amount is 5 PKR'],

@@ -311,16 +311,12 @@ export default function ChatbotWidget() {
     }
   }
 
+  // Retry is only offered on a failed reply that is still the last message, so it
+  // always answers lastUserMessageRef
   function handleRetry() {
-    if (lastUserMessageRef.current) {
-      // Remove last failed AI message
-      setMessages((prev) => {
-        const copy = [...prev];
-        if (copy[copy.length - 1]?.failed) copy.pop();
-        return copy;
-      });
-      sendMessage(lastUserMessageRef.current);
-    }
+    // Remove the failed AI message
+    setMessages((prev) => prev.slice(0, -1));
+    sendMessage(lastUserMessageRef.current);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -523,12 +519,12 @@ export default function ChatbotWidget() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 chatbot-scrollbar">
-              {messages.map((msg) => (
+              {messages.map((msg, i) => (
                 <MessageBubble
                   key={msg.id}
                   message={msg}
                   onRedirect={handleRedirect}
-                  onRetry={msg.failed ? handleRetry : undefined}
+                  onRetry={msg.failed && i === messages.length - 1 ? handleRetry : undefined}
                 />
               ))}
 

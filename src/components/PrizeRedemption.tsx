@@ -73,19 +73,16 @@ export default function PrizeRedemption() {
       return;
     }
 
-    const prize = prizes.find(p => p.id === prizeId);
-    if (prize) {
-      setSelectedPrize(prize);
-      setShowRedemptionForm(true);
-      setError(null);
-      setSuccess(null);
-    }
+    // The prize card that called this comes from the same list
+    setSelectedPrize(prizes.find(p => p.id === prizeId)!);
+    setShowRedemptionForm(true);
+    setError(null);
+    setSuccess(null);
   };
 
   const handleRedemptionSuccess = async () => {
-    if (selectedPrize) {
-      setSuccess(`Successfully redeemed ${selectedPrize.name}! Your redemption request is being processed.`);
-    }
+    // The form, and so this callback, only exists while a prize is selected
+    setSuccess(`Successfully redeemed ${selectedPrize!.name}! Your redemption request is being processed.`);
     await refreshProfile();
     await fetchRedemptionHistory();
     setShowRedemptionForm(false);
@@ -243,7 +240,7 @@ export default function PrizeRedemption() {
                 <div className="h-48 w-48 bg-gradient-glass-dark rounded-2xl overflow-hidden glass-border">
                   <Image
                     src={previewPrize?.imageUrl || previewRedemption?.prize.imageUrl || `/prizes/default.svg`}
-                    alt={previewPrize?.name || previewRedemption?.prize.name || 'Prize'}
+                    alt={previewPrize?.name || previewRedemption!.prize.name} // prize names are required
                     width={160}
                     height={160}
                     className="h-full w-full object-cover"

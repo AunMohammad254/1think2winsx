@@ -126,6 +126,26 @@ describe('quiz results page', () => {
     await waitFor(() => expect(console.error).toHaveBeenCalledWith('Failed to download card:', expect.any(Error)));
   });
 
+  it('names the downloaded card after the email, or "Player"', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    URL.createObjectURL = vi.fn(() => 'blob:card');
+    URL.revokeObjectURL = vi.fn();
+    const download = async () => {
+      await screen.findByText('Excellent');
+      fetchMock.mockImplementationOnce(async () => new Response(new Blob(['png'])));
+      fireEvent.click(screen.getByRole('button', { name: /Download Card/ }));
+      await waitFor(() => expect(fetchMock.mock.calls.at(-1)![0]).toContain('share-card'));
+      return fetchMock.mock.calls.at(-1)![0] as string;
+    };
+    const { unmount } = render(<QuizResultsPage />);
+    expect(await download()).toContain('name=ali');
+    unmount();
+    h.auth = { user: { id: 'u1' }, isLoading: false };
+    render(<QuizResultsPage />);
+    expect(await download()).toContain('name=Player');
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(2));
+  });
+
   it('names the card "Player" when the account has no name or email', async () => {
     h.auth = { user: { id: 'u1' }, isLoading: false };
     render(<QuizResultsPage />);

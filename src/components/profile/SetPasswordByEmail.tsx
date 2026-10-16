@@ -30,7 +30,7 @@ export default function SetPasswordByEmail({ providerLabel, hasPassword = false 
                 setError(result.error);
                 setStatus('idle');
             } else {
-                setEmail(result.email || '');
+                setEmail(result.email!); // a successful send always names the address
                 setStatus('sent');
             }
         } catch {

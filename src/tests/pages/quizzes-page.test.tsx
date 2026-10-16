@@ -338,6 +338,9 @@ describe('quizzes page: live updates', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     render(<QuizzesPage />);
     await loaded();
+    // The signal handler reads the list from a ref an effect fills after render; under load,
+    // findByText can return before that effect has run
+    await act(async () => {});
     expect(h.channel.on).not.toHaveBeenCalled();
     expect(h.broadcast!.enabled).toBe(true);
     act(() => h.broadcast!.onSignal({ op: 'UPDATE', id: 'a', title: 'Cricket Classics LIVE', status: 'active', pushedAt: '2026-10-16T10:00:00Z' }));

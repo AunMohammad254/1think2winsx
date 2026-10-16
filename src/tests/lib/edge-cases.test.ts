@@ -74,7 +74,7 @@ describe('security monitor', () => {
     // The cooldown map was cleared, so u0 can be alerted about again straight away
     violate('u0');
     expect(alertsFor('u0')).toBe(2);
-  });
+  }, 30_000); // 150,000 events take ~4 s under coverage, more on a busy machine
 });
 
 describe('Supabase fetch timeouts', () => {

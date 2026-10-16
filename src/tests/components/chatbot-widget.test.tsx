@@ -93,6 +93,21 @@ describe('ChatbotWidget', () => {
     expect(lastBody().messages.every((m: { parts: { text: string }[] }) => !m.parts[0].text.includes('Model overloaded'))).toBe(true);
   });
 
+  it('offers retry only on a failed reply that is still the last message', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'Model overloaded' }, 503)).mockResolvedValueOnce(jsonResponse({ message: 'ok' }));
+    render(<ChatbotWidget />);
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: '🎯 Winning chances?' }));
+    expect(await screen.findByText('Model overloaded')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Retry/ })).toBeInTheDocument();
+    fireEvent.change(input(), { target: { value: 'something else' } });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(await screen.findByText('ok')).toBeInTheDocument();
+    // a retry here would have resent "something else", not the question that failed
+    expect(screen.getByText('Model overloaded')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
+  });
+
   it('shows a typing indicator and ignores sends while waiting', async () => {
     let release!: (r: Response) => void;
     fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (release = r)));

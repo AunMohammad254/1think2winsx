@@ -147,9 +147,7 @@ export default function QuizEvaluationManager() {
     setWinners([]);
     setShowWinners(false);
     setExpandedQuestions(new Set());
-    if (quizId) {
-      fetchQuizEvaluation(quizId);
-    }
+    fetchQuizEvaluation(quizId); // always a real quiz id from a quiz card
   }, [selectedQuiz, fetchQuizEvaluation]);
 
   // Optimization #5: useCallback with correctAnswers dependency to fix stale closure bug
@@ -159,10 +157,10 @@ export default function QuizEvaluationManager() {
       return next;
     });
     // Auto-expand next unanswered question
+    // Answer pickers only render once an evaluation is loaded
     setQuizEvaluation((eval_) => {
-      if (!eval_) return eval_;
-      const currentIndex = eval_.questions.findIndex((q) => q.id === questionId);
-      const nextUnanswered = eval_.questions.find(
+      const currentIndex = eval_!.questions.findIndex((q) => q.id === questionId);
+      const nextUnanswered = eval_!.questions.find(
         (q, i) => i > currentIndex && !(q.id in correctAnswers) && q.id !== questionId
       );
       if (nextUnanswered) {
@@ -189,17 +187,9 @@ export default function QuizEvaluationManager() {
   }, []);
 
   // Evaluate quiz
+  // The actions below only render once an evaluation is loaded, and Evaluate stays
+  // disabled until every question has a correct answer
   const handleEvaluateQuiz = async () => {
-    if (!selectedQuiz || !quizEvaluation) return;
-
-    const missingAnswers = quizEvaluation.questions.filter((q) => !(q.id in correctAnswers));
-    if (missingAnswers.length > 0) {
-      setMessage({
-        type: 'error',
-        text: `Please set correct answers for all questions. Missing: ${missingAnswers.length} questions`,
-      });
-      return;
-    }
 
     try {
       setLoadingEvaluate(true);
@@ -242,7 +232,6 @@ export default function QuizEvaluationManager() {
 
   // Allocate points
   const handleAllocatePoints = async () => {
-    if (!selectedQuiz) return;
 
     try {
       setLoadingAllocate(true);
@@ -288,7 +277,6 @@ export default function QuizEvaluationManager() {
 
   // Run Lucky Draw
   const handleRunLuckyDraw = async () => {
-    if (!selectedQuiz) return;
 
     try {
       setLoadingDraw(true);

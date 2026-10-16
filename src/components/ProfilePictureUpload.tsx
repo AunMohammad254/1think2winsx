@@ -63,7 +63,7 @@ export default function ProfilePictureUpload({
     e.stopPropagation();
     if (e.type === 'dragenter' || e.type === 'dragover') {
       setDragActive(true);
-    } else if (e.type === 'dragleave') {
+    } else { // dragleave
       setDragActive(false);
     }
   };

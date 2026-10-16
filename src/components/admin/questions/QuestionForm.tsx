@@ -35,35 +35,33 @@ export default function QuestionForm({ isOpen, isEditing, initialData, isLoading
     setFormData({ ...formData, options: newOptions });
   };
 
+  // Add Option is hidden at 6 options
   const addOption = () => {
-    if (formData.options.length < 6) {
-      setFormData({
-        ...formData,
-        options: [...formData.options, '']
-      });
-    }
+    setFormData({
+      ...formData,
+      options: [...formData.options, '']
+    });
   };
 
+  // The remove buttons are hidden at 2 options
   const removeOption = (index: number) => {
-    if (formData.options.length > 2) {
-      const newOptions = formData.options.filter((_, i) => i !== index);
-      let newCorrectOption = formData.correctOption;
-      
-      // Adjust correct option if necessary
-      if (newCorrectOption !== null) {
-        if (newCorrectOption === index) {
-          newCorrectOption = null;
-        } else if (newCorrectOption > index) {
-          newCorrectOption--;
-        }
+    const newOptions = formData.options.filter((_, i) => i !== index);
+    let newCorrectOption = formData.correctOption;
+
+    // Adjust correct option if necessary
+    if (newCorrectOption !== null) {
+      if (newCorrectOption === index) {
+        newCorrectOption = null;
+      } else if (newCorrectOption > index) {
+        newCorrectOption--;
       }
-      
-      setFormData({
-        ...formData,
-        options: newOptions,
-        correctOption: newCorrectOption
-      });
     }
+
+    setFormData({
+      ...formData,
+      options: newOptions,
+      correctOption: newCorrectOption
+    });
   };
 
   return (

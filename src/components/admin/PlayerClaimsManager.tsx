@@ -108,9 +108,8 @@ export default function PlayerClaimsManager() {
       });
 
       if (response.ok) {
-        const statusLabel = status === 'approved' ? 'Approved' :
-          status === 'rejected' ? 'Rejected' :
-            status === 'fulfilled' ? 'Fulfilled' : status;
+        // approved / rejected / fulfilled -> Approved / Rejected / Fulfilled
+        const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
 
         toast.success(`Claim ${statusLabel.toLowerCase()}!`);
         await fetchClaims();
