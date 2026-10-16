@@ -8,6 +8,7 @@ import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { useProfile } from '@/contexts/ProfileContext';
 import ProfilePictureUpload from '@/components/ProfilePictureUpload';
+import { getCSRFHeaders } from '@/lib/csrf';
 import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal, SignInMethodBadge } from '@/components/profile';
 
 // Dynamic import for large component
@@ -43,8 +44,11 @@ export default function ProfilePage() {
       const formData = new FormData();
       formData.append('profilePicture', file);
 
+      // No Content-Type: the browser sets the multipart boundary for FormData
+      const csrfHeaders = await getCSRFHeaders();
       const response = await fetch('/api/profile/upload-picture', {
         method: 'POST',
+        headers: csrfHeaders,
         body: formData,
       });
 

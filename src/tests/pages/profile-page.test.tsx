@@ -20,6 +20,7 @@ vi.mock('next/dynamic', () => ({
   },
 }));
 vi.mock('@/components/PrizeRedemption', () => ({ default: () => null }));
+vi.mock('@/lib/csrf', () => ({ getCSRFHeaders: async () => ({ 'x-csrf-token': 'tok' }) }));
 vi.mock('@/components/profile', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/profile')>()),
   ChangePasswordModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => (isOpen ? <div>password dialog<button onClick={onClose}>close password</button></div> : null),
@@ -142,15 +143,14 @@ describe('profile page', () => {
     expect((init.body as FormData).get('profilePicture')).toBeInstanceOf(File);
   });
 
-  it('KNOWN BUG: the profile-page upload sends no CSRF token, which the upload route requires', async () => {
-    // /api/profile/upload-picture calls requireCSRFToken; ProfileContext.uploadProfilePicture sends
-    // the header, but this page posts directly without it, so real uploads from /profile get a 403.
+  it('sends the CSRF token the upload route requires', async () => {
     render(<ProfilePage />);
     fireEvent.click(screen.getByRole('button', { name: 'Update profile picture' }));
     fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [new File(['x'], 'me.png', { type: 'image/png' })] } });
     await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => u === '/api/profile/upload-picture')).toBe(true));
     const [, init] = fetchMock.mock.calls.find(([u]) => u === '/api/profile/upload-picture')!;
-    expect(init.headers).toBeUndefined();
+    // Only the token: a hand-set Content-Type would drop the multipart boundary
+    expect(init.headers).toEqual({ 'x-csrf-token': 'tok' });
   });
 
   it('keeps the upload dialog open when the upload fails', async () => {
