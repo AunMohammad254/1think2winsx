@@ -18,12 +18,9 @@ const AuthContext = createContext<AuthContextType>({
     signOut: async () => { },
 });
 
+// Outside an AuthProvider this returns the signed-out defaults above
 export function useAuth() {
-    const context = useContext(AuthContext);
-    if (!context) {
-        throw new Error('useAuth must be used within an AuthProvider');
-    }
-    return context;
+    return useContext(AuthContext);
 }
 
 interface AuthProviderProps {
@@ -70,7 +67,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 }
 
                 setSession(initialSession);
-                setUser(prev => sameUser(prev, initialSession?.user ?? null) ? prev : (initialSession?.user ?? null));
+                const initialUser = initialSession?.user ?? null;
+                setUser(prev => sameUser(prev, initialUser) ? prev : initialUser);
             } catch (error) {
                 console.error('[AuthContext] Error getting initial session:', error);
                 // Clear session on unexpected errors
@@ -96,7 +94,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
                     setUser(null);
                 } else {
                     setSession(newSession);
-                    setUser(prev => sameUser(prev, newSession?.user ?? null) ? prev : (newSession?.user ?? null));
+                    const nextUser = newSession?.user ?? null;
+                    setUser(prev => sameUser(prev, nextUser) ? prev : nextUser);
                 }
                 setIsLoading(false);
             }

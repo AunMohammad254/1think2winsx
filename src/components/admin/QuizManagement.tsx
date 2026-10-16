@@ -117,7 +117,7 @@ export default function QuizManagement({ quizId, onQuizChange }: QuizManagementP
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || '',
+          'X-CSRF-Token': csrfToken, // checked above
         },
         body: JSON.stringify({
           status: newStatus,
@@ -138,7 +138,7 @@ export default function QuizManagement({ quizId, onQuizChange }: QuizManagementP
       }
 
       // Optimistically update the quiz state to prevent flickering
-      setQuiz(prevQuiz => prevQuiz ? { ...prevQuiz, status: newStatus } : null);
+      setQuiz(prevQuiz => ({ ...prevQuiz!, status: newStatus })); // quiz was checked above
       
       // Notify parent component if callback provided using ref to prevent flickering
       if (onQuizChangeRef.current && quiz) {
@@ -150,16 +150,14 @@ export default function QuizManagement({ quizId, onQuizChange }: QuizManagementP
       console.error('Error updating quiz status:', err);
       setError(err instanceof Error ? err.message : 'Failed to update quiz status');
       // Revert optimistic update on error by refetching
-      if (quizId) {
-        try {
-          const response = await fetch(`/api/admin/quizzes/${quizId}`);
-          if (response.ok) {
-            const data = await response.json();
-            setQuiz(data.quiz);
-          }
-        } catch (refetchError) {
-          console.error('Error refetching quiz after failed update:', refetchError);
+      try {
+        const response = await fetch(`/api/admin/quizzes/${quizId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setQuiz(data.quiz);
         }
+      } catch (refetchError) {
+        console.error('Error refetching quiz after failed update:', refetchError);
       }
     } finally {
       setIsLoading(false);
@@ -236,7 +234,8 @@ export default function QuizManagement({ quizId, onQuizChange }: QuizManagementP
       <div className="glass-card glass-border p-6 rounded-lg">
         <div className="flex items-center justify-center">
           <AlertCircle className="h-8 w-8 text-red-400 mr-2" />
-          <span className="text-red-300">Quiz not found</span>
+          {/* A failed load leaves no quiz, so say why instead of just "not found" */}
+          <span className="text-red-300">{error || 'Quiz not found'}</span>
         </div>
       </div>
     );
@@ -389,9 +388,8 @@ export default function QuizManagement({ quizId, onQuizChange }: QuizManagementP
       </Card>
 
       {/* Status Change Confirmation Dialog */}
-      <Dialog open={showStatusConfirm !== null} onOpenChange={(open) => {
-        if (!open) setShowStatusConfirm(null);
-      }}>
+      {/* No trigger: onOpenChange only ever reports a close */}
+      <Dialog open={showStatusConfirm !== null} onOpenChange={() => setShowStatusConfirm(null)}>
         <DialogContent className="glass-card glass-border">
           <DialogHeader>
             <DialogTitle className="text-white">

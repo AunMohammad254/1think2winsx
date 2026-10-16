@@ -62,15 +62,14 @@ export function emailButton(href: string, label: string, opts: { variant?: 'prim
 }
 
 /** A normal paragraph. `html` is trusted markup (escape user text before passing it in). */
-export function emailParagraph(html: string, opts: { muted?: boolean; small?: boolean } = {}): string {
+export function emailParagraph(html: string, opts: { muted?: boolean } = {}): string {
     const color = opts.muted ? C.muted : C.text;
-    const size = opts.small ? '13px' : '16px';
-    return `<p style="margin:0 0 16px 0;font-family:${EMAIL_FONT};font-size:${size};line-height:1.65;color:${color};">${html}</p>`;
+    return `<p style="margin:0 0 16px 0;font-family:${EMAIL_FONT};font-size:16px;line-height:1.65;color:${color};">${html}</p>`;
 }
 
-/** A highlighted callout (amber for cautions, emerald for good news). */
-export function emailNote(html: string, tone: 'amber' | 'emerald' = 'amber'): string {
-    const accent = tone === 'amber' ? C.amber : C.emerald;
+/** A highlighted caution callout (amber accent). */
+export function emailNote(html: string): string {
+    const accent = C.amber;
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 20px 0;">
   <tr>
     <td bgcolor="${C.panelBg}" style="background-color:${C.panelBg};border:1px solid ${C.border};border-left:4px solid ${accent};border-radius:10px;padding:14px 16px;font-family:${EMAIL_FONT};font-size:14px;line-height:1.6;color:${C.text};">${html}</td>

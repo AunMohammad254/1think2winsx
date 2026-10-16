@@ -86,14 +86,6 @@ describe('StreamPlayer', () => {
     await waitFor(() => expect(screen.getAllByText('Failed to load stream')).toHaveLength(2));
   });
 
-  it('KNOWN BUG: the iframe onError handler never runs, so "Stream failed to load" cannot appear', async () => {
-    // React attaches only a load listener to <iframe> (and browsers do not fire error for a
-    // failed iframe document), so handleIframeError is dead code.
-    render(<StreamPlayer />);
-    fireEvent.error(await iframe());
-    expect(screen.queryByText('Stream failed to load')).toBeNull();
-  });
-
   it('toggles the viewer settings panel', async () => {
     render(<StreamPlayer />);
     await iframe();

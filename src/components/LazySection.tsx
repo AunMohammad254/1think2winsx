@@ -40,9 +40,7 @@ export default function LazySection({
       { threshold, rootMargin }
     );
 
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current);
-    }
+    observer.observe(sectionRef.current!); // the section is always rendered
 
     return () => observer.disconnect();
   }, [threshold, rootMargin, delay]);

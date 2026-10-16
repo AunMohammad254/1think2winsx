@@ -74,13 +74,15 @@ export default function QuizPage() {
   // Counts down to the sooner of the player's own duration and the quiz's real answering window
   // (the database rejects answers after pushedAt + duration, so a late joiner must not see a full timer).
   // Shows the "time expired" dialog instead of auto-submitting.
+  const durationMinutes = quiz ? (quiz.duration || 30) : null;
   const { timeRemaining, windowClosed } = useQuizCountdown({
     running: quizStarted,
-    durationMinutes: quiz ? (quiz.duration || 30) : null,
+    durationMinutes,
     endsAt: quiz?.endsAt ?? null,
     serverNow: quiz?.serverNow ?? null,
     onExpire: () => setShowTimeExpired(true),
   });
+  const secondsLeft = timeRemaining ?? 0;
 
   const fetchQuiz = useCallback(async () => {
     try {
@@ -128,8 +130,8 @@ export default function QuizPage() {
 // Fetch quiz data
 
   // Resolves to true only when the server accepted the answers
+  // Both submit buttons are disabled while a submit is in flight
   const handleSubmitQuiz = useCallback(async (forceSubmit: boolean = false): Promise<boolean> => {
-    if (isSubmitting) return false;
 
     // Check if all questions are answered (unless forced or time expired)
     const unansweredCount = answers.filter(a => a.selectedOption === -1).length;
@@ -144,7 +146,7 @@ export default function QuizPage() {
     try {
       // Check online status
       if (typeof window !== 'undefined' && !navigator.onLine) {
-        localStorage.setItem(`pending_submit_${quizId}_${user?.id || 'anon'}`, JSON.stringify({ quizId, answers }));
+        localStorage.setItem(`pending_submit_${quizId}_${user!.id}`, JSON.stringify({ quizId, answers }));
         setSubmitError('You are currently offline. Your predictions have been saved locally. They will be submitted automatically when your internet connection is restored.');
         setIsSubmitting(false);
         return false;
@@ -162,7 +164,7 @@ export default function QuizPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || '',
+          'X-CSRF-Token': csrfToken, // checked above
         },
         body: JSON.stringify({ answers }),
       }, { retries: 4, retryOn: [502, 503, 504] });
@@ -185,7 +187,7 @@ export default function QuizPage() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [quizId, answers, isSubmitting, getCSRFToken, user]);
+  }, [quizId, answers, getCSRFToken, user]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -260,17 +262,9 @@ export default function QuizPage() {
     );
   };
 
-  const handleNextQuestion = () => {
-    if (quiz && currentQuestionIndex < quiz.questions.length - 1) {
-      setCurrentQuestionIndex(prev => prev + 1);
-    }
-  };
-
-  const handlePreviousQuestion = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(prev => prev - 1);
-    }
-  };
+  // Next is not shown on the last question, and Previous is disabled on the first
+  const handleNextQuestion = () => setCurrentQuestionIndex(prev => prev + 1);
+  const handlePreviousQuestion = () => setCurrentQuestionIndex(prev => prev - 1);
 
   const formatTime = (seconds: number | null) => {
     if (seconds === null) return '--:--';
@@ -340,7 +334,7 @@ export default function QuizPage() {
         <QuizResults
           success={true}
           message={submissionResult.message || "Your predictions have been successfully submitted!"}
-          totalQuestions={quiz?.questions.length || 0}
+          totalQuestions={quiz!.questions.length}
           submittedAnswers={submissionResult.results?.submittedAnswers || getAnsweredCount()}
           note={submissionResult.results?.note || "The admin will review all submissions and add the correct answers. Points will be allocated to the top performers based on accuracy and speed."}
         />
@@ -415,9 +409,9 @@ export default function QuizPage() {
               The answering window for this quiz has closed, so new answers can no longer be submitted.
             </div>
           ) : (
-            timeRemaining !== null && timeRemaining < (quiz.duration || 30) * 60 - 5 && (
+            timeRemaining !== null && timeRemaining < durationMinutes! * 60 - 5 && (
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-4 text-blue-100 text-sm">
-                This quiz went live a while ago. Answers close in {formatTime(timeRemaining)}, so your timer will be shorter than {quiz.duration || 30} minutes.
+                This quiz went live a while ago. Answers close in {formatTime(timeRemaining)}, so your timer will be shorter than {durationMinutes} minutes.
               </div>
             )
           )}
@@ -468,8 +462,8 @@ export default function QuizPage() {
                 </div>
                 <div className="flex items-center gap-4 md:gap-6">
                   {/* Timer */}
-                  <div className={`text-center px-4 py-2 rounded-xl ${(timeRemaining ?? 0) <= 60 ? 'bg-red-500/20 border border-red-500/50' : 'bg-blue-500/10 border border-blue-500/30'}`}>
-                    <div className={`text-xl md:text-2xl font-bold font-mono ${(timeRemaining ?? 0) <= 60 ? 'text-red-400 animate-pulse' : (timeRemaining ?? 0) <= 120 ? 'text-yellow-400' : 'text-white'}`}>
+                  <div className={`text-center px-4 py-2 rounded-xl ${secondsLeft <= 60 ? 'bg-red-500/20 border border-red-500/50' : 'bg-blue-500/10 border border-blue-500/30'}`}>
+                    <div className={`text-xl md:text-2xl font-bold font-mono ${secondsLeft <= 60 ? 'text-red-400 animate-pulse' : secondsLeft <= 120 ? 'text-yellow-400' : 'text-white'}`}>
                       {formatTime(timeRemaining)}
                     </div>
                     <div className="text-gray-400 text-xs">Time Left</div>

@@ -145,6 +145,14 @@ describe('db modules: every simple operation', () => {
 });
 
 describe('quiz.db specifics', () => {
+  it('list reads and bulk inserts return [] when Supabase sends no rows', async () => {
+    both({ data: null });
+    expect(await questionDb.findByQuizId('q')).toEqual([]);
+    expect(await questionDb.createMany([{ quizId: 'q' } as never])).toEqual([]);
+    expect(await answerDb.createMany([{ quizAttemptId: 'a' } as never])).toEqual([]);
+    expect(await questionAttemptDb.findByUserAndQuiz('u', 'q')).toEqual([]);
+  });
+
   it('findMany filters, orders and pages', async () => {
     both({ data: [] });
     await quizDb.findMany({ status: 'active', limit: 5, offset: 10, orderBy: 'title', orderDir: 'asc' });
@@ -221,6 +229,16 @@ describe('prize.db specifics', () => {
     expect(await prizeRedemptionDb.findAllAdmin()).toEqual({ data: [], count: 0, page: 1, limit: 20, totalPages: 0 });
     both({ error: { message: 'x' } });
     await expect(prizeRedemptionDb.findAllAdmin()).rejects.toBeTruthy();
+  });
+
+  it('countByStatus counts every status with head-only queries', async () => {
+    const counts: Record<string, number | null> = { pending: 3, approved: 5, fulfilled: null, rejected: 1 };
+    adminDb.setTable('PrizeRedemption', (call) => ({ count: counts[eqValue(call, 'status') as string] }));
+    expect(await prizeRedemptionDb.countByStatus()).toEqual({ pending: 3, approved: 5, fulfilled: 0, rejected: 1 });
+    expect(adminDb.callsTo('PrizeRedemption').map((c) => argOf(c, 'select'))).toEqual(['id', 'id', 'id', 'id']);
+    expect(adminDb.calls[0].ops.find((o) => o.op === 'select')?.args[1]).toEqual({ count: 'exact', head: true });
+    adminDb.setTable('PrizeRedemption', { error: { message: 'x' } });
+    await expect(prizeRedemptionDb.countByStatus()).rejects.toEqual({ message: 'x' });
   });
 });
 
@@ -412,6 +430,15 @@ describe('notification.db push delivery', () => {
     expect(lookups.map((c) => (c.ops.find((o) => o.op === 'in')!.args[1] as string[]).length)).toEqual([120, 120, 10]);
     expect(sendNotification).toHaveBeenCalledTimes(3);
     expect(argOf(adminDb.callsTo('Notification', 'insert')[0], 'insert')).toHaveLength(250);
+  });
+
+  it('createBatchForUsers points a notification without a link at /notifications', async () => {
+    adminDb.setTable('Notification', { error: null });
+    adminDb.setTable('PushSubscription', (call) => (call.ops.some((o) => o.op === 'gt') ? { data: [] } : { data: [sub('only')] }));
+    await notificationDb.createBatchForUsers(['u1'], { title: 't', message: 'm', type: 'x' });
+    await flush();
+    await flush();
+    expect(JSON.parse(sendNotification.mock.calls[0][1]).url).toBe('/notifications');
   });
 
   it('createBatchForUsers ignores an empty list, throws on insert errors and survives lookup failures', async () => {

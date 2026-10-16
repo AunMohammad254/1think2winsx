@@ -108,13 +108,12 @@ jobs:
               data = json.load(f)
 
           total = data.get('total', {})
-          # Ratchet: set just below current coverage (99.6% lines, 97.0% branches) so
-          # regressions fail CI. Raise these as the remaining gaps are closed.
+          # Every line, statement, function and branch is covered, so any new gap fails CI.
           thresholds = {
-              'lines': 99,
-              'statements': 99,
-              'functions': 99,
-              'branches': 96,
+              'lines': 100,
+              'statements': 100,
+              'functions': 100,
+              'branches': 100,
           }
 
           failed = False

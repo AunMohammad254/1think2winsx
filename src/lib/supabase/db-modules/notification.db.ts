@@ -195,10 +195,8 @@ export const notificationDb = {
                 tag: data.type,
                 renotify: true,
             }
-            // Trigger web push sending without blocking the main DB insert response
-            Promise.allSettled(subs.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload))).catch(e => {
-                console.error('[Web Push] Error sending to user subscriptions:', e);
-            });
+            // Trigger web push sending without blocking the main DB insert response (allSettled never rejects)
+            void Promise.allSettled(subs.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload)));
         }
 
         return record as Notification
@@ -277,14 +275,12 @@ export const notificationDb = {
             
             // Dispatch in small batches of 50 to avoid network bottlenecks
             const batchSize = 50;
-            (async () => {
+            void (async () => {
                 for (let i = 0; i < subs.length; i += batchSize) {
                     const batch = subs.slice(i, i + batchSize);
                     await Promise.allSettled(batch.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload)));
                 }
-            })().catch(e => {
-                console.error('[Web Push] Error during broadcast sending:', e);
-            });
+            })(); // only awaits allSettled, so it never rejects
         }
     },
 
@@ -341,14 +337,12 @@ export const notificationDb = {
             
             // Dispatch in small batches of 50 to avoid network bottlenecks
             const batchSize = 50;
-            (async () => {
+            void (async () => {
                 for (let i = 0; i < subs.length; i += batchSize) {
                     const batch = subs.slice(i, i + batchSize);
                     await Promise.allSettled(batch.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload)));
                 }
-            })().catch(e => {
-                console.error('[Web Push] Error during batch sending:', e);
-            });
+            })(); // only awaits allSettled, so it never rejects
         }
     },
 

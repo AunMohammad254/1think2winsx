@@ -137,6 +137,15 @@ describe('DatePicker', () => {
     expect(await screen.findByText('1992 - 2003')).toBeInTheDocument();
   });
 
+  it('leaves years after maxYear off the year page', async () => {
+    render(<DatePicker id="d" value="2010-05-01" onChange={vi.fn()} maxYear={2013} />);
+    fireEvent.click(screen.getByText('May 1, 2010'));
+    fireEvent.click(screen.getByRole('button', { name: '2010' }));
+    expect(await screen.findByText('2004 - 2013')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2013' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '2014' })).toBeNull();
+  });
+
   it('clears, jumps back, and closes on an outside click', async () => {
     const onChange = vi.fn();
     render(<div><span>outside</span><DatePicker id="d" value="2000-02-10" onChange={onChange} /></div>);
@@ -194,6 +203,18 @@ describe('DateTimePicker', () => {
     expect(onChange).toHaveBeenLastCalledWith('2026-10-01T00:00');
   });
 
+  it('shows 12 for a noon or midnight value', () => {
+    const { unmount } = render(<DateTimePicker value="2027-03-05T12:00" onChange={vi.fn()} />);
+    fireEvent.click(screen.getByText(/Mar 5, 2027/));
+    expect(selects()[0].value).toBe('12');
+    expect(screen.getByRole('button', { name: 'PM' }).className).toContain('bg-purple-600');
+    unmount();
+    render(<DateTimePicker value="2027-03-05T00:30" onChange={vi.fn()} />);
+    fireEvent.click(screen.getByText(/Mar 5, 2027/));
+    expect(selects().map((s) => s.value)).toEqual(['12', '30']);
+    expect(screen.getByRole('button', { name: 'AM' }).className).toContain('bg-purple-600');
+  });
+
   it('opens on an existing value and syncs the time fields', () => {
     render(<DateTimePicker value="2027-03-05T09:15" onChange={vi.fn()} />);
     fireEvent.click(screen.getByText(/Mar 5, 2027/));
@@ -202,7 +223,7 @@ describe('DateTimePicker', () => {
     expect(screen.getByRole('button', { name: 'March' })).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: changing the time after browsing months moves the date to the viewed month', () => {
+  it('keeps the picked date when the time changes after browsing months', () => {
     const onChange = vi.fn();
     render(<DateTimePicker onChange={onChange} />);
     fireEvent.click(screen.getByText('Select date and time'));
@@ -210,7 +231,7 @@ describe('DateTimePicker', () => {
     fireEvent.click(screen.getAllByRole('button')[4]); // next month
     fireEvent.change(selects()[1], { target: { value: '45' } });
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
-    expect(onChange).toHaveBeenLastCalledWith('2026-11-20T12:45');
+    expect(onChange).toHaveBeenLastCalledWith('2026-10-20T12:45');
   });
 
   it('browses months and years, jumps to today, clears and closes outside', async () => {

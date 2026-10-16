@@ -57,8 +57,8 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             status: quizData.status,
             startsAt: startsAtUtc,
             prizeId: quizData.prizeId || null,
-            isBumperPrize: quizData.isBumperPrize ?? false,
-            quizType: quizData.quizType ?? 'normal',
+            isBumperPrize: quizData.isBumperPrize,
+            quizType: quizData.quizType,
         } as any);
 
         // Create questions for the quiz
@@ -147,8 +147,8 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             status: quizData.status,
             startsAt: startsAtUtc,
             prizeId: quizData.prizeId || null,
-            isBumperPrize: quizData.isBumperPrize ?? false,
-            quizType: quizData.quizType ?? 'normal',
+            isBumperPrize: quizData.isBumperPrize,
+            quizType: quizData.quizType,
         } as any);
 
         // Get existing question IDs to update

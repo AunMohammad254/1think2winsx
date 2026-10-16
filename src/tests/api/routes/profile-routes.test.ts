@@ -81,6 +81,20 @@ describe('GET /api/profile', () => {
     expect(body.recentWinnings.map((p: { id: string; status: string }) => [p.id, p.status])).toEqual([['r1', 'pending'], ['w2', 'claimed'], ['w1', 'unclaimed'], ['r2', 'approved']]);
   });
 
+  it('copes with missing answers and question counts, and object Quiz joins', async () => {
+    db.setTable('User', { data: { id: 'user-1', name: 'Ali', email: 'player@example.test', points: 0, createdAt: 'c' } });
+    db.setTable('QuizAttempt', (call) => {
+      if (call.ops.some((o) => o.op === 'select' && (o.args[1] as { head?: boolean } | undefined)?.head)) return { count: 1 };
+      if (call.ops.find((o) => o.op === 'order')?.args[0] === 'score') return { data: [{ id: 'b1', score: 60, Quiz: { id: 'qz', title: 'T' } }] };
+      return { data: [{ id: 'a1', score: 60, Quiz: { id: 'qz', title: 'T' } }] };
+    });
+    db.setTable('Answer', { data: null });
+    db.setTable('Question', { data: null });
+    const body = await (await profile.GET()).json();
+    expect(body.quizHistory[0]).toMatchObject({ quiz: { id: 'qz', _count: { questions: 0 } }, answers: [] });
+    expect(body.bestScores[0].quiz).toEqual({ id: 'qz', title: 'T' });
+  });
+
   it('finds the row by email when the id has no row, and creates one as a last resort', async () => {
     db.setTable('User', [{ data: null, error: { code: 'PGRST116' } }, { data: { id: 'legacy', email: 'player@example.test' } }]);
     expect((await (await profile.GET()).json()).user.id).toBe('legacy');

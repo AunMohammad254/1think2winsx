@@ -88,5 +88,13 @@ describe('sendNewsletterEmail resilience', () => {
     const res = await send(['a@x.test']);
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/BREVO_API_KEY/);
+    // A caller that passes no recipient list still gets a count back
+    expect(await sendNewsletterEmail({ senderEmail: 'n@x.test', subject: 's', content: 'c', recipients: undefined as unknown as string[] })).toMatchObject({ failedCount: 0 });
+  });
+
+  it('reports a failure that is not an Error object', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue('socket hang up'));
+    const res = await send(['a@x.test']);
+    expect(res).toMatchObject({ sentCount: 0, error: '1 of 1 failed. First error: socket hang up' });
   });
 });

@@ -113,9 +113,11 @@ describe('PATCH /api/admin/wallet-transactions', () => {
   });
 
   it('still succeeds when the transaction lookup or the notification fails after the RPC', async () => {
+    validateAdminSession.mockResolvedValue({ valid: true }); // a session without an email
     adminDb.setRpc('approve_wallet_transaction', { data: { success: true } });
     adminDb.setTable('WalletTransaction', { data: null });
     expect((await patch({ transactionId: 'tx-1', action: 'approve' })).status).toBe(200);
+    expect(adminDb.rpcCalls[0].args.p_processed_by).toBe('admin');
     expect(notify).not.toHaveBeenCalled();
 
     adminDb.setTable('WalletTransaction', { data: { userId: 'u', amount: 1 } });

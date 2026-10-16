@@ -163,20 +163,18 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
             try {
                 // The on_auth_user_created trigger has already inserted public.User with the auth id,
                 // so fill in the remaining profile fields on that row instead of inserting a second one.
-                // An existing email returns an obfuscated user with no identities: never touch that row.
-                if (signUpData.user.identities && signUpData.user.identities.length > 0) {
-                    const { userDb } = await import('@/lib/supabase/db');
-                    const bcrypt = await import('bcryptjs');
-                    const hashedPassword = await bcrypt.hash(formData.password, 12);
+                // (An existing email, which comes back with no identities, has already returned above.)
+                const { userDb } = await import('@/lib/supabase/db');
+                const bcrypt = await import('bcryptjs');
+                const hashedPassword = await bcrypt.hash(formData.password, 12);
 
-                    await userDb.update(signUpData.user.id, {
-                        name: formData.name,
-                        password: hashedPassword,
-                        authProvider: 'email',
-                        ...(formData.phone ? { phone: formData.phone } : {}),
-                        ...(formData.dateOfBirth ? { dateOfBirth: new Date(formData.dateOfBirth).toISOString() } : {}),
-                    });
-                }
+                await userDb.update(signUpData.user.id, {
+                    name: formData.name,
+                    password: hashedPassword,
+                    authProvider: 'email',
+                    ...(formData.phone ? { phone: formData.phone } : {}),
+                    ...(formData.dateOfBirth ? { dateOfBirth: new Date(formData.dateOfBirth).toISOString() } : {}),
+                });
             } catch (err) {
                 console.error('[registerAction] Error creating public.User:', err);
                 // Continue anyway - the Supabase auth user was created successfully

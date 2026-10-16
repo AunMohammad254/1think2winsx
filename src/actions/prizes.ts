@@ -29,18 +29,31 @@ import type {
 } from '@/types/prize';
 
 // Validation schemas
-const prizeSchema = z.object({
+const prizeFields = {
     name: z.string().min(1, 'Name is required').max(100, 'Name too long'),
     description: z.string().max(500, 'Description too long').optional(),
-    imageUrl: z.string().url('Invalid image URL').refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
+    imageUrl: z.string().refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
     modelUrl: z.string().url('Invalid model URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
     pointsRequired: z.number().min(1, 'Points must be at least 1'),
-    category: z.enum(['electronics', 'vehicles', 'accessories', 'general']).default('general'),
-    stock: z.number().min(0, 'Stock cannot be negative').default(0),
-    status: z.enum(['draft', 'published']).default('published'),
-    value: z.number().min(0, 'Value cannot be negative').default(0),
+    category: z.enum(['electronics', 'vehicles', 'accessories', 'general']),
+    stock: z.number().min(0, 'Stock cannot be negative'),
+    status: z.enum(['draft', 'published']),
+    value: z.number().min(0, 'Value cannot be negative'),
+};
+
+// Defaults apply only when creating a prize
+const prizeSchema = z.object({
+    ...prizeFields,
+    category: prizeFields.category.default('general'),
+    stock: prizeFields.stock.default(0),
+    status: prizeFields.status.default('published'),
+    value: prizeFields.value.default(0),
 });
+
+// On an update a missing field keeps the stored value. (prizeSchema.partial() would still
+// fill in the .default() values and overwrite them.)
+const prizeUpdateSchema = z.object(prizeFields).partial();
 
 const redemptionSchema = z.object({
     prizeId: z.string().min(1, 'Prize ID is required'),
@@ -122,7 +135,7 @@ export async function redeemPrize(
         if (!validation.success) {
             return {
                 success: false,
-                error: validation.error.issues[0]?.message || 'Invalid input'
+                error: validation.error.issues[0].message
             };
         }
 
@@ -297,7 +310,7 @@ export async function createPrize(
         if (!validation.success) {
             return {
                 success: false,
-                error: validation.error.issues[0]?.message || 'Invalid input'
+                error: validation.error.issues[0].message
             };
         }
 
@@ -341,13 +354,11 @@ export async function updatePrize(
             return { success: false, error: 'Prize not found' };
         }
 
-        // Partial validation
-        const partialSchema = prizeSchema.partial();
-        const validation = partialSchema.safeParse(formData);
+        const validation = prizeUpdateSchema.safeParse(formData);
         if (!validation.success) {
             return {
                 success: false,
-                error: validation.error.issues[0]?.message || 'Invalid input'
+                error: validation.error.issues[0].message
             };
         }
 

@@ -115,9 +115,7 @@ describe('QuestionManagement', () => {
     expect(writes()).toHaveLength(0);
   });
 
-  it('KNOWN BUG: a validation error wipes what the admin typed in the add form', async () => {
-    // defaultFormState is rebuilt on every render; the form resets whenever initialData changes,
-    // and setError re-renders the parent.
+  it('keeps what the admin typed in the add form after a validation error', async () => {
     render(<QuestionManagement quizId="z1" />);
     await loaded();
     openAdd();
@@ -125,20 +123,22 @@ describe('QuestionManagement', () => {
     fireEvent.change(option(1), { target: { value: 'Only option' } });
     save();
     await screen.findByText('At least 2 options are required');
-    expect(within(dialog()).getByLabelText('Question Text')).toHaveValue('');
+    expect(within(dialog()).getByLabelText('Question Text')).toHaveValue('Typed carefully');
+    expect(option(1)).toHaveValue('Only option');
   });
 
-  it('KNOWN BUG: an option with surrounding spaces cannot be marked correct', async () => {
+  it('trims options, so one with surrounding spaces can be marked correct', async () => {
     render(<QuestionManagement quizId="z1" />);
     await loaded();
     openAdd();
     setText('Spaces?');
     fireEvent.change(option(1), { target: { value: ' Padded ' } });
-    fireEvent.change(option(2), { target: { value: 'Plain' } });
-    fireEvent.click(within(dialog()).getAllByRole('button', { name: 'Set Correct' })[0]);
+    fireEvent.change(option(3), { target: { value: 'Plain' } });
+    fireEvent.change(option(4), { target: { value: 'Plain' } });
+    fireEvent.click(within(dialog()).getAllByRole('button', { name: 'Set Correct' })[3]); // the second "Plain", after a blank
     save();
-    expect(await screen.findByText('Selected correct option is empty')).toBeInTheDocument();
-    expect(writes()).toHaveLength(0);
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(JSON.parse(writes()[0][1].body)).toEqual({ quizId: 'z1', text: 'Spaces?', options: ['Padded', 'Plain', 'Plain'], correctOption: 2 });
   });
 
   it('explains create failures from the server', async () => {
@@ -190,6 +190,17 @@ describe('QuestionManagement', () => {
     expect(await screen.findByText('Failed to update question')).toBeInTheDocument();
   });
 
+  it('refuses to save a stored answer that points past the options', async () => {
+    const broken = { ...apiQuestions[0], options: ['India', 'Pakistan'], correctOption: 5 };
+    vi.stubGlobal('fetch', (fetchMock = routes({ quiz: () => jsonResponse({ quiz: { questions: [broken] } }) })));
+    render(<QuestionManagement quizId="z1" />);
+    await loaded();
+    fireEvent.click(within(card(1)).getAllByRole('button')[0]);
+    save();
+    expect(await screen.findByText('Invalid correct option selected')).toBeInTheDocument();
+    expect(writes()).toHaveLength(0);
+  });
+
   it('turns network failures while saving into a message', async () => {
     vi.stubGlobal('fetch', (fetchMock = routes({ write: () => { throw 'down'; } })));
     render(<QuestionManagement quizId="z1" />);
@@ -200,8 +211,8 @@ describe('QuestionManagement', () => {
   });
 
   it('pauses and resumes questions', async () => {
-    const responses = [jsonResponse({ ok: true }), jsonResponse({ ok: true }), jsonResponse({ error: 'Nope' }, 400), jsonResponse({}, 500)];
-    vi.stubGlobal('fetch', (fetchMock = routes({ write: () => responses.shift()! })));
+    const responses: (Response | 'throw')[] = [jsonResponse({ ok: true }), jsonResponse({ ok: true }), jsonResponse({ error: 'Nope' }, 400), 'throw', jsonResponse({}, 500)];
+    vi.stubGlobal('fetch', (fetchMock = routes({ write: () => { const r = responses.shift()!; if (r === 'throw') throw 'down'; return r; } })));
     render(<QuestionManagement quizId="z1" />);
     await loaded();
     const toggle = (n: number) => fireEvent.click(within(card(n)).getAllByRole('button')[1]);
@@ -215,13 +226,16 @@ describe('QuestionManagement', () => {
     await screen.findByText('Question 1');
     toggle(1);
     expect(await screen.findByText('Nope')).toBeInTheDocument();
+    toggle(1); // a non-Error throw
+    expect(await screen.findByText('Failed to update question status')).toBeInTheDocument();
     toggle(1);
+    await waitFor(() => expect(writes()).toHaveLength(5));
     expect(await screen.findByText('Failed to update question status')).toBeInTheDocument();
   });
 
   it('deletes after confirmation, and reports delete failures', async () => {
-    const responses = [jsonResponse({ ok: true }), jsonResponse({ error: 'Has answers' }, 409), jsonResponse({}, 500)];
-    vi.stubGlobal('fetch', (fetchMock = routes({ write: () => responses.shift()! })));
+    const responses: (Response | 'throw')[] = [jsonResponse({ ok: true }), jsonResponse({ error: 'Has answers' }, 409), 'throw', jsonResponse({}, 500)];
+    vi.stubGlobal('fetch', (fetchMock = routes({ write: () => { const r = responses.shift()!; if (r === 'throw') throw 'down'; return r; } })));
     render(<QuestionManagement quizId="z1" />);
     await loaded();
     const del = () => fireEvent.click(within(card(1)).getAllByRole('button')[2]);
@@ -236,7 +250,10 @@ describe('QuestionManagement', () => {
     del();
     fireEvent.click(within(dialog()).getByRole('button', { name: /Delete Question/ }));
     expect(await screen.findByText('Has answers')).toBeInTheDocument();
+    fireEvent.click(within(dialog()).getByRole('button', { name: /Delete Question/ })); // a non-Error throw
+    expect(await screen.findByText('Failed to delete question')).toBeInTheDocument();
     fireEvent.click(within(dialog()).getByRole('button', { name: /Delete Question/ }));
+    await waitFor(() => expect(writes()).toHaveLength(4));
     expect(await screen.findByText('Failed to delete question')).toBeInTheDocument();
     fireEvent.keyDown(dialog(), { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

@@ -430,6 +430,8 @@ describe('Stats', () => {
     intersect();
     advance(2000);
     expect(screen.getByText('10,000')).toBeInTheDocument();
+    // "from-rose-400 to-amber-400" starts at rose (it used to match "amber" first)
+    expect([...container.querySelectorAll('#ring-grad-3 stop')].map((s) => s.getAttribute('stop-color'))).toEqual(['#fb7185', '#fbbf24']);
     const strip = container.querySelector('.snap-x') as HTMLElement;
     storeScrollLeft(strip);
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });

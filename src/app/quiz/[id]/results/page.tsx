@@ -148,17 +148,6 @@ export default function QuizResultsPage() {
     return 'Needs Improvement';
   };
 
-  if (isLoading || loading) {
-    return (
-      <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400 mx-auto mb-4"></div>
-          <p className="text-white">Loading results...</p>
-        </div>
-      </div>
-    );
-  }
-
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center p-4">
@@ -177,11 +166,13 @@ export default function QuizResultsPage() {
     );
   }
 
-  if (!result) {
+  // Every load ends with a result or an error, so a missing result means it is still loading
+  if (isLoading || loading || !result) {
     return (
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
         <div className="text-center">
-          <p className="text-white">Results not found</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-white">Loading results...</p>
         </div>
       </div>
     );

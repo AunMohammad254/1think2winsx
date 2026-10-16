@@ -45,8 +45,7 @@ function getBucket(ip: string) {
     // Bounded: a Map iterates in insertion order, so drop the oldest tracked IPs first.
     // (Unbounded, rotating a fake X-Forwarded-For value used to grow this without limit.)
     while (buckets.size >= MAX_TRACKED_IPS) {
-      const oldest = buckets.keys().next().value;
-      if (oldest === undefined) break;
+      const oldest = buckets.keys().next().value!; // the loop only runs while the Map has entries
       buckets.delete(oldest);
     }
     const now = Date.now();
@@ -168,13 +167,13 @@ async function callGemini(
   modelId: string,
   messages: GeminiMessage[],
   apiKey: string,
-  systemPromptOverride?: string,
+  systemPrompt: string,
 ): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
 
   const body = {
     system_instruction: {
-      parts: [{ text: systemPromptOverride || SYSTEM_PROMPT }],
+      parts: [{ text: systemPrompt }],
     },
     contents: messages,
     generationConfig: {

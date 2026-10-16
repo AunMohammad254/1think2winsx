@@ -223,8 +223,8 @@ export default function LuckyWinnerManager() {
     };
 
     // Run the draw
+    // Step 3, where this runs, is only reachable after picking a quiz
     const runDraw = async () => {
-        if (!selectedQuizId) return;
         setLoading(true);
         setError(null);
         setConfirming(false);

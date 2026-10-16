@@ -3,12 +3,13 @@
 import { useRef, useState, useCallback } from "react";
 import { Section, Reveal, useScrollReveal, useCountUp } from "./Primitives";
 
-type Stat = { value: number; prefix?: string; suffix: string; label: string; icon: string; color: string };
+// ring: the progress ring's gradient stops, matching the from/to colours in `color`
+type Stat = { value: number; prefix?: string; suffix: string; label: string; icon: string; color: string; ring: [string, string] };
 const STATS: Stat[] = [
-  { value: 10000, suffix: "+", label: "Active Players", icon: "👥", color: "from-emerald-400 to-cyan-400" },
-  { value: 50000, prefix: "", suffix: " PKR+", label: "Prizes Won", icon: "💰", color: "from-amber-400 to-orange-500" },
-  { value: 500, suffix: "+", label: "Quizzes Live", icon: "🎯", color: "from-violet-400 to-pink-500" },
-  { value: 24, suffix: "/7", label: "Always Live", icon: "⚡", color: "from-rose-400 to-amber-400" },
+  { value: 10000, suffix: "+", label: "Active Players", icon: "👥", color: "from-emerald-400 to-cyan-400", ring: ["#34d399", "#22d3ee"] },
+  { value: 50000, prefix: "", suffix: " PKR+", label: "Prizes Won", icon: "💰", color: "from-amber-400 to-orange-500", ring: ["#fbbf24", "#f97316"] },
+  { value: 500, suffix: "+", label: "Quizzes Live", icon: "🎯", color: "from-violet-400 to-pink-500", ring: ["#a78bfa", "#e879f9"] },
+  { value: 24, suffix: "/7", label: "Always Live", icon: "⚡", color: "from-rose-400 to-amber-400", ring: ["#fb7185", "#fbbf24"] },
 ];
 
 const CIRC = 2 * Math.PI * 40;
@@ -40,8 +41,8 @@ function RadialStat({ stat, index, visible }: { stat: Stat; index: number; visib
             />
             <defs>
               <linearGradient id={`ring-grad-${index}`} x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor={stat.color.includes("emerald") ? "#34d399" : stat.color.includes("amber") ? "#fbbf24" : stat.color.includes("violet") ? "#a78bfa" : "#fb7185"} />
-                <stop offset="100%" stopColor={stat.color.includes("cyan") ? "#22d3ee" : stat.color.includes("orange") ? "#f97316" : stat.color.includes("pink") ? "#e879f9" : "#fbbf24"} />
+                <stop offset="0%" stopColor={stat.ring[0]} />
+                <stop offset="100%" stopColor={stat.ring[1]} />
               </linearGradient>
             </defs>
           </svg>

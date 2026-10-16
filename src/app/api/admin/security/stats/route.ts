@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
         endpoint: '/api/admin/security/stats',
         details: {
           reason: 'Non-admin user attempted to access security stats',
-          userRole: session?.user?.isAdmin ? 'admin' : 'user'
+          userRole: 'user'
         },
         severity: 'HIGH'
       });
