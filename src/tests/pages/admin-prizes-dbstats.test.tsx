@@ -167,25 +167,36 @@ describe('admin database stats page', () => {
     topQuizzes: [{ id: 'z1', title: 'Cricket Cup', attemptCount: 250 }],
     prizeDistribution: [{ prizeId: 'p1', prizeName: 'Bike', prizeType: 'vehicle', count: 1 }],
   };
+  // The stats API, and the admin session endpoint the "Logged in as" line reads
+  const routes = (
+    statsResponse: () => Response | Promise<Response> = () => jsonResponse(stats),
+    session: () => Response | Promise<Response> = () => jsonResponse({ success: true, authenticated: true, email: 'admin@x.com' }),
+  ) => vi.fn(async (url: string) => (url === '/api/admin/auth' ? session() : statsResponse()));
 
   it('shows the overview, activity, top quizzes and prizes', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(stats)));
+    vi.stubGlobal('fetch', routes());
     render(<DatabaseStatsPage />);
     expect(screen.getByText('Loading database statistics...')).toBeInTheDocument();
     expect(await screen.findByText('1200')).toBeInTheDocument();
     expect(screen.getByText('71.46%')).toBeInTheDocument();
     expect(screen.getByText('Cricket Cup')).toBeInTheDocument();
     expect(screen.getByText('Type: vehicle')).toBeInTheDocument();
-    expect(screen.getByText(/Logged in as: boss@x.com/)).toBeInTheDocument();
+    expect(await screen.findByText(/Logged in as: admin@x.com/)).toBeInTheDocument(); // the admin login, not the player one
+    expect(screen.queryByText(/boss@x.com/)).toBeNull();
   });
 
-  it('shows empty lists and a missing email', async () => {
-    h.auth = { user: { id: 'u1' }, isLoading: false };
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ...stats, topQuizzes: [], prizeDistribution: [] })));
-    render(<DatabaseStatsPage />);
-    expect(await screen.findByText('No quiz data available')).toBeInTheDocument();
-    expect(screen.getByText('No prize data available')).toBeInTheDocument();
-    expect(screen.queryByText(/Logged in as/)).toBeNull();
+  it('shows empty lists, and no email when the admin session cannot be read', async () => {
+    const sessions = [() => jsonResponse({ success: true, authenticated: true, email: null }), () => { throw new Error('offline'); }];
+    for (const session of sessions) {
+      const fetchMock = routes(() => jsonResponse({ ...stats, topQuizzes: [], prizeDistribution: [] }), session);
+      vi.stubGlobal('fetch', fetchMock);
+      const { unmount } = render(<DatabaseStatsPage />);
+      expect(await screen.findByText('No quiz data available')).toBeInTheDocument();
+      expect(screen.getByText('No prize data available')).toBeInTheDocument();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth'));
+      expect(screen.queryByText(/Logged in as/)).toBeNull();
+      unmount();
+    }
   });
 
   it('reports access and load errors, and an empty response', async () => {
@@ -196,19 +207,19 @@ describe('admin database stats page', () => {
       [() => jsonResponse(null), 'No statistics available'],
     ];
     for (const [response, message] of cases) {
-      vi.stubGlobal('fetch', vi.fn(async () => response()));
+      vi.stubGlobal('fetch', routes(response));
       const { unmount } = render(<DatabaseStatsPage />);
       expect(await screen.findByText(message)).toBeInTheDocument();
       unmount();
     }
   });
 
-  it('KNOWN BUG: also requires a player session, sending admins without one to /login', () => {
-    h.auth = { user: null, isLoading: true };
-    const { rerender } = render(<DatabaseStatsPage />);
-    expect(h.router.push).not.toHaveBeenCalled();
+  it('needs only the admin login: loads for an admin who is not signed in as a player', async () => {
+    // The (protected) layout checks the admin session; the page must not ask for a player one
     h.auth = { user: null, isLoading: false };
-    rerender(<DatabaseStatsPage />);
-    expect(h.router.push).toHaveBeenCalledWith('/login');
+    vi.stubGlobal('fetch', routes());
+    render(<DatabaseStatsPage />);
+    expect(await screen.findByText('1200')).toBeInTheDocument();
+    expect(h.router.push).not.toHaveBeenCalled();
   });
 });

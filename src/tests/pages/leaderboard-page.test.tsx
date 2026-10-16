@@ -94,6 +94,18 @@ describe('leaderboard page', () => {
     expect(screen.getByText('Your Position')).toBeInTheDocument();
   });
 
+  it('shows the error and back-to-top buttons without hover support', async () => {
+    h.hover = false;
+    h.board = board({ error: 'Failed to load leaderboard data.' });
+    render(<LeaderboardPage />);
+    fireEvent.mouseEnter(screen.getByRole('button', { name: 'Try Again' }));
+    expect(screen.getByText('Failed to load leaderboard data.')).toBeInTheDocument();
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 600 });
+    act(() => void window.dispatchEvent(new Event('scroll')));
+    expect(await screen.findByText('↑')).toBeInTheDocument();
+    Object.defineProperty(window, 'scrollY', { configurable: true, value: 0 });
+  });
+
   it('shows a back-to-top button after scrolling', async () => {
     const scrollTo = vi.fn();
     vi.stubGlobal('scrollTo', scrollTo);
@@ -152,6 +164,7 @@ describe('podium', () => {
   });
 
   it('copes with a podium that has a gap', () => {
+    h.inView = true;
     render(<PodiumSection entries={[undefined, entry(2, 'Sara')] as unknown as LeaderboardEntry[]} playCounter={false} />);
     expect(screen.queryByText('Champion')).toBeNull();
     expect(screen.getByText('Rank #2')).toBeInTheDocument();
@@ -164,5 +177,17 @@ describe('AnimatedScore', () => {
     expect(container.textContent).toBe('10');
     rerender(<AnimatedScore value={50} play duration={0.01} />);
     await waitFor(() => expect(container.textContent).toBe('50'));
+  });
+
+  it('survives a frame that lands after unmounting', async () => {
+    const errors: unknown[] = [];
+    const onError = (e: ErrorEvent) => { errors.push(e.error); e.preventDefault(); };
+    window.addEventListener('error', onError);
+    const { rerender, unmount } = render(<AnimatedScore value={10} play={false} />);
+    rerender(<AnimatedScore value={500} play duration={1} />);
+    unmount();
+    await new Promise((r) => setTimeout(r, 50));
+    window.removeEventListener('error', onError);
+    expect(errors).toEqual([]);
   });
 });

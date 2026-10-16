@@ -120,7 +120,7 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     }
   }
 
-  return (quizzes || []).map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts'>) => ({
+  return quizzes.map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts'>) => ({
     ...q,
     description: q.description || '',
     questions: byQuiz.get(q.id) || [],

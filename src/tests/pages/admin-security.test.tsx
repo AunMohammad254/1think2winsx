@@ -113,14 +113,13 @@ describe('admin security page', () => {
     expect(screen.queryByText('Total Events')).toBeNull();
   });
 
-  it('waits for auth and sends signed-out visitors away', async () => {
-    h.auth = { user: null, isLoading: true };
-    const { rerender } = render(<SecurityPage />);
-    expect(screen.getByText('Loading security dashboard...')).toBeInTheDocument();
+  it('needs only the admin login: loads for an admin who is not signed in as a player', async () => {
+    // The (protected) layout checks the admin session; the page must not ask for a player one
     h.auth = { user: null, isLoading: false };
-    rerender(<SecurityPage />);
-    expect(h.router.push).toHaveBeenCalledWith('/admin');
-    expect(fetchMock).not.toHaveBeenCalled();
+    render(<SecurityPage />);
+    await loaded();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(h.router.push).not.toHaveBeenCalled();
   });
 
   it('shows load errors', async () => {
@@ -135,8 +134,7 @@ describe('admin security page', () => {
     expect(await screen.findByText('Failed to load security data')).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: a successful retry still shows the error', async () => {
-    // fetchSecurityData never clears `error`, so the error screen sticks after a good retry.
+  it('clears the error after a successful retry', async () => {
     const healthy = routes();
     vi.stubGlobal('fetch', routes({ status: 500 }));
     render(<SecurityPage />);
@@ -144,7 +142,7 @@ describe('admin security page', () => {
     vi.stubGlobal('fetch', healthy);
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(healthy).toHaveBeenCalledTimes(3));
-    expect(await screen.findByText('Failed to fetch security data')).toBeInTheDocument();
-    expect(screen.queryByText('Security Dashboard')).toBeNull();
+    expect(await screen.findByText('Security Dashboard')).toBeInTheDocument();
+    expect(screen.queryByText('Failed to fetch security data')).toBeNull();
   });
 });

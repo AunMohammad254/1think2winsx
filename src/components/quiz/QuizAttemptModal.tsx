@@ -82,9 +82,10 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
 
     // Counts down to the sooner of the player's own duration and the quiz's real answering window
     // (the database rejects answers after pushedAt + duration, so a late joiner must not see a full timer)
+    const durationMinutes = quiz ? (quiz.duration || 30) : null;
     const { timeRemaining, windowClosed } = useQuizCountdown({
         running: phase === 'active',
-        durationMinutes: quiz ? (quiz.duration || 30) : null,
+        durationMinutes,
         endsAt: quiz?.endsAt ?? null,
         serverNow: quiz?.serverNow ?? null,
         onExpire: () => setShowTimeExpired(true),
@@ -158,9 +159,8 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
     }, [isOpen, user, fetchQuiz]);
 
     // ─── Submit quiz ─────────────────────────────────────────────────────────
+    // Both submit buttons are disabled while a submit is in flight
     const handleSubmitQuiz = useCallback(async (forceSubmit: boolean = false) => {
-        if (isSubmitting) return;
-
         const unansweredCount = answers.filter(a => a.selectedOption === -1).length;
         if (!forceSubmit && unansweredCount > 0) {
             setShowUnansweredWarning(true);
@@ -169,6 +169,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
 
         setShowUnansweredWarning(false);
         setIsSubmitting(true);
+        setError(null);
         try {
             const csrfToken = await getCSRFToken();
             if (!csrfToken) {
@@ -181,7 +182,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRF-Token': csrfToken || '',
+                    'X-CSRF-Token': csrfToken, // checked above
                 },
                 body: JSON.stringify({ answers }),
             }, { retries: 4, retryOn: [502, 503, 504] });
@@ -200,7 +201,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
         } finally {
             setIsSubmitting(false);
         }
-    }, [quizId, answers, isSubmitting, getCSRFToken, onQuizCompleted]);
+    }, [quizId, answers, getCSRFToken, onQuizCompleted]);
 
     // ─── Answer handling ─────────────────────────────────────────────────────
     const handleAnswerSelect = (questionId: string, optionIndex: number) => {
@@ -213,21 +214,13 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
         );
     };
 
-    const handleNextQuestion = () => {
-        if (quiz && currentQuestionIndex < quiz.questions.length - 1) {
-            setCurrentQuestionIndex(prev => prev + 1);
-        }
-    };
-
-    const handlePreviousQuestion = () => {
-        if (currentQuestionIndex > 0) {
-            setCurrentQuestionIndex(prev => prev - 1);
-        }
-    };
+    // Next is not shown on the last question, and Prev is disabled on the first
+    const handleNextQuestion = () => setCurrentQuestionIndex(prev => prev + 1);
+    const handlePreviousQuestion = () => setCurrentQuestionIndex(prev => prev - 1);
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
-    const formatTime = (seconds: number | null) => {
-        if (seconds === null) return '--:--';
+    // Only called once a quiz is loaded, when the countdown always has a value
+    const formatTime = (seconds: number) => {
         const m = Math.floor(seconds / 60);
         const s = seconds % 60;
         return `${m}:${s.toString().padStart(2, '0')}`;
@@ -240,15 +233,11 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
         await handleSubmitQuiz(true);
     };
 
-    const handleModalClose = () => {
-        // Only allow closing from pre-start / results / error, not during active quiz
-        if (phase === 'active' && !showTimeExpired) return;
-        onClose();
-    };
-
+    // Only the loading/error and pre-start screens close from the backdrop; the active quiz
+    // and the results screen have no backdrop handler
     const handleBackdropClick = (e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {
-            handleModalClose();
+            onClose();
         }
     };
 
@@ -322,7 +311,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                         <div className="grid grid-cols-3 gap-4 mb-8">
                             <div className="text-center p-4 rounded-xl bg-white/5 border border-white/5">
                                 <Clock className="w-6 h-6 text-blue-400 mx-auto mb-2" />
-                                <div className="text-2xl font-bold text-white">{quiz.duration || 30}</div>
+                                <div className="text-2xl font-bold text-white">{durationMinutes}</div>
                                 <div className="text-xs text-gray-500">Minutes</div>
                             </div>
                             <div className="text-center p-4 rounded-xl bg-white/5 border border-white/5">
@@ -352,7 +341,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                                 <div>
                                     <h4 className="font-semibold text-yellow-300 mb-2">Before You Start</h4>
                                     <ul className="text-sm text-yellow-200/80 space-y-1">
-                                        <li>• You have {quiz.duration || 30} minutes to complete all questions</li>
+                                        <li>• You have {durationMinutes} minutes to complete all questions</li>
                                         <li>• You can navigate between questions and change answers</li>
                                         <li>• Make sure to submit before time runs out</li>
                                         {quiz.isReattempt ? (
@@ -377,9 +366,9 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                                 The answering window for this quiz has closed, so new answers can no longer be submitted.
                             </div>
                         ) : (
-                            timeRemaining !== null && timeRemaining < (quiz.duration || 30) * 60 - 5 && (
+                            timeRemaining !== null && timeRemaining < durationMinutes! * 60 - 5 && (
                                 <div className="mb-4 rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-100">
-                                    This quiz went live a while ago. Answers close in {formatTime(timeRemaining)}, so your timer will be shorter than {quiz.duration || 30} minutes.
+                                    This quiz went live a while ago. Answers close in {formatTime(timeRemaining)}, so your timer will be shorter than {durationMinutes} minutes.
                                 </div>
                             )
                         )}
@@ -420,7 +409,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                         <QuizResults
                             success={true}
                             message={submissionResult.message || "Your predictions have been successfully submitted!"}
-                            totalQuestions={quiz?.questions.length || 0}
+                            totalQuestions={quiz!.questions.length}
                             submittedAnswers={submissionResult.results?.submittedAnswers || getAnsweredCount()}
                             note={submissionResult.results?.note || "The admin will review all submissions and add the correct answers. Points will be allocated to the top performers based on accuracy and speed."}
                             isInModal={true}
@@ -433,16 +422,17 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
     }
 
     // ─── ACTIVE QUIZ PHASE ───────────────────────────────────────────────────
-    if (phase !== 'active' || !quiz) return null;
+    // Every other phase has returned by now, with its quiz loaded. A quiz whose questions
+    // were all paused loads with none, so there is no question to show.
+    const currentQuestion = quiz?.questions[currentQuestionIndex];
+    if (!quiz || !currentQuestion) return null;
 
-    const currentQuestion = quiz.questions[currentQuestionIndex];
-    const currentAnswer = answers.find(a => a.questionId === currentQuestion?.id);
+    const currentAnswer = answers.find(a => a.questionId === currentQuestion.id);
     const progressPercent = Math.floor(((currentQuestionIndex + 1) / quiz.questions.length) * 100);
-
-    if (!currentQuestion) return null;
+    const secondsLeft = timeRemaining!; // a loaded quiz always has a countdown
 
     const hasStream = streamAvailable !== false;
-    const timerTone = (timeRemaining ?? 0) <= 60 ? 'text-red-400 animate-pulse' : (timeRemaining ?? 0) <= 120 ? 'text-yellow-400' : 'text-white';
+    const timerTone = secondsLeft <= 60 ? 'text-red-400 animate-pulse' : secondsLeft <= 120 ? 'text-yellow-400' : 'text-white';
 
     return (
         <div className="fixed inset-0 z-50 bg-gray-950/95 backdrop-blur-sm flex flex-col lg:flex-row">
@@ -493,7 +483,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                         <span className="text-sm text-gray-300 truncate">
                             Q <span className="text-blue-400 font-semibold">{currentQuestionIndex + 1}</span>/{quiz.questions.length}
                         </span>
-                        <span className={`font-mono font-bold text-lg ${timerTone}`}>{formatTime(timeRemaining)}</span>
+                        <span className={`font-mono font-bold text-lg ${timerTone}`}>{formatTime(secondsLeft)}</span>
                     </div>
                 )}
 
@@ -506,9 +496,9 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                                 Question <span className="text-blue-400 font-semibold">{currentQuestionIndex + 1}</span> of <span className="text-blue-400 font-semibold">{quiz.questions.length}</span>
                             </p>
                         </div>
-                        <div className={`text-center px-4 py-2 rounded-xl flex-shrink-0 ${(timeRemaining ?? 0) <= 60 ? 'bg-red-500/20 border border-red-500/50' : 'bg-blue-500/10 border border-blue-500/30'}`}>
-                            <div className={`text-xl md:text-2xl font-bold font-mono ${(timeRemaining ?? 0) <= 60 ? 'text-red-400 animate-pulse' : (timeRemaining ?? 0) <= 120 ? 'text-yellow-400' : 'text-white'}`}>
-                                {formatTime(timeRemaining)}
+                        <div className={`text-center px-4 py-2 rounded-xl flex-shrink-0 ${secondsLeft <= 60 ? 'bg-red-500/20 border border-red-500/50' : 'bg-blue-500/10 border border-blue-500/30'}`}>
+                            <div className={`text-xl md:text-2xl font-bold font-mono ${timerTone}`}>
+                                {formatTime(secondsLeft)}
                             </div>
                             <div className="text-gray-400 text-xs hidden sm:block">Time Left</div>
                         </div>
@@ -608,6 +598,14 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                                 )}
                             </div>
                         </div>
+
+                        {/* Submission error: the answers are kept, so the player can submit again */}
+                        {error && (
+                            <div role="alert" className="flex items-start gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300">
+                                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                                <p className="text-sm">{error}</p>
+                            </div>
+                        )}
 
                         {/* Question Navigator Grid */}
                         <div className="bg-gray-900/60 border border-white/10 rounded-2xl p-4 md:p-6 mb-4 max-lg:landscape:hidden">

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import logger from '@/lib/logger';
-import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
@@ -37,8 +36,8 @@ interface Quiz {
   updatedAt: string;
 }
 
+// The (protected) layout has already checked the admin session; no player login is needed
 export default function QuizManagementPage() {
-  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const quizId = params?.id as string;
@@ -86,23 +85,6 @@ export default function QuizManagementPage() {
   const handleQuizChange = (updatedQuiz: Quiz) => {
     setQuiz(updatedQuiz);
   };
-
-  // Authentication check
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center">
-        <div className="flex items-center space-x-2">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
-          <span className="text-white">Loading...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    router.push('/login');
-    return null;
-  }
 
   // Error state
   if (error) {

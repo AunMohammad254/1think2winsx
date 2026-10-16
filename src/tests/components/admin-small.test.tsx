@@ -209,11 +209,13 @@ describe('PrizeForm', () => {
     expect(p.onSubmit).not.toHaveBeenCalled();
   });
 
-  it('KNOWN BUG: local /public image paths are allowed by the host check but rejected as "Invalid URL"', async () => {
-    setup();
+  it('accepts a local /public image path', async () => {
+    const p = setup();
+    fireEvent.change(screen.getByPlaceholderText('e.g., iPhone 15 Pro'), { target: { value: 'Watch' } });
     fireEvent.change(urlInput(), { target: { value: '/prizes/watch.svg' } });
     fireEvent.submit(urlInput().closest('form')!);
-    expect(await screen.findByText('Invalid URL')).toBeInTheDocument();
+    await waitFor(() => expect(p.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Watch', imageUrl: '/prizes/watch.svg' })));
+    expect(screen.queryByText('Invalid URL')).toBeNull();
   });
 
   it('edits an existing prize, previews and uploads an image', async () => {

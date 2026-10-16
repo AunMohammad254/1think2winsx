@@ -131,12 +131,13 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
 
     useImperativeHandle(ref, () => ({ notify, open }), [notify, open]);
 
+    // Only the toast calls this, and notify() shows the toast after starting its timer and
+    // clearing any loaded quiz, so there is always a pending quiz to fetch
     const openPanel = useCallback((mode: 'popup' | 'split') => {
         setView(mode);
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-        if (!pending || quiz || loadError) return; // already loaded (or failed) - don't refetch and wipe answers
-        loadQuiz(pending.id);
-    }, [pending, quiz, loadError, loadQuiz]);
+        clearTimeout(toastTimerRef.current!);
+        loadQuiz(pending!.id);
+    }, [pending, loadQuiz]);
 
     const close = useCallback(() => setView('hidden'), []);
     const toggleSplit = useCallback(() => setView((v) => (v === 'split' ? 'popup' : 'split')), []);
@@ -149,19 +150,21 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const answeredCount = quiz ? quiz.questions.filter((q) => answers[q.id] !== undefined).length : 0;
     const allAnswered = !!quiz && answeredCount === quiz.questions.length && quiz.questions.length > 0;
 
+    // The submit button only shows for a loaded, unlocked quiz, and stays disabled until
+    // every question is answered and while a submit is in flight
     const submit = useCallback(async () => {
-        if (!quiz || !allAnswered || locked || submitting) return;
+        const loaded = quiz!;
         setSubmitting(true);
         try {
             const csrfToken = await getCSRFToken();
             // Submitting is idempotent (one attempt per user and quiz is enforced in the database),
             // so overload responses (502/503/504) are retried with jittered backoff. 429 is
             // deliberately NOT retried: that is the per-user submission limit, not overload.
-            const res = await fetchWithRetry(`/api/quizzes/${quiz.id}/submit`, {
+            const res = await fetchWithRetry(`/api/quizzes/${loaded.id}/submit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
                 body: JSON.stringify({
-                    answers: quiz.questions.map((q) => ({ questionId: q.id, selectedOption: answers[q.id] })),
+                    answers: loaded.questions.map((q) => ({ questionId: q.id, selectedOption: answers[q.id] })),
                 }),
             }, { retries: 4, retryOn: [502, 503, 504] });
             if (!res.ok) {
@@ -177,7 +180,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         } finally {
             setSubmitting(false);
         }
-    }, [quiz, allAnswered, locked, submitting, answers, onAnswered]);
+    }, [quiz, answers, onAnswered]);
 
     if (view === 'hidden' || !pending) return null;
 

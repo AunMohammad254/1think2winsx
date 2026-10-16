@@ -69,9 +69,8 @@ const HeroSection = memo(function HeroSection({ lastUpdated }: { lastUpdated: st
             initial="hidden"
             animate="visible"
             custom={i}
-            style={char === ' ' ? { width: '0.3em' } : undefined}
           >
-            {char === ' ' ? '\u00A0' : char}
+            {char}
           </motion.span>
         ))}
         <motion.span

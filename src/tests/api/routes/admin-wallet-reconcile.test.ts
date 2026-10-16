@@ -7,12 +7,20 @@ let adminDb: SupabaseMock;
 const validateAdminSession = vi.fn();
 const isWalletEnabled = vi.fn();
 const notify = vi.fn();
+// pdfParse stands in for PDFParse#getText; pdfDestroy records the cleanup
 const pdfParse = vi.fn();
+const pdfDestroy = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, notificationDb: { create: (...a: unknown[]) => notify(...a) } }));
 vi.mock('@/lib/admin-session', () => ({ validateAdminSession: (...a: unknown[]) => validateAdminSession(...a) }));
 vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: (...a: unknown[]) => isWalletEnabled(...a) }));
-vi.mock('pdf-parse', () => ({ default: (...a: unknown[]) => pdfParse(...a) }));
+vi.mock('pdf-parse', () => ({
+  PDFParse: class {
+    constructor(private options: { data: unknown }) {}
+    getText() { return pdfParse(this.options.data); }
+    destroy() { return pdfDestroy(); }
+  },
+}));
 
 const { POST } = await import('@/app/api/admin/wallet-transactions/reconcile/route');
 
@@ -28,7 +36,7 @@ const pending = (id: string, transactionId: string, amount: number, createdAt = 
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [validateAdminSession, isWalletEnabled, notify, pdfParse]) fn.mockReset();
+  for (const fn of [validateAdminSession, isWalletEnabled, notify, pdfParse, pdfDestroy]) fn.mockReset();
   validateAdminSession.mockResolvedValue({ valid: true, email: 'admin@example.test' });
   isWalletEnabled.mockResolvedValue(true);
   notify.mockResolvedValue({});
@@ -89,7 +97,7 @@ describe('POST /api/admin/wallet-transactions/reconcile', () => {
       'JC9876543210|250.00|2026-01-15|Received',
       'BAD9|5.00|99-99-99|Received',
       'Amount: 7 Date: 15-Jan-2026 no reference',
-      'Amount: 1,000 Date: 31-Feb-2026x',
+      'Amount: 1,000 Date: 32-Jan-2026', // shaped like a date, but not a real one
       'Received something without numbers',
     ].join('\n');
 
@@ -125,6 +133,7 @@ describe('POST /api/admin/wallet-transactions/reconcile', () => {
     const body = await (await upload('%PDF-binary', 'statement.pdf', 'application/pdf')).json();
     expect(body.matchedIds).toEqual(['a']);
     expect(Buffer.isBuffer(pdfParse.mock.calls[0][0])).toBe(true);
+    expect(pdfDestroy).toHaveBeenCalledTimes(1);
   });
 
   it('reports unreadable PDFs and empty files', async () => {
@@ -132,6 +141,7 @@ describe('POST /api/admin/wallet-transactions/reconcile', () => {
     const pdf = await upload('%PDF', 'x.pdf', '');
     expect(pdf.status).toBe(500);
     expect((await pdf.json()).error).toBe('Failed to parse PDF file');
+    expect(pdfDestroy).toHaveBeenCalledTimes(1);
     const empty = await upload('   \n  ');
     expect(empty.status).toBe(400);
     expect((await empty.json()).error).toBe('Could not extract text from file');

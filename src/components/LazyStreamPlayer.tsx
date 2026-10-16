@@ -75,8 +75,6 @@ export default function LazyStreamPlayer({
 }: LazyStreamPlayerProps) {
   const [shouldLoad, setShouldLoad] = useState(autoPlay);
   const [hasStreamAvailable, setHasStreamAvailable] = useState<boolean | null>(null);
-  const [isIntersecting, setIsIntersecting] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   // Latest callback without re-running the one-shot availability check below
   const onAvailabilityChangeRef = useRef(onAvailabilityChange);
   onAvailabilityChangeRef.current = onAvailabilityChange;
@@ -99,32 +97,6 @@ export default function LazyStreamPlayer({
     checkStreamAvailability();
   }, []);
 
-  // Intersection Observer for lazy loading
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsIntersecting(entry.isIntersecting);
-      },
-      {
-        threshold: 0.1,
-        rootMargin: '50px',
-      }
-    );
-
-    const el = containerRef.current;
-    if (el) observer.observe(el);
-    return () => {
-      if (el) observer.unobserve(el);
-    };
-  }, []);
-
-  // Auto-load when in viewport and stream is available
-  useEffect(() => {
-    if (isIntersecting && hasStreamAvailable && autoPlay && !shouldLoad) {
-      setShouldLoad(true);
-    }
-  }, [isIntersecting, hasStreamAvailable, autoPlay, shouldLoad]);
-
   const handleLoadStream = () => {
     setShouldLoad(true);
   };
@@ -146,7 +118,7 @@ export default function LazyStreamPlayer({
   // Show loading state while checking availability
   if (hasStreamAvailable === null) {
     return (
-        <div ref={containerRef} className={`yt-responsive-player ${className}`}>
+        <div className={`yt-responsive-player ${className}`}>
         <div className="yt-player-frame rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 flex items-center justify-center">
           <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
         </div>
@@ -155,7 +127,7 @@ export default function LazyStreamPlayer({
   }
 
   return (
-    <div ref={containerRef} className={className}>
+    <div className={className}>
       {shouldLoad ? (
         <Suspense fallback={<div className="yt-responsive-player"><StreamPlayerSkeleton /></div>}>
           <StreamPlayer

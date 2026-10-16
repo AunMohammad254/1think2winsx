@@ -36,7 +36,10 @@ async function AnalyticsDashboardContent() {
   const padding = 40;
 
   const points = data.revenue.map((r, i) => {
-    const x = padding + (i * (chartWidth - padding * 2)) / (data.revenue.length - 1);
+    // A single day has no span to spread over, so it sits in the middle
+    const x = data.revenue.length > 1
+      ? padding + (i * (chartWidth - padding * 2)) / (data.revenue.length - 1)
+      : chartWidth / 2;
     const y = chartHeight - padding - (r.amount * (chartHeight - padding * 2)) / maxRevenue;
     return { x, y, date: r.date, amount: r.amount };
   });

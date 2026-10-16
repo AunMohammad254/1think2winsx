@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 type DatabaseStats = {
@@ -36,22 +34,27 @@ type DatabaseStats = {
 };
 
 export default function DatabaseStatsPage() {
-  const { user, isLoading } = useAuth();
-  const router = useRouter();
   const [stats, setStats] = useState<DatabaseStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
 
+  // The (protected) layout has already checked the admin session; no player login is needed
   useEffect(() => {
-    if (isLoading) return;
-
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-
     fetchStats();
-  }, [isLoading, user, router]);
+    fetchAdminEmail();
+  }, []);
+
+  // Only for the "Logged in as" line, so a failure just leaves it out
+  const fetchAdminEmail = async () => {
+    try {
+      const response = await fetch('/api/admin/auth');
+      const data = await response.json();
+      setAdminEmail(data.email || null);
+    } catch {
+      setAdminEmail(null);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -133,9 +136,9 @@ export default function DatabaseStatsPage() {
               <p className="text-gray-200 text-sm sm:text-base">Comprehensive database insights and metrics</p>
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">
-              {user?.email && (
+              {adminEmail && (
                 <span className="text-xs sm:text-sm text-gray-300 truncate max-w-50">
-                  Logged in as: {user.email}
+                  Logged in as: {adminEmail}
                 </span>
               )}
               <Link

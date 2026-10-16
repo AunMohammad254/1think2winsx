@@ -100,6 +100,17 @@ describe('prizes page', () => {
     expect(h.getPublicPrizes).toHaveBeenCalledTimes(2);
   });
 
+  it('sends nothing when the session ends while the form is open', async () => {
+    const { rerender } = render(<PrizesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Redeem Now/ }));
+    h.user = null;
+    rerender(<PrizesPage />);
+    fillAndSubmit();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.redeemPrize).not.toHaveBeenCalled();
+    expect(screen.getByText('Redeem Prize')).toBeInTheDocument();
+  });
+
   it('rolls back the stock when redemption fails', async () => {
     h.redeemPrize.mockResolvedValueOnce({ success: false, error: 'Not enough points' }).mockResolvedValueOnce({ success: false }).mockRejectedValueOnce(new Error('x'));
     render(<PrizesPage />);

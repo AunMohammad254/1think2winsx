@@ -103,6 +103,6 @@ export function formatBusinessTime(instant: string | Date): string {
   const label = ZONE_LABELS[timeZone]
     ?? new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
       .formatToParts(date)
-      .find((p) => p.type === 'timeZoneName')?.value;
-  return label ? `${text} ${label}` : text;
+      .find((p) => p.type === 'timeZoneName')!.value; // always present when timeZoneName is requested
+  return `${text} ${label}`;
 }

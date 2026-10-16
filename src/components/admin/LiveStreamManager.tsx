@@ -109,8 +109,9 @@ function DraftPreview({ embedHtml }: { embedHtml: string }) {
 // ============================================
 // Saved Stream Preview Component
 // ============================================
-function SavedPreview({ config }: { config: StreamConfig | null }) {
-    if (!config || !config.isActive || (!config.embedHtml && !config.embedUrl)) {
+// Only rendered when the saved config has embed HTML
+function SavedPreview({ config }: { config: StreamConfig }) {
+    if (!config.isActive) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
                 <Video className="w-16 h-16 mb-4 text-gray-600" />
@@ -120,9 +121,7 @@ function SavedPreview({ config }: { config: StreamConfig | null }) {
         );
     }
 
-    const embedContent = config.embedHtml || (config.embedUrl ? `<iframe src="${config.embedUrl}" allowfullscreen></iframe>` : '');
-
-    return <DraftPreview embedHtml={embedContent} />;
+    return <DraftPreview embedHtml={config.embedHtml} />;
 }
 
 // ============================================
@@ -133,7 +132,7 @@ export default function LiveStreamManager() {
     const [config, setConfig] = useState<StreamConfig | null>(null);
     const [embedHtml, setEmbedHtml] = useState<string>('');
     const [title, setTitle] = useState<string>('Livestream');
-    const [platform, setPlatform] = useState<UpdateStreamConfigInput['platform']>('custom');
+    const [platform, setPlatform] = useState<NonNullable<UpdateStreamConfigInput['platform']>>('custom');
     const [isActive, setIsActive] = useState<boolean>(false);
 
     const [loading, setLoading] = useState<boolean>(true);
@@ -180,12 +179,8 @@ export default function LiveStreamManager() {
     // ============================================
     // Save Action
     // ============================================
+    // Save is disabled while the embed code is invalid
     const handleSave = () => {
-        if (!validation.valid) {
-            toast.error(validation.message);
-            return;
-        }
-
         startTransition(async () => {
             try {
                 const result = await updateStreamConfig(
@@ -233,7 +228,8 @@ export default function LiveStreamManager() {
                 }
 
                 setIsActive(newStatus);
-                setConfig(prev => prev ? { ...prev, isActive: newStatus } : prev);
+                // The toggle is disabled until a stream is saved, so there is a config
+                setConfig(prev => ({ ...prev!, isActive: newStatus }));
 
                 toast.success(newStatus ? 'Stream activated!' : 'Stream deactivated', {
                     icon: newStatus ? (
@@ -261,7 +257,7 @@ export default function LiveStreamManager() {
     // ============================================
     // Render
     // ============================================
-    const PlatformIcon = platformIcons[platform || 'custom'] || Globe;
+    const PlatformIcon = platformIcons[platform];
 
     return (
         <div className="space-y-6">
@@ -511,7 +507,7 @@ export default function LiveStreamManager() {
                                     {previewSource === 'draft' ? (
                                         <DraftPreview embedHtml={embedHtml} key={`draft-${embedHtml.length}`} />
                                     ) : (
-                                        <SavedPreview config={config} />
+                                        <SavedPreview config={config!} />
                                     )}
                                 </div>
                             ) : (

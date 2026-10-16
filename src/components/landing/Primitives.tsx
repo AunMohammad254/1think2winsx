@@ -47,13 +47,15 @@ export function useCountUp(target: number, duration = 1800, startWhen = true) {
   const startedRef = useRef(false);
 
   useEffect(() => {
-    if (!startWhen || startedRef.current || !ref.current) return;
+    // Held for the whole count: a frame that lands after unmount writes to a detached node
+    const node = ref.current;
+    if (!startWhen || startedRef.current || !node) return;
     startedRef.current = true;
 
     const formatNumber = (n: number) => n >= 1000 ? n.toLocaleString() : n.toString();
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      ref.current.textContent = formatNumber(target);
+      node.textContent = formatNumber(target);
       return;
     }
 
@@ -64,13 +66,11 @@ export function useCountUp(target: number, duration = 1800, startWhen = true) {
       const progress = Math.min(elapsed / duration, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
       const current = Math.floor(target * eased);
-      
-      if (ref.current) {
-        ref.current.textContent = formatNumber(current);
-      }
-      
+
+      node.textContent = formatNumber(current);
+
       if (progress < 1) raf = requestAnimationFrame(tick);
-      else if (ref.current) ref.current.textContent = formatNumber(target);
+      else node.textContent = formatNumber(target);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -111,7 +111,7 @@ export function useParallaxPointer(strength = 12) {
       rect = null;
     };
     
-    const parent = node.parentElement ?? window;
+    const parent = node.parentElement!; // a rendered element always has a parent
     parent.addEventListener("mouseenter", onMouseEnter, { passive: true });
     parent.addEventListener("mousemove", onMove as EventListener, { passive: true });
     parent.addEventListener("mouseleave", reset as EventListener);

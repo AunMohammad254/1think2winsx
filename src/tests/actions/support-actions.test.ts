@@ -77,7 +77,8 @@ describe('lookupUserAction', () => {
     const res = await s.lookupUserAction(' ali@example.test ');
     expect(res).toEqual({ success: true, user: { id: 'u1', email: 'ali@example.test', name: 'Ali' }, redemptions: [{ id: 'r' }], attempts: [] });
     expect(eqValue(adminDb.callsTo('User')[0], 'email')).toBe('ali@example.test');
-    await s.lookupUserAction('u1');
+    adminDb.setTable('PrizeRedemption', { data: null });
+    expect((await s.lookupUserAction('u1')).redemptions).toEqual([]);
     expect(eqValue(adminDb.callsTo('User')[1], 'id')).toBe('u1');
     adminDb.setTable('User', { data: null });
     expect(await s.lookupUserAction('ghost')).toEqual({ success: false, error: 'User not found' });

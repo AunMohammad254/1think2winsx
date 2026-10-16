@@ -275,8 +275,7 @@ describe('admin user support page', () => {
     expect(await failure('Not allowed')).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: account actions leave the previous banner up, so success and error show together', async () => {
-    // Only the search, adjust, profile and password handlers clear the other banner.
+  it('replaces the previous banner on each account action, so success and error never show together', async () => {
     render(<UserSupportPage />);
     await search();
     click('Send Verification');
@@ -284,7 +283,10 @@ describe('admin user support page', () => {
     h.suspendUserAction.mockResolvedValueOnce(fail('Already suspended'));
     click('Suspend');
     await failure('Already suspended');
-    expect(screen.getByText('Verification email sent to the user.')).toBeInTheDocument();
+    expect(screen.queryByText('Verification email sent to the user.')).toBeNull();
+    click('Send Verification');
+    await success('Verification email sent to the user.');
+    expect(screen.queryByText('Already suspended')).toBeNull();
   });
 
   it('sends a notification, optionally by email', async () => {

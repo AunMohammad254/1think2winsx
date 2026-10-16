@@ -149,6 +149,17 @@ describe('runScheduledJobs', () => {
     expect(loggerLog).toHaveBeenCalledWith('[Jobs] Paused 0 expired quizzes.');
   });
 
+  it('treats missing rows as nothing to do', async () => {
+    world({ Quiz: { data: null }, WalletTransaction: { data: null } });
+    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [] });
+  });
+
+  it('broadcasts a scheduled notification that has no link', async () => {
+    world({ ScheduledNotification: (call) => (isClaim(call) ? { data: [{ id: 'n' }] } : { data: [{ id: 'n', targetType: 'all', title: 't', message: 'm', type: 'info', link: null }] }) });
+    await runScheduledJobs();
+    expect(createBroadcast).toHaveBeenCalledWith({ title: 't', message: 'm', type: 'info', link: undefined });
+  });
+
   it('dispatches due scheduled notifications exactly once, to one user or everyone', async () => {
     world({
       ScheduledNotification: (call) => {

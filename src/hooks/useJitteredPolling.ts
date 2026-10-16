@@ -57,9 +57,9 @@ export function useJitteredPolling(
       timer = setTimeout(run, ms);
     };
 
+    // Only fires from a timer that stop() and going hidden both clear
     const run = async () => {
       timer = null;
-      if (stopped || document.hidden) return;
       lastRunAt = Date.now();
       try {
         const result = await taskRef.current();
@@ -71,7 +71,6 @@ export function useJitteredPolling(
     };
 
     const onVisibility = () => {
-      if (stopped) return;
       if (document.hidden) {
         clear();
         return;

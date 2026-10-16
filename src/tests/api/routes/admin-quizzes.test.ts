@@ -147,6 +147,13 @@ describe('GET /api/admin/quizzes/[id]', () => {
     expect(recordSecurityEvent).toHaveBeenCalledWith('ADMIN_QUIZ_VIEWED', expect.anything(), 'admin-1', { quizId: 'quiz-1', title: 'T' });
   });
 
+  it('treats a missing completed-attempt count as none', async () => {
+    adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
+    adminDb.setTable('QuizAttempt', (call) => (isHead(call) ? { count: eqValue(call, 'isCompleted') ? null : 2 } : { data: [] }));
+    const { quiz } = await (await get()).json();
+    expect(quiz.stats).toMatchObject({ totalAttempts: 2, completedAttempts: 0, completionRate: 0 });
+  });
+
   it('handles a quiz with no attempts and an object user join', async () => {
     adminDb.setTable('Quiz', { data: { id: 'quiz-1' } });
     adminDb.setTable('QuizAttempt', (call) => (call.ops.find((o) => o.op === 'order')?.args[0] === 'score' ? { data: [{ score: 9, User: { name: 'Solo' } }] } : { data: null, count: null }));

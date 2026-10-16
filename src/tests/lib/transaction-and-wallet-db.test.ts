@@ -174,6 +174,10 @@ describe('TransactionManager', () => {
     expect(logSecurityEvent.mock.calls[1][0].endpoint).toBe('critical_payout');
 
     logSecurityEvent.mockClear();
+    await tm.executeCriticalTransaction(async () => 'ok', { context: 'payout', userId: '' });
+    expect(logSecurityEvent.mock.calls.at(-1)![0]).toMatchObject({ userId: 'system', details: { action: 'critical_transaction_success', amount: 0 } });
+
+    logSecurityEvent.mockClear();
     await expect(tm.executeCriticalTransaction(async () => { throw new Error('nope'); }, { context: 'payout', userId: '' })).rejects.toThrow(/nope/);
     const failure = logSecurityEvent.mock.calls.at(-1)![0];
     expect(failure).toMatchObject({ userId: 'system', details: { action: 'critical_transaction_failure', amount: 0 } });

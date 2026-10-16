@@ -118,16 +118,14 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     }, [removeQuestion, questionFields.length]);
 
     // Move question up/down
+    // Up is disabled on the first question and Down on the last
     const handleMoveQuestion = useCallback((index: number, direction: 'up' | 'down') => {
-        const newIndex = direction === 'up' ? index - 1 : index + 1;
-        if (newIndex >= 0 && newIndex < questionFields.length) {
-            moveQuestion(index, newIndex);
-        }
-    }, [moveQuestion, questionFields.length]);
+        moveQuestion(index, direction === 'up' ? index - 1 : index + 1);
+    }, [moveQuestion]);
 
     // Set correct answer for a question
     const setCorrectAnswer = useCallback((questionIndex: number, optionIndex: number) => {
-        const currentOptions = watchedQuestions[questionIndex]?.options || [];
+        const currentOptions = watchedQuestions[questionIndex].options;
         const updatedOptions = currentOptions.map((opt, idx) => ({
             ...opt,
             isCorrect: idx === optionIndex,
@@ -137,28 +135,29 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
     }, [watchedQuestions, setValue]);
 
     // Add option to a question
+    // The Add Option button is hidden once a question has 6 options
     const addOption = useCallback((questionIndex: number) => {
-        const currentOptions = watchedQuestions[questionIndex]?.options || [];
-        if (currentOptions.length < 6) {
-            setValue(`questions.${questionIndex}.options`, [
-                ...currentOptions,
-                { text: '', isCorrect: false },
-            ], { shouldDirty: true });
-        } else {
-            toast.error('Maximum 6 options allowed per question');
-        }
+        const currentOptions = watchedQuestions[questionIndex].options;
+        setValue(`questions.${questionIndex}.options`, [
+            ...currentOptions,
+            { text: '', isCorrect: false },
+        ], { shouldDirty: true });
     }, [watchedQuestions, setValue]);
 
     // Remove option from a question
     const removeOption = useCallback((questionIndex: number, optionIndex: number) => {
-        const currentOptions = watchedQuestions[questionIndex]?.options || [];
+        const currentOptions = watchedQuestions[questionIndex].options;
         if (currentOptions.length > 2) {
             const updatedOptions = currentOptions.filter((_, idx) => idx !== optionIndex);
-            // If we removed the correct answer, clear the correct answer
-            if (currentOptions[optionIndex]?.isCorrect) {
-                updatedOptions.forEach(opt => opt.isCorrect = false);
-            }
             setValue(`questions.${questionIndex}.options`, updatedOptions, { shouldDirty: true });
+            // Keep correctOption pointing at the same answer: clear it if that answer was removed,
+            // and shift it down when an option before it was removed
+            const correct = watchedQuestions[questionIndex].correctOption;
+            if (correct === optionIndex) {
+                setValue(`questions.${questionIndex}.correctOption`, null, { shouldDirty: true });
+            } else if (correct != null && correct > optionIndex) {
+                setValue(`questions.${questionIndex}.correctOption`, correct - 1, { shouldDirty: true });
+            }
         } else {
             toast.error('Minimum 2 options required');
         }
@@ -535,10 +534,6 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                     </button>
                 </div>
 
-                {errors.questions?.message && (
-                    <p className="text-sm text-red-400">{errors.questions.message}</p>
-                )}
-
                 {/* Question Cards */}
                 {questionFields.map((field, questionIndex) => {
                     const isExpanded = expandedQuestions.includes(questionIndex);
@@ -686,11 +681,12 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                                             </button>
                                         )}
 
+                                        {questionErrors?.correctOption?.message && (
+                                            <p className="mt-2 text-sm text-red-400">{questionErrors.correctOption.message}</p>
+                                        )}
                                         {questionErrors?.options && (
                                             <p className="mt-2 text-sm text-red-400">
-                                                {typeof questionErrors.options === 'string'
-                                                    ? questionErrors.options
-                                                    : questionErrors.options.message}
+                                                {questionErrors.options.message ?? 'Every option needs text'}
                                             </p>
                                         )}
                                     </div>
@@ -708,7 +704,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                     <ul className="list-disc list-inside text-sm text-red-300">
                         {Object.entries(errors).map(([key, error]: any) => (
                             <li key={key}>
-                                {key}: {error?.message || (Array.isArray(error) ? 'Errors in list' : JSON.stringify(error))}
+                                {key}: {error.message || 'Errors in list' /* only the questions array has no message of its own */}
                             </li>
                         ))}
                     </ul>

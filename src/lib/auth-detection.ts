@@ -48,12 +48,10 @@ export function decodeAmr(accessToken: string | null | undefined): AmrEntry[] {
         const payload = accessToken.split('.')[1];
         if (!payload) return [];
         const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-        const json =
-            typeof atob === 'function'
-                ? decodeURIComponent(
-                      Array.from(atob(base64), (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-                  )
-                : Buffer.from(base64, 'base64').toString('utf8');
+        // atob exists in browsers and in Node 16+
+        const json = decodeURIComponent(
+            Array.from(atob(base64), (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+        );
         const amr = JSON.parse(json)?.amr;
         return Array.isArray(amr) ? (amr as AmrEntry[]).filter((e) => e && typeof e.method === 'string') : [];
     } catch {
@@ -118,7 +116,7 @@ export function detectAuth(user: UserLike | null | undefined, amr: AmrEntry[] = 
               : currentMethod === 'email_link'
                 ? 'Email link sign-in'
                 : currentMethod === 'other_oauth'
-                  ? `${providerLabel(oauthProvider || linkedProviders[0] || 'social')} sign-in`
+                  ? `${providerLabel(oauthProvider!)} sign-in` // other_oauth is only ever set together with a provider
                   : 'Signed in';
 
     return { currentMethod, label, verifiedGoogle, emailVerified, hasPassword, linkedProviders };

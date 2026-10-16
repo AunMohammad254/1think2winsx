@@ -94,11 +94,9 @@ describe('QuizFormBuilder: creating', () => {
     type('Option 1', 'Pakistan');
     type('Option 2', 'England');
     submit();
-    // The schema's "Correct option must be selected" message (questions.N.correctOption) is
-    // never rendered: the admin only sees a "Has errors" badge and "questions: Errors in list".
-    expect(await screen.findByText('Has errors')).toBeInTheDocument();
+    expect(await screen.findByText('Correct option must be selected for normal quizzes')).toBeInTheDocument();
+    expect(screen.getByText('Has errors')).toBeInTheDocument();
     expect(screen.getByText(/questions: Errors in list/)).toBeInTheDocument();
-    expect(screen.queryByText(/Correct option must be selected/)).toBeNull();
     expect(h.createQuiz).not.toHaveBeenCalled();
   });
 
@@ -116,9 +114,7 @@ describe('QuizFormBuilder: creating', () => {
     expect(screen.getByText('Click the check to mark correct answer')).toBeInTheDocument();
   });
 
-  it('KNOWN BUG: removing the option marked correct still saves, with no correct answer', async () => {
-    // removeOption clears the isCorrect flags but leaves correctOption pointing at the old index,
-    // so the "correct option must be selected" check passes.
+  it('asks for a new correct answer after the marked option is removed', async () => {
     render(<QuizFormBuilder />);
     type('Enter quiz title', 'Cricket Cup');
     type('Enter your question', 'Who won the 1992 World Cup?');
@@ -129,10 +125,34 @@ describe('QuizFormBuilder: creating', () => {
     fireEvent.click(correctBtn(3));
     fireEvent.click(removeOptionBtn(3));
     submit();
+    expect(await screen.findByText('Correct option must be selected for normal quizzes')).toBeInTheDocument();
+    expect(h.createQuiz).not.toHaveBeenCalled();
+  });
+
+  it('keeps the correct answer when an option before it is removed', async () => {
+    render(<QuizFormBuilder />);
+    type('Enter quiz title', 'Cricket Cup');
+    type('Enter your question', 'Who won the 1992 World Cup?');
+    type('Option 1', 'England');
+    type('Option 2', 'India');
+    type('Option 3', 'Pakistan');
+    type('Option 4', 'Australia');
+    fireEvent.click(correctBtn(3));
+    fireEvent.click(removeOptionBtn(1));
+    submit();
     await waitFor(() => expect(h.createQuiz).toHaveBeenCalled());
     const q = h.createQuiz.mock.calls[0][0].questions[0];
-    expect(q.correctOption).toBe(2);
-    expect(q.options.some((o: { isCorrect: boolean }) => o.isCorrect)).toBe(false);
+    expect(q.options.map((o: { text: string }) => o.text)).toEqual(['India', 'Pakistan', 'Australia']);
+    expect(q.correctOption).toBe(1);
+  });
+
+  it('says which option is missing its text', async () => {
+    render(<QuizFormBuilder />);
+    type('Enter quiz title', 'Cricket Cup');
+    fillValidQuestion();
+    type('Option 2', '');
+    submit();
+    expect(await screen.findByText('Every option needs text')).toBeInTheDocument();
   });
 
   it('schedules a quiz with a start time, converted to UTC', async () => {
@@ -251,6 +271,28 @@ describe('QuizFormBuilder: questions and options', () => {
     const header = (n: number) => screen.getByText(`Question ${n}`).parentElement!.parentElement as HTMLElement;
     fireEvent.click(within(header(1)).getAllByRole('button')[2]);
     expect(screen.getAllByPlaceholderText('Enter your question')).toHaveLength(2);
+  });
+
+  it('removing a later question keeps an earlier one expanded', () => {
+    render(<QuizFormBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: /Add Question/ }));
+    const header = (n: number) => screen.getByText(`Question ${n}`).parentElement!.parentElement as HTMLElement;
+    fireEvent.click(within(header(2)).getAllByRole('button')[2]);
+    expect(screen.getAllByPlaceholderText('Enter your question')).toHaveLength(1);
+  });
+
+  it('shows range errors for the time-up, passing score and price fields', async () => {
+    render(<QuizFormBuilder />);
+    type('Enter quiz title', 'Cricket Cup');
+    fillValidQuestion();
+    const field = (label: RegExp) => screen.getByText(label).parentElement!.querySelector('input')!;
+    fireEvent.change(field(/Display Duration/), { target: { value: '0' } });
+    fireEvent.change(field(/Passing Score/), { target: { value: '101' } });
+    fireEvent.change(screen.getByPlaceholderText('2'), { target: { value: '5000' } });
+    submit();
+    expect(await screen.findByText('Time-up duration must be at least 1 minute')).toBeInTheDocument();
+    expect(screen.getByText('Passing score cannot exceed 100')).toBeInTheDocument();
+    expect(screen.getByText('Access price cannot exceed 1000 PKR')).toBeInTheDocument();
   });
 
   it('adds options up to six and keeps at least two', () => {

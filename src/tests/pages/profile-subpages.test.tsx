@@ -107,9 +107,13 @@ describe('wallet page', () => {
     h.wallet.getTransactionHistory.mockResolvedValue({ success: true, transactions: [tx('1', {}), tx('2', { amount: -2, paymentMethod: 'QuizAccess' }), tx('3', { status: 'approved' })] });
   });
 
-  it('sends signed-out visitors to login', () => {
+  it('waits for auth, then sends signed-out visitors to login', () => {
+    h.auth = { user: null, isLoading: true };
+    const { rerender } = render(<WalletPage />);
+    expect(h.router.push).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
     h.auth = { user: null, isLoading: false };
-    render(<WalletPage />);
+    rerender(<WalletPage />);
     expect(h.router.push).toHaveBeenCalledWith('/login');
   });
 

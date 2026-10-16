@@ -1,3 +1,4 @@
+/* v8 ignore next -- an import line has no logic; Vitest's rewrite of it reports a phantom branch */
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { getDb, getAdminDb, quizDb, dailyPaymentDb } from '@/lib/supabase/db';
@@ -113,7 +114,8 @@ export const GET = withLoadShed(async function GET(request: NextRequest) {
           pushStatus = 'answered';
         } else if (quiz.status === 'paused') {
           pushStatus = 'time-up';
-        } else if (quiz.status === 'active') {
+        } else {
+          // The catalog only holds active, upcoming and paused quizzes
           pushStatus = 'unanswered';
         }
       }

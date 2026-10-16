@@ -31,9 +31,9 @@ export default function AdminNewsletterPage() {
   const [sendSuccess, setSendSuccess] = useState(false);
 
   // Fetch subscribers list
-  const fetchSubscribers = useCallback(async (silent = false) => {
+  const fetchSubscribers = useCallback(async () => {
     try {
-      if (!silent) setLoadingSubscribers(true);
+      setLoadingSubscribers(true);
       const csrfHeaders = await getCSRFHeaders();
       const response = await fetch('/api/admin/newsletter/subscribers', {
         headers: {
@@ -55,7 +55,7 @@ export default function AdminNewsletterPage() {
       console.error('Error loading subscribers:', error);
       toast.error('Failed to load subscribers list');
     } finally {
-      if (!silent) setLoadingSubscribers(false);
+      setLoadingSubscribers(false);
     }
   }, []);
 

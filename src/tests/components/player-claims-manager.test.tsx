@@ -170,13 +170,19 @@ describe('PlayerClaimsManager', () => {
     expect(screen.queryByText('Claim Details')).toBeNull();
   });
 
-  it('KNOWN BUG: the status tiles count only the loaded, filtered page', async () => {
-    // With the default "pending" filter the API returns only pending claims, so every
-    // other tile shows 0 regardless of how many approved/fulfilled claims exist.
-    fetchMock.mockImplementation(async () => listResponse([claims[0]]));
+  it('shows the status totals from the API, not counts of the loaded, filtered page', async () => {
+    const statusCounts = { pending: 12, approved: 34, fulfilled: 56, rejected: 78 };
+    fetchMock.mockImplementation(async () => jsonResponse({ claims: [claims[0]], pagination: { page: 1, limit: 20, total: 12, totalPages: 1 }, statusCounts }));
     render(<PlayerClaimsManager />);
     await screen.findByText('Watch');
     const tile = (label: string) => screen.getAllByText(label)[0].closest('button')!.textContent;
-    expect(tile('Approved')).toContain('0');
+    await waitFor(() => expect(tile('Approved')).toContain('34'));
+    expect([tile('Pending Review'), tile('Fulfilled'), tile('Rejected')]).toEqual([expect.stringContaining('12'), expect.stringContaining('56'), expect.stringContaining('78')]);
+
+    // A response without totals (the server could not count) keeps the last known ones
+    fetchMock.mockImplementation(async () => listResponse([claims[1]]));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'approved' } });
+    await screen.findByText('Phone');
+    expect(tile('Approved')).toContain('34');
   });
 });
