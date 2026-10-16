@@ -343,7 +343,7 @@ describe('GET /api/quizzes/[id]', () => {
 
     const res = await open();
     expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ completed: true, attempt: { id: 'att-1', score: 80 } });
+    expect(await res.json()).toMatchObject({ completed: true, totalQuestions: 2, attempt: { id: 'att-1', score: 80 } });
   });
 
   it("does not reveal an upcoming quiz's questions", async () => {
