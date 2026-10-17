@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { registerAction, getGoogleOAuthUrl } from '@/actions/auth-actions';
 import DatePicker from '@/components/ui/DatePicker';
+import TurnstileWidget, { type TurnstileHandle } from './TurnstileWidget';
 
 const registerSchema = z
     .object({
@@ -72,6 +73,9 @@ export default function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    // Supabase requires a Turnstile token to sign up
+    const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+    const captchaRef = useRef<TurnstileHandle>(null);
 
     const {
         register,
@@ -120,6 +124,8 @@ export default function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
                 password: data.password,
                 phone: data.phone || undefined,
                 dateOfBirth: data.dateOfBirth || undefined,
+                // Create Account stays disabled until the check has produced a token
+                captchaToken: captchaToken!,
             });
 
             if (!result.success) {
@@ -134,6 +140,8 @@ export default function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
             setError('An error occurred during registration');
         } finally {
             setIsSubmitting(false);
+            // The token has been used: start a fresh check for a retry
+            captchaRef.current?.reset();
         }
     };
 
@@ -348,10 +356,12 @@ export default function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
                     </p>
                 )}
 
+                <TurnstileWidget ref={captchaRef} action="signup" onToken={setCaptchaToken} />
+
                 {/* Submit Button */}
                 <motion.button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !captchaToken}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     className="w-full py-3.5 px-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold rounded-xl shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2"

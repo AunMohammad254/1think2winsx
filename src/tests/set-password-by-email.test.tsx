@@ -5,11 +5,14 @@ const requestPasswordSetupEmail = vi.fn();
 vi.mock('@/actions/password-setup-actions', () => ({
     requestPasswordSetupEmail: (...a: unknown[]) => requestPasswordSetupEmail(...a),
 }));
+vi.mock('@/components/auth/TurnstileWidget', async () => ({ default: (await import('@/tests/helpers/turnstile-mock')).TurnstileMock }));
 
 import SetPasswordByEmail from '@/components/profile/SetPasswordByEmail';
+import { turnstile, resetTurnstileMock } from '@/tests/helpers/turnstile-mock';
 
 beforeEach(() => {
     vi.clearAllMocks();
+    resetTurnstileMock();
 });
 
 describe('<SetPasswordByEmail /> (Google-only accounts)', () => {
@@ -36,6 +39,7 @@ describe('<SetPasswordByEmail /> (Google-only accounts)', () => {
 
         await waitFor(() => expect(screen.getByText('fan@example.com')).toBeTruthy());
         expect(requestPasswordSetupEmail).toHaveBeenCalledTimes(1);
+        expect(requestPasswordSetupEmail).toHaveBeenCalledWith('captcha-token');
         expect(screen.queryByRole('button', { name: /email me a link/i })).toBeNull(); // no double-send
     });
 
@@ -47,5 +51,21 @@ describe('<SetPasswordByEmail /> (Google-only accounts)', () => {
 
         await waitFor(() => expect(screen.getByText(/couldn't send the email/i)).toBeTruthy());
         expect(screen.getByRole('button', { name: /email me a link/i })).toBeTruthy(); // can retry
+        expect(turnstile.resets).toBe(1); // with a fresh token
+    });
+
+    it('keeps the button disabled until the security check passes', () => {
+        turnstile.token = null;
+        render(<SetPasswordByEmail providerLabel="Google" />);
+        expect(screen.getByTestId('turnstile-password_setup')).toBeTruthy();
+        expect((screen.getByRole('button', { name: /email me a link/i }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('shows a thrown error and still replaces the used token', async () => {
+        requestPasswordSetupEmail.mockRejectedValue(new Error('network'));
+        render(<SetPasswordByEmail providerLabel="Google" />);
+        fireEvent.click(screen.getByRole('button', { name: /email me a link/i }));
+        await waitFor(() => expect(screen.getByText('An error occurred. Please try again.')).toBeTruthy());
+        expect(turnstile.resets).toBe(1);
     });
 });

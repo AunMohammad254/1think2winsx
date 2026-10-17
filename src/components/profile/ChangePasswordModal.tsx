@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import SetPasswordByEmail from './SetPasswordByEmail';
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget';
 import { passwordDialogTitle } from '@/lib/auth-detection';
 import { isOAuthOnlyUser, getUserAuthMethods, getProviderDisplayName, type AuthMethods } from '@/lib/auth-helpers';
 
@@ -60,6 +61,9 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [authMethods, setAuthMethods] = useState<AuthMethods | null>(null);
     const [isOAuthOnly, setIsOAuthOnly] = useState(false);
+    // Checking the current password is a Supabase sign-in, which needs a Turnstile token
+    const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+    const captchaRef = useRef<TurnstileHandle>(null);
     const {
         register,
         handleSubmit,
@@ -184,7 +188,9 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                 credentials: 'include',
                 body: JSON.stringify({
                     currentPassword: data.currentPassword,
-                    newPassword: data.newPassword
+                    newPassword: data.newPassword,
+                    // Change Password stays disabled until the check has produced a token
+                    captchaToken,
                 }),
             });
 
@@ -210,6 +216,8 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
             });
         } finally {
             setIsSubmitting(false);
+            // The token has been used: start a fresh check for a retry
+            captchaRef.current?.reset();
         }
     };
 
@@ -411,6 +419,8 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                                     )}
                                 </div>
 
+                                <TurnstileWidget ref={captchaRef} action="change_password" onToken={setCaptchaToken} />
+
                                 {/* Action Buttons */}
                                 <div className="flex gap-3 pt-4">
                                     <button
@@ -422,7 +432,7 @@ export default function ChangePasswordModal({ isOpen, onClose }: ChangePasswordM
                                     </button>
                                     <button
                                         type="submit"
-                                        disabled={isSubmitting}
+                                        disabled={isSubmitting || !captchaToken}
                                         className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl text-white font-semibold hover:from-blue-700 hover:to-blue-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                                     >
                                         {isSubmitting ? (

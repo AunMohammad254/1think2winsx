@@ -5,11 +5,14 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { siteUrl } from '@/lib/site-url';
 import { sendPasswordSetupEmail } from '@/lib/password-setup';
+import { CAPTCHA_FAILED_MESSAGE, CAPTCHA_REQUIRED_MESSAGE, isCaptchaError } from '@/lib/captcha';
 
 // Types for form data
 export interface LoginFormData {
     email: string;
     password: string;
+    /** Turnstile token from the form; Supabase checks it */
+    captchaToken: string;
 }
 
 export interface RegisterFormData {
@@ -18,6 +21,8 @@ export interface RegisterFormData {
     password: string;
     phone?: string;
     dateOfBirth?: string;
+    /** Turnstile token from the form; Supabase checks it */
+    captchaToken: string;
 }
 
 export interface AuthResult {
@@ -63,7 +68,8 @@ import { z } from 'zod';
 // Validation Schemas
 const LoginSchema = z.object({
     email: z.string().email(),
-    password: z.string().min(1)
+    password: z.string().min(1),
+    captchaToken: z.string().min(1),
 });
 
 // ... (keep existing interfaces)
@@ -75,7 +81,7 @@ export async function loginAction(formData: LoginFormData): Promise<AuthResult> 
     try {
         const validation = LoginSchema.safeParse(formData);
         if (!validation.success) {
-            return { success: false, error: 'Invalid input format' };
+            return { success: false, error: formData.captchaToken ? 'Invalid input format' : CAPTCHA_REQUIRED_MESSAGE };
         }
 
         const supabase = await createSupabaseClient();
@@ -83,10 +89,13 @@ export async function loginAction(formData: LoginFormData): Promise<AuthResult> 
         const { error } = await supabase.auth.signInWithPassword({
             email: formData.email,
             password: formData.password,
+            options: { captchaToken: formData.captchaToken },
         });
 
         if (error) {
-            if (error.message.includes('Invalid login credentials')) {
+            if (isCaptchaError(error)) {
+                return { success: false, error: CAPTCHA_FAILED_MESSAGE };
+            } else if (error.message.includes('Invalid login credentials')) {
                 return { success: false, error: 'Invalid email or password' };
             } else if (error.message.includes('Email not confirmed')) {
                 return { success: false, error: 'Please verify your email before logging in' };
@@ -106,6 +115,10 @@ export async function loginAction(formData: LoginFormData): Promise<AuthResult> 
  */
 export async function registerAction(formData: RegisterFormData): Promise<AuthResult> {
     try {
+        if (!formData.captchaToken) {
+            return { success: false, error: CAPTCHA_REQUIRED_MESSAGE };
+        }
+
         const supabase = await createSupabaseClient();
 
         // Get the origin for email redirect
@@ -121,11 +134,14 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
                     date_of_birth: formData.dateOfBirth || null,
                 },
                 emailRedirectTo: `${origin}/auth/callback?next=/quizzes`,
+                captchaToken: formData.captchaToken,
             },
         });
 
         if (signUpError) {
-            if (signUpError.message.includes('already registered')) {
+            if (isCaptchaError(signUpError)) {
+                return { success: false, error: CAPTCHA_FAILED_MESSAGE };
+            } else if (signUpError.message.includes('already registered')) {
                 return { success: false, error: 'This email is already registered. Please sign in instead.' };
             } else if (signUpError.message.includes('email') || signUpError.status === 500) {
                 console.error('[registerAction] Email error:', signUpError);
@@ -149,7 +165,11 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
                     '/register'
                 );
                 if (limit.success) {
-                    await sendPasswordSetupEmail(supabase, formData.email);
+                    // The sign-up above used up this request's Turnstile token, and Supabase wants a fresh
+                    // one for every reset email. The request has passed the check, so send with the
+                    // service-role client, which Supabase does not ask for a CAPTCHA.
+                    const { getAdminDb } = await import('@/lib/supabase/db');
+                    await sendPasswordSetupEmail(getAdminDb(), formData.email);
                 }
             } catch (err) {
                 console.error('[registerAction] Could not send the password setup email:', err);

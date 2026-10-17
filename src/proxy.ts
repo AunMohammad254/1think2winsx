@@ -17,14 +17,16 @@ const supabaseWs = supabaseUrl.replace(/^http/, 'ws');
 // 'unsafe-inline' for scripts is required because Next.js App Router injects inline
 // bootstrap scripts; a nonce-based CSP would force every page to render dynamically
 // (no static HTML / CDN caching), which is the wrong trade-off for a 50k-user site.
+// challenges.cloudflare.com serves the Turnstile check (a script and an iframe) on the auth forms.
+const TURNSTILE = 'https://challenges.cloudflare.com';
 const CSP = [
   "default-src 'self'",
-  isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'" : "script-src 'self' 'unsafe-inline'",
+  isDev ? `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${TURNSTILE}` : `script-src 'self' 'unsafe-inline' ${TURNSTILE}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   `connect-src 'self' ${supabaseUrl} ${supabaseWs} https://accounts.google.com`,
-  "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.facebook.com https://player.twitch.tv https://player.cloudinary.com",
+  `frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.facebook.com https://player.twitch.tv https://player.cloudinary.com ${TURNSTILE}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

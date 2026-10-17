@@ -151,19 +151,18 @@ describe('an older Google account (password set before the flag existed) signed 
 describe('PUT /api/profile/change-password for a Google account that has a password', () => {
     it('runs the normal change flow (verifies the current password) and does NOT send a set-password email', async () => {
         h.auth.getUser.mockResolvedValue({ data: { user: googleWithPassword }, error: null });
-        h.auth.signInWithPassword
-            .mockResolvedValueOnce({ error: null }) // current password is right
-            .mockResolvedValueOnce({ error: { message: 'invalid' } }); // new one differs from current
+        h.auth.signInWithPassword.mockResolvedValueOnce({ error: null }); // current password is right
 
         const res = await changePassword(
             new NextRequest('http://localhost/api/profile/change-password', {
                 method: 'PUT',
-                body: JSON.stringify({ currentPassword: 'Old!Passw0rd1', newPassword: 'New!Passw0rd2' }),
+                body: JSON.stringify({ currentPassword: 'Old!Passw0rd1', newPassword: 'New!Passw0rd2', captchaToken: 'tok' }),
                 headers: { 'content-type': 'application/json' },
             })
         );
 
         expect(res.status).toBe(200);
+        expect(h.auth.signInWithPassword).toHaveBeenCalledTimes(1);
         expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
         expect(h.auth.updateUser).toHaveBeenCalledWith({ password: 'New!Passw0rd2' });
     });

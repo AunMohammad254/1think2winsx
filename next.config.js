@@ -10,6 +10,11 @@ const nextConfig = {
 
   // Security configurations
   poweredByHeader: false, // Remove X-Powered-By header
+  // `next dev` prints every Server Action call with its arguments, which put sign-in passwords in
+  // the terminal. Production never logs them; this stops it in development too.
+  logging: {
+    serverFunctions: false,
+  },
 
   // Compression
   compress: true,
