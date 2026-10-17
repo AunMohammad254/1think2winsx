@@ -47,6 +47,7 @@ vi.mock('@/lib/quiz-cache', () => ({ quizListCache: { clear: (...a: unknown[]) =
 
 const listRoute = await import('@/app/api/quizzes/route');
 const liveRoute = await import('@/app/api/live/route');
+const sharedQuizRoute = await import('@/app/api/live/quizzes/[id]/route');
 const detailRoute = await import('@/app/api/quizzes/[id]/route');
 const resultsRoute = await import('@/app/api/quizzes/[id]/results/route');
 
@@ -253,6 +254,70 @@ describe('GET /api/live', () => {
   it('answers an uncached 503 when the catalogue cannot be loaded, so pollers back off', async () => {
     getActiveQuizCatalog.mockRejectedValue(new Error('db down'));
     const res = await liveRoute.GET();
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(res.headers.get('Retry-After')).toBe('5');
+    expect(console.error).toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/live/quizzes/[id]', () => {
+  const openShared = (id = 'quiz-1') => sharedQuizRoute.GET(makeRequest(`/api/live/quizzes/${id}`), routeParams({ id }));
+  beforeEach(() => isWalletEnabled.mockResolvedValue(false));
+
+  it('serves every question to anyone while quizzes are free, cacheable for 10 s at the edge', async () => {
+    const pushedAt = iso(-60_000);
+    getCatalogQuiz.mockResolvedValue(catalogQuiz({
+      pushedAt,
+      questions: [{ id: 'q1', text: 'Who wins the toss?', options: ['A', 'B'], correctOption: 1 }],
+    }));
+
+    const res = await openShared();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=10, stale-while-revalidate=10');
+    expect(getCatalogQuiz).toHaveBeenCalledWith('quiz-1');
+    // The personal route's first-attempt shape, minus its clock
+    expect(body).toEqual({
+      quiz: {
+        id: 'quiz-1', title: 'Cricket night', description: 'Predict the match', duration: 10, pushedAt,
+        endsAt: new Date(new Date(pushedAt).getTime() + 10 * 60_000).toISOString(), passingScore: 70,
+        questionCount: 1, totalQuestions: 1, questions: [{ id: 'q1', text: 'Who wins the toss?', options: ['A', 'B'] }],
+        isReattempt: false, newQuestionsCount: 0, previousAttempt: null,
+      },
+    });
+    // Nothing per player: no sign-in, no attempt lookups
+    expect(requireAuth).not.toHaveBeenCalled();
+    expect(findAttempt).not.toHaveBeenCalled();
+  });
+
+  it('refuses while the wallet is on, so the page asks the personal route', async () => {
+    isWalletEnabled.mockResolvedValue(true);
+    getCatalogQuiz.mockResolvedValue(catalogQuiz());
+    const res = await openShared();
+    expect(res.status).toBe(403);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(await res.json()).toMatchObject({ personal: true });
+  });
+
+  it("answers a missing quiz with 404 and an upcoming one with its start time, neither cached", async () => {
+    getCatalogQuiz.mockResolvedValue(undefined);
+    const missing = await openShared('ghost');
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('Cache-Control')).toBe('no-store');
+
+    const startsAt = iso(HOUR);
+    getCatalogQuiz.mockResolvedValue(catalogQuiz({ status: 'upcoming', startsAt }));
+    const upcoming = await openShared();
+    expect(upcoming.status).toBe(409);
+    expect(upcoming.headers.get('Cache-Control')).toBe('no-store');
+    expect(await upcoming.json()).toEqual({ error: "This quiz hasn't started yet.", upcoming: true, startsAt });
+  });
+
+  it('answers an uncached 503 when the catalogue cannot be loaded', async () => {
+    getCatalogQuiz.mockRejectedValue(new Error('db down'));
+    const res = await openShared();
     expect(res.status).toBe(503);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expect(res.headers.get('Retry-After')).toBe('5');

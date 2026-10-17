@@ -33,6 +33,11 @@ export interface LiveQuizPushHandle {
 interface LiveQuizPushProps {
     /** Fires after a successful submit, so the parent can refresh badges/lists. */
     onAnswered?: () => void;
+    /**
+     * True when this quiz may load from the shared copy Cloudflare caches (/api/live/quizzes/[id])
+     * instead of the personal route: quizzes are free and the viewer has not answered this one.
+     */
+    canUseSharedCopy?: (quizId: string) => boolean;
 }
 
 type View = 'hidden' | 'toast' | 'popup' | 'split';
@@ -49,7 +54,7 @@ type View = 'hidden' | 'toast' | 'popup' | 'split';
  * by its parent between open/close - only hidden - so closing (including
  * from split view) can never lose what the viewer already answered.
  */
-const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function LiveQuizPush({ onAnswered }, ref) {
+const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function LiveQuizPush({ onAnswered, canUseSharedCopy }, ref) {
     const [view, setView] = useState<View>('hidden');
     const [pending, setPending] = useState<{ id: string; title: string } | null>(null);
     const [quiz, setQuiz] = useState<PushedQuizData | null>(null);
@@ -65,9 +70,16 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     // bell) without losing what the viewer already picked.
     const loadQuiz = useCallback(async (quizId: string) => {
         try {
+            let res: Response | null = null;
+            if (canUseSharedCopy?.(quizId)) {
+                // One cached copy serves everyone who opens the quiz at once. Anything but the copy or
+                // "not started yet" (a refusal, an error, no network) falls back to the personal route.
+                const shared = await fetch(`/api/live/quizzes/${quizId}`, { credentials: 'omit' }).catch(() => null);
+                if (shared && (shared.ok || shared.status === 409)) res = shared;
+            }
             // When thousands of players open the quiz at once the server may shed load with a
             // 503 + Retry-After; retry with jittered backoff instead of showing an error.
-            const res = await fetchWithRetry(`/api/quizzes/${quizId}`, undefined, { retries: 3 });
+            res ??= await fetchWithRetry(`/api/quizzes/${quizId}`, undefined, { retries: 3 });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 if (data.upcoming && data.startsAt) {
@@ -85,7 +97,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         } catch (err) {
             setLoadError(err instanceof Error ? err.message : 'Failed to load quiz');
         }
-    }, []);
+    }, [canUseSharedCopy]);
 
     // Exposed to the parent via a ref-like callback prop pattern (see below).
     const notify = useCallback((quizId: string, quizTitle: string) => {

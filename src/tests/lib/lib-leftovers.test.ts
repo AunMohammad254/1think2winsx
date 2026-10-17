@@ -427,6 +427,38 @@ describe('quiz catalogue', () => {
     expect(adminDb.callsTo('Quiz')).toHaveLength(4);
   });
 
+  it('answers from a stale catalogue at once while one background load refreshes it, and waits once it is too old', async () => {
+    const t0 = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(t0);
+    try {
+      adminDb.setTable('Quiz', { data: [{ id: 'v1', status: 'upcoming' }] });
+      adminDb.setTable('Question', { data: [] });
+      await cat.getActiveQuizCatalog();
+      expect(adminDb.callsTo('Quiz')).toHaveLength(1);
+
+      // Stale: both callers get the previous catalogue without waiting, and only one refresh starts
+      adminDb.setTable('Quiz', { data: [{ id: 'v2', status: 'upcoming' }] });
+      clock.mockReturnValue(t0 + 16_000);
+      const [a, b] = await Promise.all([cat.getActiveQuizCatalog(), cat.getActiveQuizCatalog()]);
+      expect([a[0].id, b[0].id]).toEqual(['v1', 'v1']);
+      await vi.waitFor(() => expect(adminDb.callsTo('Quiz')).toHaveLength(2));
+      await vi.waitFor(async () => expect((await cat.getActiveQuizCatalog())[0].id).toBe('v2'));
+
+      // A failed background refresh keeps serving the previous catalogue, and says so
+      adminDb.setTable('Quiz', { error: { message: 'down' } });
+      clock.mockReturnValue(t0 + 40_000);
+      expect((await cat.getActiveQuizCatalog())[0].id).toBe('v2');
+      await vi.waitFor(() =>
+        expect(console.error).toHaveBeenCalledWith('[QuizCatalog] Background refresh failed, serving the previous catalogue:', expect.anything()));
+
+      // Too old to serve: the caller waits for the database again (and gets its error)
+      clock.mockReturnValue(t0 + 16_000 + 5 * 60_000 + 1);
+      await expect(cat.getActiveQuizCatalog()).rejects.toBeDefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('activates due quizzes first and announces them without waiting', async () => {
     adminDb.setTable('Quiz', { data: [] });
     activateDueQuizzes.mockResolvedValue({ activated: [{ id: 'q1', title: 'T' }], nextDueAt: null });

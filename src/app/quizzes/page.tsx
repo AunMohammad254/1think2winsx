@@ -104,6 +104,15 @@ function QuizzesPageInner() {
       pendingOpenQuizRef.current = null;
     }
   }, []);
+  // Opening a quiz can use the copy Cloudflare caches for everyone instead of one signed-in request
+  // per player, but only while quizzes are free (the server knows nothing of this player there) and
+  // for a quiz they have not answered: that copy has every question, a re-attempt only the new ones.
+  const walletEnabledRef = useRef<boolean | null>(null);
+  const canUseSharedCopy = useCallback((quizId: string) => {
+    if (walletEnabledRef.current !== false) return false;
+    const quiz = quizzesRef.current.find(q => q.id === quizId);
+    return !!quiz && quiz.status !== 'upcoming' && !quiz.isCompleted;
+  }, []);
   // Last pushedAt we've already reacted to, per quiz - so re-fetches or
   // unrelated edits to an already-pushed quiz don't re-fire the toast.
   const seenPushedAtRef = useRef<Map<string, string | null>>(new Map());
@@ -149,7 +158,10 @@ function QuizzesPageInner() {
       setPaymentInfo(data.paymentInfo);
       setError(data.accessError || null);
       // The list response carries the wallet flag, so no separate /api/settings/wallet-enabled call
-      if (typeof data.walletEnabled === 'boolean') setWalletEnabled(data.walletEnabled);
+      if (typeof data.walletEnabled === 'boolean') {
+        walletEnabledRef.current = data.walletEnabled;
+        setWalletEnabled(data.walletEnabled);
+      }
       ok = true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load quizzes');
@@ -495,7 +507,7 @@ function QuizzesPageInner() {
                   </Suspense>
                 </div>
               </div>
-              <LiveQuizPush ref={attachLiveQuizPush} onAnswered={() => fetchQuizzesData(true)} />
+              <LiveQuizPush ref={attachLiveQuizPush} onAnswered={() => fetchQuizzesData(true)} canUseSharedCopy={canUseSharedCopy} />
             </div>
           </div>
         </div>

@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   // Keyed by interval: the slow personal poll and the 5 s live check
   polls: {} as Record<number, Poll>,
   push: { notify: vi.fn(), open: vi.fn() },
+  // Latest props the page gave LiveQuizPush
+  liveProps: null as null | { canUseSharedCopy?: (quizId: string) => boolean },
   loader: null as null | (() => Promise<unknown>),
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
   wallet: { getWalletBalanceForDeduction: vi.fn(), deductWalletForQuizAccess: vi.fn(), getQuizAccessPrice: vi.fn() },
@@ -40,8 +42,9 @@ vi.mock('next/dynamic', async () => {
   return {
     default: (loader: () => Promise<unknown>) => {
       h.loader = loader;
-      return React.forwardRef(function LiveQuizPushStub(props: { onAnswered?: () => void }, ref) {
+      return React.forwardRef(function LiveQuizPushStub(props: { onAnswered?: () => void; canUseSharedCopy?: (quizId: string) => boolean }, ref) {
         React.useImperativeHandle(ref, () => h.push);
+        h.liveProps = props;
         return React.createElement('button', { onClick: props.onAnswered }, 'answered live quiz');
       });
     },
@@ -434,5 +437,24 @@ describe('quizzes page: live updates', () => {
     h.fetchWithRetry.mockImplementation(async () => ok({ walletEnabled: undefined }));
     render(<QuizzesPage />);
     expect(await within(document.body).findByText('Cricket Classics')).toBeInTheDocument();
+  });
+});
+
+describe('quizzes page: shared quiz copy', () => {
+  const allowed = (quizId: string) => h.liveProps!.canUseSharedCopy!(quizId);
+
+  it('lets a quiz open from the cached copy only while quizzes are free, and only if the player has not answered it', async () => {
+    h.fetchWithRetry.mockImplementation(async () => ok({ walletEnabled: false }));
+    render(<QuizzesPage />);
+    await loaded();
+    expect(allowed('a')).toBe(true);
+    expect(allowed('b')).toBe(false); // answered: a re-attempt only gets the new questions
+    expect(allowed('d')).toBe(false); // not started yet
+    expect(allowed('zz')).toBe(false); // not in the list, e.g. an old deep link
+
+    // The wallet came on: back to the personal route, which checks the day pass
+    h.fetchWithRetry.mockImplementation(async () => ok({ walletEnabled: true }));
+    await act(() => h.polls[300_000].task());
+    expect(allowed('a')).toBe(false);
   });
 });

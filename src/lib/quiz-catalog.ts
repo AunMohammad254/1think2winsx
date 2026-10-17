@@ -32,6 +32,9 @@ export interface CatalogQuiz {
 }
 
 const TTL_MS = 15_000;
+// After the TTL the previous catalogue keeps being served (and refreshed in the background) for up to
+// this long; only beyond it, or before the first load, do callers wait for the database
+const STALE_MAX_MS = 5 * 60_000;
 // `nextDueAt`: start time of the next scheduled/upcoming quiz. The cache is dropped at
 // that moment so a quiz going live is never held back by the TTL.
 let cache: { at: number; data: CatalogQuiz[]; nextDueAt: number | null } | null = null;
@@ -128,17 +131,31 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
   }));
 }
 
-export async function getActiveQuizCatalog(): Promise<CatalogQuiz[]> {
-  const now = Date.now();
-  if (cache && now - cache.at < TTL_MS && (cache.nextDueAt === null || now < cache.nextDueAt)) {
-    return cache.data;
-  }
+function refresh(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }> {
   if (!inflight) {
     inflight = load()
       .then((result) => { cache = { at: Date.now(), ...result }; return result; })
       .finally(() => { inflight = null; });
   }
-  return (await inflight).data;
+  return inflight;
+}
+
+export async function getActiveQuizCatalog(): Promise<CatalogQuiz[]> {
+  const now = Date.now();
+  if (cache && (cache.nextDueAt === null || now < cache.nextDueAt)) {
+    if (now - cache.at < TTL_MS) return cache.data;
+    // Stale: answer from it at once and refresh in the background. A refresh is several sequential
+    // round trips to the database (Hostinger in Paris, Supabase in Tokyo), and every request that
+    // arrived meanwhile used to wait for it: a 1-2 s stall every 15 s. A quiz whose start time has
+    // come (`nextDueAt`) still waits, so it goes live on time.
+    if (now - cache.at < STALE_MAX_MS) {
+      if (!inflight) {
+        refresh().catch((err) => console.error('[QuizCatalog] Background refresh failed, serving the previous catalogue:', err));
+      }
+      return cache.data;
+    }
+  }
+  return (await refresh()).data;
 }
 
 export async function getCatalogQuiz(quizId: string): Promise<CatalogQuiz | undefined> {
