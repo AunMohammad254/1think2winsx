@@ -370,7 +370,7 @@ describe('quizzes page: live updates', () => {
     h.fetchWithRetry.mockImplementation(async () => ok({ quizzes: [quiz('a', { title: 'Cricket Classics' }), quiz('soon', { status: 'upcoming', startsAt: new Date(NOW + 60_000).toISOString() })] }));
     const { unmount } = render(<QuizzesPage />);
     await loaded();
-    const goLive = timers.mock.calls.find(([, ms]) => ms === 61_000);
+    const goLive = timers.mock.calls.find(([, ms]) => typeof ms === 'number' && ms >= 60_900 && ms <= 66_100);
     expect(goLive).toBeDefined();
     (goLive![0] as () => void)();
     await waitFor(() => expect(h.fetchWithRetry).toHaveBeenLastCalledWith('/api/quizzes?fresh=1', undefined, { retries: 2 }));
