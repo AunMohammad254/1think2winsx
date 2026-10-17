@@ -2,20 +2,18 @@ import '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { jsonResponse } from '@/tests/helpers/ui';
+import { UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
 
-type Handler = (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => void;
+type Poll = { task: () => Promise<boolean>; opts: Record<string, unknown> };
 const h = vi.hoisted(() => ({
   auth: { user: { id: 'u1' } as { id: string } | null, isLoading: false },
   router: { push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() },
   params: new URLSearchParams(),
   suspend: false,
-  live: false,
   fetchWithRetry: vi.fn(),
-  poll: null as null | { task: () => Promise<boolean>; opts: Record<string, unknown> },
-  broadcast: null as null | { enabled: boolean; onSignal: (s: Record<string, unknown>) => void },
-  handlers: {} as Record<string, Handler>,
-  channel: { on: vi.fn(), subscribe: vi.fn() },
-  removeChannel: vi.fn(),
+  liveFetch: vi.fn(),
+  // Keyed by interval: the slow personal poll and the 5 s live check
+  polls: {} as Record<number, Poll>,
   push: { notify: vi.fn(), open: vi.fn() },
   loader: null as null | (() => Promise<unknown>),
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
@@ -30,10 +28,7 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
 vi.mock('@/lib/fetch-retry', () => ({ fetchWithRetry: (...a: unknown[]) => h.fetchWithRetry(...a) }));
-vi.mock('@/hooks/useJitteredPolling', () => ({ useJitteredPolling: (task: () => Promise<boolean>, opts: Record<string, unknown>) => { h.poll = { task, opts }; } }));
-vi.mock('@/hooks/useQuizBroadcast', () => ({ useQuizBroadcast: (o: { enabled: boolean; onSignal: (s: Record<string, unknown>) => void }) => { h.broadcast = o; } }));
-vi.mock('@/lib/live-config', () => ({ get LIVE_BROADCAST_ENABLED() { return h.live; } }));
-vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ channel: () => h.channel, removeChannel: h.removeChannel }) }));
+vi.mock('@/hooks/useJitteredPolling', () => ({ useJitteredPolling: (task: () => Promise<boolean>, opts: Record<string, unknown>) => { h.polls[opts.intervalMs as number] = { task, opts }; } }));
 vi.mock('@/components/LazyStreamPlayer', () => ({ default: () => null }));
 vi.mock('@/actions/wallet-deduction-actions', () => ({
   getWalletBalanceForDeduction: () => h.wallet.getWalletBalanceForDeduction(),
@@ -68,18 +63,23 @@ const list = [
   quiz('e', { status: 'upcoming', startsAt: null }),
 ];
 const ok = (data: Record<string, unknown> = {}) => jsonResponse({ quizzes: list, hasAccess: false, paymentInfo: null, walletEnabled: true, ...data });
+// The public /api/live snapshot (src/lib/live-catalog.ts)
+const liveQuiz = (id: string, over: Record<string, unknown> = {}) => ({
+  id, title: `Quiz ${id}`, description: `About ${id}`, duration: 10, passingScore: 50, status: 'active', questionCount: 5,
+  totalAttempts: 0, pushedAt: null, startsAt: null, createdAt: '2026-10-01', updatedAt: '2026-10-01', ...over,
+});
+const snapshot = (version: string, quizzes: Array<Record<string, unknown>>) => jsonResponse({ version, quizzes });
+const livePoll = () => h.polls[5_000];
 
 beforeEach(() => {
   h.auth = { user: { id: 'u1' }, isLoading: false };
   h.params = new URLSearchParams();
   h.suspend = false;
-  h.live = false;
-  h.handlers = {};
-  h.channel.on.mockReset().mockImplementation((_t: string, cfg: { event: string }, cb: Handler) => { h.handlers[cfg.event] = cb; return h.channel; });
-  h.channel.subscribe.mockReset().mockReturnValue(h.channel);
-  h.removeChannel.mockReset();
+  h.polls = {};
   for (const f of [h.router.push, h.router.replace, h.push.notify, h.push.open, ...Object.values(h.toast), ...Object.values(h.wallet)]) f.mockReset();
   h.fetchWithRetry.mockReset().mockImplementation(async () => ok());
+  h.liveFetch.mockReset().mockImplementation(async () => snapshot('v0', []));
+  vi.stubGlobal('fetch', (...a: unknown[]) => h.liveFetch(...a));
   h.wallet.getWalletBalanceForDeduction.mockResolvedValue({ success: true, balance: 10 });
   h.wallet.getQuizAccessPrice.mockResolvedValue({ success: true, price: 2 });
   h.wallet.deductWalletForQuizAccess.mockResolvedValue({ success: true, newBalance: 8 });
@@ -88,6 +88,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const loaded = () => screen.findByText('Cricket Classics');
@@ -163,10 +164,12 @@ describe('quizzes page: loading', () => {
     expect(await screen.findByText('Your access expired')).toBeInTheDocument();
     h.fetchWithRetry.mockImplementationOnce(async () => new Response(null, { status: 304 }));
     let result: boolean | undefined;
-    await act(async () => { result = await h.poll!.task(); });
+    await act(async () => { result = await h.polls[300_000].task(); });
     expect(result).toBe(true);
     expect(h.fetchWithRetry).toHaveBeenLastCalledWith('/api/quizzes?fresh=1', undefined, { retries: 0 });
-    expect(h.poll!.opts).toMatchObject({ intervalMs: 60_000, enabled: true });
+    // The personal list is a slow safety net; public changes come from the 5 s live check
+    expect(h.polls[300_000].opts).toMatchObject({ jitterMs: 60_000, enabled: true });
+    expect(livePoll().opts).toMatchObject({ jitterMs: 2_000, enabled: true });
   });
 });
 
@@ -313,47 +316,89 @@ describe('quizzes page: live updates', () => {
     expect(h.push.open).toHaveBeenCalledTimes(1);
   });
 
-  it('reacts to realtime inserts, pushes and deletes', async () => {
+  it('patches the list in place from the live snapshot, and pops up a newly pushed quiz once', async () => {
+    render(<QuizzesPage />);
+    await loaded();
+    const pushedAt = '2026-10-16T10:00:00.000Z';
+    h.liveFetch.mockImplementation(async () => snapshot('v1', [
+      liveQuiz('a', { title: 'Cricket Classics LIVE', pushedAt }),
+      liveQuiz('c'),
+      liveQuiz('zz', { title: 'Brand new quiz' }),
+    ]));
+    let result: boolean | undefined;
+    await act(async () => { result = await livePoll().task(); });
+    expect(result).toBe(true);
+    expect(h.liveFetch).toHaveBeenCalledWith('/api/live', { credentials: 'omit' });
+    expect(h.push.notify).toHaveBeenCalledTimes(1);
+    expect(h.push.notify).toHaveBeenCalledWith('a', 'Cricket Classics LIVE');
+    expect(screen.getByText('Cricket Classics LIVE')).toBeInTheDocument();
+    expect(screen.getByText('Brand new quiz')).toBeInTheDocument();
+    expect(screen.queryByText('Quiz b')).toBeNull();
+    const personalCalls = h.fetchWithRetry.mock.calls.length;
+    // The same version again changes nothing; a new version keeps the push it already showed
+    await act(async () => { await livePoll().task(); });
+    h.liveFetch.mockImplementation(async () => snapshot('v2', [liveQuiz('a', { title: 'Cricket Classics LIVE', pushedAt, totalAttempts: 9 })]));
+    await act(async () => { await livePoll().task(); });
+    expect(h.push.notify).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Brand new quiz')).toBeNull();
+    // Public changes never cost a personal request
+    expect(h.fetchWithRetry.mock.calls.length).toBe(personalCalls);
+  });
+
+  it('waits for the first personal load, and backs off when the live check fails', async () => {
+    h.fetchWithRetry.mockImplementationOnce(() => new Promise(() => {}));
+    const { unmount } = render(<QuizzesPage />);
+    let result: boolean | undefined;
+    await act(async () => { result = await livePoll().task(); });
+    expect(result).toBe(true);
+    expect(h.liveFetch).not.toHaveBeenCalled();
+    unmount();
+
+    render(<QuizzesPage />);
+    await loaded();
+    h.liveFetch.mockImplementationOnce(async () => jsonResponse({ error: 'busy' }, 503));
+    await act(async () => { result = await livePoll().task(); });
+    expect(result).toBe(false);
+    h.liveFetch.mockImplementationOnce(async () => { throw new Error('offline'); });
+    await act(async () => { result = await livePoll().task(); });
+    expect(result).toBe(false);
+  });
+
+  it('refetches the personal list, spread out, when questions change on a completed quiz', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const { unmount } = render(<QuizzesPage />);
     await loaded();
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    act(() => h.handlers.INSERT({}));
-    act(() => h.handlers.UPDATE({ new: { id: 'a', title: 'Cricket Classics', pushedAt: '2026-10-16T10:00:00Z' } }));
-    expect(h.push.notify).toHaveBeenCalledWith('a', 'Cricket Classics');
-    act(() => h.handlers.UPDATE({ new: { id: 'a', title: 'Cricket Classics', pushedAt: '2026-10-16T10:00:00Z' } }));
-    act(() => h.handlers.UPDATE({ new: { id: 'b', title: 'Quiz b', pushedAt: null } }));
-    expect(h.push.notify).toHaveBeenCalledTimes(1);
+    const withB = (version: string, questionCount: number) => async () =>
+      snapshot(version, [liveQuiz('a', { title: 'Cricket Classics' }), liveQuiz('b', { questionCount })]);
+    h.liveFetch.mockImplementation(withB('v1', 6));
+    await act(async () => { await livePoll().task(); });
+    // A second change before the timer fires restarts it rather than adding a request
+    h.liveFetch.mockImplementation(withB('v2', 7));
+    await act(async () => { await livePoll().task(); });
+    const before = h.fetchWithRetry.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(h.fetchWithRetry.mock.calls.length).toBe(before + 1);
     expect(h.fetchWithRetry).toHaveBeenLastCalledWith('/api/quizzes?fresh=1', undefined, { retries: 2 });
-    vi.useRealTimers();
-    act(() => h.handlers.DELETE({ old: { id: 'b' } }));
-    expect(screen.queryByText('Quiz b')).toBeNull();
-    act(() => h.handlers.INSERT({}));
+    // A refetch still pending when the page closes is dropped
+    h.liveFetch.mockImplementation(withB('v3', 8));
+    await act(async () => { await livePoll().task(); });
     unmount();
-    expect(h.removeChannel).toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(h.fetchWithRetry.mock.calls.length).toBe(before + 1);
   });
 
-  it('applies broadcast signals in place, fetching only for unknown quizzes', async () => {
-    h.live = true;
-    vi.spyOn(Math, 'random').mockReturnValue(0);
+  it('hands the unread notification count from the personal list to the bell', async () => {
+    const counts: unknown[] = [];
+    const onCount = (e: Event) => counts.push((e as CustomEvent).detail);
+    window.addEventListener(UNREAD_COUNT_EVENT, onCount);
+    h.fetchWithRetry.mockImplementationOnce(async () => ok({ unreadNotifications: 3 }));
     render(<QuizzesPage />);
     await loaded();
-    // The signal handler reads the list from a ref an effect fills after render; under load,
-    // findByText can return before that effect has run
-    await act(async () => {});
-    expect(h.channel.on).not.toHaveBeenCalled();
-    expect(h.broadcast!.enabled).toBe(true);
-    act(() => h.broadcast!.onSignal({ op: 'UPDATE', id: 'a', title: 'Cricket Classics LIVE', status: 'active', pushedAt: '2026-10-16T10:00:00Z' }));
-    expect(h.push.notify).toHaveBeenCalledWith('a', 'Cricket Classics LIVE');
-    expect(screen.getByText('Cricket Classics LIVE')).toBeInTheDocument();
-    act(() => h.broadcast!.onSignal({ op: 'UPDATE', id: 'a', title: 'Cricket Classics LIVE', status: 'active', pushedAt: '2026-10-16T10:00:00Z' }));
-    expect(h.push.notify).toHaveBeenCalledTimes(1);
-    const calls = h.fetchWithRetry.mock.calls.length;
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    act(() => h.broadcast!.onSignal({ op: 'INSERT', id: 'zz', title: 'New one', status: 'active', pushedAt: null }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-    expect(h.fetchWithRetry.mock.calls.length).toBe(calls + 1);
+    // A list without a count (e.g. it could not be read) leaves the bell alone
+    await act(async () => { await h.polls[300_000].task(); });
+    window.removeEventListener(UNREAD_COUNT_EVENT, onCount);
+    expect(counts).toEqual([3]);
   });
 
   it('refetches when a quiz is answered in the live popup', async () => {
@@ -364,7 +409,7 @@ describe('quizzes page: live updates', () => {
     await expect(h.loader!()).resolves.toBeTruthy();
   });
 
-  it('refetches when an upcoming quiz reaches its start time, but not for far-off ones', async () => {
+  it('checks the live snapshot when an upcoming quiz reaches its start time, but not for far-off ones', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0);
     const timers = vi.spyOn(window, 'setTimeout');
     h.fetchWithRetry.mockImplementation(async () => ok({ quizzes: [quiz('a', { title: 'Cricket Classics' }), quiz('soon', { status: 'upcoming', startsAt: new Date(NOW + 60_000).toISOString() })] }));
@@ -372,8 +417,11 @@ describe('quizzes page: live updates', () => {
     await loaded();
     const goLive = timers.mock.calls.find(([, ms]) => ms === 61_000);
     expect(goLive).toBeDefined();
+    const personalCalls = h.fetchWithRetry.mock.calls.length;
     (goLive![0] as () => void)();
-    await waitFor(() => expect(h.fetchWithRetry).toHaveBeenLastCalledWith('/api/quizzes?fresh=1', undefined, { retries: 2 }));
+    // The cached public snapshot, not a personal request from every player at the same moment
+    await waitFor(() => expect(h.liveFetch).toHaveBeenCalledWith('/api/live', { credentials: 'omit' }));
+    expect(h.fetchWithRetry.mock.calls.length).toBe(personalCalls);
     unmount();
     timers.mockClear();
     h.fetchWithRetry.mockImplementation(async () => ok({ quizzes: [quiz('a', { title: 'Cricket Classics' }), quiz('later', { status: 'upcoming', startsAt: new Date(NOW + 40 * 86_400_000).toISOString() })] }));

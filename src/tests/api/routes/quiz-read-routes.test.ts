@@ -19,12 +19,14 @@ const findAttempt = vi.fn();
 const findQuestionAttempts = vi.fn();
 const cacheClear = vi.fn();
 const fetchSpy = vi.fn();
+const getUnreadCount = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({
   getDb: async () => db.client,
   getAdminDb: () => adminDb.client,
   quizDb: { create: (...a: unknown[]) => quizCreate(...a) },
   dailyPaymentDb: { findFirstActive: (...a: unknown[]) => findFirstActive(...a) },
+  notificationDb: { getUnreadCount: (...a: unknown[]) => getUnreadCount(...a) },
   quizAttemptDb: { findByUserAndQuiz: (...a: unknown[]) => findAttempt(...a) },
   questionAttemptDb: { findByUserAndQuiz: (...a: unknown[]) => findQuestionAttempts(...a) },
   answerDb: {},
@@ -44,6 +46,7 @@ vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: (...a: unknown[]) => i
 vi.mock('@/lib/quiz-cache', () => ({ quizListCache: { clear: (...a: unknown[]) => cacheClear(...a) } }));
 
 const listRoute = await import('@/app/api/quizzes/route');
+const liveRoute = await import('@/app/api/live/route');
 const detailRoute = await import('@/app/api/quizzes/[id]/route');
 const resultsRoute = await import('@/app/api/quizzes/[id]/results/route');
 
@@ -71,7 +74,8 @@ const catalogQuiz = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   db = createSupabaseMock();
   adminDb = createSupabaseMock();
-  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, requirePaymentAccess, getActiveQuizCatalog, getCatalogQuiz, isWalletEnabled, findFirstActive, quizCreate, findAttempt, findQuestionAttempts, cacheClear, fetchSpy]) fn.mockReset();
+  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, requirePaymentAccess, getActiveQuizCatalog, getCatalogQuiz, isWalletEnabled, findFirstActive, quizCreate, findAttempt, findQuestionAttempts, cacheClear, fetchSpy, getUnreadCount]) fn.mockReset();
+  getUnreadCount.mockResolvedValue(4);
   requireAuth.mockResolvedValue(authOk('user-1'));
   requireCSRFToken.mockResolvedValue(null);
   applyRateLimit.mockResolvedValue(null);
@@ -104,7 +108,8 @@ describe('GET /api/quizzes', () => {
     const byId = Object.fromEntries(body.quizzes.map((q: { id: string }) => [q.id, q]));
 
     expect(res.status).toBe(200);
-    expect(body).toMatchObject({ hasAccess: true, walletEnabled: true, accessError: null, paymentInfo: { id: 'pay-1' } });
+    expect(body).toMatchObject({ hasAccess: true, walletEnabled: true, accessError: null, paymentInfo: { id: 'pay-1' }, unreadNotifications: 4 });
+    expect(getUnreadCount).toHaveBeenCalledWith('user-1');
     expect(body.paymentInfo.timeRemaining).toBeGreaterThan(3500);
     expect(byId.live).toMatchObject({ pushStatus: 'unanswered', isCompleted: false, questionCount: 2, questions: [], hasAccess: true });
     expect(byId.done).toMatchObject({ pushStatus: 'answered', isCompleted: true, hasNewQuestions: false, newQuestionsCount: 0, lastAttemptDate: '2026-10-10T10:00:00.000Z' });
@@ -116,6 +121,12 @@ describe('GET /api/quizzes', () => {
     expect(eqValue(db.callsTo('QuizAttempt')[0], 'userId')).toBe('user-1');
     expect(res.headers.get('ETag')).toMatch(/^".+"$/);
     expect(res.headers.get('Cache-Control')).toBe('private, no-cache');
+  });
+
+  it('sends a null unread count when it cannot be read, so the bell keeps its own', async () => {
+    getActiveQuizCatalog.mockResolvedValue([catalogQuiz()]);
+    getUnreadCount.mockRejectedValue(new Error('db down'));
+    expect((await (await list()).json()).unreadNotifications).toBeNull();
   });
 
   it('flags new questions added after the player completed the quiz', async () => {
@@ -200,6 +211,52 @@ describe('GET /api/quizzes', () => {
     getActiveQuizCatalog.mockRejectedValue('weird');
     await list();
     expect(recordSecurityEvent).toHaveBeenLastCalledWith('QUIZ_LIST_ERROR', expect.anything(), undefined, { error: 'Unknown error' });
+  });
+});
+
+describe('GET /api/live', () => {
+  it('serves only the public part of the catalogue, cacheable for 5 s at the edge', async () => {
+    getActiveQuizCatalog.mockResolvedValue([
+      catalogQuiz({ id: 'live', pushedAt: '2026-10-16T10:00:00+00:00' }),
+      catalogQuiz({ id: 'soon', status: 'upcoming', pushedAt: null, startsAt: '2026-10-16T12:00:00+00:00' }),
+      catalogQuiz({ id: 'paused', status: 'paused', startsAt: '2026-10-01T00:00:00+00:00' }),
+    ]);
+    const res = await liveRoute.GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=5, stale-while-revalidate=5');
+    expect(body.version).toMatch(/^[\w-]{20,}$/);
+    expect(body.quizzes.map((q: { id: string }) => q.id)).toEqual(['live', 'soon', 'paused']);
+    // Same date format as the personal list, so a pushedAt never looks new because of formatting
+    expect(body.quizzes[0]).toEqual({
+      id: 'live', title: 'Cricket night', description: 'Predict the match', duration: 10, passingScore: 70,
+      status: 'active', questionCount: 2, totalAttempts: 3, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null,
+      createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z',
+    });
+    expect(body.quizzes[1]).toMatchObject({ pushedAt: null, startsAt: '2026-10-16T12:00:00.000Z' });
+    // A start time only matters while the quiz is upcoming
+    expect(body.quizzes[2].startsAt).toBeNull();
+    // Nothing per player and no question bodies (let alone the answer key) leave the server
+    expect(JSON.stringify(body)).not.toContain('Who wins the toss');
+    expect(requireAuth).not.toHaveBeenCalled();
+  });
+
+  it('keeps the version while the catalogue is unchanged, and changes it when anything visible changes', async () => {
+    getActiveQuizCatalog.mockResolvedValue([catalogQuiz()]);
+    const first = (await (await liveRoute.GET()).json()).version;
+    expect((await (await liveRoute.GET()).json()).version).toBe(first);
+    getActiveQuizCatalog.mockResolvedValue([catalogQuiz({ totalAttempts: 4 })]);
+    expect((await (await liveRoute.GET()).json()).version).not.toBe(first);
+  });
+
+  it('answers an uncached 503 when the catalogue cannot be loaded, so pollers back off', async () => {
+    getActiveQuizCatalog.mockRejectedValue(new Error('db down'));
+    const res = await liveRoute.GET();
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(res.headers.get('Retry-After')).toBe('5');
+    expect(console.error).toHaveBeenCalled();
   });
 });
 

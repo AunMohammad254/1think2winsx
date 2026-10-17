@@ -17,12 +17,9 @@ const LiveQuizPush = dynamic(() => import('@/components/quiz/LiveQuizPush'), {
   ssr: false,
 });
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
-import { createClient } from '@/lib/supabase/client';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import { useJitteredPolling } from '@/hooks/useJitteredPolling';
-import { useQuizBroadcast } from '@/hooks/useQuizBroadcast';
-import { applyQuizSignal, type QuizSignal } from '@/lib/quiz-signal';
-import { LIVE_BROADCAST_ENABLED } from '@/lib/live-config';
+import { mergeLiveQuizzes, UNREAD_COUNT_EVENT, type LiveSnapshot } from '@/lib/live-catalog';
 import PaymentModal from '@/components/quiz/PaymentModal';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
 import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
@@ -72,7 +69,7 @@ function QuizzesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-  // Always the latest list, readable from realtime callbacks without re-subscribing
+  // Always the latest list, readable from the live check without re-creating it
   const quizzesRef = useRef<Quiz[]>([]);
   useEffect(() => {
     quizzesRef.current = quizzes;
@@ -91,8 +88,11 @@ function QuizzesPageInner() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null); // null = loading
 
-  // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by realtime)
-  const realtimeDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by the live check)
+  const refetchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // The live check needs the player's own fields (and access) from the first personal load
+  const personalLoadedRef = useRef(false);
+  const hasAccessRef = useRef(false);
   const liveQuizPushRef = useRef<LiveQuizPushHandle>(null);
   // A deep link that arrived before LiveQuizPush mounted (page skeleton, or its lazy chunk
   // still loading); opened as soon as the component attaches its handle
@@ -136,9 +136,16 @@ function QuizzesPageInner() {
       }
       const data = await response.json();
       const fetchedQuizzes: Quiz[] = data.quizzes || [];
+      quizzesRef.current = fetchedQuizzes;
       setQuizzes(fetchedQuizzes);
       for (const q of fetchedQuizzes) seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
+      hasAccessRef.current = data.hasAccess || false;
+      personalLoadedRef.current = true;
       setHasAccess(data.hasAccess || false);
+      // The navbar bell takes its badge from here instead of polling on its own
+      if (typeof data.unreadNotifications === 'number') {
+        window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: data.unreadNotifications }));
+      }
       setPaymentInfo(data.paymentInfo);
       setError(data.accessError || null);
       // The list response carries the wallet flag, so no separate /api/settings/wallet-enabled call
@@ -156,18 +163,21 @@ function QuizzesPageInner() {
     return ok;
   }, []);
 
-  // Debounced realtime re-fetch to avoid rapid consecutive API calls
+  // Debounced personal re-fetch to avoid rapid consecutive API calls
   const debouncedFreshFetch = useCallback(() => {
-    if (realtimeDebounceRef.current) {
-      clearTimeout(realtimeDebounceRef.current);
+    if (refetchTimerRef.current) {
+      clearTimeout(refetchTimerRef.current);
     }
-    // Spread re-fetches over 2-15 s: a single admin edit is broadcast to every
-    // connected player at once, and a fixed 500 ms delay turned it into a
-    // synchronized stampede of thousands of simultaneous /api/quizzes calls.
-    realtimeDebounceRef.current = setTimeout(() => {
+    // Spread re-fetches over 2-15 s: every player sees the same live change within
+    // seconds of each other, and a fixed delay turned it into a synchronized
+    // stampede of thousands of simultaneous /api/quizzes calls.
+    refetchTimerRef.current = setTimeout(() => {
       fetchQuizzesData(true);
     }, 2000 + Math.random() * 13000);
   }, [fetchQuizzesData]);
+  useEffect(() => () => {
+    if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+  }, []);
 
   // Redirect to login if not authenticated, and check wallet feature flag
   useEffect(() => {
@@ -186,12 +196,44 @@ function QuizzesPageInner() {
     // refocus / token refresh, which used to re-run this and refetch for no reason.
   }, [userId, isLoading, router, fetchQuizzesData]);
 
-  // Periodic polling to keep data fresh and ensure the server's scheduled cron
-  // gets kicked even if no other users are navigating the site.
-  // 60 s base + 0-20 s jitter so clients that loaded together (e.g. after a push) drift apart,
-  // paused while the tab is hidden, and exponential backoff while the server is failing/shedding.
+  // Slow safety net for the player's own fields (completed, new questions, unread count); public
+  // changes arrive through the live check below. 5 min base + 0-1 min jitter so clients that loaded
+  // together drift apart, paused while the tab is hidden, and exponential backoff while the server
+  // is failing/shedding.
   const pollQuizzes = useCallback(() => fetchQuizzesData(true, true), [fetchQuizzesData]);
-  useJitteredPolling(pollQuizzes, { intervalMs: 60_000, jitterMs: 20_000, enabled: !!userId });
+  useJitteredPolling(pollQuizzes, { intervalMs: 300_000, jitterMs: 60_000, enabled: !!userId });
+
+  // Live updates: every few seconds, check the public quiz snapshot (Cloudflare caches it for 5 s)
+  // and patch the list in place when it changed. No Realtime connection per player, and however many
+  // players are online the origin sees about one request per Cloudflare location per 5 s.
+  const liveVersionRef = useRef<string | null>(null);
+  const checkLive = useCallback(async (): Promise<boolean> => {
+    // The merge keeps the player's own fields, and the first load fills seenPushedAtRef so quizzes
+    // that were already live do not pop up as "just went live"
+    if (!personalLoadedRef.current) return true;
+    try {
+      const response = await fetch('/api/live', { credentials: 'omit' });
+      if (!response.ok) return false;
+      const snapshot: LiveSnapshot = await response.json();
+      if (snapshot.version === liveVersionRef.current) return true;
+      liveVersionRef.current = snapshot.version;
+      // Admin "push to live": a pushedAt we have not reacted to yet shows the live popup
+      for (const q of snapshot.quizzes) {
+        if (q.pushedAt && seenPushedAtRef.current.get(q.id) !== q.pushedAt) {
+          seenPushedAtRef.current.set(q.id, q.pushedAt);
+          liveQuizPushRef.current?.notify(q.id, q.title);
+        }
+      }
+      const merged = mergeLiveQuizzes(quizzesRef.current, snapshot.quizzes, hasAccessRef.current);
+      quizzesRef.current = merged.list;
+      setQuizzes(merged.list);
+      if (merged.needsPersonalFetch) debouncedFreshFetch();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [debouncedFreshFetch]);
+  useJitteredPolling(checkLive, { intervalMs: 5_000, jitterMs: 2_000, enabled: !!userId });
 
   // Deep link from the notification bell / a "View Details" link on a
   // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
@@ -210,69 +252,6 @@ function QuizzesPageInner() {
     const query = rest.toString();
     router.replace(query ? `/quizzes?${query}` : '/quizzes', { scroll: false });
   }, [isLoading, userId, router, searchParams]);
-
-  // Live quiz updates over a private Broadcast channel (NEXT_PUBLIC_LIVE_BROADCAST=1).
-  // A quiz the player already has (e.g. "upcoming" -> live) is patched in place with NO request; only an
-  // unknown quiz triggers a (randomly delayed) refetch. The jittered poll above remains the safety net.
-  const handleQuizSignal = useCallback((signal: QuizSignal) => {
-    if (signal.op === 'UPDATE' && signal.pushedAt && seenPushedAtRef.current.get(signal.id) !== signal.pushedAt) {
-      seenPushedAtRef.current.set(signal.id, signal.pushedAt);
-      liveQuizPushRef.current?.notify(signal.id, signal.title);
-    }
-    const result = applyQuizSignal(quizzesRef.current, signal);
-    if (result.list !== quizzesRef.current) {
-      quizzesRef.current = result.list;
-      setQuizzes(result.list);
-    }
-    if (result.needsFetch) debouncedFreshFetch();
-  }, [debouncedFreshFetch]);
-  useQuizBroadcast({ enabled: LIVE_BROADCAST_ENABLED && !!userId, onSignal: handleQuizSignal });
-
-  // Legacy realtime subscription for live quiz updates (postgres_changes). Used while the Broadcast
-  // path is off; it does a Row Level Security check per subscriber per change, which does not scale.
-  useEffect(() => {
-    if (LIVE_BROADCAST_ENABLED) return;
-    const supabase = createClient();
-
-    const channel = supabase
-      .channel('user-quiz-changes')
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'Quiz' },
-        () => {
-          // Re-fetch with cache bust to get enriched data
-          debouncedFreshFetch();
-        }
-      )
-      .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'Quiz' },
-        (payload) => {
-          // Admin "push to live" support: the row's pushedAt changed to a
-          // new (non-null) value we haven't already reacted to -> show the
-          // live toast. Reuses this same subscription, no new channel.
-          const next = payload.new as { id: string; title: string; pushedAt: string | null };
-          if (next.pushedAt && seenPushedAtRef.current.get(next.id) !== next.pushedAt) {
-            seenPushedAtRef.current.set(next.id, next.pushedAt);
-            liveQuizPushRef.current?.notify(next.id, next.title);
-          }
-          debouncedFreshFetch();
-        }
-      )
-      .on('postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'Quiz' },
-        (payload) => {
-          const deletedId = payload.old.id as string;
-          setQuizzes(prev => prev.filter(q => q.id !== deletedId));
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-      if (realtimeDebounceRef.current) {
-        clearTimeout(realtimeDebounceRef.current);
-      }
-    };
-  }, [debouncedFreshFetch]);
 
   // Throwback behavior removed as requested.
 
@@ -309,8 +288,9 @@ function QuizzesPageInner() {
   // Legacy fetchQuizzes alias for components that call it
   const fetchQuizzes = fetchQuizzesData;
 
-  // When an upcoming quiz reaches its start time, re-fetch so its card flips to
-  // live without waiting for the 60 s poll (the server activates it on that read).
+  // When an upcoming quiz reaches its start time, check the live snapshot so its card flips to
+  // live without waiting for the next poll (the server activates it when its catalogue refreshes).
+  // The snapshot is the cached public one, so the moment of go-live costs no personal requests.
   useEffect(() => {
     if (!userId) return;
     const now = Date.now();
@@ -323,11 +303,11 @@ function QuizzesPageInner() {
     // clock hits startsAt within a couple of seconds of each other, and without jitter this was
     // a synchronized stampede of tens of thousands of /api/quizzes calls at the moment of go-live.
     const delay = Math.min(...starts) - now + 1000 + Math.random() * 5000;
-    // setTimeout overflows past ~24.8 days; the 60 s poll covers anything further out
+    // setTimeout overflows past ~24.8 days; the live check covers anything further out
     if (delay > 2_000_000_000) return;
-    const timer = setTimeout(() => fetchQuizzesData(true), delay);
+    const timer = setTimeout(() => { checkLive(); }, delay);
     return () => clearTimeout(timer);
-  }, [userId, quizzes, fetchQuizzesData]);
+  }, [userId, quizzes, checkLive]);
 
   // ⚡ Bolt: Wrapped in useCallback to preserve stable function reference.
   // Impact: Essential for React.memo on QuizCard to work, preventing ~90% of re-renders.

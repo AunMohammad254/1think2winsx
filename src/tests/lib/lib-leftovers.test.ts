@@ -262,9 +262,6 @@ describe('small helpers', () => {
     expect(prize.SORT_OPTIONS).toHaveLength(5);
     expect(Object.keys(prize.STATUS_COLORS)).toEqual(['draft', 'published']);
     expect(Object.keys(prize.REDEMPTION_STATUS_COLORS)).toEqual(['pending', 'approved', 'rejected', 'fulfilled']);
-    vi.stubEnv('NEXT_PUBLIC_LIVE_BROADCAST', '1');
-    vi.resetModules();
-    expect((await import('@/lib/live-config')).LIVE_BROADCAST_ENABLED).toBe(true);
   });
 });
 

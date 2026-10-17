@@ -1,25 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
 
 const h = vi.hoisted(() => {
-  type Handler = (payload: { new: unknown }) => void;
-  const state = { user: { id: 'u1' } as { id: string } | null, live: false, handler: null as Handler | null, poll: null as null | { task: () => Promise<boolean | void>; opts: { enabled: boolean } } };
-  const channel = {
-    on: vi.fn((_e: string, _f: unknown, cb: Handler) => {
-      state.handler = cb;
-      return channel;
-    }),
-    subscribe: vi.fn(() => channel),
-  };
-  const client = { channel: vi.fn(() => channel), removeChannel: vi.fn() };
+  const state = { user: { id: 'u1' } as { id: string } | null, poll: null as null | { task: () => Promise<boolean | void>; opts: { enabled: boolean } } };
   const toast = vi.fn();
-  return { state, channel, client, toast };
+  return { state, toast };
 });
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => ({ user: h.state.user }) }));
 vi.mock('@/lib/csrf', () => ({ getCSRFHeaders: async () => ({ 'x-csrf-token': 'tok' }) }));
 vi.mock('sonner', () => ({ toast: h.toast }));
-vi.mock('@/lib/supabase/client', () => ({ createClient: () => h.client }));
-vi.mock('@/lib/live-config', () => ({ get LIVE_BROADCAST_ENABLED() { return h.state.live; } }));
 vi.mock('@/hooks/useJitteredPolling', () => ({
   useJitteredPolling: (task: () => Promise<boolean | void>, opts: { enabled: boolean }) => { h.state.poll = { task, opts }; },
 }));
@@ -52,12 +42,8 @@ async function load(env: { vapid?: string } = {}) {
 
 beforeEach(async () => {
   h.state.user = { id: 'u1' };
-  h.state.live = false;
-  h.state.handler = null;
   h.state.poll = null;
   h.toast.mockReset();
-  h.client.channel.mockClear();
-  h.client.removeChannel.mockClear();
   localStorage.clear();
   fetchMock = vi.fn(async (url: string) => (String(url).includes('countOnly') ? json({ unreadCount: 2 }) : json({ notifications: [{ id: 'n1', read: false }, { id: 'n2', read: true }], unreadCount: 1 })));
   vi.stubGlobal('fetch', fetchMock);
@@ -195,67 +181,74 @@ describe('useNotifications: list and badge', () => {
   });
 });
 
-describe('useNotifications: live updates', () => {
-  it('subscribes to new notifications for this user and announces them', async () => {
-    const { result, unmount } = renderHook(() => mod.useNotifications());
-    await waitFor(() => expect(result.current.unreadCount).toBe(2));
-    expect(h.client.channel).toHaveBeenCalledWith('user-notifications-u1');
-    expect(h.channel.on).toHaveBeenCalledWith('postgres_changes', expect.objectContaining({ filter: 'userId=eq.u1', table: 'Notification' }), expect.any(Function));
-
-    const hrefSetter = vi.fn();
-    Object.defineProperty(window, 'location', { configurable: true, value: { set href(v: string) { hrefSetter(v); } } });
-    act(() => h.state.handler!({ new: { id: 'n9', title: 'Hi', message: 'There', link: '/prizes' } }));
-    expect(result.current.unreadCount).toBe(3);
-    expect(result.current.notifications[0].id).toBe('n9');
-    const [title, opts] = h.toast.mock.calls[0];
-    expect(title).toBe('Hi');
-    opts.action.onClick();
-    expect(hrefSetter).toHaveBeenCalledWith('/prizes');
-    expect(FakeAudio.instances[0].oscillators).toHaveLength(2);
-
-    act(() => result.current.toggleSound(false));
-    act(() => h.state.handler!({ new: { id: 'n10', title: 'No link', message: '' } }));
-    expect(h.toast.mock.calls[1][1].action).toBeUndefined();
-    expect(FakeAudio.instances[0].oscillators).toHaveLength(2);
-
-    unmount();
-    expect(h.client.removeChannel).toHaveBeenCalledWith(h.channel);
-  });
-
-  it('with live broadcast on, polls the badge instead of subscribing', async () => {
-    h.state.live = true;
+describe('useNotifications: badge updates without a Realtime connection', () => {
+  it('polls the count every 5 minutes, announcing increases only after the first count', async () => {
     const { result } = renderHook(() => mod.useNotifications());
     await waitFor(() => expect(result.current.unreadCount).toBe(2));
-    expect(h.client.channel).not.toHaveBeenCalled();
-    expect(h.state.poll!.opts).toMatchObject({ enabled: true, intervalMs: 90_000 });
+    // The count on load is the baseline, not news
+    expect(h.toast).not.toHaveBeenCalled();
+    expect(h.state.poll!.opts).toMatchObject({ enabled: true, intervalMs: 300_000, jitterMs: 60_000 });
 
-    fetchMock.mockResolvedValueOnce(json({ unreadCount: 5 }));
+    // A poll right after a fresh count does not ask again
     let ok: unknown;
+    const calls = fetchMock.mock.calls.length;
+    await act(async () => { ok = await h.state.poll!.task(); });
+    expect(ok).toBe(true);
+    expect(fetchMock.mock.calls.length).toBe(calls);
+
+    let now = Date.now();
+    const later = () => { now += 300_000; vi.spyOn(Date, 'now').mockReturnValue(now); };
+    later();
+    fetchMock.mockResolvedValueOnce(json({ unreadCount: 5 }));
     await act(async () => { ok = await h.state.poll!.task(); });
     expect(ok).toBe(true);
     expect(result.current.unreadCount).toBe(5);
     expect(h.toast).toHaveBeenCalledWith('You have new notifications', { duration: 4000 });
+    expect(FakeAudio.instances[0].oscillators).toHaveLength(2);
 
+    later();
     fetchMock.mockResolvedValueOnce(json({}));
     await act(async () => { await h.state.poll!.task(); });
     expect(result.current.unreadCount).toBe(0);
     expect(h.toast).toHaveBeenCalledTimes(1);
 
     act(() => result.current.toggleSound(false));
+    later();
     fetchMock.mockResolvedValueOnce(json({ unreadCount: 1 }));
     await act(async () => { await h.state.poll!.task(); });
     expect(h.toast).toHaveBeenCalledTimes(2);
+    expect(FakeAudio.instances[0].oscillators).toHaveLength(2);
 
+    later();
     fetchMock.mockResolvedValueOnce(json({}, 500));
     await act(async () => { ok = await h.state.poll!.task(); });
     expect(ok).toBe(false);
     fetchMock.mockRejectedValueOnce(new Error('offline'));
     await act(async () => { ok = await h.state.poll!.task(); });
     expect(ok).toBe(false);
+  });
 
+  it('takes the count the quiz page delivers, and then skips its own poll', async () => {
+    const { result } = renderHook(() => mod.useNotifications());
+    await waitFor(() => expect(result.current.unreadCount).toBe(2));
+    act(() => { window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: 4 })); });
+    expect(result.current.unreadCount).toBe(4);
+    expect(h.toast).toHaveBeenCalledWith('You have new notifications', { duration: 4000 });
+    act(() => { window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: 'not a count' })); });
+    expect(result.current.unreadCount).toBe(4);
+    const calls = fetchMock.mock.calls.length;
+    await act(async () => { await h.state.poll!.task(); });
+    expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
+  it('stays idle for signed-out visitors', async () => {
     h.state.user = null;
-    const signedOut = renderHook(() => mod.useNotifications());
-    expect(await signedOut.result.current && (await h.state.poll!.task())).toBe(true);
+    const { result } = renderHook(() => mod.useNotifications());
+    expect(h.state.poll!.opts).toMatchObject({ enabled: false });
+    expect(await h.state.poll!.task()).toBe(true);
+    act(() => { window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: 3 })); });
+    expect(result.current.unreadCount).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
