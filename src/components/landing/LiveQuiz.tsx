@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { memo, useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Section, Eyebrow, Reveal, Button, useScrollReveal, useAnimatedCounter } from "./Primitives";
 import Link from "next/link";
@@ -21,8 +21,9 @@ function Metric({ label, value, tone = "default" }: { label: string; value: stri
   );
 }
 
-// ⚡ Bolt: Wrapped QuizCarouselCard in React.memo to prevent unnecessary re-renders when parent state (like the active interval or animated counter) changes.
-const QuizCarouselCard = React.memo(function QuizCarouselCard({
+// Memoized: the carousel re-renders on every carousel tick and animated-counter frame, but only the
+// card whose props change (the active one, which alone gets the live player count) needs to.
+const QuizCarouselCard = memo(function QuizCarouselCard({
   q,
   isActive,
   livePlayers,
