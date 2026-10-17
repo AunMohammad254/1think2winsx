@@ -20,12 +20,14 @@ vi.mock('@supabase/ssr', () => ({
 }));
 vi.mock('@/lib/password-setup', () => ({ sendPasswordSetupEmail: (...a: unknown[]) => sendPasswordSetupEmail(...a) }));
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { auth: { checkLimit: (...a: unknown[]) => checkLimit(...a) } } }));
-vi.mock('@/lib/supabase/db', () => ({ userDb: { update: (...a: unknown[]) => userUpdate(...a) } }));
+const adminDb = { service: 'role' };
+vi.mock('@/lib/supabase/db', () => ({ userDb: { update: (...a: unknown[]) => userUpdate(...a) }, getAdminDb: () => adminDb }));
 
 const actions = await import('@/actions/auth-actions');
 
 const newUser = { id: 'new-1', email: 'new@example.test', identities: [{ provider: 'email' }] };
-const form = { name: 'Ali', email: 'new@example.test', password: 'hunter22!' };
+const form = { name: 'Ali', email: 'new@example.test', password: 'hunter22!', captchaToken: 'tok' };
+const login = { email: 'a@b.co', password: 'pw', captchaToken: 'tok' };
 
 beforeEach(() => {
   sb = createSupabaseMock({ user: newUser });
@@ -40,13 +42,14 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe('loginAction', () => {
   it('signs in and sends the player to the quizzes', async () => {
-    expect(await actions.loginAction({ email: 'a@b.co', password: 'pw' })).toEqual({ success: true, redirectTo: '/quizzes' });
-    expect(sb.auth.signInWithPassword).toHaveBeenCalledWith({ email: 'a@b.co', password: 'pw' });
+    expect(await actions.loginAction(login)).toEqual({ success: true, redirectTo: '/quizzes' });
+    expect(sb.auth.signInWithPassword).toHaveBeenCalledWith({ email: 'a@b.co', password: 'pw', options: { captchaToken: 'tok' } });
   });
 
   it('validates the input before calling Supabase', async () => {
-    expect(await actions.loginAction({ email: 'not-an-email', password: 'pw' })).toEqual({ success: false, error: 'Invalid input format' });
-    expect(await actions.loginAction({ email: 'a@b.co', password: '' })).toEqual({ success: false, error: 'Invalid input format' });
+    expect(await actions.loginAction({ ...login, email: 'not-an-email' })).toEqual({ success: false, error: 'Invalid input format' });
+    expect(await actions.loginAction({ ...login, password: '' })).toEqual({ success: false, error: 'Invalid input format' });
+    expect(await actions.loginAction({ ...login, captchaToken: '' })).toEqual({ success: false, error: 'Please complete the security check.' });
     expect(sb.auth.signInWithPassword).not.toHaveBeenCalled();
   });
 
@@ -54,18 +57,19 @@ describe('loginAction', () => {
     ['Invalid login credentials', 'Invalid email or password'],
     ['Email not confirmed', 'Please verify your email before logging in'],
     ['Too many requests', 'Too many requests'],
+    ['captcha protection: request disallowed (timeout-or-duplicate)', 'The security check failed or expired. Please try again.'],
   ])('maps "%s" to a friendly message', async (message, error) => {
     sb.auth.signInWithPassword.mockResolvedValueOnce({ data: { user: null, session: null }, error: { message } } as never);
-    expect(await actions.loginAction({ email: 'a@b.co', password: 'pw' })).toEqual({ success: false, error });
+    expect(await actions.loginAction(login)).toEqual({ success: false, error });
   });
 
   it('catches unexpected errors', async () => {
     sb.auth.signInWithPassword.mockRejectedValueOnce(new Error('network'));
-    expect(await actions.loginAction({ email: 'a@b.co', password: 'pw' })).toEqual({ success: false, error: 'An unexpected error occurred during login' });
+    expect(await actions.loginAction(login)).toEqual({ success: false, error: 'An unexpected error occurred during login' });
   });
 
   it('keeps Supabase cookies in sync, even when cookies are read-only', async () => {
-    await actions.loginAction({ email: 'a@b.co', password: 'pw' });
+    await actions.loginAction(login);
     expect(ssr!.getAll()).toEqual([{ name: 'sb', value: 'v' }]);
     ssr!.setAll([{ name: 'sb', value: 'new', options: { path: '/' } }]);
     expect(cookieStore.set).toHaveBeenCalledWith('sb', 'new', { path: '/' });
@@ -85,6 +89,7 @@ describe('registerAction', () => {
       options: {
         data: { name: 'Ali', phone: '03001234567', date_of_birth: '2000-01-02' },
         emailRedirectTo: 'https://site.example.test/auth/callback?next=/quizzes',
+        captchaToken: 'tok',
       },
     });
     const [id, fields] = userUpdate.mock.calls[0];
@@ -116,10 +121,11 @@ describe('registerAction', () => {
   describe('an email that already has an account (no identities returned)', () => {
     beforeEach(() => sb.setUser({ id: 'obfuscated', email: 'new@example.test', identities: [] }));
 
-    it('emails a set-password link and answers like a new sign-up', async () => {
+    it('emails a set-password link with the service-role client and answers like a new sign-up', async () => {
       expect(await actions.registerAction({ ...form, email: ' New@Example.test ' })).toEqual({ success: true, redirectTo: '/auth?registered=true' });
       expect(checkLimit).toHaveBeenCalledWith(expect.objectContaining({ headers: expect.any(Headers) }), 'register-existing:new@example.test', '/register');
-      expect(sendPasswordSetupEmail).toHaveBeenCalledWith(sb.client, ' New@Example.test ');
+      // the sign-up used up the Turnstile token; the service-role client needs none
+      expect(sendPasswordSetupEmail).toHaveBeenCalledWith(adminDb, ' New@Example.test ');
       expect(userUpdate).not.toHaveBeenCalled();
     });
 
@@ -144,9 +150,15 @@ describe('registerAction', () => {
     [{ message: 'Error sending confirmation email' }, 'Unable to send confirmation email. Please try again or contact support.'],
     [{ message: 'Database error', status: 500 }, 'Unable to send confirmation email. Please try again or contact support.'],
     [{ message: 'Password should be at least 6 characters' }, 'Password should be at least 6 characters'],
+    [{ message: 'captcha protection: request disallowed (no captcha_token found)', code: 'captcha_failed' }, 'The security check failed or expired. Please try again.'],
   ])('maps sign-up error %o', async (signUpError, error) => {
     sb.auth.signUp.mockResolvedValueOnce({ data: { user: null, session: null }, error: signUpError } as never);
     expect(await actions.registerAction(form)).toEqual({ success: false, error });
+  });
+
+  it('asks for the security check before calling Supabase', async () => {
+    expect(await actions.registerAction({ ...form, captchaToken: '' })).toEqual({ success: false, error: 'Please complete the security check.' });
+    expect(sb.auth.signUp).not.toHaveBeenCalled();
   });
 
   it('catches unexpected errors', async () => {

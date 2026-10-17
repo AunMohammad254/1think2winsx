@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { getCSRFToken } from '@/lib/csrf';
@@ -8,6 +8,7 @@ import { validatePasswordData, formatErrorMessage } from '@/utils/validation';
 import Link from 'next/link';
 import { getUserAuthMethods, getProviderDisplayName, type AuthMethods } from '@/lib/auth-helpers';
 import SetPasswordByEmail from '@/components/profile/SetPasswordByEmail';
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget';
 import { passwordDialogTitle } from '@/lib/auth-detection';
 
 type PasswordFormData = {
@@ -36,6 +37,9 @@ export default function ChangePasswordPage() {
   // null = still asking the server; true = signed in with a password (show the change form);
   // false = signed in another way, e.g. Google (show "Set up password" by email)
   const [canChange, setCanChange] = useState<boolean | null>(null);
+  // Checking the current password is a Supabase sign-in, which needs a Turnstile token
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const captchaRef = useRef<TurnstileHandle>(null);
 
   useEffect(() => {
     // Redirect to login if not authenticated
@@ -94,6 +98,7 @@ export default function ChangePasswordPage() {
     setLoading(true);
     setError(null);
     setSuccess(null);
+    let usedCaptcha = false;
 
     try {
       // Passwords are validated and sent exactly as typed: trimming or collapsing
@@ -106,6 +111,7 @@ export default function ChangePasswordPage() {
       // Get CSRF token
       const csrfToken = await getCSRFToken();
 
+      usedCaptcha = true;
       const response = await fetch('/api/profile/change-password', {
         method: 'PUT',
         headers: {
@@ -116,7 +122,9 @@ export default function ChangePasswordPage() {
         credentials: 'include',
         body: JSON.stringify({
           currentPassword: formData.currentPassword,
-          newPassword: formData.newPassword
+          newPassword: formData.newPassword,
+          // Change Password stays disabled until the check has produced a token
+          captchaToken,
         }),
       });
 
@@ -143,6 +151,8 @@ export default function ChangePasswordPage() {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
     } finally {
       setLoading(false);
+      // A sent token has been used: start a fresh check for a retry
+      if (usedCaptcha) captchaRef.current?.reset();
     }
   };
 
@@ -365,11 +375,13 @@ export default function ChangePasswordPage() {
                     </div>
                   </div>
 
+                  <TurnstileWidget ref={captchaRef} action="change_password" onToken={setCaptchaToken} />
+
                   {/* Action Buttons */}
                   <div className="flex gap-4 pt-6">
                     <button
                       type="submit"
-                      disabled={loading}
+                      disabled={loading || !captchaToken}
                       className="flex-1 relative group overflow-hidden rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-white font-semibold shadow-lg transition-all duration-300 md:hover:shadow-purple-500/25 md:hover:shadow-xl md:hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 touch-manipulation"
                     >
                       <span className="relative z-10 flex items-center justify-center">

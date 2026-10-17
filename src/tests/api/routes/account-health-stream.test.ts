@@ -49,16 +49,19 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('PUT /api/profile/change-password', () => {
-  const put = (body: unknown = { currentPassword: 'Old@1234', newPassword: 'New@5678' }) => changePw.PUT(makeRequest('/x', { method: 'PUT', body }));
-  const signInResults = (...results: Array<{ message: string } | null>) => {
+  const body = { currentPassword: 'Old@1234', newPassword: 'New@5678', captchaToken: 'tok' };
+  const put = (b: unknown = body) => changePw.PUT(makeRequest('/x', { method: 'PUT', body: b }));
+  const signInResults = (...results: Array<{ message: string; code?: string } | null>) => {
     for (const error of results) sb.auth.signInWithPassword.mockResolvedValueOnce({ data: {}, error } as never);
   };
 
-  it('verifies the current password with Supabase and then updates it', async () => {
-    signInResults(null, { message: 'Invalid login credentials' });
+  it('verifies the current password with one Turnstile-checked sign-in, then updates it', async () => {
+    signInResults(null);
     const res = await put();
     expect(await res.json()).toEqual({ message: 'Password changed successfully' });
-    expect((sb.auth.signInWithPassword.mock.calls as unknown[][]).map((c) => c[0])).toEqual([{ email: 'p@example.test', password: 'Old@1234' }, { email: 'p@example.test', password: 'New@5678' }]);
+    expect((sb.auth.signInWithPassword.mock.calls as unknown[][]).map((c) => c[0])).toEqual([
+      { email: 'p@example.test', password: 'Old@1234', options: { captchaToken: 'tok' } },
+    ]);
     expect(sb.auth.updateUser).toHaveBeenCalledWith({ password: 'New@5678' });
     expect(logger.logSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PASSWORD_CHANGE', userId: 'user-1' }));
   });
@@ -67,16 +70,32 @@ describe('PUT /api/profile/change-password', () => {
     signInResults({ message: 'bad' });
     expect((await (await put()).json()).message).toBe('Current password is incorrect');
     expect(recordSecurityEvent).toHaveBeenCalledWith('INVALID_PASSWORD_ATTEMPT', expect.anything(), 'user-1', expect.anything());
-    signInResults(null, null);
-    expect((await (await put()).json()).message).toBe('New password must be different from current password');
+    signInResults(null);
+    expect((await (await put({ ...body, newPassword: 'Old@1234' })).json()).message).toBe('New password must be different from current password');
+    expect(sb.auth.signInWithPassword).toHaveBeenCalledTimes(2);
+    expect(sb.auth.updateUser).not.toHaveBeenCalled();
+  });
+
+  it('needs a Turnstile token, and does not count a failed check as a wrong password', async () => {
+    const missing = await put({ currentPassword: 'Old@1234', newPassword: 'New@5678' });
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toEqual({ message: 'Please complete the security check.' });
+    expect((await changePw.PUT(makeRequest('/x', { method: 'PUT', rawBody: 'not json' }))).status).toBe(400);
+    expect(sb.auth.signInWithPassword).not.toHaveBeenCalled();
+
+    signInResults({ message: 'captcha protection: request disallowed (timeout-or-duplicate)', code: 'captcha_failed' });
+    const failed = await put();
+    expect(failed.status).toBe(400);
+    expect(await failed.json()).toEqual({ message: 'The security check failed or expired. Please try again.' });
+    expect(recordSecurityEvent).not.toHaveBeenCalledWith('INVALID_PASSWORD_ATTEMPT', expect.anything(), expect.anything(), expect.anything());
     expect(sb.auth.updateUser).not.toHaveBeenCalled();
   });
 
   it('relays an update failure', async () => {
-    signInResults(null, { message: 'x' });
+    signInResults(null);
     sb.auth.updateUser.mockResolvedValueOnce({ data: {}, error: { message: 'Password is known to be weak' } } as never);
     expect(await (await put()).json()).toEqual({ message: 'Password is known to be weak' });
-    signInResults(null, { message: 'x' });
+    signInResults(null);
     sb.auth.updateUser.mockResolvedValueOnce({ data: {}, error: { message: '' } } as never);
     expect((await (await put()).json()).message).toBe('Failed to update password');
   });
@@ -84,16 +103,20 @@ describe('PUT /api/profile/change-password', () => {
   it('emails Google-only accounts a set-password link instead', async () => {
     detectForUser.mockResolvedValue({ hasPassword: false });
     sendPasswordSetupEmail.mockResolvedValue({ ok: true });
-    expect(await (await put({})).json()).toMatchObject({ resetEmailSent: true });
-    expect(sendPasswordSetupEmail).toHaveBeenCalledWith(sb.client, 'p@example.test');
+    expect(await (await put({ captchaToken: 'tok' })).json()).toMatchObject({ resetEmailSent: true });
+    expect(sendPasswordSetupEmail).toHaveBeenCalledWith(sb.client, 'p@example.test', 'tok');
+    sendPasswordSetupEmail.mockResolvedValue({ ok: false, captchaFailed: true });
+    const failedCheck = await put({ captchaToken: 'used' });
+    expect(failedCheck.status).toBe(400);
+    expect((await failedCheck.json()).message).toBe('The security check failed or expired. Please try again.');
     sendPasswordSetupEmail.mockResolvedValue({ ok: false });
-    expect((await put({})).status).toBe(502);
+    expect((await put({ captchaToken: 'tok' })).status).toBe(502);
     sb.setUser(user({ email: undefined }));
-    expect((await put({})).status).toBe(502);
+    expect((await put({ captchaToken: 'tok' })).status).toBe(502);
   });
 
   it('validates the new password, guards, and maps failures', async () => {
-    expect((await put({ currentPassword: 'x', newPassword: 'weakpass' })).status).toBe(400);
+    expect((await put({ currentPassword: 'x', newPassword: 'weakpass', captchaToken: 'tok' })).status).toBe(400);
     expect(logger.logInvalidInput).toHaveBeenCalled();
     requireCSRFToken.mockResolvedValueOnce(NextResponse.json({}, { status: 403 }));
     expect((await put()).status).toBe(403);

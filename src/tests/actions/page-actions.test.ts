@@ -54,16 +54,26 @@ describe('resetPassword', () => {
   });
 
   it('sends the reset link back to /update-password through the callback', async () => {
-    const res = await resetPassword(form({ email: 'ali@example.com' }));
+    const res = await resetPassword(form({ email: 'ali@example.com', captchaToken: 'tok' }));
     expect(res).toMatchObject({ success: true });
-    expect(h.auth.resetPasswordForEmail).toHaveBeenCalledWith('ali@example.com', { redirectTo: 'https://1think2win.com/auth/callback?next=/update-password' });
+    expect(h.auth.resetPasswordForEmail).toHaveBeenCalledWith('ali@example.com', {
+      redirectTo: 'https://1think2win.com/auth/callback?next=/update-password',
+      captchaToken: 'tok',
+    });
   });
 
   it('answers the same way when Supabase fails, so accounts cannot be probed', async () => {
     h.auth.resetPasswordForEmail.mockResolvedValue({ error: { message: 'User not found' } });
-    const ok = await resetPassword(form({ email: 'ali@example.com' }));
+    const ok = await resetPassword(form({ email: 'ali@example.com', captchaToken: 'tok' }));
     h.auth.resetPasswordForEmail.mockResolvedValue({ error: null });
-    expect(ok).toEqual(await resetPassword(form({ email: 'ali@example.com' })));
+    expect(ok).toEqual(await resetPassword(form({ email: 'ali@example.com', captchaToken: 'tok' })));
+  });
+
+  it('needs a Turnstile token, and reports a failed check instead of claiming the email went out', async () => {
+    expect(await resetPassword(form({ email: 'ali@example.com' }))).toEqual({ error: 'Please complete the security check.' });
+    expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+    h.auth.resetPasswordForEmail.mockResolvedValue({ error: { message: 'captcha protection: request disallowed', code: 'captcha_failed' } });
+    expect(await resetPassword(form({ email: 'ali@example.com', captchaToken: 'used' }))).toEqual({ error: 'The security check failed or expired. Please try again.' });
   });
 });
 

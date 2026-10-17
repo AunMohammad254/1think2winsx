@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { motion } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader2, LogIn } from 'lucide-react';
 import { loginAction, getGoogleOAuthUrl } from '@/actions/auth-actions';
+import TurnstileWidget, { type TurnstileHandle } from './TurnstileWidget';
 
 const loginSchema = z.object({
     email: z.string().email('Invalid email address'),
@@ -25,6 +26,9 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
     const searchParams = useSearchParams();
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+    // Supabase requires a Turnstile token to sign in with a password
+    const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+    const captchaRef = useRef<TurnstileHandle>(null);
     // A sign-in link that failed (expired, already used, opened on another device) lands here with ?error=
     const [error, setError] = useState<string | null>(
         searchParams.get('error') === 'auth_callback_error'
@@ -49,7 +53,8 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
         setError(null);
 
         try {
-            const result = await loginAction(data);
+            // Sign In stays disabled until the check has produced a token
+            const result = await loginAction({ ...data, captchaToken: captchaToken! });
 
             if (!result.success) {
                 setError(result.error || 'Login failed');
@@ -61,6 +66,8 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
             setError('An error occurred during login');
         } finally {
             setIsSubmitting(false);
+            // The token has been used: start a fresh check for a retry
+            captchaRef.current?.reset();
         }
     };
 
@@ -191,10 +198,12 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                     </Link>
                 </div>
 
+                <TurnstileWidget ref={captchaRef} action="login" onToken={setCaptchaToken} />
+
                 {/* Submit Button */}
                 <motion.button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !captchaToken}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     className="w-full py-3.5 px-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold rounded-xl shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2"

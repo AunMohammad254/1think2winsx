@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { resetPassword } from './actions';
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget';
 import { Mail, ArrowLeft, Loader2, CheckCircle2, AlertCircle, KeyRound } from 'lucide-react';
 
 const forgotPasswordSchema = z.object({
@@ -23,6 +24,9 @@ export default function ForgotPasswordForm({ linkExpired = false }: { linkExpire
     // Arriving from a reset/set-password link that no longer works: explain why, don't just show a blank form
     const [error, setError] = useState<string | null>(linkExpired ? LINK_EXPIRED_MESSAGE : null);
     const [message, setMessage] = useState<string>('');
+    // Supabase requires a Turnstile token to send a reset email
+    const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+    const captchaRef = useRef<TurnstileHandle>(null);
 
     const {
         register,
@@ -39,6 +43,8 @@ export default function ForgotPasswordForm({ linkExpired = false }: { linkExpire
         try {
             const formData = new FormData();
             formData.append('email', data.email);
+            // Send Reset Link stays disabled until the check has produced a token
+            formData.append('captchaToken', captchaToken!);
 
             const result = await resetPassword(formData);
 
@@ -52,6 +58,8 @@ export default function ForgotPasswordForm({ linkExpired = false }: { linkExpire
             setError('An error occurred. Please try again.');
         } finally {
             setIsSubmitting(false);
+            // The token has been used: start a fresh check for a retry
+            captchaRef.current?.reset();
         }
     };
 
@@ -142,9 +150,11 @@ export default function ForgotPasswordForm({ linkExpired = false }: { linkExpire
                                         )}
                                     </div>
 
+                                    <TurnstileWidget ref={captchaRef} action="password_reset" onToken={setCaptchaToken} />
+
                                     <button
                                         type="submit"
-                                        disabled={isSubmitting}
+                                        disabled={isSubmitting || !captchaToken}
                                         className="w-full flex justify-center items-center py-3 px-4 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg"
                                     >
                                         {isSubmitting ? (
