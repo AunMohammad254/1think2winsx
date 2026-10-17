@@ -24,6 +24,7 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/lib/newsletter-unsubscribe', () => ({ verifyUnsubscribeToken: (...a: unknown[]) => h.verifyUnsubscribeToken(...a) }));
 vi.mock('@/app/forgot-password/actions', () => ({ resetPassword: (...a: unknown[]) => h.resetPassword(...a) }));
+vi.mock('@/components/auth/TurnstileWidget', async () => ({ default: (await import('@/tests/helpers/turnstile-mock')).TurnstileMock }));
 vi.mock('@/app/forgot-email/actions', () => ({
   lookupEmailByPhone: (...a: unknown[]) => h.lookupEmailByPhone(...a),
   sendEmailReminder: (...a: unknown[]) => h.sendEmailReminder(...a),
@@ -157,6 +158,25 @@ describe('forgot password', () => {
     submitForm(/Send Reset Link/);
     expect(await screen.findByText('If an account exists, check your inbox.')).toBeInTheDocument();
     expect((h.resetPassword.mock.calls[0][0] as FormData).get('email')).toBe('ali@x.com');
+    expect((h.resetPassword.mock.calls[0][0] as FormData).get('captchaToken')).toBe('captcha-token');
+  });
+
+  it('keeps Send Reset Link disabled until the security check passes, and replaces a used token', async () => {
+    const { turnstile } = await import('@/tests/helpers/turnstile-mock');
+    turnstile.token = null;
+    const { unmount } = render(<ForgotPasswordForm />);
+    expect(screen.getByTestId('turnstile-password_reset')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Send Reset Link/ })).toBeDisabled();
+    unmount();
+
+    turnstile.token = 'captcha-token';
+    turnstile.resets = 0;
+    h.resetPassword.mockResolvedValueOnce({ error: 'The security check failed or expired. Please try again.' });
+    render(<ForgotPasswordForm />);
+    fireEvent.change(screen.getByLabelText('Email Address'), { target: { value: 'ali@x.com' } });
+    submitForm(/Send Reset Link/);
+    expect(await screen.findByText('The security check failed or expired. Please try again.')).toBeInTheDocument();
+    expect(turnstile.resets).toBe(1);
   });
 
   it('shows errors and a default confirmation', async () => {
@@ -258,6 +278,9 @@ describe('update password', () => {
     await screen.findByText('Set New Password');
     submitForm(/Update Password/);
     expect(await screen.findByText('Password must be at least 8 characters')).toBeInTheDocument();
+    type('New Password', '___'); // underscores meet none of the five checks
+    expect(screen.getByText('Very Weak')).toBeInTheDocument();
+    expect(screen.getByText('Very Weak').previousElementSibling!.firstElementChild).toHaveClass('bg-slate-600');
     type('New Password', 'abC'); // lower + upper = 2 of 5
     expect(screen.getByText('Weak')).toBeInTheDocument();
     type('New Password', 'Str0ng!pass');

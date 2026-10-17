@@ -382,6 +382,7 @@ describe('SectionNav', () => {
     fireEvent.click(link('Prizes'));
     expect(link('Prizes').querySelector('span')!.className).toContain('text-emerald-400');
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'smooth' });
     expect(window.history.pushState).toHaveBeenCalledWith(null, '', '#prizes');
     topOf.prizes = 1800; // content mounted above pushed the target down
     advance(20);
@@ -414,6 +415,15 @@ describe('SectionNav', () => {
     unmount();
   });
 
+  it('jumps without animation when the user prefers reduced motion', () => {
+    media([REDUCED]);
+    render(<SectionNav />, { container: document.body.appendChild(document.createElement('div')) });
+    fireEvent.click(link('Prizes'));
+    topOf.prizes = 1800;
+    advance(20);
+    expect(scrollIntoView.mock.calls).toEqual([[{ behavior: 'auto' }], [{ behavior: 'auto' }]]);
+  });
+
   it('only highlights when the target section is missing', () => {
     document.getElementById('how')!.remove();
     render(<SectionNav />, { container: document.body.appendChild(document.createElement('div')) });
@@ -430,6 +440,8 @@ describe('Stats', () => {
     intersect();
     advance(2000);
     expect(screen.getByText('10,000')).toBeInTheDocument();
+    // "from-rose-400 to-amber-400" starts at rose (it used to match "amber" first)
+    expect([...container.querySelectorAll('#ring-grad-3 stop')].map((s) => s.getAttribute('stop-color'))).toEqual(['#fb7185', '#fbbf24']);
     const strip = container.querySelector('.snap-x') as HTMLElement;
     storeScrollLeft(strip);
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });

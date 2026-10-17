@@ -15,7 +15,7 @@ import { emailShell, emailButton, emailParagraph, emailNote, emailLinkFallback, 
 const BASE = '{{ .SiteURL }}';
 const LINK = '{{ .ConfirmationURL }}';
 
-const ignoreNote = (what: string) => emailNote(`If you didn't ${what}, you can safely ignore this email.`, 'amber');
+const ignoreNote = (what: string) => emailNote(`If you didn't ${what}, you can safely ignore this email.`);
 
 export interface SupabaseEmailTemplate {
     /** Where it goes in the dashboard */

@@ -6,8 +6,11 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Landing Page Navigation - Desktop', () => {
-  test.beforeEach(async ({ page, isMobile }) => {
+  test.beforeEach(async ({ page, isMobile, browserName }) => {
     test.skip(!!isMobile, 'Desktop only tests');
+    // WebKit's smooth scrolling is timing-dependent in headless runs, so it runs these with
+    // reduced motion: the section nav (and the CSS) then jump straight to the target.
+    if (browserName === 'webkit') await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     // Wait for page to fully load with longer timeout
     await page.waitForLoadState('networkidle');
@@ -34,8 +37,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
     expect(navButtons).toBe(9); // 9 sections
   });
 
-  test('clicking nav button scrolls to section smoothly', async ({ page, browserName }) => {
-    test.skip(browserName === 'webkit', 'Webkit native smooth scrolling is flaky in Playwright');
+  test('clicking nav button scrolls to section smoothly', async ({ page }) => {
     const statsNavButton = page.locator('nav[aria-label="Page sections"] a[href="#stats"]');
     const statsSection = page.locator('#stats');
     
@@ -72,8 +74,7 @@ test.describe('Landing Page Navigation - Desktop', () => {
     await expect(dot).toBeVisible({ timeout: 10000 });
   });
 
-  test('scroll progress bar updates as user scrolls', async ({ page, browserName }) => {
-    test.skip(browserName === 'webkit', 'Webkit programmatic scrolling is flaky');
+  test('scroll progress bar updates as user scrolls', async ({ page }) => {
     const progressBar = page.locator('div[aria-hidden="true"].bg-gradient-to-r').first();
     
     // Initial state
@@ -93,23 +94,20 @@ test.describe('Landing Page Navigation - Desktop', () => {
     expect(scaleValue).not.toEqual('scaleX(0)');
   });
 
-  test('scrolling manually updates active nav button', async ({ page, browserName }) => {
-    test.skip(browserName === 'webkit', 'Webkit programmatic scrolling is flaky');
-    // Scroll down to the "how" section via hash
-    await page.evaluate(() => {
-      window.location.hash = '#how';
-    });
-    
-    await page.waitForTimeout(1500); // Wait for state update
-    
-    // Check if the "how" nav button is now active
+  test('scrolling manually updates active nav button', async ({ page }) => {
     const howNav = page.locator('nav[aria-label="Page sections"] a[href="#how"]');
     const activeDot = howNav.locator('span[class*="section-nav-dot-active"]');
-    await expect(activeDot).toBeVisible({ timeout: 10000 });
+
+    // Scroll the "how" section to the top without using the nav. The lazy sections above it
+    // render as they come near the viewport and push it down; Chromium and Firefox keep it in
+    // place (scroll anchoring) but WebKit does not, so scroll again until the layout settles.
+    await expect(async () => {
+      await page.locator('#how').evaluate((el) => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+      await expect(activeDot).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 10000 });
   });
 
-  test('multiple section clicks work correctly', async ({ page, browserName }) => {
-    test.skip(browserName === 'webkit', 'Webkit smooth scroll clicks overlap and hang');
+  test('multiple section clicks work correctly', async ({ page }) => {
     const navButtons = [
       { href: '#stats', id: 'stats' },
       { href: '#how', id: 'how' },
@@ -236,8 +234,11 @@ test.describe('Landing Page Navigation - Mobile', () => {
 });
 
 test.describe('Landing Page Navigation - Accessibility', () => {
-  test.beforeEach(async ({ page, isMobile }) => {
+  test.beforeEach(async ({ page, isMobile, browserName }) => {
     test.skip(!!isMobile, 'Desktop only tests');
+    // WebKit's smooth scrolling is timing-dependent in headless runs, so it runs these with
+    // reduced motion: the section nav (and the CSS) then jump straight to the target.
+    if (browserName === 'webkit') await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
@@ -285,14 +286,16 @@ test.describe('Landing Page Navigation - Accessibility', () => {
 });
 
 test.describe('Landing Page Navigation - Edge Cases', () => {
-  test.beforeEach(async ({ page, isMobile }) => {
+  test.beforeEach(async ({ page, isMobile, browserName }) => {
     test.skip(!!isMobile, 'Desktop only tests');
+    // WebKit's smooth scrolling is timing-dependent in headless runs, so it runs these with
+    // reduced motion: the section nav (and the CSS) then jump straight to the target.
+    if (browserName === 'webkit') await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
     await page.waitForLoadState('networkidle');
   });
 
-  test('rapid navigation clicks are handled smoothly', async ({ page, browserName }) => {
-    test.skip(browserName === 'webkit', 'Webkit smooth scrolling queues differently');
+  test('rapid navigation clicks are handled smoothly', async ({ page }) => {
     const buttons = [
       'nav[aria-label="Page sections"] a[href="#stats"]',
       'nav[aria-label="Page sections"] a[href="#how"]',
@@ -314,8 +317,7 @@ test.describe('Landing Page Navigation - Edge Cases', () => {
     await expect(leaderboard).toBeInViewport({ timeout: 10000 });
   });
 
-  test('scrolling back to top works', async ({ page, browserName }) => {
-    test.skip(browserName === 'webkit', 'Webkit smooth scrolling queues differently');
+  test('scrolling back to top works', async ({ page }) => {
     // Scroll down
     await page.evaluate(() => window.scrollTo({ top: 1000, behavior: 'instant' }));
     await page.waitForTimeout(500); // Wait for scroll event

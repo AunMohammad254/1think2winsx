@@ -111,18 +111,22 @@ describe('Cloudinary media actions', () => {
 describe('requestPasswordSetupEmail', () => {
   it('emails the signed-in player a set-password link, rate limited per user', async () => {
     sendPasswordSetupEmail.mockResolvedValue({ ok: true });
-    expect(await pwSetup.requestPasswordSetupEmail()).toEqual({ success: true, email: 'ali@example.test' });
+    expect(await pwSetup.requestPasswordSetupEmail('tok')).toEqual({ success: true, email: 'ali@example.test' });
     expect(checkLimit).toHaveBeenCalledWith(expect.anything(), 'u1', '/profile/password-setup');
+    expect(sendPasswordSetupEmail).toHaveBeenCalledWith(expect.anything(), 'ali@example.test', 'tok');
   });
 
   it('reports an expired session, the rate limit, a failed send and errors', async () => {
     checkLimit.mockResolvedValueOnce({ success: false });
-    expect(await pwSetup.requestPasswordSetupEmail()).toEqual({ error: 'Too many requests. Please wait a few minutes and try again.' });
+    expect(await pwSetup.requestPasswordSetupEmail('tok')).toEqual({ error: 'Too many requests. Please wait a few minutes and try again.' });
     sendPasswordSetupEmail.mockResolvedValueOnce({ ok: false });
-    expect((await pwSetup.requestPasswordSetupEmail()).error).toMatch(/couldn't send the email/);
+    expect((await pwSetup.requestPasswordSetupEmail('tok')).error).toMatch(/couldn't send the email/);
+    sendPasswordSetupEmail.mockResolvedValueOnce({ ok: false, captchaFailed: true });
+    expect(await pwSetup.requestPasswordSetupEmail('tok')).toEqual({ error: 'The security check failed or expired. Please try again.' });
+    expect(await pwSetup.requestPasswordSetupEmail('')).toEqual({ error: 'Please complete the security check.' });
     checkLimit.mockRejectedValueOnce(new Error('x'));
-    expect(await pwSetup.requestPasswordSetupEmail()).toEqual({ error: 'An error occurred. Please try again.' });
+    expect(await pwSetup.requestPasswordSetupEmail('tok')).toEqual({ error: 'An error occurred. Please try again.' });
     sb.setUser(null);
-    expect(await pwSetup.requestPasswordSetupEmail()).toEqual({ error: 'Your session has expired. Please sign in again.' });
+    expect(await pwSetup.requestPasswordSetupEmail('tok')).toEqual({ error: 'Your session has expired. Please sign in again.' });
   });
 });

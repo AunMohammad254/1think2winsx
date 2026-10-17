@@ -65,9 +65,9 @@ async function deepHealth() {
 
   try {
     // Perform comprehensive health checks
-    const [transactionHealth, dbHealth] = await Promise.allSettled([
-      TransactionManager.healthCheck(),
-      checkDatabaseHealth()
+    const [[transactionHealth], databaseHealth] = await Promise.all([
+      Promise.allSettled([TransactionManager.healthCheck()]),
+      checkDatabaseHealth() // reports its own failures, so it never rejects
     ]);
 
     const responseTime = Date.now() - startTime;
@@ -83,15 +83,6 @@ async function deepHealth() {
           averageLatency: 0,
           lastError: transactionHealth.reason?.message || 'Unknown error'
         }
-      };
-
-    // Process database health results
-    const databaseHealth = dbHealth.status === 'fulfilled'
-      ? dbHealth.value
-      : {
-        status: 'unhealthy' as const,
-        connectionPool: { active: 0, idle: 0, total: 0 },
-        lastError: dbHealth.reason?.message || 'Unknown error'
       };
 
     // Determine overall system health
@@ -193,30 +184,22 @@ async function checkDatabaseHealth() {
  * Check authentication system health
  */
 async function checkAuthHealth() {
-  try {
-    // Only report whether configuration is present — never echo values
-    const authConfig = {
-      nextAuthUrl: process.env.NEXTAUTH_URL ? '[SET]' : '[NOT SET]',
-      nextAuthSecret: process.env.NEXTAUTH_SECRET ? '[SET]' : '[NOT SET]',
-      adminEmails: process.env.ADMIN_EMAILS ? '[SET]' : '[NOT SET]'
-    };
+  // Only report whether configuration is present — never echo values
+  const authConfig = {
+    nextAuthUrl: process.env.NEXTAUTH_URL ? '[SET]' : '[NOT SET]',
+    nextAuthSecret: process.env.NEXTAUTH_SECRET ? '[SET]' : '[NOT SET]',
+    adminEmails: process.env.ADMIN_EMAILS ? '[SET]' : '[NOT SET]'
+  };
 
-    const missingConfig = Object.entries(authConfig)
-      .filter(([_key, value]) => value === '[NOT SET]')
-      .map(([key]) => key);
+  const missingConfig = Object.entries(authConfig)
+    .filter(([_key, value]) => value === '[NOT SET]')
+    .map(([key]) => key);
 
-    return {
-      status: missingConfig.length === 0 ? 'healthy' as const : 'degraded' as const,
-      configuration: authConfig,
-      missingConfig: missingConfig.length > 0 ? missingConfig : undefined
-    };
-
-  } catch (error) {
-    return {
-      status: 'unhealthy' as const,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
+  return {
+    status: missingConfig.length === 0 ? 'healthy' as const : 'degraded' as const,
+    configuration: authConfig,
+    missingConfig: missingConfig.length > 0 ? missingConfig : undefined
+  };
 }
 
 /**

@@ -186,8 +186,9 @@ export default function PrizesPage() {
     setSelectedPrize(prize);
   };
 
-  const handleRedemptionSubmit = async (formData: { fullName: string; whatsappNumber: string; address: string }) => {
-    if (!selectedPrize || !user) return;
+  const handleRedemptionSubmit = async (selectedPrize: Prize, formData: { fullName: string; whatsappNumber: string; address: string }) => {
+    // The session can end while the form is open
+    if (!user) return;
 
     setRedeemingId(selectedPrize.id);
 
@@ -362,7 +363,7 @@ export default function PrizesPage() {
           <RedemptionModal
             prize={selectedPrize}
             onClose={() => setSelectedPrize(null)}
-            onSubmit={handleRedemptionSubmit}
+            onSubmit={(formData) => handleRedemptionSubmit(selectedPrize, formData)}
             isSubmitting={redeemingId === selectedPrize.id}
           />
         )}

@@ -1,3 +1,4 @@
+/* v8 ignore next -- an import line has no logic; Vitest's rewrite of it reports a phantom branch */
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
 
 /**
@@ -32,12 +33,12 @@ let shedTotal = 0;
 
 function ensureLagSampler(): void {
   if (histogram) return;
-  histogram = monitorEventLoopDelay({ resolution: 20 });
-  histogram.enable();
+  const sampler = monitorEventLoopDelay({ resolution: 20 });
+  histogram = sampler;
+  sampler.enable();
   lagTimer = setInterval(() => {
-    if (!histogram) return;
-    lagP99Ms = histogram.percentile(99) / 1e6; // ns -> ms
-    histogram.reset();
+    lagP99Ms = sampler.percentile(99) / 1e6; // ns -> ms
+    sampler.reset();
   }, LAG_WINDOW_MS);
   lagTimer.unref(); // never keep the process alive just for metrics
 }

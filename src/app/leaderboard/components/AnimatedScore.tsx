@@ -14,11 +14,13 @@ export default function AnimatedScore({ value, play, duration = 0.6 }: AnimatedS
 
   useEffect(() => {
     if (!play || !nodeRef.current) return;
-    const from = parseInt(nodeRef.current.textContent || '0', 10);
+    const from = Number(nodeRef.current.textContent); // the span always shows a whole number
     const controls = animate(from, value, {
       duration: duration,
       ease: 'easeOut',
       onUpdate: (latest) => {
+        // React clears the ref on unmount before this effect's cleanup stops the animation,
+        // so a frame can still land after the span is gone
         if (nodeRef.current) nodeRef.current.textContent = Math.round(latest).toString();
       },
     });

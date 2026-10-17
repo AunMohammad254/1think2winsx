@@ -8,9 +8,12 @@ interface DepositFormProps {
     isSubmitting?: boolean;
 }
 
+// QuizAccess is an internal charge, not something a player deposits with
+type DepositMethod = Exclude<PaymentMethod, 'QuizAccess'>;
+
 export default function DepositForm({ onSubmit, isSubmitting = false }: DepositFormProps) {
     const [amount, setAmount] = useState<string>('');
-    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Easypaisa');
+    const [paymentMethod, setPaymentMethod] = useState<DepositMethod>('Easypaisa');
     const [transactionId, setTransactionId] = useState<string>('');
     const [proofImage, setProofImage] = useState<File | null>(null);
     const [error, setError] = useState<string>('');
@@ -41,9 +44,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
         formData.append('amount', amount);
         formData.append('paymentMethod', paymentMethod);
         formData.append('transactionId', transactionId.trim());
-        if (proofImage) {
-            formData.append('proofImage', proofImage);
-        }
+        formData.append('proofImage', proofImage);
 
         const result = await onSubmit(formData);
 
@@ -88,8 +89,6 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                 ) : (
                     <p className="text-amber-300 text-sm">Bank transfer details not available yet. Please use Easypaisa.</p>
                 );
-            default:
-                return null;
         }
     };
 
@@ -153,7 +152,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                         role="radiogroup"
                         aria-label="Payment method"
                     >
-                        {(['Easypaisa', 'Jazzcash', 'Bank'] as PaymentMethod[]).map((method) => {
+                        {(['Easypaisa', 'Jazzcash', 'Bank'] as DepositMethod[]).map((method) => {
                             const selected = paymentMethod === method;
                             return (
                                 <button

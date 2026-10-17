@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Mail, Loader2, Check, AlertCircle } from 'lucide-react';
 import { requestPasswordSetupEmail } from '@/actions/password-setup-actions';
+import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget';
 
 interface SetPasswordByEmailProps {
     /** Display name(s) of the sign-in provider, e.g. "Google" */
@@ -20,22 +21,29 @@ export default function SetPasswordByEmail({ providerLabel, hasPassword = false 
     const [status, setStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
     const [email, setEmail] = useState('');
     const [error, setError] = useState<string | null>(null);
+    // Supabase requires a Turnstile token to send the email
+    const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+    const captchaRef = useRef<TurnstileHandle>(null);
 
     const handleSend = async () => {
         setStatus('sending');
         setError(null);
         try {
-            const result = await requestPasswordSetupEmail();
+            // The button stays disabled until the check has produced a token
+            const result = await requestPasswordSetupEmail(captchaToken!);
             if (result.error) {
                 setError(result.error);
                 setStatus('idle');
             } else {
-                setEmail(result.email || '');
+                setEmail(result.email!); // a successful send always names the address
                 setStatus('sent');
             }
         } catch {
             setError('An error occurred. Please try again.');
             setStatus('idle');
+        } finally {
+            // The token has been used: start a fresh check for a retry
+            captchaRef.current?.reset();
         }
     };
 
@@ -73,10 +81,13 @@ export default function SetPasswordByEmail({ providerLabel, hasPassword = false 
                 </div>
             ) : (
                 <>
+                    <div className="mb-4">
+                        <TurnstileWidget ref={captchaRef} action="password_setup" onToken={setCaptchaToken} />
+                    </div>
                     <button
                         type="button"
                         onClick={handleSend}
-                        disabled={status === 'sending'}
+                        disabled={status === 'sending' || !captchaToken}
                         className="inline-flex items-center justify-center px-5 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                         {status === 'sending' ? (

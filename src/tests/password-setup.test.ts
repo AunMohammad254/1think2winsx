@@ -13,6 +13,8 @@ const h = vi.hoisted(() => {
     };
     return {
         auth,
+        // the service-role client: Supabase asks it for no CAPTCHA token
+        adminAuth: { resetPasswordForEmail: vi.fn() },
         authLimit: vi.fn(),
         pwLimit: vi.fn(),
         userUpdate: vi.fn(),
@@ -28,7 +30,7 @@ vi.mock('next/headers', () => ({
     headers: async () => new Headers({ 'x-forwarded-for': '203.0.113.7' }),
 }));
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }));
-vi.mock('@/lib/supabase/db', () => ({ userDb: { update: h.userUpdate } }));
+vi.mock('@/lib/supabase/db', () => ({ userDb: { update: h.userUpdate }, getAdminDb: () => ({ auth: h.adminAuth }) }));
 // updatePassword records has_password through the admin client; keep it out of the real project
 vi.mock('@/lib/supabase/db-modules/shared', () => ({
     getAdminDb: () => ({ auth: { admin: { updateUserById: vi.fn().mockResolvedValue({ error: null }) } } }),
@@ -59,6 +61,7 @@ const registerForm = {
     name: 'Fan',
     email: 'fan@example.com',
     password: 'Str0ng!Passw0rd',
+    captchaToken: 'tok',
 };
 
 beforeEach(() => {
@@ -69,6 +72,7 @@ beforeEach(() => {
     h.authLimit.mockResolvedValue({ success: true });
     h.pwLimit.mockResolvedValue({ success: true });
     h.auth.resetPasswordForEmail.mockResolvedValue({ error: null });
+    h.adminAuth.resetPasswordForEmail.mockResolvedValue({ error: null });
     h.auth.getSession.mockResolvedValue({ data: { session: null } });
     h.auth.updateUser.mockResolvedValue({ error: null });
     h.auth.getUser.mockResolvedValue({ data: { user: googleUser }, error: null });
@@ -81,8 +85,11 @@ describe('registering with an email that already has an account (e.g. created wi
 
         const result = await registerAction(registerForm);
 
-        expect(h.auth.resetPasswordForEmail).toHaveBeenCalledTimes(1);
-        expect(h.auth.resetPasswordForEmail).toHaveBeenCalledWith('fan@example.com', { redirectTo: EXPECTED_REDIRECT });
+        // the sign-up used up the Turnstile token, so the email goes through the service-role client
+        expect(h.auth.signUp.mock.calls[0][0].options.captchaToken).toBe('tok');
+        expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+        expect(h.adminAuth.resetPasswordForEmail).toHaveBeenCalledTimes(1);
+        expect(h.adminAuth.resetPasswordForEmail).toHaveBeenCalledWith('fan@example.com', { redirectTo: EXPECTED_REDIRECT });
         expect(result).toEqual({ success: true, redirectTo: '/auth?registered=true' }); // no "already exists" error
         expect(h.userUpdate).not.toHaveBeenCalled(); // never touches the existing user's row
     });
@@ -94,7 +101,7 @@ describe('registering with an email that already has an account (e.g. created wi
         const result = await registerAction(registerForm);
 
         expect(h.authLimit.mock.calls[0][1]).toBe('register-existing:fan@example.com');
-        expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+        expect(h.adminAuth.resetPasswordForEmail).not.toHaveBeenCalled();
         expect(result.success).toBe(true);
     });
 
@@ -106,7 +113,7 @@ describe('registering with an email that already has an account (e.g. created wi
 
         const result = await registerAction(registerForm);
 
-        expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+        expect(h.adminAuth.resetPasswordForEmail).not.toHaveBeenCalled();
         expect(h.userUpdate).toHaveBeenCalledTimes(1);
         expect(result).toEqual({ success: true, redirectTo: '/auth?registered=true' });
     });
@@ -137,32 +144,38 @@ describe('setting a password from the emailed link', () => {
 });
 
 describe('profile: "Email me a link to set a password" (Google-only account)', () => {
-    it('emails the signed-in person at their own address', async () => {
-        const result = await requestPasswordSetupEmail();
-        expect(h.auth.resetPasswordForEmail).toHaveBeenCalledWith('fan@example.com', { redirectTo: EXPECTED_REDIRECT });
+    it('emails the signed-in person at their own address, with the Turnstile token', async () => {
+        const result = await requestPasswordSetupEmail('tok');
+        expect(h.auth.resetPasswordForEmail).toHaveBeenCalledWith('fan@example.com', { redirectTo: EXPECTED_REDIRECT, captchaToken: 'tok' });
         expect(result).toEqual({ success: true, email: 'fan@example.com' });
         expect(h.pwLimit.mock.calls[0][1]).toBe('g1'); // limited per user
     });
 
     it('refuses without a session', async () => {
         h.auth.getUser.mockResolvedValue({ data: { user: null }, error: null });
-        const result = await requestPasswordSetupEmail();
+        const result = await requestPasswordSetupEmail('tok');
         expect(result.error).toMatch(/sign in again/i);
         expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
     });
 
     it('is rate limited per user', async () => {
         h.pwLimit.mockResolvedValue({ success: false });
-        const result = await requestPasswordSetupEmail();
+        const result = await requestPasswordSetupEmail('tok');
         expect(result.error).toMatch(/Too many/);
         expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
     });
 
     it('reports a failed send instead of claiming success', async () => {
         h.auth.resetPasswordForEmail.mockResolvedValue({ error: { message: 'smtp down' } });
-        const result = await requestPasswordSetupEmail();
+        const result = await requestPasswordSetupEmail('tok');
         expect(result.success).toBeUndefined();
         expect(result.error).toMatch(/couldn't send/i);
+    });
+
+    it('asks for the security check again when Supabase rejects the token', async () => {
+        h.auth.resetPasswordForEmail.mockResolvedValue({ error: { message: 'captcha protection: request disallowed', code: 'captcha_failed' } });
+        expect(await requestPasswordSetupEmail('used')).toEqual({ error: 'The security check failed or expired. Please try again.' });
+        expect(await requestPasswordSetupEmail('')).toEqual({ error: 'Please complete the security check.' });
     });
 });
 
@@ -179,13 +192,13 @@ describe('API: PUT /api/profile/change-password', () => {
     it('for a Google-only account, emails a set-password link instead of the old "manage it with your provider" error', async () => {
         h.auth.getUser.mockResolvedValue({ data: { user: googleUser }, error: null });
 
-        const res = await put({}); // no currentPassword needed
+        const res = await put({ captchaToken: 'tok' }); // no currentPassword needed
         const body = await res.json();
 
         expect(res.status).toBe(200);
         expect(body.resetEmailSent).toBe(true);
         expect(body.message).not.toMatch(/OAuth provider/i);
-        expect(h.auth.resetPasswordForEmail).toHaveBeenCalledWith('fan@example.com', { redirectTo: EXPECTED_REDIRECT });
+        expect(h.auth.resetPasswordForEmail).toHaveBeenCalledWith('fan@example.com', { redirectTo: EXPECTED_REDIRECT, captchaToken: 'tok' });
         expect(h.auth.signInWithPassword).not.toHaveBeenCalled();
     });
 
@@ -193,7 +206,7 @@ describe('API: PUT /api/profile/change-password', () => {
         h.auth.getUser.mockResolvedValue({ data: { user: emailUser }, error: null });
         h.auth.signInWithPassword.mockResolvedValue({ error: { message: 'bad password' } });
 
-        const res = await put({ currentPassword: 'wrong', newPassword: 'Str0ng!Passw0rd' });
+        const res = await put({ currentPassword: 'wrong', newPassword: 'Str0ng!Passw0rd', captchaToken: 'tok' });
 
         expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
         expect(h.auth.signInWithPassword).toHaveBeenCalledTimes(1);

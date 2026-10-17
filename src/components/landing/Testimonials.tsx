@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, memo } from "react";
+import { useState, useEffect, memo } from "react";
 import { Section, SectionHeading, Reveal } from "./Primitives";
 
 const REVIEWS = [
@@ -11,11 +11,12 @@ const REVIEWS = [
   { name: "Dev Singh", role: "Pro tier · Chandigarh", quote: "The leaderboard pressure is real. I've made friends from Pakistan, Australia, even Sri Lanka — all united by our love of the game.", avatar: "from-blue-400 to-violet-500", rating: 5 },
 ];
 
+// One filled star per rating point (every review is currently rated 5)
 function Stars({ count }: { count: number }) {
   return (
     <div className="flex gap-0.5 text-amber-400">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <svg key={i} viewBox="0 0 24 24" className={`h-3.5 w-3.5 ${i < count ? "fill-amber-400" : "fill-white/15"}`} aria-hidden="true">
+      {Array.from({ length: count }).map((_, i) => (
+        <svg key={i} viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-amber-400" aria-hidden="true">
           <path d="m12 2 3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7l3-7Z" />
         </svg>
       ))}
@@ -24,24 +25,21 @@ function Stars({ count }: { count: number }) {
 }
 
 const ReviewCard = memo(function ReviewCard({ r, index }: { r: (typeof REVIEWS)[number]; index: number }) {
-  const cardRef = useRef<HTMLDivElement>(null);
-
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (!cardRef.current || window.matchMedia("(pointer: coarse)").matches) return;
-    const rect = cardRef.current.getBoundingClientRect();
+  const onMouseMove = (e: React.MouseEvent<HTMLElement>) => {
+    if (window.matchMedia("(pointer: coarse)").matches) return;
+    const card = e.currentTarget;
+    const rect = card.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width - 0.5;
     const y = (e.clientY - rect.top) / rect.height - 0.5;
-    cardRef.current.style.transform = `perspective(1000px) rotateY(${x * 8}deg) rotateX(${-y * 8}deg) translateZ(10px)`;
+    card.style.transform = `perspective(1000px) rotateY(${x * 8}deg) rotateX(${-y * 8}deg) translateZ(10px)`;
   };
 
-  const onMouseLeave = () => {
-    if (!cardRef.current) return;
-    cardRef.current.style.transform = "perspective(1000px) rotateY(0deg) rotateX(0deg) translateZ(0)";
+  const onMouseLeave = (e: React.MouseEvent<HTMLElement>) => {
+    e.currentTarget.style.transform = "perspective(1000px) rotateY(0deg) rotateX(0deg) translateZ(0)";
   };
 
   return (
     <article
-      ref={cardRef}
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
       className="lift mx-2 w-[320px] shrink-0 rounded-2xl border border-white/10 bg-linear-to-b from-white/8 to-white/3 p-6 transition-all duration-200 sm:w-90"

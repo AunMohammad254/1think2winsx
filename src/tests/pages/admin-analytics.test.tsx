@@ -65,11 +65,11 @@ describe('admin analytics page', () => {
     expect(container.querySelector('path[fill="url(#areaGrad)"]')).toBeNull();
   });
 
-  it('KNOWN BUG: a single day of revenue draws the chart at NaN', async () => {
-    // x = padding + (i * width) / (length - 1) divides by zero when there is one point.
+  it('centres a single day of revenue on the chart', async () => {
     h.data = data({ revenue: days([75]) });
     const { container } = await page();
-    expect(container.querySelector('circle.fill-purple-500')!.getAttribute('cx')).toBe('NaN');
+    expect(container.querySelector('circle.fill-purple-500')!.getAttribute('cx')).toBe('350');
+    expect(container.querySelector('path[fill="url(#areaGrad)"]')!.getAttribute('d')).not.toContain('NaN');
   });
 
   it('shows a skeleton while the data loads', async () => {

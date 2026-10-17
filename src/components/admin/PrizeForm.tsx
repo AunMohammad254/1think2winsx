@@ -13,7 +13,7 @@ import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT, CLOUDINARY_CLOUD_NAME } f
 const prizeFormSchema = z.object({
     name: z.string().min(1, 'Name is required').max(100, 'Name too long'),
     description: z.string().max(500, 'Description too long').optional(),
-    imageUrl: z.string().url('Invalid URL').refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
+    imageUrl: z.string().refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
     modelUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
     pointsRequired: z.number().min(1, 'Points must be at least 1'),

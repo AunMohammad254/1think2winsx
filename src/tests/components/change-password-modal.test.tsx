@@ -16,8 +16,10 @@ vi.mock('@/lib/auth-helpers', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth-helpers')>()),
   checkAuthMethodsClient: () => h.checkAuthMethodsClient(),
 }));
+vi.mock('@/components/auth/TurnstileWidget', async () => ({ default: (await import('@/tests/helpers/turnstile-mock')).TurnstileMock }));
 
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal';
+import { turnstile, resetTurnstileMock } from '@/tests/helpers/turnstile-mock';
 
 let fetchMock: ReturnType<typeof vi.fn>;
 const status = (over: Record<string, unknown> = {}) => jsonResponse({ canChangePassword: true, hasPassword: true, authMethod: 'email', oAuthProviders: [], ...over });
@@ -32,6 +34,7 @@ beforeEach(() => {
   h.user = { id: 'u1', email: 'fan@example.com', app_metadata: { provider: 'email', providers: ['email'] }, identities: [{ provider: 'email' }], user_metadata: {} };
   h.toast.success.mockReset();
   h.toast.error.mockReset();
+  resetTurnstileMock();
   fetchMock = routes();
   vi.stubGlobal('fetch', fetchMock);
 });
@@ -63,8 +66,17 @@ describe('ChangePasswordModal', () => {
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Password changed successfully!', expect.anything()));
     const put = fetchMock.mock.calls.find(([u]) => u === '/api/profile/change-password')!;
     expect(put[1].headers['X-CSRF-Token']).toBe('tok');
-    expect(JSON.parse(put[1].body)).toEqual({ currentPassword: 'Old@1234', newPassword: 'New@5678x' });
+    expect(JSON.parse(put[1].body)).toEqual({ currentPassword: 'Old@1234', newPassword: 'New@5678x', captchaToken: 'captcha-token' });
     expect(onClose).toHaveBeenCalled();
+    expect(turnstile.resets).toBe(1); // the used token is replaced
+  });
+
+  it('keeps Change Password disabled until the security check passes', async () => {
+    turnstile.token = null;
+    render(<ChangePasswordModal isOpen onClose={vi.fn()} />);
+    await ready();
+    expect(screen.getByTestId('turnstile-change_password')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Change Password/ })).toBeDisabled();
   });
 
   it('validates the new password and its confirmation', async () => {

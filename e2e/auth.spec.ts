@@ -1,16 +1,27 @@
 import { test, expect } from '@playwright/test';
 
-test.skip('auth pages redirect and load correctly', async ({ page }) => {
-    // Check login redirection
+// The auth page has "Sign In" / "Sign Up" toggle buttons above the form, so each
+// check looks inside the form to avoid matching the toggle as well.
+test('login and register open the auth page with the right form', async ({ page }) => {
     await page.goto('/login');
-    await expect(page).toHaveURL(/.*auth/);
+    await expect(page).toHaveURL(/\/auth\?mode=login$/);
+    // Wait for the form to mount (the page renders inside Suspense)
+    await expect(page.locator('form').getByRole('button', { name: 'Sign In', exact: true })).toBeVisible({ timeout: 10000 });
 
-    // Wait for the auth container to be visible (handles Suspense loading)
-    // The sign in button is a good indicator of interactable state
-    await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible({ timeout: 10000 });
-
-    // Check register redirection
     await page.goto('/register');
-    await expect(page).toHaveURL(/.*auth/);
-    await expect(page.getByRole('button', { name: 'Sign Up' })).toBeVisible({ timeout: 10000 });
+    await expect(page).toHaveURL(/\/auth\?mode=register$/);
+    await expect(page.locator('form').getByRole('button', { name: 'Create Account', exact: true })).toBeVisible({ timeout: 10000 });
+});
+
+test('the toggle switches between the sign-in and sign-up forms', async ({ page }) => {
+    await page.goto('/auth?mode=login');
+    const form = page.locator('form');
+    await expect(form.getByRole('button', { name: 'Sign In', exact: true })).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole('button', { name: 'Sign Up', exact: true }).click();
+    await expect(form.getByRole('button', { name: 'Create Account', exact: true })).toBeVisible({ timeout: 10000 });
+
+    // Only the toggle matches here: the register form's own link reads "Sign in"
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+    await expect(form.getByRole('button', { name: 'Sign In', exact: true })).toBeVisible({ timeout: 10000 });
 });

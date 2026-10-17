@@ -1,6 +1,6 @@
 import '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const h = vi.hoisted(() => ({
   params: new URLSearchParams(),
@@ -14,9 +14,11 @@ vi.mock('@/actions/auth-actions', () => ({
   registerAction: (...a: unknown[]) => h.registerAction(...a),
   getGoogleOAuthUrl: (...a: unknown[]) => h.getGoogleOAuthUrl(...a),
 }));
+vi.mock('@/components/auth/TurnstileWidget', async () => ({ default: (await import('@/tests/helpers/turnstile-mock')).TurnstileMock }));
 
 import LoginForm from '@/components/auth/LoginForm';
 import RegisterForm from '@/components/auth/RegisterForm';
+import { turnstile, resetTurnstileMock } from '@/tests/helpers/turnstile-mock';
 
 let hrefSetter: ReturnType<typeof vi.fn<(v: string) => void>>;
 const realLocation = window.location;
@@ -25,6 +27,7 @@ beforeEach(() => {
   h.loginAction.mockReset();
   h.registerAction.mockReset();
   h.getGoogleOAuthUrl.mockReset();
+  resetTurnstileMock();
   hrefSetter = vi.fn();
   Object.defineProperty(window, 'location', { configurable: true, value: { set href(v: string) { hrefSetter(v); }, get href() { return 'http://localhost/auth'; } } });
 });
@@ -53,7 +56,7 @@ describe('LoginForm', () => {
     type('Password', 'secret');
     fireEvent.click(screen.getByRole('button', { name: /Sign In/ }));
     await waitFor(() => expect(hrefSetter).toHaveBeenCalledWith('/quizzes'));
-    expect(h.loginAction).toHaveBeenCalledWith({ email: 'ali@example.com', password: 'secret' });
+    expect(h.loginAction).toHaveBeenCalledWith({ email: 'ali@example.com', password: 'secret', captchaToken: 'captcha-token' });
     fireEvent.click(screen.getByRole('button', { name: /Sign In/ }));
     await waitFor(() => expect(h.loginAction).toHaveBeenCalledTimes(2));
     expect(hrefSetter).toHaveBeenCalledTimes(1);
@@ -71,6 +74,32 @@ describe('LoginForm', () => {
     expect(await screen.findByText('Login failed')).toBeInTheDocument();
     submit();
     expect(await screen.findByText('An error occurred during login')).toBeInTheDocument();
+  });
+
+  it('waits for the security check, and asks for a fresh token after each attempt', async () => {
+    turnstile.token = null;
+    h.loginAction.mockResolvedValue({ success: false, error: 'Invalid email or password' });
+    render(<LoginForm onSwitchToRegister={vi.fn()} />);
+    expect(screen.getByTestId('turnstile-login')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign In/ })).toBeDisabled();
+    cleanup();
+
+    turnstile.token = 'captcha-token';
+    render(<LoginForm onSwitchToRegister={vi.fn()} />);
+    type('Email Address', 'ali@example.com');
+    type('Password', 'secret');
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/ }));
+    expect(await screen.findByText('Invalid email or password')).toBeInTheDocument();
+    expect(turnstile.resets).toBe(1); // the used token is replaced before a retry
+  });
+
+  it('shows a busy, disabled button while signing in', async () => {
+    h.loginAction.mockReturnValueOnce(new Promise(() => {}));
+    render(<LoginForm onSwitchToRegister={vi.fn()} />);
+    type('Email Address', 'ali@example.com');
+    type('Password', 'secret');
+    fireEvent.click(screen.getByRole('button', { name: /Sign In/ }));
+    expect(await screen.findByRole('button', { name: /Signing in/ })).toBeDisabled();
   });
 
   it('starts Google sign-in, and reports when it cannot', async () => {
@@ -150,6 +179,8 @@ describe('RegisterForm', () => {
 
   it('rates password strength as you type', () => {
     render(<RegisterForm onSwitchToLogin={vi.fn()} />);
+    type('Password', '___'); // underscores meet none of the five checks
+    expect(screen.getByText('Very Weak').previousElementSibling!.firstElementChild).toHaveClass('bg-slate-600');
     type('Password', 'a');
     expect(screen.getByText('Very Weak')).toBeInTheDocument();
     type('Password', 'aB1');
@@ -172,10 +203,26 @@ describe('RegisterForm', () => {
     fillValid();
     submit();
     expect(await screen.findByText('Account created! Please check your email to verify your account.')).toBeInTheDocument();
-    expect(h.registerAction).toHaveBeenCalledWith({ name: 'Ali Raza', email: 'ali@example.com', password: 'Str0ng!pass', phone: '03123456789', dateOfBirth: '2008-10-15' });
+    expect(h.registerAction).toHaveBeenCalledWith({ name: 'Ali Raza', email: 'ali@example.com', password: 'Str0ng!pass', phone: '03123456789', dateOfBirth: '2008-10-15', captchaToken: 'captcha-token' });
+    expect(turnstile.resets).toBe(1);
     const call = timers.mock.calls.find(([, ms]) => ms === 2000)!;
     (call[0] as () => void)();
     expect(onSwitch).toHaveBeenCalled();
+  });
+
+  it('keeps Create Account disabled until the security check passes', () => {
+    turnstile.token = null;
+    render(<RegisterForm onSwitchToLogin={vi.fn()} />);
+    expect(screen.getByTestId('turnstile-signup')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Create Account/ })).toBeDisabled();
+  });
+
+  it('shows a busy, disabled button while creating the account', async () => {
+    h.registerAction.mockReturnValueOnce(new Promise(() => {}));
+    render(<RegisterForm onSwitchToLogin={vi.fn()} />);
+    fillValid();
+    submit();
+    expect(await screen.findByRole('button', { name: /Creating Account/ })).toBeDisabled();
   });
 
   it('sends no phone when left empty, and shows server errors', async () => {

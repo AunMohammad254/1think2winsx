@@ -101,26 +101,28 @@ export default function LiveQuiz() {
     carouselRef.current?.scrollTo({ left: i * (carouselRef.current.clientWidth), behavior: "smooth" });
   }, []);
 
+  // The mouse handlers sit on the carousel itself, so carouselRef is set whenever they run
   const onMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!carouselRef.current) return;
+    const carousel = carouselRef.current!;
     setIsDragging(true);
-    startX.current = e.pageX - carouselRef.current.offsetLeft;
-    scrollLeft.current = carouselRef.current.scrollLeft;
+    startX.current = e.pageX - carousel.offsetLeft;
+    scrollLeft.current = carousel.scrollLeft;
   }, []);
 
   const onMouseUp = useCallback(() => {
     setIsDragging(false);
-    if (!carouselRef.current) return;
-    const idx = Math.round(carouselRef.current.scrollLeft / carouselRef.current.clientWidth);
+    const carousel = carouselRef.current!;
+    const idx = Math.round(carousel.scrollLeft / carousel.clientWidth);
     setActive(idx);
   }, []);
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (!isDragging || !carouselRef.current) return;
+      if (!isDragging) return;
       e.preventDefault();
-      const x = e.pageX - carouselRef.current.offsetLeft;
-      carouselRef.current.scrollLeft = scrollLeft.current - (x - startX.current) * 2;
+      const carousel = carouselRef.current!;
+      const x = e.pageX - carousel.offsetLeft;
+      carousel.scrollLeft = scrollLeft.current - (x - startX.current) * 2;
     },
     [isDragging]
   );

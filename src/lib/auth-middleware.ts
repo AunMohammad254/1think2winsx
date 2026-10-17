@@ -39,6 +39,33 @@ const adminCache = new Map<string, { isAdmin: boolean; timestamp: number }>();
 const ADMIN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes cache
 
 /**
+ * Admin status of an email, cached per email for ADMIN_CACHE_TTL
+ */
+function isCachedAdminEmail(email: string): boolean {
+  // Check admin cache first
+  const cachedAdmin = adminCache.get(email);
+
+  if (cachedAdmin && (Date.now() - cachedAdmin.timestamp) < ADMIN_CACHE_TTL) {
+    return cachedAdmin.isAdmin;
+  }
+
+  const isAdmin = isAdminEmail(email);
+
+  // Cache the admin status
+  adminCache.set(email, { isAdmin, timestamp: Date.now() });
+
+  // Clean old cache entries
+  const adminEntries = Array.from(adminCache.entries());
+  for (const [key, value] of adminEntries) {
+    if (Date.now() - value.timestamp > ADMIN_CACHE_TTL) {
+      adminCache.delete(key);
+    }
+  }
+
+  return isAdmin;
+}
+
+/**
  * Get Supabase server client
  */
 async function getSupabaseServerClient() {
@@ -86,16 +113,24 @@ export async function requireAuth(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       let user: VerifiedUser | null = await getVerifiedUser();
+      let isAdmin = adminOnly && !!user && isCachedAdminEmail(user.email || '');
 
-      if (!user && adminOnly) {
+      // A missing or non-admin player session must not shadow a valid
+      // admin-panel login (/admin/login) in the same browser.
+      if (adminOnly && !isAdmin) {
         const { validateAdminSession } = await import('./admin-session');
         const adminSession = await validateAdminSession();
         if (adminSession.valid && adminSession.email) {
-          user = {
-            id: 'admin-user',
-            email: adminSession.email,
-            user_metadata: { name: 'Admin', role: 'admin' }
-          };
+          const adminSessionIsAdmin = isCachedAdminEmail(adminSession.email);
+          // Keep the player identity when the admin login does not grant admin either
+          if (adminSessionIsAdmin || !user) {
+            user = {
+              id: 'admin-user',
+              email: adminSession.email,
+              user_metadata: { name: 'Admin', role: 'admin' }
+            };
+            isAdmin = adminSessionIsAdmin;
+          }
         }
       }
 
@@ -134,46 +169,21 @@ export async function requireAuth(
       }
 
       // Check admin access if required
-      if (adminOnly) {
-        const userEmail = user.email || '';
+      if (adminOnly && !isAdmin) {
+        securityLogger.logUnauthorizedAccess(
+          user.id,
+          context
+        );
 
-        // Check admin cache first
-        const cachedAdmin = adminCache.get(userEmail);
-        let isAdmin: boolean;
-
-        if (cachedAdmin && (Date.now() - cachedAdmin.timestamp) < ADMIN_CACHE_TTL) {
-          isAdmin = cachedAdmin.isAdmin;
-        } else {
-          isAdmin = isAdminEmail(userEmail);
-
-          // Cache the admin status
-          adminCache.set(userEmail, { isAdmin, timestamp: Date.now() });
-
-          // Clean old cache entries
-          const adminEntries = Array.from(adminCache.entries());
-          for (const [key, value] of adminEntries) {
-            if (Date.now() - value.timestamp > ADMIN_CACHE_TTL) {
-              adminCache.delete(key);
-            }
-          }
-        }
-
-        if (!isAdmin) {
-          securityLogger.logUnauthorizedAccess(
-            user.id,
-            context
-          );
-
-          return NextResponse.json(
-            {
-              success: false,
-              error: 'Forbidden',
-              message: 'Admin access required',
-              code: 'INSUFFICIENT_PERMISSIONS'
-            },
-            { status: 403 }
-          );
-        }
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Forbidden',
+            message: 'Admin access required',
+            code: 'INSUFFICIENT_PERMISSIONS'
+          },
+          { status: 403 }
+        );
       }
 
       // Authentication successful
@@ -222,30 +232,15 @@ export async function requireAuth(
  * Helper function to check if current user is admin (with caching)
  */
 export async function isCurrentUserAdmin(): Promise<boolean> {
-  let user = await getVerifiedUser();
+  const user = await getVerifiedUser();
 
-  if (!user) {
-    const { validateAdminSession } = await import('./admin-session');
-    const adminSession = await validateAdminSession();
-    if (adminSession.valid) return true;
-    return false;
-  }
+  if (user && isCachedAdminEmail(user.email || '')) return true;
 
-  const userEmail = user.email || '';
-
-  // Check admin cache first
-  const cachedAdmin = adminCache.get(userEmail);
-
-  if (cachedAdmin && (Date.now() - cachedAdmin.timestamp) < ADMIN_CACHE_TTL) {
-    return cachedAdmin.isAdmin;
-  }
-
-  const isAdmin = isAdminEmail(userEmail);
-
-  // Cache the admin status
-  adminCache.set(userEmail, { isAdmin, timestamp: Date.now() });
-
-  return isAdmin;
+  // A missing or non-admin player session must not shadow a valid
+  // admin-panel login (/admin/login) in the same browser.
+  const { validateAdminSession } = await import('./admin-session');
+  const adminSession = await validateAdminSession();
+  return adminSession.valid;
 }
 
 /**

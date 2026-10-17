@@ -7,6 +7,7 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { sendPasswordSetupEmail } from '@/lib/password-setup';
 import { detectForUser } from '@/lib/auth-detection-server';
+import { CAPTCHA_FAILED_MESSAGE, CAPTCHA_REQUIRED_MESSAGE, isCaptchaError } from '@/lib/captcha';
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -56,23 +57,33 @@ export async function PUT(request: NextRequest) {
       return rateLimitResponse;
     }
 
+    // Both branches below make one Supabase call that needs a Turnstile token (a reset email, or
+    // signing in with the current password), so the token is required before either
+    const body = await request.json().catch(() => ({}));
+    const captchaToken: unknown = body?.captchaToken;
+    if (typeof captchaToken !== 'string' || !captchaToken) {
+      return NextResponse.json({ message: CAPTCHA_REQUIRED_MESSAGE }, { status: 400 });
+    }
+
     // Accounts created with Google have no password to "change". Instead of refusing, email them a
-    // link to set one (checked before the body so a missing current password isn't a dead end).
+    // link to set one (checked before validating the body so a missing current password isn't a dead end).
     if (!(await detectForUser(supabase, user)).hasPassword) {
-      const sent = user.email ? await sendPasswordSetupEmail(supabase, user.email) : { ok: false };
+      const sent = user.email
+        ? await sendPasswordSetupEmail(supabase, user.email, captchaToken)
+        : { ok: false, captchaFailed: false };
       if (!sent.ok) {
-        return NextResponse.json(
-          { message: "We couldn't send the email right now. Please try again in a minute." },
-          { status: 502 }
-        );
+        return sent.captchaFailed
+          ? NextResponse.json({ message: CAPTCHA_FAILED_MESSAGE }, { status: 400 })
+          : NextResponse.json(
+            { message: "We couldn't send the email right now. Please try again in a minute." },
+            { status: 502 }
+          );
       }
       return NextResponse.json({
         resetEmailSent: true,
         message: 'Your account uses Google sign-in, so we emailed you a link to set a password.',
       });
     }
-
-    const body = await request.json();
 
     // Validate request body
     const validationResult = changePasswordSchema.safeParse(body);
@@ -91,7 +102,13 @@ export async function PUT(request: NextRequest) {
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: user.email!,
       password: currentPassword,
+      options: { captchaToken },
     });
+
+    // A failed check is not a wrong password, so it is not recorded as one
+    if (isCaptchaError(signInError)) {
+      return NextResponse.json({ message: CAPTCHA_FAILED_MESSAGE }, { status: 400 });
+    }
 
     if (signInError) {
       recordSecurityEvent('INVALID_PASSWORD_ATTEMPT', request, userId, {
@@ -105,14 +122,9 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Check if new password is the same as current (use signIn to verify)
-    const { error: samePasswordError } = await supabase.auth.signInWithPassword({
-      email: user.email!,
-      password: newPassword,
-    });
-
-    if (!samePasswordError) {
-      // If signIn succeeds with new password, it means it's the same as current
+    // currentPassword was just verified, so the new one matches the real password exactly when it
+    // matches this string (a second sign-in to check would need a second Turnstile token)
+    if (newPassword === currentPassword) {
       return NextResponse.json(
         { message: 'New password must be different from current password' },
         { status: 400 }

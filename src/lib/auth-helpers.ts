@@ -39,34 +39,14 @@ export interface AuthMethods {
 export function isOAuthOnlyUser(user: User | null): boolean {
     if (!user) return false;
 
-    // A Google account that has since set a password can sign in with it and change it.
+    // An email identity, "email" in the providers list, or a password set later (e.g. on a
+    // Google account) all mean the user has a password and can change it.
     if (userHasPassword(user)) return false;
 
-    // Check identities array for authentication methods
-    const identities = user.identities || [];
-
-    // Find if there's an 'email' provider identity (email/password signup)
-    const hasEmailIdentity = identities.some(
-        (identity) => identity.provider === 'email'
-    );
-
-    // If no email identity exists, user is OAuth-only
-    if (!hasEmailIdentity && identities.length > 0) {
-        return true;
-    }
-
-    // Check app_metadata for primary provider
+    // No password: any linked identity, or a primary provider other than email, is OAuth
+    if ((user.identities || []).length > 0) return true;
     const primaryProvider = user.app_metadata?.provider;
-    const providers = user.app_metadata?.providers as string[] | undefined;
-
-    // If primary provider is not 'email' and no email in providers list
-    if (primaryProvider && primaryProvider !== 'email') {
-        if (!providers?.includes('email')) {
-            return true;
-        }
-    }
-
-    return false;
+    return !!primaryProvider && primaryProvider !== 'email';
 }
 
 /**

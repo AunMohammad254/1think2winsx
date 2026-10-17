@@ -22,6 +22,8 @@ vi.mock('@/app/profile/wallet/actions', () => ({
   getTransactionHistory: () => h.wallet.getTransactionHistory(),
 }));
 vi.mock('@/actions/password-setup-actions', () => ({ requestPasswordSetupEmail: () => h.requestPasswordSetupEmail() }));
+vi.mock('@/components/auth/TurnstileWidget', async () => ({ default: (await import('@/tests/helpers/turnstile-mock')).TurnstileMock }));
+import { turnstile, resetTurnstileMock } from '@/tests/helpers/turnstile-mock';
 
 import EditProfilePage from '@/app/profile/edit/page';
 import WalletPage from '@/app/profile/wallet/page';
@@ -107,9 +109,13 @@ describe('wallet page', () => {
     h.wallet.getTransactionHistory.mockResolvedValue({ success: true, transactions: [tx('1', {}), tx('2', { amount: -2, paymentMethod: 'QuizAccess' }), tx('3', { status: 'approved' })] });
   });
 
-  it('sends signed-out visitors to login', () => {
+  it('waits for auth, then sends signed-out visitors to login', () => {
+    h.auth = { user: null, isLoading: true };
+    const { rerender } = render(<WalletPage />);
+    expect(h.router.push).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
     h.auth = { user: null, isLoading: false };
-    render(<WalletPage />);
+    rerender(<WalletPage />);
     expect(h.router.push).toHaveBeenCalledWith('/login');
   });
 
@@ -182,6 +188,7 @@ describe('change password page', () => {
     type('Confirm New Password', confirm);
   };
   const submit = () => fireEvent.submit(screen.getByRole('button', { name: /Change Password/ }).closest('form')!);
+  beforeEach(() => resetTurnstileMock());
 
   it('sends signed-out visitors to login with a return path', () => {
     h.auth = { user: null, isLoading: false };
@@ -204,7 +211,8 @@ describe('change password page', () => {
     expect(await screen.findByText('Password changed successfully!')).toBeInTheDocument();
     const [, init] = fetchMock.mock.calls.find(([u]) => u === '/api/profile/change-password')!;
     expect(init.headers['X-CSRF-Token']).toBe('tok');
-    expect(JSON.parse(init.body)).toEqual({ currentPassword: 'Old@1234', newPassword: 'New@5678' });
+    expect(JSON.parse(init.body)).toEqual({ currentPassword: 'Old@1234', newPassword: 'New@5678', captchaToken: 'captcha-token' });
+    expect(turnstile.resets).toBe(1); // the used token is replaced
     expect(screen.getByLabelText('Current Password')).toHaveValue('');
     type('Current Password', 'x');
     expect(screen.queryByText('Password changed successfully!')).toBeNull();
@@ -219,6 +227,7 @@ describe('change password page', () => {
     fill('Old@1234', 'weak');
     submit();
     expect(await screen.findByText(/New password must be at least 8 characters long/)).toBeInTheDocument();
+    expect(turnstile.resets).toBe(0); // nothing was sent, so the token is still good
     type('New Password', 'New@5678');
     expect(screen.queryByText(/New password must be at least 8/)).toBeNull();
     type('Confirm New Password', 'New@5678');
@@ -243,7 +252,16 @@ describe('change password page', () => {
     submit();
     expect(await screen.findByText('Password changed successfully!')).toBeInTheDocument();
     const [, init] = fetchMock.mock.calls.find(([u]) => u === '/api/profile/change-password')!;
-    expect(JSON.parse(init.body)).toEqual({ currentPassword: ' Old@1234', newPassword: ' My  Pass@1 ' });
+    expect(JSON.parse(init.body)).toEqual({ currentPassword: ' Old@1234', newPassword: ' My  Pass@1 ', captchaToken: 'captcha-token' });
+  });
+
+  it('keeps Change Password disabled until the security check passes', async () => {
+    turnstile.token = null;
+    canChange();
+    render(<ChangePasswordPage />);
+    await screen.findByText('Change password');
+    expect(screen.getByTestId('turnstile-change_password')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Change Password/ })).toBeDisabled();
   });
 
   it('compares the confirmation as typed, so a stray space no longer matches', async () => {
