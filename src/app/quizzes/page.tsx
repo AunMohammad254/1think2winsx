@@ -325,7 +325,7 @@ function QuizzesPageInner() {
     const delay = Math.min(...starts) - now + 1000 + Math.random() * 5000;
     // setTimeout overflows past ~24.8 days; the 60 s poll covers anything further out
     if (delay > 2_000_000_000) return;
-    const timer = setTimeout(() => fetchQuizzesData(true), delay);
+    const timer = setTimeout(() => { fetchQuizzesData(true); }, delay);
     return () => clearTimeout(timer);
   }, [userId, quizzes, fetchQuizzesData]);
 
