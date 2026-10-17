@@ -9,7 +9,7 @@ import logger from '@/lib/logger'
 // Configure web-push with VAPID keys if they are available
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:contact@1think2wins.com';
+const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:contact@1think2win.com';
 
 if (vapidPublicKey && vapidPrivateKey) {
     webpush.setVapidDetails(
