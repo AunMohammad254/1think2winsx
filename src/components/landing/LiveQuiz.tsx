@@ -6,16 +6,16 @@ import { Section, Eyebrow, Reveal, Button, useScrollReveal, useAnimatedCounter }
 import Link from "next/link";
 
 const QUIZ_DATA = [
-  { badge: "🏏 IPL Mega", title: "IPL 2025 — Ultimate Trivia", prize: 5000, players: 1284, timeLeft: "02h 14m", difficulty: "Pro", accent: "from-amber-400 to-orange-500" },
-  { badge: "🌏 World Cup", title: "ODI World Cup Legends", prize: 2500, players: 892, timeLeft: "05h 41m", difficulty: "Intermediate", accent: "from-emerald-400 to-cyan-400" },
-  { badge: "⚡ Daily", title: "60-Second Sports Sprint", prize: 500, players: 3127, timeLeft: "Live now", difficulty: "Beginner", accent: "from-violet-400 to-pink-500" },
+  { badge: "🏏 PSL Mega", title: "Karachi Kings — PSL Ultimate Trivia", prize: 5000, players: 1284, timeLeft: "02h 14m", difficulty: "Pro", accent: "from-amber-400 to-orange-500" },
+  { badge: "🏆 Domestic", title: "National T20 Cup & Quaid-e-Azam Trophy", prize: 2500, players: 892, timeLeft: "05h 41m", difficulty: "Intermediate", accent: "from-emerald-400 to-cyan-400" },
+  { badge: "⚡ Daily", title: "60-Second Sprint: Hockey, Squash & Snooker", prize: 500, players: 3127, timeLeft: "Live now", difficulty: "Beginner", accent: "from-violet-400 to-pink-500" },
 ];
 
 function Metric({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "trophy" | "live" }) {
   const toneCls = tone === "trophy" ? "text-amber-300" : tone === "live" ? "text-red-300" : "text-white";
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-[0.16em] text-white/45">{label}</p>
+      <p className="text-[10px] uppercase tracking-[0.16em] text-white/60">{label}</p>
       <p className={`mt-1 font-display text-base font-bold ${toneCls}`}>{value}</p>
     </div>
   );
@@ -60,7 +60,7 @@ const QuizCarouselCard = memo(function QuizCarouselCard({
           <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-5">
             <div className="flex items-center gap-2">
               <span className="rounded-md bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/60">{q.difficulty}</span>
-              <span className="text-xs text-white/40">10 questions</span>
+              <span className="text-xs text-white/60">10 questions</span>
             </div>
             <Link
               href={isLoggedIn ? "/quizzes" : "/register"}
@@ -92,7 +92,8 @@ export default function LiveQuiz() {
   const livePlayers = useAnimatedCounter(QUIZ_DATA[active].players, 800);
 
   useEffect(() => {
-    if (!isVisible) return;
+    // No auto-advance for reduced motion: the dots and swipes still switch cards (WCAG 2.2.2)
+    if (!isVisible || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = setInterval(() => setActive((a) => (a + 1) % QUIZ_DATA.length), 5000);
     return () => clearInterval(id);
   }, [isVisible]);
@@ -158,7 +159,7 @@ export default function LiveQuiz() {
           </Reveal>
           <Reveal delay={300}>
             <ul className="mt-8 space-y-3">
-              {["10 questions, 60 seconds per round", "Streak multipliers up to 5×", "Instant UPI payouts to winners", "Free entry on daily challenges"].map((item, i) => (
+              {["10 questions, 60 seconds per round", "Streak multipliers up to 5×", "Prizes delivered anywhere in Pakistan", "Free entry on daily challenges"].map((item, i) => (
                 <li key={item} className="flex items-start gap-3 text-white/75" style={{ animation: `fade-up 0.5s ease-out ${0.4 + i * 0.1}s both` }}>
                   <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-500/20 text-emerald-400">
                     <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor"><path d="m10 16-4-4 1.4-1.4 2.6 2.6 5.6-5.6L17 9l-7 7Z" /></svg>
@@ -198,13 +199,15 @@ export default function LiveQuiz() {
                 />
               ))}
             </div>
-            <div className="mt-8 flex justify-center gap-2">
+            <div className="mt-8 flex justify-center gap-[18px]">
               {QUIZ_DATA.map((_, i) => (
+                // The ::after box turns each 6px dot into a 24px tap target (WCAG 2.5.8) without changing its look
                 <button
                   key={i}
                   aria-label={`Show quiz ${i + 1}`}
+                  aria-current={i === active ? "true" : undefined}
                   onClick={() => handleDotClick(i)}
-                  className={`h-1.5 rounded-full transition-all duration-500 ${
+                  className={`relative h-1.5 rounded-full transition-all duration-500 after:absolute after:-inset-x-[9px] after:-inset-y-[9px] after:content-[''] ${
                     i === active ? "w-8 bg-emerald-400" : "w-1.5 bg-white/20 hover:bg-white/40"
                   }`}
                 />

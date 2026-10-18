@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { memo } from 'react';
 
-export type SportsBallType = 'cricket' | 'basketball' | 'tennis' | 'football';
+export type SportsBallType = 'cricket' | 'basketball' | 'tennis' | 'football' | 'hockey' | 'squash';
 
 interface SportsBallProps {
   className?: string;
@@ -27,6 +27,16 @@ export const SportsBall = memo(({ className = "", type = "cricket" }: SportsBall
         return {
           background: 'radial-gradient(circle at 30% 30%, #ffffff 0%, #f1f5f9 50%, #94a3b8 100%)',
           accent: 'rgba(255, 255, 255, 0.3)',
+        };
+      case 'hockey':
+        return {
+          background: 'radial-gradient(circle at 30% 30%, #fff7ed 0%, #fdba74 55%, #ea580c 100%)',
+          accent: 'rgba(251, 146, 60, 0.3)',
+        };
+      case 'squash':
+        return {
+          background: 'radial-gradient(circle at 30% 30%, #475569 0%, #1e293b 55%, #020617 100%)',
+          accent: 'rgba(250, 204, 21, 0.25)',
         };
       case 'cricket':
       default:
@@ -110,6 +120,22 @@ export const SportsBall = memo(({ className = "", type = "cricket" }: SportsBall
              <div className="absolute top-0 right-0 w-[40%] h-[4px] bg-slate-800 origin-right" style={{ transform: 'rotate(-45deg)' }} />
              <div className="absolute bottom-0 left-[20%] w-[4px] h-[40%] bg-slate-800 origin-bottom" style={{ transform: 'rotate(-20deg)' }} />
              <div className="absolute bottom-0 right-[20%] w-[4px] h-[40%] bg-slate-800 origin-bottom" style={{ transform: 'rotate(20deg)' }} />
+          </>
+        )}
+
+        {type === 'hockey' && (
+          // Dimpled turf ball
+          <div
+            className="absolute inset-0 opacity-40"
+            style={{ backgroundImage: 'radial-gradient(rgba(124,45,18,0.55) 18%, transparent 20%)', backgroundSize: '22% 22%' }}
+          />
+        )}
+
+        {type === 'squash' && (
+          // The two yellow dots of a competition squash ball
+          <>
+            <div className="absolute left-[30%] top-[46%] h-[14%] w-[14%] rounded-full bg-yellow-400" />
+            <div className="absolute left-[56%] top-[46%] h-[14%] w-[14%] rounded-full bg-yellow-400" />
           </>
         )}
 

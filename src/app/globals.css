@@ -644,6 +644,17 @@ h1, h2, h3, h4, h5, h6 {
   transform: translate(0) scale(1) translateZ(0);
 }
 
+/* Hero entrance: plain CSS so the above-the-fold copy and call to action show on first paint,
+   not after hydration and an IntersectionObserver like .reveal */
+.hero-enter {
+  animation: fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-enter {
+    animation: none;
+  }
+}
+
 /* Background Patterns */
 .bg-grid {
   background-size: 40px 40px;
