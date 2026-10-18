@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { MIN_DEPOSIT_AMOUNT, DepositRequestResponse, WalletBalanceResponse, TransactionHistoryResponse, PaymentMethod } from '@/types/wallet';
 import { revalidatePath } from 'next/cache';
 import { rateLimiters } from '@/lib/rate-limiter';
+import { MAX_RECEIPT_BYTES, RECEIPTS_BUCKET, receiptExtension, receiptRef } from '@/lib/wallet/receipts';
 
 /**
  * Submit a new deposit request
@@ -97,28 +98,30 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
         }
 
         // Upload the image
-        if (proofImage.size > 5 * 1024 * 1024) {
+        if (proofImage.size > MAX_RECEIPT_BYTES) {
             return { success: false, error: 'Receipt image must be less than 5MB' };
         }
 
-        // A name without a usable extension ("receipt", "receipt.") is stored as .png
-        const ext = /\.([a-z0-9]+)$/i.exec(proofImage.name)?.[1] ?? 'png';
+        // The private receipts bucket only takes these types; the extension follows the type
+        const ext = receiptExtension(proofImage.type);
+        if (!ext) {
+            return { success: false, error: 'Please upload the screenshot as a JPG, PNG or WebP image.' };
+        }
         const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
 
+        // The player's own session: storage policies only let it add files to receipts/<their id>/
         const { error: uploadError } = await supabase
             .storage
-            .from('receipts')
-            .upload(fileName, proofImage);
+            .from(RECEIPTS_BUCKET)
+            .upload(fileName, proofImage, { contentType: proofImage.type, upsert: false });
 
         if (uploadError) {
             console.error('Error uploading receipt:', uploadError);
             return { success: false, error: 'Failed to upload receipt image. Please try again.' };
         }
 
-        const { data: { publicUrl: proofImageUrl } } = supabase
-            .storage
-            .from('receipts')
-            .getPublicUrl(fileName);
+        // Private bucket: save a reference, not a public URL (the admin page signs a link)
+        const proofImageUrl = receiptRef(fileName);
 
         // Call Supabase RPC function
         const { data, error } = await supabase.rpc('submit_deposit_request', {

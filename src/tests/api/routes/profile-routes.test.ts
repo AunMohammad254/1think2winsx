@@ -13,9 +13,11 @@ const recordSecurityEvent = vi.fn();
 const logger = { logUnauthorizedAccess: vi.fn(), logInvalidInput: vi.fn(), logSecurityEvent: vi.fn() };
 const userDb = { findById: vi.fn(), findByEmail: vi.fn(), update: vi.fn(), create: vi.fn() };
 const deleteCloudinaryImageByUrl = vi.fn();
-let uploadBehaviour: (opts: Record<string, unknown>, cb: (err: unknown, res?: unknown) => void, buf: Buffer) => void;
+const storeImage = vi.fn();
+const deleteStoredImage = vi.fn();
+const removeFolderExcept = vi.fn();
 
-vi.mock('@/lib/supabase/db', () => ({ getDb: async () => db.client, userDb }));
+vi.mock('@/lib/supabase/db', () => ({ getDb: async () => db.client, getAdminDb: () => db.client, userDb }));
 vi.mock('@/lib/auth', () => ({ auth: (...a: unknown[]) => auth(...a) }));
 vi.mock('@/lib/auth-middleware', () => ({ requireAuth: (...a: unknown[]) => requireAuth(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
@@ -23,31 +25,34 @@ vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { profile: 'profile', fileU
 vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: (...a: unknown[]) => recordSecurityEvent(...a) }));
 vi.mock('@/lib/security-logger', () => ({ securityLogger: logger }));
 vi.mock('@/lib/cloudinary-server', () => ({ deleteCloudinaryImageByUrl: (...a: unknown[]) => deleteCloudinaryImageByUrl(...a) }));
-vi.mock('cloudinary', () => ({
-  v2: {
-    config: vi.fn(),
-    uploader: { upload_stream: (opts: Record<string, unknown>, cb: (err: unknown, res?: unknown) => void) => ({ end: (buf: Buffer) => uploadBehaviour(opts, cb, buf) }) },
-  },
+vi.mock('@/lib/media/storage.server', () => ({
+  storeImage: (...a: unknown[]) => storeImage(...a),
+  deleteStoredImage: (...a: unknown[]) => deleteStoredImage(...a),
+  removeFolderExcept: (...a: unknown[]) => removeFolderExcept(...a),
 }));
 
 const profile = await import('@/app/api/profile/route');
 const profileUpdate = await import('@/app/api/profile/update/route');
 const picture = await import('@/app/api/profile/upload-picture/route');
 const upload = await import('@/app/api/upload/route');
+const { InvalidImageError } = await import('@/lib/media/image-processing');
 
 const session = (over: Record<string, unknown> = {}) => ({ user: { id: 'user-1', email: 'player@example.test', name: 'Ali', ...over }, expires: 'x' });
-const CLOUD_AVATAR = 'https://res.cloudinary.com/demo/image/upload/v1/avatars/old.jpg';
+const CLOUD_AVATAR = 'https://res.cloudinary.com/dszrz6s6u/image/upload/v1/avatars/old.jpg';
 
 beforeEach(() => {
   db = createSupabaseMock();
-  for (const fn of [auth, requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, deleteCloudinaryImageByUrl, ...Object.values(logger), ...Object.values(userDb)]) fn.mockReset();
+  for (const fn of [auth, requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, deleteCloudinaryImageByUrl, storeImage, deleteStoredImage, removeFolderExcept, ...Object.values(logger), ...Object.values(userDb)]) fn.mockReset();
   auth.mockResolvedValue(session());
   requireAuth.mockResolvedValue(authOk('admin-user'));
   requireCSRFToken.mockResolvedValue(null);
   applyRateLimit.mockResolvedValue(null);
   deleteCloudinaryImageByUrl.mockResolvedValue(true);
   userDb.update.mockImplementation(async (id: string, data: Record<string, unknown>) => ({ id, name: 'Ali', email: 'player@example.test', createdAt: 'c', ...data }));
-  uploadBehaviour = (_o, cb) => cb(null, { secure_url: 'https://res.cloudinary.com/demo/image/upload/v2/avatars/new.avif' });
+  storeImage.mockResolvedValue(stored);
+  deleteStoredImage.mockResolvedValue(true);
+  removeFolderExcept.mockResolvedValue([]);
+  vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://proj.supabase.co');
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -235,33 +240,34 @@ function formRequest(url: string, field: string, file: File | null, method = 'PO
   return new NextRequest(`http://localhost${url}`, { method, body: form, headers });
 }
 const image = (type = 'image/png', bytes = 100, name = 'me.png') => new File([new Uint8Array(bytes)], name, { type });
+const NEW_AVATAR = 'https://proj.supabase.co/storage/v1/object/public/avatars/user-1/new-256.webp';
+const stored = { url: NEW_AVATAR, paths: ['user-1/new-256.webp'], bytes: 900 };
 
 describe('/api/profile/upload-picture', () => {
   const post = (file: File | null = image(), headers: Record<string, string> = {}) => picture.POST(formRequest('/api/profile/upload-picture', 'profilePicture', file, 'POST', headers));
 
-  it('uploads a face-cropped avatar, saves it and deletes the old Cloudinary one', async () => {
+  it('stores a 256px avatar with the player session, saves it, then deletes the previous pictures', async () => {
     userDb.findById.mockResolvedValue({ id: 'user-1', profilePicture: CLOUD_AVATAR });
-    let received: { opts: Record<string, unknown>; size: number } | undefined;
-    uploadBehaviour = (opts, cb, buf) => {
-      received = { opts, size: buf.length };
-      cb(null, { secure_url: 'https://new/avatar.avif' });
-    };
 
     const res = await post();
 
-    expect(await res.json()).toEqual({ message: 'Profile picture uploaded successfully', imageUrl: 'https://new/avatar.avif' });
-    expect(received).toEqual({ opts: expect.objectContaining({ folder: 'avatars' }), size: 100 });
-    expect(userDb.update).toHaveBeenCalledWith('user-1', { profilePicture: 'https://new/avatar.avif' });
+    expect(await res.json()).toEqual({ message: 'Profile picture uploaded successfully', imageUrl: NEW_AVATAR });
+    // The player's own client (getDb), so storage policies confine it to avatars/user-1/
+    expect(storeImage).toHaveBeenCalledWith(db.client, 'avatars', 'user-1', expect.any(Buffer));
+    expect((storeImage.mock.calls[0][3] as Buffer).length).toBe(100);
+    expect(userDb.update).toHaveBeenCalledWith('user-1', { profilePicture: NEW_AVATAR });
+    expect(removeFolderExcept).toHaveBeenCalledWith(db.client, 'avatars', 'user-1', ['user-1/new-256.webp']);
     expect(deleteCloudinaryImageByUrl).toHaveBeenCalledWith(CLOUD_AVATAR);
+    // Saved before anything old is deleted
+    expect(userDb.update.mock.invocationCallOrder[0]).toBeLessThan(removeFolderExcept.mock.invocationCallOrder[0]);
   });
 
-  it('keeps non-Cloudinary avatars and survives a failed delete', async () => {
+  it('leaves external pictures alone and survives a failed delete of the old files', async () => {
     userDb.findById.mockResolvedValue({ id: 'user-1', profilePicture: 'https://lh3.googleusercontent.com/a.png' });
+    removeFolderExcept.mockRejectedValueOnce(new Error('storage down'));
     expect((await post()).status).toBe(200);
+    expect(console.error).toHaveBeenCalledWith('Failed to delete old profile pictures:', expect.any(Error));
     expect(deleteCloudinaryImageByUrl).not.toHaveBeenCalled();
-    userDb.findById.mockResolvedValue({ id: 'user-1', profilePicture: CLOUD_AVATAR });
-    deleteCloudinaryImageByUrl.mockRejectedValue(new Error('cdn'));
-    expect((await post()).status).toBe(200);
     userDb.findById.mockResolvedValue(null);
     expect((await post()).status).toBe(200);
   });
@@ -281,10 +287,32 @@ describe('/api/profile/upload-picture', () => {
     expect(userDb.update).not.toHaveBeenCalled();
   });
 
-  it('answers 500 when Cloudinary fails or something throws', async () => {
+  it('answers 400 for a file that is not really an image, 500 when storage fails', async () => {
     userDb.findById.mockResolvedValue({ id: 'user-1' });
-    uploadBehaviour = (_o, cb) => cb(new Error('cloudinary down'));
-    expect((await (await post()).json()).message).toBe('Failed to process image through Cloudinary');
+    storeImage.mockRejectedValueOnce(new InvalidImageError());
+    let res = await post();
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toBe('The file could not be read as an image.');
+    storeImage.mockRejectedValueOnce(new Error('bucket missing'));
+    res = await post();
+    expect(res.status).toBe(500);
+    expect((await res.json()).message).toBe('Failed to store the image');
+    expect(userDb.update).not.toHaveBeenCalled();
+  });
+
+  it('removes the new file again when the profile cannot be saved', async () => {
+    userDb.findById.mockResolvedValue({ id: 'user-1', profilePicture: CLOUD_AVATAR });
+    userDb.update.mockRejectedValueOnce(new Error('db'));
+    let res = await post();
+    expect(res.status).toBe(500);
+    expect(deleteStoredImage).toHaveBeenCalledWith(db.client, NEW_AVATAR);
+    expect(removeFolderExcept).not.toHaveBeenCalled();
+    expect(deleteCloudinaryImageByUrl).not.toHaveBeenCalled();
+    // ...even if that clean-up fails too
+    userDb.update.mockRejectedValueOnce(new Error('db'));
+    deleteStoredImage.mockRejectedValueOnce(new Error('storage'));
+    res = await post();
+    expect((await res.json()).message).toBe('Internal server error');
     userDb.findById.mockRejectedValue(new Error('db'));
     expect((await (await post()).json()).message).toBe('Internal server error');
   });
@@ -304,19 +332,22 @@ describe('/api/profile/upload-picture', () => {
     expect((await post()).status).toBe(401);
     requireCSRFToken.mockResolvedValueOnce(NextResponse.json({}, { status: 403 }));
     expect((await post()).status).toBe(403);
+    expect(storeImage).not.toHaveBeenCalled();
   });
 
-  it('DELETE removes the avatar from the CDN and the profile', async () => {
+  it('DELETE clears the profile, then deletes every stored picture and an old Cloudinary one', async () => {
     const del = () => picture.DELETE(makeRequest('/api/profile/upload-picture', { method: 'DELETE' }));
     userDb.findById.mockResolvedValue({ id: 'user-1', profilePicture: CLOUD_AVATAR });
     expect(await (await del()).json()).toEqual({ message: 'Profile picture removed successfully' });
-    expect(deleteCloudinaryImageByUrl).toHaveBeenCalledWith(CLOUD_AVATAR);
     expect(userDb.update).toHaveBeenCalledWith('user-1', { profilePicture: null });
+    expect(removeFolderExcept).toHaveBeenCalledWith(db.client, 'avatars', 'user-1', []);
+    expect(deleteCloudinaryImageByUrl).toHaveBeenCalledWith(CLOUD_AVATAR);
+    expect(userDb.update.mock.invocationCallOrder[0]).toBeLessThan(removeFolderExcept.mock.invocationCallOrder[0]);
 
-    deleteCloudinaryImageByUrl.mockRejectedValueOnce(new Error('cdn'));
+    userDb.findById.mockResolvedValue({ id: 'user-1', profilePicture: NEW_AVATAR });
+    deleteCloudinaryImageByUrl.mockClear();
     expect((await del()).status).toBe(200);
-    userDb.findById.mockResolvedValue({ id: 'user-1', profilePicture: null });
-    expect((await del()).status).toBe(200);
+    expect(deleteCloudinaryImageByUrl).not.toHaveBeenCalled();
     userDb.update.mockRejectedValueOnce(new Error('db'));
     expect((await del()).status).toBe(500);
     auth.mockResolvedValueOnce(null);
@@ -327,21 +358,23 @@ describe('/api/profile/upload-picture', () => {
 });
 
 describe('POST /api/upload (admin media)', () => {
-  const post = (file: File | null | string = image()) => {
+  const post = (file: File | null | string = image(), target?: string) => {
     const form = new FormData();
     if (file !== null) form.append('file', file as Blob);
+    if (target) form.append('target', target);
     return upload.POST(new Request('http://localhost/api/upload', { method: 'POST', body: form }));
   };
+  const PRIZE_URL = 'https://proj.supabase.co/storage/v1/object/public/prize-images/prizes/a-1280.webp';
 
-  it('uploads an admin image to the uploads folder', async () => {
-    let opts: Record<string, unknown> | undefined;
-    uploadBehaviour = (o, cb) => {
-      opts = o;
-      cb(null, { secure_url: 'https://cdn/x.png' });
-    };
-    expect(await (await post()).json()).toEqual({ url: 'https://cdn/x.png' });
+  it('stores prize images by default and site images with target=site, using the service role', async () => {
+    storeImage.mockResolvedValue({ url: PRIZE_URL, paths: [], bytes: 1 });
+    expect(await (await post()).json()).toEqual({ url: PRIZE_URL });
     expect(requireAuth).toHaveBeenCalledWith({ adminOnly: true, context: 'media_upload' });
-    expect(opts).toMatchObject({ folder: 'uploads' });
+    expect(storeImage).toHaveBeenLastCalledWith(db.client, 'prize-images', 'prizes', expect.any(Buffer));
+    await post(image(), 'prize');
+    expect(storeImage).toHaveBeenLastCalledWith(db.client, 'prize-images', 'prizes', expect.any(Buffer));
+    await post(image(), 'site');
+    expect(storeImage).toHaveBeenLastCalledWith(db.client, 'site-media', 'uploads', expect.any(Buffer));
   });
 
   it('validates the file', async () => {
@@ -349,12 +382,16 @@ describe('POST /api/upload (admin media)', () => {
     expect((await post('just text')).status).toBe(400);
     expect((await (await post(image('text/html'))).json()).error).toMatch(/Only JPEG/);
     expect((await (await post(image('image/avif', 10 * 1024 * 1024 + 1))).json()).error).toBe('Image must be 10 MB or smaller');
+    storeImage.mockRejectedValueOnce(new InvalidImageError());
+    const res = await post();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('The file could not be read as an image');
   });
 
-  it('refuses non-admins and reports upload failures', async () => {
+  it('refuses non-admins and reports storage failures', async () => {
     requireAuth.mockResolvedValueOnce(NextResponse.json({}, { status: 403 }));
     expect((await post()).status).toBe(403);
-    uploadBehaviour = (_o, cb) => cb(new Error('cdn'));
+    storeImage.mockRejectedValueOnce(new Error('storage'));
     expect((await post()).status).toBe(500);
   });
 });

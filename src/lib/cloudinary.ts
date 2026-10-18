@@ -7,6 +7,7 @@
  * WebP/AVIF straight from Cloudinary's CDN.
  */
 import type { ImageLoader } from 'next/image';
+import { isMediaUrl, mediaImageLoader, MEDIA_BUCKETS, parseMediaUrl } from './media/config';
 
 export const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dszrz6s6u';
 
@@ -75,9 +76,13 @@ export function cloudinaryPublicIdFromUrl(src: string | null | undefined): strin
   return id || null;
 }
 
-/** Per-image loader prop: Cloudinary resizing for Cloudinary URLs, Next's default otherwise. */
+/**
+ * Per-image loader prop: Cloudinary resizing for (older) Cloudinary URLs, the stored size for
+ * Supabase Storage media URLs, Next's default otherwise.
+ */
 export function loaderFor(src: string | null | undefined): ImageLoader | undefined {
-  return isCloudinaryUrl(src) ? cloudinaryLoader : undefined;
+  if (isCloudinaryUrl(src)) return cloudinaryLoader;
+  return isMediaUrl(src) ? mediaImageLoader : undefined;
 }
 
 /**
@@ -89,10 +94,13 @@ export function isAllowedPrizeImageUrl(src: string): boolean {
   // Legacy prizes store small images inline; keep them editable until moved to Cloudinary
   if (/^data:image\/(?:png|jpe?g|webp|gif);base64,/.test(src)) return true;
   if (isCloudinaryUrl(src)) return true;
+  // Admin-uploaded images in this project's Supabase Storage (not players' avatars)
+  const media = parseMediaUrl(src);
+  if (media) return media.bucket === MEDIA_BUCKETS.prize || media.bucket === MEDIA_BUCKETS.site;
   const url = parse(src);
   if (!url || url.protocol !== 'https:') return false;
   return url.hostname === 'lh3.googleusercontent.com' || url.hostname.endsWith('.pakwheels.com');
 }
 
 export const PRIZE_IMAGE_URL_HINT =
-  `Use a Cloudinary link from res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/…`;
+  `Upload an image, or use a link from this site's Supabase Storage or res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/…`;

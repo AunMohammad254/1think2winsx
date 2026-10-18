@@ -60,8 +60,10 @@ export default function MediaDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Media Management</h2>
-          <p className="text-gray-400 text-sm mt-1">Manage your Cloudinary assets and monitor usage</p>
+          <h2 className="text-xl font-bold text-white">Cloudinary (old uploads)</h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Images uploaded before the move to Supabase Storage. Their links keep working; new uploads go to Supabase.
+          </p>
         </div>
       </div>
 

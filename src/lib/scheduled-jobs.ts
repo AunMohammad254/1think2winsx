@@ -7,6 +7,7 @@ import {
   upcomingQuizLink,
 } from '@/lib/quiz-scheduler';
 import logger from '@/lib/logger';
+import { runMediaCleanupIfDue } from '@/lib/media/deletion-queue';
 
 /**
  * All time-based background work, in one place so it can be driven by either:
@@ -25,6 +26,8 @@ export interface ScheduledJobsResult {
   processedQuizzes: string[];
   processedNotifications: string[];
   processedStaleDeposits: string[];
+  /** MediaDeletion ids whose replaced prize image was deleted from storage */
+  processedMediaDeletions: string[];
 }
 
 export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
@@ -191,11 +194,20 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
     }
   }
 
+  // 6. Delete replaced prize images whose retention period is over (checked every 15 minutes)
+  let processedMediaIds: string[] = [];
+  try {
+    processedMediaIds = (await runMediaCleanupIfDue())?.deleted ?? [];
+  } catch (mediaErr) {
+    console.error('[Jobs] Failed to process media deletions:', mediaErr);
+  }
+
   if (processedQuizIds.length > 0) clearQuizListCache();
 
   return {
     processedQuizzes: processedQuizIds,
     processedNotifications: processedNotifIds,
     processedStaleDeposits: processedStaleIds,
+    processedMediaDeletions: processedMediaIds,
   };
 }
