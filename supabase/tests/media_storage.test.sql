@@ -1,8 +1,8 @@
--- Assertions for supabase/migrations/20261018120000_media_storage.sql. Any failure raises.
+-- Assertions for supabase/migrations/20261018150000_media_storage.sql. Any failure raises.
 -- LOCAL ONLY: run against a throwaway Postgres 17, never the real project, e.g.
 --   docker run -d --rm --name t2w-media-test -p 127.0.0.1:54339:5432 -e POSTGRES_PASSWORD=postgres postgres:17-alpine
 --   psql postgres://postgres:postgres@127.0.0.1:54339/postgres -v ON_ERROR_STOP=1
---     -f supabase/tests/storage-shim.sql -f supabase/migrations/20261018120000_media_storage.sql
+--     -f supabase/tests/storage-shim.sql -f supabase/migrations/20261018150000_media_storage.sql
 --     -f supabase/tests/media_storage.test.sql
 --   docker stop t2w-media-test
 \set ON_ERROR_STOP on

@@ -5,7 +5,7 @@ import { deleteStoredImage, storeImage } from './storage.server';
 
 /**
  * One-off copy of prize images from Cloudinary into the prize-images bucket
- * (supabase/scripts/migrate-cloudinary-images.ts runs it).
+ * (supabase/data-migrations/migrate-cloudinary-images.ts runs it).
  *
  * - Dry run unless `apply` is true: it only lists what would move.
  * - Copies the image AS SHOWN (the stored URL, with its named transformation), resized into the

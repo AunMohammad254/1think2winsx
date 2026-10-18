@@ -59,13 +59,13 @@ of the public images and use up the quota.
 
 ## Applying it to production (in this order)
 
-1. Apply `migrations/20261018120000_media_storage.sql` (for example with the Supabase MCP
+1. Apply `migrations/20261018150000_media_storage.sql` (for example with the Supabase MCP
    `apply_migration`). It creates the 3 buckets, 4 policies, the `MediaDeletion` table, the
    `prize_image_retention_days` AppSettings row and 2 read-only listing functions. It changes no
    existing rows, buckets or files, and it is safe to re-run.
 2. Deploy the app.
 3. Optional, after the deploy is checked: copy the prize images off Cloudinary.
-   `bun supabase/scripts/migrate-cloudinary-images.ts` is a dry run that lists them. Adding
+   `bun supabase/data-migrations/migrate-cloudinary-images.ts` is a dry run that lists them. Adding
    `--apply` copies them and repoints the prizes. Cloudinary files are never deleted.
 4. Optional: turn off Image Transformations (see above).
 
