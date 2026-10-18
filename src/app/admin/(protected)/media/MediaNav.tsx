@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ChevronLeft } from 'lucide-react';
 
 const TABS = [
   { key: 'site', href: '/admin/media', label: 'Site & prize images' },
@@ -12,7 +13,17 @@ export type MediaTab = (typeof TABS)[number]['key'];
 export default function MediaNav({ active }: { active: MediaTab }) {
   return (
     <div className="mb-6">
-      <h1 className="text-2xl font-bold text-white">Media Management</h1>
+      <div className="flex items-center gap-3 mb-2">
+        <Link
+          href="/admin/dashboard"
+          className="text-gray-400 hover:text-white transition-colors"
+          title="Back to Dashboard"
+          aria-label="Back to Dashboard"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </Link>
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Media Management</h1>
+      </div>
       <p className="text-gray-400 text-sm mt-1">
         Images are stored in Supabase Storage, resized to WebP once when uploaded.
       </p>
