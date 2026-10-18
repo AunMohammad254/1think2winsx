@@ -9,10 +9,12 @@ const h = vi.hoisted(() => ({
     getMediaOverview: vi.fn(),
     listMediaImages: vi.fn(),
     deleteMediaImage: vi.fn(),
+    bulkDeleteMediaImages: vi.fn(),
     keepQueuedImage: vi.fn(),
     updatePrizeImageRetention: vi.fn(),
     listProfilePictures: vi.fn(),
     removeProfilePicture: vi.fn(),
+    importMediaFromUrl: vi.fn(),
   },
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
@@ -20,10 +22,12 @@ vi.mock('@/actions/supabase-media-actions', () => ({
   getMediaOverview: (...a: unknown[]) => h.actions.getMediaOverview(...a),
   listMediaImages: (...a: unknown[]) => h.actions.listMediaImages(...a),
   deleteMediaImage: (...a: unknown[]) => h.actions.deleteMediaImage(...a),
+  bulkDeleteMediaImages: (...a: unknown[]) => h.actions.bulkDeleteMediaImages(...a),
   keepQueuedImage: (...a: unknown[]) => h.actions.keepQueuedImage(...a),
   updatePrizeImageRetention: (...a: unknown[]) => h.actions.updatePrizeImageRetention(...a),
   listProfilePictures: (...a: unknown[]) => h.actions.listProfilePictures(...a),
   removeProfilePicture: (...a: unknown[]) => h.actions.removeProfilePicture(...a),
+  importMediaFromUrl: (...a: unknown[]) => h.actions.importMediaFromUrl(...a),
 }));
 
 import MediaPage, { metadata } from '@/app/admin/(protected)/media/page';
@@ -206,6 +210,45 @@ describe('/admin/media (site & prize images)', () => {
     h.actions.keepQueuedImage.mockResolvedValueOnce({ success: false, error: 'Unauthorized: admin session required' });
     fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Unauthorized: admin session required'));
+  });
+
+  it('supports bulk selection, select all, deselect, copy links, and bulk delete', async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+
+    h.actions.bulkDeleteMediaImages.mockResolvedValue({
+      success: true,
+      data: {
+        deletedCount: 1,
+        skipped: [{ url: `${PUB}/prize-images/prizes/a-1280.webp`, reason: 'Used by prize "Bike"' }],
+      },
+    });
+
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+
+    // Click "Select All"
+    fireEvent.click(screen.getByRole('button', { name: /Select All/ }));
+    expect(await screen.findByText('2 images selected')).toBeInTheDocument();
+
+    // Copy links
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Links' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Copied 2 links to clipboard'));
+
+    // Deselect All
+    fireEvent.click(screen.getByRole('button', { name: 'Deselect All' }));
+    expect(screen.queryByText(/images selected/)).toBeNull();
+
+    // Select single image using checkbox
+    fireEvent.click(screen.getByRole('button', { name: 'Select prizes/b-1280.webp' }));
+    expect(await screen.findByText('1 image selected')).toBeInTheDocument();
+
+    // Bulk Delete
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    await waitFor(() => expect(h.actions.bulkDeleteMediaImages).toHaveBeenCalledWith([`${PUB}/prize-images/prizes/b-1280.webp`]));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Deleted 1 image'));
   });
 
   it('reports loading failures and an empty cleanup queue', async () => {

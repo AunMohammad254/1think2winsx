@@ -171,6 +171,39 @@ describe('deleteMediaImage', () => {
   });
 });
 
+describe('bulkDeleteMediaImages', () => {
+  it('deletes unused images and skips images used by prizes or foreign URLs', async () => {
+    db.setTable('Prize', {
+      data: [{ name: 'Bike', imageUrl: `${PUB}/prize-images/prizes/bike-1280.webp` }],
+    });
+
+    const res = await actions.bulkDeleteMediaImages([
+      `${PUB}/prize-images/prizes/unused-1280.webp`,
+      `${PUB}/prize-images/prizes/bike-1280.webp`,
+      `${PUB}/avatars/u1/a-256.webp`,
+    ]);
+
+    expect(res).toEqual({
+      success: true,
+      data: {
+        deletedCount: 1,
+        skipped: [
+          { url: `${PUB}/prize-images/prizes/bike-1280.webp`, reason: 'Used by prize "Bike"' },
+          { url: `${PUB}/avatars/u1/a-256.webp`, reason: 'Not an admin media image' },
+        ],
+      },
+    });
+    expect(store.deleteStoredImage).toHaveBeenCalledWith(db.client, `${PUB}/prize-images/prizes/unused-1280.webp`);
+    expect(store.deleteStoredImage).not.toHaveBeenCalledWith(db.client, `${PUB}/prize-images/prizes/bike-1280.webp`);
+  });
+
+  it('reports database query failure when checking prizes', async () => {
+    db.setTable('Prize', { error: { message: 'DB connection error' } });
+    const res = await actions.bulkDeleteMediaImages([`${PUB}/prize-images/prizes/x-1280.webp`]);
+    expect(res.success).toBe(false);
+  });
+});
+
 describe('profile pictures', () => {
   it('lists avatars with their player and whether the profile still points at them', async () => {
     store.listStoredObjects.mockResolvedValue({

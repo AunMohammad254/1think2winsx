@@ -136,6 +136,49 @@ export async function deleteMediaImage(url: string): Promise<Result<{ deleted: t
   });
 }
 
+/**
+ * Bulk delete multiple admin images. Any image actively used by a prize is safely skipped
+ * with an explanatory reason rather than aborting the entire batch.
+ */
+export async function bulkDeleteMediaImages(
+  urls: string[]
+): Promise<Result<{ deletedCount: number; skipped: { url: string; reason: string }[] }>> {
+  return adminAction(async () => {
+    const db = getAdminDb();
+    const { data: prizes, error } = await db.from('Prize').select('name, imageUrl');
+    if (error) throw error;
+
+    let deletedCount = 0;
+    const skipped: { url: string; reason: string }[] = [];
+
+    for (const url of urls) {
+      const ref = parseMediaUrl(url);
+      if (!ref || ref.bucket === MEDIA_BUCKETS.avatar) {
+        skipped.push({ url, reason: 'Not an admin media image' });
+        continue;
+      }
+
+      if (ref.bucket === MEDIA_BUCKETS.prize) {
+        const key = mediaImageKey(ref);
+        const user = (prizes ?? []).find((p: { imageUrl: string | null }) => deletablePrizeImageKey(p.imageUrl) === key);
+        if (user) {
+          skipped.push({ url, reason: `Used by prize "${user.name}"` });
+          continue;
+        }
+      }
+
+      try {
+        await deleteStoredImage(db, url);
+        deletedCount++;
+      } catch (err: any) {
+        skipped.push({ url, reason: err.message || 'Delete error' });
+      }
+    }
+
+    return { deletedCount, skipped };
+  });
+}
+
 export interface ProfilePicture {
   userId: string;
   userName: string | null;

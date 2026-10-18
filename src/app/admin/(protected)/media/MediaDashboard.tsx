@@ -19,12 +19,14 @@ import {
   X,
   Eye,
   ArrowUpRight,
-  Sparkles,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import {
   getCloudinaryUsage,
   getCloudinaryResources,
   deleteCloudinaryResource,
+  bulkDeleteCloudinaryResources,
   uploadToCloudinary,
   transferCloudinaryToSupabase,
   transferSupabaseToCloudinary,
@@ -43,6 +45,13 @@ export default function MediaDashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFormat, setSelectedFormat] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'largest' | 'smallest'>('newest');
+
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkBusy, setIsBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+  const [isBulkTransferModalOpen, setIsBulkTransferModalOpen] = useState(false);
+  const [bulkTransferBucket, setBulkTransferBucket] = useState<'prize-images' | 'site-media'>('prize-images');
 
   // Modals & Drawers
   const [previewAsset, setPreviewAsset] = useState<any | null>(null);
@@ -130,16 +139,100 @@ export default function MediaDashboard() {
     return list;
   }, [resources, searchQuery, selectedFormat, sortBy]);
 
-  const handleDelete = async (publicId: string) => {
-    if (!confirm(`Are you sure you want to delete "${publicId}" from Cloudinary? This cannot be undone.`)) {
+  // Bulk Selection Toggles
+  const toggleSelect = (publicId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(publicId) ? prev.filter((id) => id !== publicId) : [...prev, publicId]
+    );
+  };
+
+  const selectAll = () => {
+    const allFiltered = filteredResources.map((r) => r.public_id);
+    setSelectedIds(allFiltered);
+  };
+
+  const clearSelection = () => {
+    setSelectedIds([]);
+  };
+
+  const handleBulkCopyUrls = async () => {
+    if (selectedIds.length === 0) return;
+    const urls = selectedIds.map((id) => {
+      const res = resources.find((r) => r.public_id === id);
+      return getCdnUrl(id, res?.format);
+    });
+    try {
+      await navigator.clipboard.writeText(urls.join('\n'));
+      toast.success(`Copied ${urls.length} URLs to clipboard`);
+    } catch {
+      toast.error('Failed to copy URLs to clipboard');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedIds.length} assets from Cloudinary? This cannot be undone.`)) {
       return;
     }
+
+    setIsBulkBusy(true);
+    try {
+      const res = await bulkDeleteCloudinaryResources(selectedIds);
+      if (res.success) {
+        setResources((prev) => prev.filter((r) => !selectedIds.includes(r.public_id)));
+        toast.success(`Deleted ${selectedIds.length} assets from Cloudinary`);
+        clearSelection();
+      } else {
+        alert('Failed to delete images: ' + (res.error || 'Bulk delete failed'));
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert('An error occurred while deleting.');
+    } finally {
+      setIsBulkBusy(false);
+    }
+  };
+
+  const handleBulkTransferToSupabase = async () => {
+    if (selectedIds.length === 0) return;
+    setIsBulkBusy(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < selectedIds.length; i++) {
+      const publicId = selectedIds[i];
+      setBulkProgress(`Transferring ${i + 1} of ${selectedIds.length}...`);
+      try {
+        const res = await transferCloudinaryToSupabase(publicId, bulkTransferBucket);
+        if (res.success) successCount++;
+        else failCount++;
+      } catch {
+        failCount++;
+      }
+    }
+
+    setIsBulkBusy(false);
+    setBulkProgress(null);
+    setIsBulkTransferModalOpen(false);
+
+    if (successCount > 0) {
+      toast.success(`Transferred ${successCount} assets to Supabase (${bulkTransferBucket})`);
+    }
+    if (failCount > 0) {
+      toast.error(`${failCount} transfers failed`);
+    }
+    clearSelection();
+  };
+
+  const handleDelete = async (publicId: string) => {
+    if (!confirm('Are you sure you want to delete this image? This cannot be undone.')) return;
 
     setDeletingId(publicId);
     try {
       const res = await deleteCloudinaryResource(publicId);
       if (res.success) {
         setResources((prev) => prev.filter((r) => r.public_id !== publicId));
+        setSelectedIds((prev) => prev.filter((id) => id !== publicId));
         if (previewAsset?.public_id === publicId) setPreviewAsset(null);
       } else {
         alert('Failed to delete image: ' + res.error);
@@ -167,7 +260,7 @@ export default function MediaDashboard() {
     return `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/q_auto,f_auto/${publicId}.${format}`;
   };
 
-  // Handle Transfer from Cloudinary -> Supabase
+  // Handle Transfer from Cloudinary -> Supabase (single)
   const handleTransferToSupabase = async () => {
     if (!transferTargetAsset) return;
 
@@ -267,6 +360,8 @@ export default function MediaDashboard() {
       </div>
     );
   }
+
+  const isAllSelected = filteredResources.length > 0 && selectedIds.length === filteredResources.length;
 
   return (
     <div className="space-y-6">
@@ -410,13 +505,32 @@ export default function MediaDashboard() {
       )}
 
       {/* Search, Filter & Gallery Container */}
-      <div className="bg-gray-900/60 border border-white/10 rounded-xl p-6">
+      <div className="bg-gray-900/60 border border-white/10 rounded-xl p-6 relative">
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <h3 className="text-lg font-semibold text-white">Asset Gallery</h3>
             <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 text-gray-400 border border-white/10">
               {filteredResources.length} of {resources.length}
             </span>
+
+            {/* Select All Toggle Button */}
+            {filteredResources.length > 0 && (
+              <button
+                type="button"
+                onClick={isAllSelected ? clearSelection : selectAll}
+                className="text-xs text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1 ml-2 transition-colors"
+              >
+                {isAllSelected ? (
+                  <>
+                    <CheckSquare className="h-3.5 w-3.5 text-blue-400" /> Deselect All
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-3.5 w-3.5" /> Select All ({filteredResources.length})
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -475,11 +589,14 @@ export default function MediaDashboard() {
           {filteredResources.map((resource) => {
             const cdnUrl = getCdnUrl(resource.public_id, resource.format);
             const isCopied = copiedId === resource.public_id;
+            const isSelected = selectedIds.includes(resource.public_id);
 
             return (
               <div
                 key={resource.public_id}
-                className="group relative rounded-lg overflow-hidden bg-gray-800/90 border border-white/10 aspect-square flex flex-col justify-end transition-all hover:border-blue-500/40 hover:shadow-lg"
+                className={`group relative rounded-lg overflow-hidden bg-gray-800/90 border aspect-square flex flex-col justify-end transition-all hover:shadow-lg ${
+                  isSelected ? 'border-blue-500 ring-2 ring-blue-500/30' : 'border-white/10 hover:border-blue-500/40'
+                }`}
               >
                 <CldImage
                   src={resource.public_id}
@@ -489,8 +606,25 @@ export default function MediaDashboard() {
                   sizes="(max-width: 768px) 50vw, 20vw"
                 />
 
+                {/* Selection Checkbox */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleSelect(resource.public_id);
+                  }}
+                  className={`absolute top-2 left-2 z-30 p-1 rounded-md transition-all ${
+                    isSelected
+                      ? 'bg-blue-600 text-white shadow-md'
+                      : 'bg-black/60 backdrop-blur-sm text-gray-300 opacity-0 group-hover:opacity-100 hover:bg-black/80'
+                  }`}
+                  title={isSelected ? 'Deselect asset' : 'Select asset'}
+                >
+                  {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                </button>
+
                 {/* Badges on bottom corner */}
-                <div className="absolute top-2 left-2 z-10 flex gap-1 pointer-events-none">
+                <div className="absolute bottom-2 left-2 z-10 flex gap-1 pointer-events-none">
                   <span className="text-[10px] uppercase font-mono font-bold bg-black/60 backdrop-blur-sm text-gray-300 px-1.5 py-0.5 rounded border border-white/10">
                     {(resource.format || 'img').toUpperCase()}
                   </span>
@@ -505,7 +639,7 @@ export default function MediaDashboard() {
                 {/* Overlay with rich action controls */}
                 <div className="absolute inset-0 bg-black/75 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-between p-3 z-20">
                   <p
-                    className="text-xs text-gray-200 truncate w-full text-center font-mono select-all"
+                    className="text-xs text-gray-200 truncate w-full text-center font-mono select-all pl-7"
                     title={resource.public_id}
                   >
                     {resource.public_id}
@@ -582,7 +716,146 @@ export default function MediaDashboard() {
         </div>
       </div>
 
-      {/* Modal: Transfer to Supabase Storage */}
+      {/* Floating Bulk Actions Bar */}
+      {selectedIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900/95 backdrop-blur-md border border-white/20 rounded-2xl px-5 py-3 shadow-2xl flex items-center gap-4 text-sm animate-in fade-in slide-in-from-bottom-4">
+          <span className="font-semibold text-white flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
+            {selectedIds.length} asset{selectedIds.length > 1 ? 's' : ''} selected
+          </span>
+
+          <div className="h-4 w-px bg-white/20"></div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsBulkTransferModalOpen(true)}
+              disabled={isBulkBusy}
+              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              Transfer to Supabase
+            </button>
+
+            <button
+              onClick={handleBulkCopyUrls}
+              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy URLs
+            </button>
+
+            <button
+              onClick={handleBulkDelete}
+              disabled={isBulkBusy}
+              className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              {isBulkBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete Selected
+            </button>
+          </div>
+
+          <button
+            onClick={clearSelection}
+            className="text-gray-400 hover:text-white p-1 rounded-lg"
+            title="Clear selection"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Modal: Bulk Transfer to Supabase */}
+      {isBulkTransferModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-white/15 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setIsBulkTransferModalOpen(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                <ArrowRightLeft className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Bulk Transfer to Supabase</h3>
+                <p className="text-xs text-gray-400">
+                  Transfer {selectedIds.length} Cloudinary asset{selectedIds.length > 1 ? 's' : ''} to Supabase Storage.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-2">Target Storage Bucket</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setBulkTransferBucket('prize-images')}
+                    className={`p-3 rounded-xl border text-left transition-colors ${
+                      bulkTransferBucket === 'prize-images'
+                        ? 'border-purple-500 bg-purple-500/10 text-white'
+                        : 'border-white/10 bg-gray-800/40 text-gray-400 hover:bg-gray-800'
+                    }`}
+                  >
+                    <p className="text-sm font-medium">Prize Images</p>
+                    <p className="text-xs opacity-75 mt-1">Bucket: prize-images</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBulkTransferBucket('site-media')}
+                    className={`p-3 rounded-xl border text-left transition-colors ${
+                      bulkTransferBucket === 'site-media'
+                        ? 'border-purple-500 bg-purple-500/10 text-white'
+                        : 'border-white/10 bg-gray-800/40 text-gray-400 hover:bg-gray-800'
+                    }`}
+                  >
+                    <p className="text-sm font-medium">Site Media</p>
+                    <p className="text-xs opacity-75 mt-1">Bucket: site-media</p>
+                  </button>
+                </div>
+              </div>
+
+              {bulkProgress && (
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 flex items-center gap-2 text-xs text-purple-300">
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                  <span>{bulkProgress}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkTransferModalOpen(false)}
+                  disabled={isBulkBusy}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkTransferToSupabase}
+                  disabled={isBulkBusy}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isBulkBusy ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Transferring...
+                    </>
+                  ) : (
+                    `Transfer ${selectedIds.length} Assets`
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Transfer to Supabase Storage (single) */}
       {transferTargetAsset && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-white/15 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">

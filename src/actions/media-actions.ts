@@ -54,6 +54,23 @@ export async function deleteCloudinaryResource(publicId: string) {
   }
 }
 
+/** Bulk delete multiple assets from Cloudinary in a single API call */
+export async function bulkDeleteCloudinaryResources(publicIds: string[]) {
+  await requireAdminSession();
+
+  try {
+    if (!publicIds || publicIds.length === 0) {
+      return { success: false, error: 'No resources provided' };
+    }
+
+    const result = await cloudinary.api.delete_resources(publicIds);
+    return { success: true, result };
+  } catch (error: any) {
+    console.error('Failed to bulk delete Cloudinary resources:', error);
+    return { success: false, error: error.message || 'Bulk delete failed' };
+  }
+}
+
 /** Direct upload of an image file to Cloudinary */
 export async function uploadToCloudinary(formData: FormData) {
   await requireAdminSession();

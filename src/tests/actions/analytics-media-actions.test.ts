@@ -5,7 +5,7 @@ import { createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/
 let adminDb: SupabaseMock;
 let sb: SupabaseMock;
 const requireAdminSession = vi.fn();
-const cloudinaryApi = { usage: vi.fn(), resources: vi.fn() };
+const cloudinaryApi = { usage: vi.fn(), resources: vi.fn(), delete_resources: vi.fn() };
 const destroy = vi.fn();
 const upload = vi.fn();
 const cloudinaryUrl = vi.fn();
@@ -46,7 +46,7 @@ const pwSetup = await import('@/actions/password-setup-actions');
 beforeEach(() => {
   adminDb = createSupabaseMock();
   sb = createSupabaseMock({ user: { id: 'u1', email: 'ali@example.test' } });
-  for (const fn of [requireAdminSession, cloudinaryApi.usage, cloudinaryApi.resources, destroy, upload, cloudinaryUrl, storeImage, listMediaImages, sendPasswordSetupEmail, checkLimit]) fn.mockReset();
+  for (const fn of [requireAdminSession, cloudinaryApi.usage, cloudinaryApi.resources, cloudinaryApi.delete_resources, destroy, upload, cloudinaryUrl, storeImage, listMediaImages, sendPasswordSetupEmail, checkLimit]) fn.mockReset();
   requireAdminSession.mockResolvedValue('boss@example.test');
   checkLimit.mockResolvedValue({ success: true });
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -117,6 +117,18 @@ describe('Cloudinary media actions', () => {
     expect(await media.getCloudinaryUsage()).toEqual({ success: false, error: 'rate limited' });
     expect(await media.getCloudinaryResources()).toEqual({ success: false, error: 'rate limited' });
     expect(await media.deleteCloudinaryResource('x')).toEqual({ success: false, error: 'not found' });
+  });
+
+  it('bulk deletes assets from Cloudinary', async () => {
+    cloudinaryApi.delete_resources.mockResolvedValue({ deleted: { 'prizes/p1': 'deleted', 'prizes/p2': 'deleted' } });
+    const res = await media.bulkDeleteCloudinaryResources(['prizes/p1', 'prizes/p2']);
+    expect(res).toEqual({ success: true, result: { deleted: { 'prizes/p1': 'deleted', 'prizes/p2': 'deleted' } } });
+    expect(cloudinaryApi.delete_resources).toHaveBeenCalledWith(['prizes/p1', 'prizes/p2']);
+
+    expect(await media.bulkDeleteCloudinaryResources([])).toEqual({ success: false, error: 'No resources provided' });
+
+    cloudinaryApi.delete_resources.mockRejectedValue(new Error('Cloudinary API down'));
+    expect(await media.bulkDeleteCloudinaryResources(['p1'])).toEqual({ success: false, error: 'Cloudinary API down' });
   });
 
   it('uploads an image to Cloudinary', async () => {

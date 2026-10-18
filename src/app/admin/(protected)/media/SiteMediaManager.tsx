@@ -17,11 +17,14 @@ import {
   RefreshCw,
   Check,
   Link2,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { IMAGE_PRESETS, MEDIA_BUCKETS, mediaImageLoader, type MediaBucket, parseMediaUrl, mediaPublicUrl } from '@/lib/media/config';
 import { loaderFor } from '@/lib/cloudinary';
 import {
   deleteMediaImage,
+  bulkDeleteMediaImages,
   getMediaOverview,
   keepQueuedImage,
   listMediaImages,
@@ -83,6 +86,11 @@ export default function SiteMediaManager() {
   // Copy URL state
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
+  // Bulk selection state
+  const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
+  const [isBulkBusy, setIsBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+
   const loadOverview = useCallback(async () => {
     const res = await getMediaOverview();
     if (!res.success) {
@@ -122,6 +130,7 @@ export default function SiteMediaManager() {
     setListing(null);
     setSearchQuery('');
     setUsageFilter('all');
+    setSelectedUrls([]);
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -209,6 +218,95 @@ export default function SiteMediaManager() {
     }
   };
 
+  // Bulk Selection Operations
+  const toggleSelect = (url: string) => {
+    setSelectedUrls((prev) =>
+      prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url]
+    );
+  };
+
+  const selectAll = () => {
+    setSelectedUrls(displayedImages.map((img) => img.url));
+  };
+
+  const clearSelection = () => {
+    setSelectedUrls([]);
+  };
+
+  const handleBulkCopyUrls = async () => {
+    if (selectedUrls.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(selectedUrls.join('\n'));
+      toast.success(`Copied ${selectedUrls.length} link${selectedUrls.length > 1 ? 's' : ''} to clipboard`);
+    } catch {
+      toast.error('Failed to copy links');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedUrls.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedUrls.length} images? Active prize images will be kept safely.`)) {
+      return;
+    }
+
+    setIsBulkBusy(true);
+    try {
+      const res = await bulkDeleteMediaImages(selectedUrls);
+      if (res.success) {
+        const { deletedCount, skipped } = res.data;
+        if (deletedCount > 0) {
+          toast.success(`Deleted ${deletedCount} image${deletedCount > 1 ? 's' : ''}`);
+        }
+        if (skipped.length > 0) {
+          toast.error(
+            `${skipped.length} image(s) skipped: ${skipped.map((s) => s.reason).slice(0, 2).join(', ')}${
+              skipped.length > 2 ? '...' : ''
+            }`
+          );
+        }
+        clearSelection();
+        await refresh();
+      } else {
+        toast.error(res.error || 'Failed to delete images');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Error performing bulk deletion');
+    } finally {
+      setIsBulkBusy(false);
+    }
+  };
+
+  const handleBulkTransferToCloudinary = async () => {
+    if (selectedUrls.length === 0) return;
+    setIsBulkBusy(true);
+    const folder = bucket === MEDIA_BUCKETS.prize ? 'prizes' : 'site';
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < selectedUrls.length; i++) {
+      const url = selectedUrls[i];
+      setBulkProgress(`Transferring ${i + 1} of ${selectedUrls.length}...`);
+      try {
+        const res = await transferSupabaseToCloudinary(url, folder);
+        if (res.success) successCount++;
+        else failCount++;
+      } catch {
+        failCount++;
+      }
+    }
+
+    setIsBulkBusy(false);
+    setBulkProgress(null);
+
+    if (successCount > 0) {
+      toast.success(`Transferred ${successCount} image${successCount > 1 ? 's' : ''} to Cloudinary (${folder}/)`);
+    }
+    if (failCount > 0) {
+      toast.error(`${failCount} transfer(s) failed`);
+    }
+    clearSelection();
+  };
+
   const saveRetention = async (e: React.FormEvent) => {
     e.preventDefault();
     const res = await updatePrizeImageRetention(Number(retention));
@@ -257,6 +355,8 @@ export default function SiteMediaManager() {
 
     return list;
   }, [listing?.images, searchQuery, usageFilter, sortBy]);
+
+  const isAllSelected = displayedImages.length > 0 && selectedUrls.length === displayedImages.length;
 
   // Compute preset variant paths for preview modal
   const getVariants = (url: string) => {
@@ -393,8 +493,34 @@ export default function SiteMediaManager() {
               </select>
             </div>
 
-            <div className="text-xs text-gray-400 flex items-center gap-1.5">
-              <span>Showing {displayedImages.length} of {listing.images.length} images</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={isAllSelected ? clearSelection : selectAll}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                  isAllSelected
+                    ? 'bg-blue-600/20 border-blue-500/40 text-blue-300 hover:bg-blue-600/30'
+                    : selectedUrls.length > 0
+                    ? 'bg-gray-800 border-white/20 text-white hover:bg-gray-700'
+                    : 'bg-gray-800 border-white/10 text-gray-400 hover:text-gray-200'
+                }`}
+                title={isAllSelected ? 'Deselect all images' : 'Select all displayed images'}
+              >
+                {isAllSelected ? (
+                  <>
+                    <CheckSquare className="h-3.5 w-3.5 text-blue-400" />
+                    Deselect All
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-3.5 w-3.5" />
+                    Select All ({displayedImages.length})
+                  </>
+                )}
+              </button>
+              <div className="text-xs text-gray-400 flex items-center gap-1.5">
+                <span>Showing {displayedImages.length} of {listing.images.length} images</span>
+              </div>
             </div>
           </div>
         )}
@@ -408,15 +534,38 @@ export default function SiteMediaManager() {
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
             {displayedImages.map((image) => {
+              const isSelected = selectedUrls.includes(image.url);
               const isCopied = copiedUrl === image.url;
               const isTransferring = transferringUrl === image.url;
 
               return (
                 <div
                   key={image.url}
-                  className="group relative overflow-hidden rounded-lg border border-white/5 bg-gray-800 transition-all hover:border-blue-500/30 hover:shadow-lg flex flex-col justify-between"
+                  className={`group relative overflow-hidden rounded-lg border transition-all flex flex-col justify-between ${
+                    isSelected
+                      ? 'border-blue-500 ring-2 ring-blue-500/30 bg-blue-950/20 shadow-lg'
+                      : 'border-white/5 bg-gray-800 hover:border-blue-500/30 hover:shadow-lg'
+                  }`}
                 >
                   <div className="relative aspect-square overflow-hidden bg-gray-900/50">
+                    {/* Checkbox button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSelect(image.url);
+                      }}
+                      className={`absolute top-2 left-2 z-20 p-1.5 rounded-lg backdrop-blur-md transition-all ${
+                        isSelected
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
+                          : 'bg-black/60 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={isSelected ? 'Deselect image' : 'Select image'}
+                      aria-label={isSelected ? `Deselect ${image.name}` : `Select ${image.name}`}
+                    >
+                      {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                    </button>
+
                     <Image
                       src={image.url}
                       loader={mediaImageLoader}
@@ -491,7 +640,17 @@ export default function SiteMediaManager() {
             })}
           </div>
         )}
-        {listing && <Pager page={page} total={listing.total} pageSize={listing.pageSize} onPage={setPage} />}
+        {listing && (
+          <Pager
+            page={page}
+            total={listing.total}
+            pageSize={listing.pageSize}
+            onPage={(p) => {
+              setPage(p);
+              setSelectedUrls([]);
+            }}
+          />
+        )}
       </div>
 
       {/* Replaced prize images */}
@@ -755,6 +914,67 @@ export default function SiteMediaManager() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+      {/* Floating Bulk Actions Bar */}
+      {selectedUrls.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900/95 backdrop-blur-md border border-white/20 rounded-2xl px-5 py-3 shadow-2xl flex items-center gap-4 text-sm animate-in fade-in slide-in-from-bottom-4">
+          <span className="font-semibold text-white flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
+            {selectedUrls.length} image{selectedUrls.length > 1 ? 's' : ''} selected
+          </span>
+
+          <div className="h-4 w-px bg-white/20"></div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleBulkTransferToCloudinary}
+              disabled={isBulkBusy}
+              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              {isBulkBusy && bulkProgress ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{bulkProgress}</span>
+                </>
+              ) : (
+                <>
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  Transfer to Cloudinary
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleBulkCopyUrls}
+              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Copy Links
+            </button>
+
+            <button
+              onClick={handleBulkDelete}
+              disabled={isBulkBusy}
+              className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              {isBulkBusy && !bulkProgress ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              Delete Selected
+            </button>
+          </div>
+
+          <button
+            onClick={clearSelection}
+            className="text-gray-400 hover:text-white p-1 rounded-lg"
+            title="Clear selection"
+            aria-label="Clear selection"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
     </div>
