@@ -65,6 +65,7 @@ import AdminStreamingPage from '@/app/admin/(protected)/streaming/page';
 import AdminWalletPage from '@/app/admin/(protected)/wallet/page';
 import MediaPage, { metadata as mediaMeta } from '@/app/admin/(protected)/media/cloudinary/page';
 import LuckyWinnerPage from '@/app/admin/(protected)/lucky-winner/page';
+import { redirect } from 'next/navigation';
 import QuizEvaluationPage from '@/app/admin/(protected)/quiz-evaluation/page';
 import AdminLogin from '@/app/admin/(public)/login/page';
 import QuizManagementPage from '@/app/admin/(protected)/quiz/[id]/page';
@@ -98,7 +99,8 @@ describe('admin dashboard', () => {
     expect(screen.getByText('PKR 25,000')).toBeInTheDocument();
     expect(screen.getByText('No recent activity')).toBeInTheDocument();
     expect(h.activity).toHaveBeenCalledWith(8);
-    expect(screen.getAllByRole('link', { name: /Quiz Evaluation/ }).length).toBeGreaterThan(1);
+    expect(screen.getAllByRole('link', { name: /Settle Quizzes/ }).length).toBeGreaterThan(1);
+    expect(screen.queryByRole('link', { name: /Lucky Winner/ })).toBeNull();
   });
 
   it.each([
@@ -200,31 +202,21 @@ describe('media management: Cloudinary (old uploads) page', () => {
 });
 
 describe('client-checked admin pages', () => {
-  it('lucky winner: lets admins in and sends others to the admin login', async () => {
-    const { unmount } = render(<LuckyWinnerPage />);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
-    expect(await screen.findByText('Lucky Winner Draw')).toBeInTheDocument();
-    expect(screen.getByText(/lazy:/)).toBeInTheDocument();
-    unmount();
-    for (const response of [() => jsonResponse({}, 401), () => jsonResponse({}, 403), () => { throw new Error('x'); }]) {
-      fetchMock.mockImplementationOnce(async () => response());
-      const r = render(<LuckyWinnerPage />);
-      await waitFor(() => expect(h.router.push).toHaveBeenLastCalledWith('/admin/login'));
-      expect(screen.queryByText('Lucky Winner Draw')).toBeNull();
-      r.unmount();
-    }
+  it('the old lucky winner page sends admins to Settle Quizzes, where draws happen now', () => {
+    LuckyWinnerPage();
+    expect(redirect).toHaveBeenCalledWith('/admin/quiz-evaluation');
   });
 
-  it('quiz evaluation: lets admins in and sends others to the admin login', async () => {
+  it('settle quizzes: lets admins in and sends others to the admin login', async () => {
     const { unmount } = render(<QuizEvaluationPage />);
-    expect(await screen.findByText('Quiz Evaluation')).toBeInTheDocument();
+    expect(await screen.findByText('Settle Quizzes')).toBeInTheDocument();
     unmount();
     for (const response of [() => jsonResponse({}, 401), () => jsonResponse({}, 403), () => { throw new Error('x'); }]) {
       h.router.push.mockClear();
       fetchMock.mockImplementationOnce(async () => response());
       const r = render(<QuizEvaluationPage />);
       await waitFor(() => expect(h.router.push).toHaveBeenLastCalledWith('/admin/login'));
-      expect(screen.queryByText('Quiz Evaluation')).toBeNull();
+      expect(screen.queryByText('Settle Quizzes')).toBeNull();
       r.unmount();
     }
     expect(h.router.push).not.toHaveBeenCalledWith('/login');

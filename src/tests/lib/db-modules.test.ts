@@ -74,6 +74,7 @@ const simple: [string, () => Promise<unknown>, unknown][] = [
   ['questionAttemptDb.createMany', () => questionAttemptDb.createMany([{ userId: 'u', questionId: 'x', quizId: 'q', selectedOption: 1, isCorrect: true, attemptedAt: new Date(0) }]), ROW],
   ['prizeDb.findMany', () => prizeDb.findMany(), ROW],
   ['prizeDb.findById', () => prizeDb.findById('p'), ROW],
+  ['prizeDb.findByIdAdmin', () => prizeDb.findByIdAdmin('p'), ROW],
   ['prizeDb.create', () => prizeDb.create({} as never), ROW],
   ['prizeDb.update', () => prizeDb.update('p', {} as never), ROW],
   ['prizeDb.delete', () => prizeDb.delete('p'), undefined],
@@ -126,7 +127,7 @@ describe('db modules: every simple operation', () => {
     await expect(call()).rejects.toEqual({ code: '500', message: 'db down' });
   });
 
-  it.each(simple.filter(([n]) => /find|getLeaderboard|getUserNotifications/.test(n) && !/ById$|ByQuizId$|Default$|Active$|ByEmail$|ByPhone$|WithQuestions$|UserAndQuiz$|existsForQuiz/.test(n)))(
+  it.each(simple.filter(([n]) => /find|getLeaderboard|getUserNotifications/.test(n) && !/ById$|ByIdAdmin$|ByQuizId$|Default$|Active$|ByEmail$|ByPhone$|WithQuestions$|UserAndQuiz$|existsForQuiz/.test(n)))(
     '%s returns [] when there are no rows',
     async (_name, call) => {
       both({ data: null });
@@ -134,7 +135,7 @@ describe('db modules: every simple operation', () => {
     },
   );
 
-  it.each(simple.filter(([n]) => /\.find\w*(ById|ByQuizId|Default|Active|ByEmail|ByPhone|WithQuestions)$/.test(n) && n !== 'questionDb.findByQuizId'))(
+  it.each(simple.filter(([n]) => /\.find\w*(ById|ByIdAdmin|ByQuizId|Default|Active|ByEmail|ByPhone|WithQuestions)$/.test(n) && n !== 'questionDb.findByQuizId'))(
     '%s treats PGRST116 as "not found"',
     async (_name, call) => {
       both({ data: null, error: { code: 'PGRST116' } });

@@ -7,7 +7,7 @@ let adminDb: SupabaseMock;
 const adminActionGuard = vi.fn();
 const revalidatePath = vi.fn();
 const schedulePrizeImageDeletion = vi.fn();
-const prizeDb = { findById: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() };
+const prizeDb = { findById: vi.fn(), findByIdAdmin: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() };
 
 vi.mock('@/lib/supabase/db', () => ({ getDb: async () => db.client, getAdminDb: () => adminDb.client, prizeDb }));
 vi.mock('@/lib/admin-guard', () => ({ adminActionGuard: (...a: unknown[]) => adminActionGuard(...a) }));
@@ -120,7 +120,7 @@ describe('admin prize actions', () => {
     expect(await actions.deletePrize('p')).toEqual(DENIED);
     expect(await actions.togglePrizeStatus('p')).toEqual(DENIED);
     expect(await actions.togglePrizeActive('p')).toEqual(DENIED);
-    expect(prizeDb.findById).not.toHaveBeenCalled();
+    expect(prizeDb.findByIdAdmin).not.toHaveBeenCalled();
     expect(adminDb.calls).toHaveLength(0);
   });
 
@@ -182,7 +182,7 @@ describe('admin prize actions', () => {
   });
 
   it('updatePrize writes only the provided fields', async () => {
-    prizeDb.findById.mockResolvedValue(prize({ imageUrl: null }));
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
     prizeDb.update.mockResolvedValue({ id: 'prize-1' });
     await actions.updatePrize('prize-1', { name: 'New', description: '', imageUrl: '', modelUrl: '', type: 't', pointsRequired: 5, category: 'vehicles', stock: 0, status: 'draft', value: 9 });
     expect(prizeDb.update).toHaveBeenCalledWith('prize-1', {
@@ -192,14 +192,14 @@ describe('admin prize actions', () => {
   });
 
   it('leaves the fields a partial update omits untouched, instead of resetting them to the create defaults', async () => {
-    prizeDb.findById.mockResolvedValue(prize({ imageUrl: null }));
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
     prizeDb.update.mockResolvedValue({});
     await actions.updatePrize('prize-1', { name: 'Renamed' });
     expect(prizeDb.update).toHaveBeenLastCalledWith('prize-1', { name: 'Renamed' });
   });
 
   it('updatePrize queues the replaced image for delayed deletion instead of deleting it', async () => {
-    prizeDb.findById.mockResolvedValue(prize());
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
     prizeDb.update.mockResolvedValue({});
     expect(await actions.updatePrize('prize-1', { imageUrl: `${CLOUD}/v2/prizes/new.jpg` })).toEqual({ success: true, data: {} });
     expect(schedulePrizeImageDeletion).toHaveBeenCalledWith(prize().imageUrl, 'prize_image_replaced', 'prize-1');
@@ -214,7 +214,7 @@ describe('admin prize actions', () => {
   });
 
   it('a queueing failure never fails the prize update', async () => {
-    prizeDb.findById.mockResolvedValue(prize());
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
     prizeDb.update.mockResolvedValue({ id: 'prize-1' });
     schedulePrizeImageDeletion.mockRejectedValue(new Error('MediaDeletion missing'));
     expect(await actions.updatePrize('prize-1', { imageUrl: '' })).toEqual({ success: true, data: { id: 'prize-1' } });
@@ -222,9 +222,9 @@ describe('admin prize actions', () => {
   });
 
   it('updatePrize handles a missing prize, bad input and failures', async () => {
-    prizeDb.findById.mockResolvedValue(null);
+    prizeDb.findByIdAdmin.mockResolvedValue(null);
     expect(await actions.updatePrize('x', {})).toEqual({ success: false, error: 'Prize not found' });
-    prizeDb.findById.mockResolvedValue(prize());
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
     expect(await actions.updatePrize('x', { pointsRequired: 0 })).toEqual({ success: false, error: 'Points must be at least 1' });
     prizeDb.update.mockRejectedValue(new Error('x'));
     expect(await actions.updatePrize('x', { name: 'n' })).toEqual({ success: false, error: 'Failed to update prize' });
@@ -236,13 +236,13 @@ describe('admin prize actions', () => {
     expect(prizeDb.delete).not.toHaveBeenCalled();
 
     db.setTable('PrizeRedemption', { count: 0 });
-    prizeDb.findById.mockResolvedValue(prize());
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
     expect(await actions.deletePrize('prize-1')).toEqual({ success: true });
     expect(prizeDb.delete).toHaveBeenCalledWith('prize-1');
     expect(schedulePrizeImageDeletion).toHaveBeenCalledWith(prize().imageUrl, 'prize_deleted', 'prize-1');
     schedulePrizeImageDeletion.mockClear();
 
-    prizeDb.findById.mockResolvedValue(null);
+    prizeDb.findByIdAdmin.mockResolvedValue(null);
     expect(await actions.deletePrize('prize-2')).toEqual({ success: true });
     expect(schedulePrizeImageDeletion).not.toHaveBeenCalled();
     prizeDb.delete.mockRejectedValue(new Error('x'));
@@ -251,16 +251,16 @@ describe('admin prize actions', () => {
 
   it('toggles status and active state', async () => {
     prizeDb.update.mockImplementation(async (_id, data) => data);
-    prizeDb.findById.mockResolvedValue(prize({ status: 'published', isActive: true }));
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ status: 'published', isActive: true }));
     expect((await actions.togglePrizeStatus('prize-1')).data).toEqual({ status: 'draft' });
     expect((await actions.togglePrizeActive('prize-1')).data).toEqual({ isActive: false });
-    prizeDb.findById.mockResolvedValue(prize({ status: 'draft' }));
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ status: 'draft' }));
     expect((await actions.togglePrizeStatus('prize-1')).data).toEqual({ status: 'published' });
 
-    prizeDb.findById.mockResolvedValue(null);
+    prizeDb.findByIdAdmin.mockResolvedValue(null);
     expect(await actions.togglePrizeStatus('x')).toEqual({ success: false, error: 'Prize not found' });
     expect(await actions.togglePrizeActive('x')).toEqual({ success: false, error: 'Prize not found' });
-    prizeDb.findById.mockRejectedValue(new Error('x'));
+    prizeDb.findByIdAdmin.mockRejectedValue(new Error('x'));
     expect(await actions.togglePrizeStatus('x')).toEqual({ success: false, error: 'Failed to toggle prize status' });
     expect(await actions.togglePrizeActive('x')).toEqual({ success: false, error: 'Failed to toggle prize active state' });
   });

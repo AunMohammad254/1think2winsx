@@ -40,6 +40,22 @@ export const prizeDb = {
         return data
     },
 
+    /**
+     * Admin-only lookup that bypasses RLS. `findById` reads as the caller, and players (or an
+     * admin signed in only to the admin panel) cannot see draft, inactive or bumper prizes.
+     */
+    async findByIdAdmin(id: string) {
+        const supabase = getAdminDb()
+        const { data, error } = await supabase
+            .from('Prize')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle()
+
+        if (error && error.code !== 'PGRST116') throw error
+        return data
+    },
+
     async create(prizeData: Insertable<'Prize'>) {
         const supabase = getAdminDb()
         const { data, error } = await supabase

@@ -212,6 +212,7 @@ export default function AdminPrizesPage() {
                         <option value="vehicles">Vehicles</option>
                         <option value="accessories">Accessories</option>
                         <option value="general">General</option>
+                        <option value="bumper">Bumper (secret)</option>
                     </select>
 
                     {/* Status Filter */}

@@ -349,7 +349,7 @@ export async function updatePrize(
     if (denied) return denied as any;
     try {
         // Check if prize exists
-        const existing = await prizeDb.findById(id);
+        const existing = await prizeDb.findByIdAdmin(id);
         if (!existing) {
             return { success: false, error: 'Prize not found' };
         }
@@ -421,7 +421,7 @@ export async function deletePrize(
         }
 
         // Fetch prize to get the image URL before deletion
-        const prize = await prizeDb.findById(id);
+        const prize = await prizeDb.findByIdAdmin(id);
 
         // Use prizeDb.delete which uses admin client to bypass RLS
         await prizeDb.delete(id);
@@ -450,7 +450,7 @@ export async function togglePrizeStatus(
     const denied = await adminActionGuard();
     if (denied) return denied as any;
     try {
-        const prize = await prizeDb.findById(id);
+        const prize = await prizeDb.findByIdAdmin(id);
         if (!prize) {
             return { success: false, error: 'Prize not found' };
         }
@@ -478,7 +478,7 @@ export async function togglePrizeActive(
     const denied = await adminActionGuard();
     if (denied) return denied as any;
     try {
-        const prize = await prizeDb.findById(id);
+        const prize = await prizeDb.findByIdAdmin(id);
         if (!prize) {
             return { success: false, error: 'Prize not found' };
         }

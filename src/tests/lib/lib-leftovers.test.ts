@@ -520,6 +520,24 @@ describe('quiz catalogue', () => {
     expect((await cat.getActiveQuizCatalog())[0].prizeName).toBeNull();
     expect(adminDb.callsTo('Prize')).toHaveLength(3);
   });
+
+  it('never names a bumper prize in public listings: the quiz just shows as a bumper prize quiz', async () => {
+    adminDb.setTable('Quiz', {
+      data: [
+        { id: 'secret', status: 'upcoming', prizeId: 'p-bumper', isBumperPrize: false },
+        { id: 'normal', status: 'upcoming', prizeId: 'p-watch', isBumperPrize: false },
+        { id: 'flagged', status: 'upcoming', prizeId: null, isBumperPrize: true },
+      ],
+    });
+    adminDb.setTable('Question', { data: [] });
+    adminDb.setTable('Prize', { data: [{ id: 'p-bumper', name: 'Mystery bike', category: 'bumper' }, { id: 'p-watch', name: 'Smartwatch', category: 'electronics' }] });
+    expect((await cat.getActiveQuizCatalog()).map((q) => [q.id, q.prizeName, q.isBumperPrize])).toEqual([
+      ['secret', null, true],
+      ['normal', 'Smartwatch', false],
+      ['flagged', null, true],
+    ]);
+    expect(adminDb.callsTo('Prize')[0].ops.find((o) => o.op === 'select')?.args[0]).toBe('id, name, category');
+  });
 });
 
 describe('sendEmail (Brevo REST)', () => {
