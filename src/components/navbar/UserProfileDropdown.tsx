@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { motion, AnimatePresence } from 'framer-motion';
 import { User, LogOut, ChevronDown } from 'lucide-react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { usePresence } from '@/hooks/usePresence';
 
 interface UserProfileDropdownProps {
     user: SupabaseUser;
@@ -13,6 +13,8 @@ interface UserProfileDropdownProps {
 
 export default function UserProfileDropdown({ user, onSignOut }: UserProfileDropdownProps) {
     const [isOpen, setIsOpen] = useState(false);
+    // 150ms = the .dropdown-panel exit animation in globals.css
+    const mounted = usePresence(isOpen, 150);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // Get user display name and initial
@@ -46,11 +48,9 @@ export default function UserProfileDropdown({ user, onSignOut }: UserProfileDrop
     return (
         <div ref={dropdownRef} className="relative">
             {/* Avatar Button */}
-            <motion.button
+            <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 p-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
+                className="flex items-center gap-2 p-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200 motion-safe:hover:scale-[1.02] motion-safe:active:scale-[0.98]"
             >
                 {/* Avatar */}
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
@@ -63,58 +63,51 @@ export default function UserProfileDropdown({ user, onSignOut }: UserProfileDrop
                 </span>
 
                 {/* Chevron */}
-                <motion.div
-                    animate={{ rotate: isOpen ? 180 : 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="hidden md:block"
+                <div
+                    className={`hidden md:block transition-transform duration-200 motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
                 >
                     <ChevronDown className="w-4 h-4 text-white/60" />
-                </motion.div>
-            </motion.button>
+                </div>
+            </button>
 
             {/* Dropdown Menu */}
-            <AnimatePresence>
-                {isOpen && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                        transition={{ duration: 0.15, ease: 'easeOut' }}
-                        className="absolute right-0 top-full mt-2 w-56 origin-top-right z-[1000]"
-                    >
-                        <div className="rounded-xl bg-gray-900/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50 overflow-hidden">
-                            {/* User Info Header */}
-                            <div className="px-4 py-3 border-b border-white/10">
-                                <p className="text-sm font-medium text-white truncate">{displayName}</p>
-                                <p className="text-xs text-white/50 truncate">{user.email}</p>
-                            </div>
-
-                            {/* Menu Items */}
-                            <div className="py-1">
-                                <Link
-                                    href="/profile"
-                                    onClick={() => setIsOpen(false)}
-                                    className="flex items-center gap-3 px-4 py-2.5 text-sm text-white/80 hover:text-white hover:bg-white/5 transition-colors"
-                                >
-                                    <User className="w-4 h-4" />
-                                    <span>Profile</span>
-                                </Link>
-
-                                <button
-                                    onClick={() => {
-                                        setIsOpen(false);
-                                        onSignOut();
-                                    }}
-                                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-                                >
-                                    <LogOut className="w-4 h-4" />
-                                    <span>Sign Out</span>
-                                </button>
-                            </div>
+            {mounted && (
+                <div
+                    data-state={isOpen ? 'open' : 'closed'}
+                    className="dropdown-panel absolute right-0 top-full mt-2 w-56 origin-top-right z-[1000]"
+                >
+                    <div className="rounded-xl bg-gray-900/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50 overflow-hidden">
+                        {/* User Info Header */}
+                        <div className="px-4 py-3 border-b border-white/10">
+                            <p className="text-sm font-medium text-white truncate">{displayName}</p>
+                            <p className="text-xs text-white/50 truncate">{user.email}</p>
                         </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+
+                        {/* Menu Items */}
+                        <div className="py-1">
+                            <Link
+                                href="/profile"
+                                onClick={() => setIsOpen(false)}
+                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-white/80 hover:text-white hover:bg-white/5 transition-colors"
+                            >
+                                <User className="w-4 h-4" />
+                                <span>Profile</span>
+                            </Link>
+
+                            <button
+                                onClick={() => {
+                                    setIsOpen(false);
+                                    onSignOut();
+                                }}
+                                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                            >
+                                <LogOut className="w-4 h-4" />
+                                <span>Sign Out</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

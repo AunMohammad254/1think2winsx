@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import { Menu, LogIn, Sparkles, Home, FileText, HelpCircle, Trophy, BarChart3, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import Logo from './navbar/Logo';
@@ -19,32 +18,8 @@ const navItems = [
   { href: '/leaderboard', label: 'Leaderboard', icon: BarChart3 },
 ];
 
-// Animation variants
-const navbarVariants = {
-  hidden: { opacity: 0, y: -20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.5,
-      ease: 'easeOut' as const,
-      staggerChildren: 0.1,
-      delayChildren: 0.2,
-    },
-  },
-};
-
-const linkVariants = {
-  hidden: { opacity: 0, y: -10 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.3,
-      ease: 'easeOut' as const,
-    },
-  },
-};
+// Links (then the menu button) drop in one after another once the bar has started to appear
+const staggerDelay = (index: number) => ({ animationDelay: `${0.2 + index * 0.1}s` });
 
 export default function Navbar() {
   const { user, isLoading, signOut } = useAuth();
@@ -70,11 +45,8 @@ export default function Navbar() {
   return (
     <>
       {/* Main Navbar */}
-      <motion.header
-        variants={navbarVariants}
-        initial="hidden"
-        animate="visible"
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled
+      <header
+        className={`nav-enter fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled
           ? 'bg-black/60 backdrop-blur-2xl shadow-lg shadow-black/20'
           : 'bg-black/30 backdrop-blur-xl'
           } border-b border-white/10`}
@@ -86,10 +58,10 @@ export default function Navbar() {
 
             {/* Desktop Navigation */}
             <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1">
-              {allNavItems.map((item) => {
+              {allNavItems.map((item, index) => {
                 const Icon = item.icon;
                 return (
-                  <motion.div key={item.href} variants={linkVariants}>
+                  <div key={item.href} className="nav-item-enter" style={staggerDelay(index)}>
                     <Link
                       href={item.href}
                       className="group relative flex items-center gap-1.5 px-2.5 xl:px-3.5 py-2 rounded-lg text-white/70 hover:text-white transition-colors duration-200"
@@ -100,7 +72,7 @@ export default function Navbar() {
                       {/* Hover underline effect */}
                       <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500 group-hover:w-3/4 transition-all duration-300 rounded-full" />
                     </Link>
-                  </motion.div>
+                  </div>
                 );
               })}
             </nav>
@@ -144,20 +116,18 @@ export default function Navbar() {
               )}
 
               {/* Mobile Menu Button */}
-              <motion.button
-                variants={linkVariants}
+              <button
                 onClick={() => setIsMobileMenuOpen(true)}
-                className="lg:hidden p-2 rounded-lg bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 transition-all duration-200"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                className="nav-item-enter lg:hidden p-2 rounded-lg bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 transition-all duration-200 motion-safe:hover:scale-105 motion-safe:active:scale-95"
+                style={staggerDelay(allNavItems.length)}
                 aria-label="Open menu"
               >
                 <Menu className="w-5 h-5" />
-              </motion.button>
+              </button>
             </div>
           </div>
         </div>
-      </motion.header>
+      </header>
 
       {/* Mobile Navigation */}
       <MobileNav

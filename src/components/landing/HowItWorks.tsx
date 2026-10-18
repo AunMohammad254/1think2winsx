@@ -4,14 +4,14 @@ import { Section, SectionHeading, Reveal, Card } from "./Primitives";
 
 const STEPS = [
   { n: "01", icon: "📝", title: "Create your account", desc: "Sign up in under 30 seconds. No credit card required — just your name, email and a passion for sports.", color: "from-emerald-400 to-cyan-400" },
-  { n: "02", icon: "🎯", title: "Pick your quiz", desc: "Choose from live tournaments, daily challenges, or solo practice rooms across every sports format.", color: "from-violet-400 to-pink-400" },
+  { n: "02", icon: "🎯", title: "Pick your quiz", desc: "Choose from live tournaments and daily challenges, from PSL cricket to hockey, squash and snooker.", color: "from-violet-400 to-pink-400" },
   { n: "03", icon: "⚡", title: "Answer fast, score big", desc: "Speed matters. Faster correct answers earn streak multipliers — chain them to climb the leaderboard.", color: "from-amber-400 to-orange-500" },
   { n: "04", icon: "🎁", title: "Win & claim", desc: "Tech gadgets, gift cards, signed merchandise — winners can claim their favorite products instantly with their points.", color: "from-rose-400 to-red-500" },
 ];
 
 const HIGHLIGHTS = [
   { icon: "⚡", title: "Lightning Quizzes", desc: "60-second adrenaline matches with instant scoring.", tag: "Real-time", gradient: "from-emerald-400/20 to-cyan-400/20" },
-  { icon: "🌍", title: "Global Leaderboard", desc: "Climb the ranks against 10,000+ fans worldwide.", tag: "Competitive", gradient: "from-violet-400/20 to-pink-500/20" },
+  { icon: "🇵🇰", title: "National Leaderboard", desc: "Climb the ranks against 10,000+ fans across Pakistan.", tag: "Competitive", gradient: "from-violet-400/20 to-pink-500/20" },
   { icon: "🔥", title: "Streaks & Combos", desc: "Stack correct answers for multiplier boosts up to 5x.", tag: "Bonus", gradient: "from-orange-400/20 to-red-500/20" },
 ];
 

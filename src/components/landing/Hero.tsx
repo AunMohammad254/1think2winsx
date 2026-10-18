@@ -1,11 +1,8 @@
-import {
-  Reveal,
-  Eyebrow,
-} from "./Primitives";
+import { Eyebrow, Reveal } from "./Primitives";
 import { SportsBall } from "@/components/hero";
 import { Particles, TypedTitle, HeroCTA } from "./HeroClient";
 
-const SUBHEADS = ["Test your Sports IQ", "Win random prizes", "Beat the world"];
+const SUBHEADS = ["Test your Sports IQ", "Win random prizes", "Beat Karachi's best"];
 
 function HeroVisual() {
   return (
@@ -18,10 +15,10 @@ function HeroVisual() {
         <div className="anim-icon h-full w-full"><SportsBall type="football" className="h-full w-full" /></div>
       </div>
       <div className="absolute -top-8 -left-10 h-20 w-20 anim-float" style={{ animationDelay: '2.4s' }}>
-        <div className="anim-icon h-full w-full"><SportsBall type="basketball" className="h-full w-full" /></div>
+        <div className="anim-icon h-full w-full"><SportsBall type="hockey" className="h-full w-full" /></div>
       </div>
       <div className="absolute bottom-12 -left-16 h-16 w-16 anim-float" style={{ animationDelay: '3s' }}>
-        <div className="anim-icon h-full w-full"><SportsBall type="tennis" className="h-full w-full" /></div>
+        <div className="anim-icon h-full w-full"><SportsBall type="squash" className="h-full w-full" /></div>
       </div>
       <div className="absolute -bottom-6 -left-6 grid h-20 w-20 place-items-center rounded-2xl border border-amber-300/40 bg-gradient-to-br from-amber-300/30 to-orange-500/30 backdrop-blur-xl anim-float-soft glow-trophy" style={{ backfaceVisibility: "hidden" }}>
         <span className="text-3xl">🏆</span>
@@ -47,16 +44,16 @@ function HeroVisual() {
             <span className="absolute inset-0 grid place-items-center text-sm font-bold text-white">18s</span>
           </div>
           <div className="flex-1">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">Question</p>
-            <p className="mt-0.5 text-base font-semibold text-white">Who scored the fastest T20I century?</p>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-white/60">Question</p>
+            <p className="mt-0.5 text-base font-semibold text-white">Who captained Karachi Kings to their first PSL title?</p>
           </div>
         </div>
         <div className="space-y-2.5">
           {[
-            { letter: "A", text: "Rohit Sharma", state: "idle" },
-            { letter: "B", text: "David Miller", state: "correct" },
-            { letter: "C", text: "Chris Gayle", state: "idle" },
-            { letter: "D", text: "Suryakumar Yadav", state: "idle" },
+            { letter: "A", text: "Babar Azam", state: "idle" },
+            { letter: "B", text: "Imad Wasim", state: "correct" },
+            { letter: "C", text: "Shan Masood", state: "idle" },
+            { letter: "D", text: "Sarfaraz Ahmed", state: "idle" },
           ].map((opt, i) => (
             <div
               key={opt.letter}
@@ -125,27 +122,38 @@ export default function Hero() {
       </div>
       <div className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center gap-12 px-5 sm:px-8 lg:grid-cols-12 lg:gap-8">
         <div className="lg:col-span-7">
-          <Reveal><Eyebrow tone="live">Live quizzes available</Eyebrow></Reveal>
+          <div className="hero-enter"><Eyebrow tone="live">Live quizzes available</Eyebrow></div>
           {/* Plain h1: it is the LCP element, so it must not wait on a scroll-reveal observer. */}
           <h1 className="mt-6 font-display text-5xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl lg:text-7xl xl:text-[5.5rem]">
-            <span className="block">
-              <TypedTitle subheads={SUBHEADS} />
-              <span className="ml-0.5 inline-block h-[0.08em] w-[3px] rounded bg-emerald-400 align-middle anim-cursor" />
+            {/* Every subhead sits invisibly in the same grid cell, so the line keeps the height of the
+                longest one while the typewriter shortens it: a phrase dropping from two lines to one
+                no longer shifts everything below (CLS). Screen readers get one stable heading. */}
+            <span className="sr-only">{SUBHEADS[0]}</span>
+            <span className="grid" aria-hidden="true">
+              {SUBHEADS.map((s) => (
+                <span key={s} className="invisible col-start-1 row-start-1">
+                  {s}<span className="ml-0.5 inline-block w-[3px]" />
+                </span>
+              ))}
+              <span className="col-start-1 row-start-1">
+                <TypedTitle subheads={SUBHEADS} />
+                <span className="ml-0.5 inline-block h-[0.08em] w-[3px] rounded bg-emerald-400 align-middle anim-cursor" />
+              </span>
             </span>
             <span className="block text-gradient-pitch mt-2">
               & win <span className="text-gradient-trophy">random prizes.</span>
             </span>
           </h1>
 
-          <Reveal delay={500}>
+          <div className="hero-enter" style={{ animationDelay: "150ms" }}>
             <p className="mt-6 max-w-xl text-lg text-white/65 sm:text-xl">
-              Compete with fans worldwide, climb the global leaderboard, and unlock exclusive rewards — all in under <span className="text-white">60 seconds</span>.
+              Compete with fans from Karachi to Khyber, climb the national leaderboard, and unlock exclusive rewards — all in under <span className="text-white">60 seconds</span>.
             </p>
-          </Reveal>
-          <Reveal delay={700}>
+          </div>
+          <div className="hero-enter" style={{ animationDelay: "250ms" }}>
             <HeroCTA />
-          </Reveal>
-          <Reveal delay={900}>
+          </div>
+          <div className="hero-enter" style={{ animationDelay: "350ms" }}>
             <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4 text-sm text-white/55">
               <div className="flex items-center gap-2">
                 <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500/20 text-emerald-400">
@@ -166,13 +174,15 @@ export default function Hero() {
                 <span>Verified by 10,000+ players</span>
               </div>
             </div>
-          </Reveal>
+          </div>
         </div>
         <div className="lg:col-span-5">
+          {/* The decorative card keeps the hydration-timed reveal: painting its blurred glass in the
+              first frame cost ~110 ms of desktop FCP/LCP in lab runs, for no gain in clarity. */}
           <Reveal variant="scale" delay={400}><HeroVisual /></Reveal>
         </div>
       </div>
-      <a href="#stats" aria-label="Scroll down" className="absolute bottom-8 left-1/2 hidden -translate-x-1/2 flex-col items-center gap-2 text-white/40 transition-colors hover:text-white sm:flex">
+      <a href="#stats" aria-label="Scroll down" className="absolute bottom-8 left-1/2 hidden -translate-x-1/2 flex-col items-center gap-2 text-white/60 transition-colors hover:text-white sm:flex">
         <span className="text-[10px] uppercase tracking-[0.3em]">Scroll</span>
         <span className="relative grid h-9 w-5 place-items-start overflow-hidden rounded-full border border-white/20 p-1">
           <span className="block h-1.5 w-1.5 rounded-full bg-white/70 anim-bounce-soft" />

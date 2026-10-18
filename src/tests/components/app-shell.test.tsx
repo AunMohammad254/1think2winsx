@@ -108,6 +108,8 @@ describe('MobileNav', () => {
     fireEvent.click(screen.getByRole('link', { name: /Get Started/ }));
     expect(onClose).toHaveBeenCalledTimes(4);
     rerender(<MobileNav isOpen={false} onClose={onClose} user={null} onSignOut={vi.fn()} />);
+    // Stays mounted in its closing state while the slide-out plays
+    expect(container.querySelector('.menu-panel')).toHaveAttribute('data-state', 'closed');
     await waitFor(() => expect(screen.queryByText('Menu')).toBeNull());
     expect(document.body.style.overflow).toBe('');
     unmount();
@@ -130,8 +132,10 @@ describe('UserProfileDropdown', () => {
     render(<div><span>outside</span><UserProfileDropdown user={ali} onSignOut={onSignOut} /></div>);
     const toggle = screen.getByRole('button', { name: /Ali Raza/ });
     expect(toggle).toHaveTextContent('A');
+    expect(toggle.querySelector('.rotate-180')).toBeNull();
     fireEvent.click(toggle);
     expect(await screen.findByText('ali@example.com')).toBeInTheDocument();
+    expect(toggle.querySelector('.rotate-180')).not.toBeNull();
     fireEvent.click(screen.getByRole('link', { name: /Profile/ }));
     await waitFor(() => expect(screen.queryByText('ali@example.com')).toBeNull());
     fireEvent.click(toggle);

@@ -59,7 +59,8 @@ export function HeroCTA() {
       <Button href={ctaConfig.href} size="lg" variant="primary" icon={<svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor"><path d="M13.4 5.6 12 7l4 4H4v2h12l-4 4 1.4 1.4L20 12l-6.6-6.4Z" /></svg>}>
         {ctaConfig.text}
       </Button>
-      <Button href="#how" size="lg" variant="secondary">See how it works</Button>
+      {/* No backdrop blur here: it paints in the first frame and cost ~45 ms of desktop FCP in lab runs */}
+      <Button href="#how" size="lg" variant="secondary" className="backdrop-blur-none">See how it works</Button>
     </div>
   );
 }

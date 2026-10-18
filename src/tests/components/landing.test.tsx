@@ -307,7 +307,8 @@ describe('ScrollProgress', () => {
 describe('static landing sections', () => {
   it('Marquee repeats the partner list in two tracks', () => {
     render(<Marquee />);
-    expect(screen.getAllByText('Wisden')).toHaveLength(6);
+    expect(screen.getAllByText('Squash')).toHaveLength(6);
+    expect(screen.getByText('Quizzes on every sport Pakistan loves')).toBeInTheDocument();
   });
 
   it('HowItWorks lists the four steps', () => {
@@ -327,8 +328,22 @@ describe('static landing sections', () => {
   it('Hero renders the typed title, call to action and demo card', () => {
     render(<Hero />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Test your Sports IQ');
-    expect(screen.getByText('David Miller')).toBeInTheDocument();
+    expect(screen.getByText('Imad Wasim')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Scroll down' })).toHaveAttribute('href', '#stats');
+  });
+});
+
+describe('landing copy', () => {
+  it('is written for Pakistani fans, with no India-specific leftovers', () => {
+    const { container } = render(
+      <>
+        <Hero /><Stats /><Marquee /><HowItWorks /><LiveQuiz /><Prizes /><Leaderboard /><Testimonials /><CTA />
+      </>
+    );
+    expect(container.textContent).not.toMatch(/\b(IPL|India|Indian|IST|UPI|BCCI|Hotstar)\b/);
+    // The weekly board is a rolling 7-day window (compute_leaderboard), not a Sunday reset
+    expect(container.textContent).toContain('Weekly board counts the last 7 days');
+    expect(container.textContent).toContain('Karachi Kings — PSL Ultimate Trivia');
   });
 });
 
@@ -443,6 +458,8 @@ describe('Stats', () => {
     // "from-rose-400 to-amber-400" starts at rose (it used to match "amber" first)
     expect([...container.querySelectorAll('#ring-grad-3 stop')].map((s) => s.getAttribute('stop-color'))).toEqual(['#fb7185', '#fbbf24']);
     const strip = container.querySelector('.snap-x') as HTMLElement;
+    expect(strip).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('region', { name: 'Platform stats' })).toBe(strip);
     storeScrollLeft(strip);
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
     fireEvent.mouseDown(strip, { clientX: 100 });
@@ -481,9 +498,9 @@ describe('Testimonials', () => {
     frames();
     render(<Testimonials />);
     const featured = () => screen.getByText('Featured review').parentElement!.textContent;
-    expect(featured()).toContain('Aarav Mehta');
+    expect(featured()).toContain('Hamza Siddiqui');
     advance(4000);
-    expect(featured()).toContain('Priya Iyer');
+    expect(featured()).toContain('Areeba Khan');
 
     const card = screen.getAllByRole('article')[0];
     vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
@@ -532,6 +549,16 @@ describe('LiveQuiz', () => {
     intersect(false);
     advance(10000);
     expect(active()).toBe(1);
+  });
+
+  it('does not auto-advance when the user prefers reduced motion', () => {
+    frames();
+    media([REDUCED]);
+    render(<LiveQuiz />);
+    const active = () => screen.getAllByRole('button').findIndex((b) => b.className.includes('w-8'));
+    advance(15000);
+    expect(active()).toBe(0);
+    expect(screen.getByRole('button', { name: 'Show quiz 1' })).toHaveAttribute('aria-current', 'true');
   });
 
   it('switches by dots, drag and swipe', () => {

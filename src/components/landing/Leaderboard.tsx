@@ -16,11 +16,11 @@ interface Player {
 }
 
 const BASE_LEADERS: Player[] = [
-  { rank: 1, name: "Tariq_92", country: "Pakistan", countryFlag: "🇵🇰", points: 48720, won: "iPhone 15", streak: 47, avatar: "from-amber-400 to-orange-500" },
+  { rank: 1, name: "Tariq_KHI", country: "Pakistan", countryFlag: "🇵🇰", points: 48720, won: "iPhone 15", streak: 47, avatar: "from-amber-400 to-orange-500" },
   { rank: 2, name: "BabarAzamFan", country: "UAE", countryFlag: "🇦🇪", points: 46380, won: "PS5", streak: 38, avatar: "from-violet-500 to-pink-500" },
-  { rank: 3, name: "Ali_Raza", country: "Pakistan", countryFlag: "🇵🇰", points: 44210, won: "Smartwatch", streak: 31, avatar: "from-emerald-400 to-cyan-500" },
-  { rank: 4, name: "Fatima_S", country: "UK", countryFlag: "🇬🇧", points: 41980, won: "AirPods Pro", streak: 29, avatar: "from-rose-400 to-red-500" },
-  { rank: 5, name: "Usman_K", country: "Saudi Arabia", countryFlag: "🇸🇦", points: 40150, won: "Sports Kit", streak: 24, avatar: "from-blue-400 to-violet-500" },
+  { rank: 3, name: "LyariStriker", country: "Pakistan", countryFlag: "🇵🇰", points: 44210, won: "Smartwatch", streak: 31, avatar: "from-emerald-400 to-cyan-500" },
+  { rank: 4, name: "Fatima_DHA", country: "UK", countryFlag: "🇬🇧", points: 41980, won: "AirPods Pro", streak: 29, avatar: "from-rose-400 to-red-500" },
+  { rank: 5, name: "JahangirKhanFan", country: "Saudi Arabia", countryFlag: "🇸🇦", points: 40150, won: "Sports Kit", streak: 24, avatar: "from-blue-400 to-violet-500" },
 ];
 
 function CountryFlag({ code }: { code: string }) {
@@ -123,8 +123,8 @@ export default function Leaderboard() {
     <Section  className="relative">
       <SectionHeading
         eyebrow="This week's champions"
-        title={<>Compete with the <span className="text-gradient-trophy">best in the world.</span></>}
-        description="Climb the ranks each week. The top 100 split a huge prize pool every Sunday."
+        title={<>Compete with <span className="text-gradient-trophy">Pakistan's best.</span></>}
+        description="Climb the weekly rankings and see how you stack up against the sharpest sports minds from Karachi to Khyber."
       />
       <Reveal delay={150}>
         <div className="mt-14 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent backdrop-blur-xl">
@@ -142,7 +142,7 @@ export default function Leaderboard() {
           </ul>
           <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.02] px-6 py-4">
             <p className="text-xs text-white/70">
-              Updated <span className="text-white">live</span> &middot; Resets every Sunday 00:00 IST
+              Updated <span className="text-white">live</span> &middot; Weekly board counts the last 7 days
             </p>
             <Link
               href="/leaderboard"

@@ -29,16 +29,18 @@ const lastBody = () => JSON.parse(fetchMock.mock.calls.at(-1)![1].body);
 
 describe('ChatbotWidget', () => {
   it('greets, answers a quick question and offers navigation chips', async () => {
-    render(<ChatbotWidget />);
+    const { container } = render(<ChatbotWidget />);
     await open();
     fireEvent.click(screen.getByRole('button', { name: '📊 View Leaderboard' }));
+    // The suggestions collapse (closing state) before they unmount
+    expect(container.querySelector('.chatbot-suggestions')).toHaveAttribute('data-state', 'closed');
     expect(await screen.findByText('Here you go')).toBeInTheDocument();
     expect(screen.getByText('gemini-2.0')).toBeInTheDocument();
     expect(lastBody().messages).toEqual([
       { role: 'model', parts: [{ text: expect.stringContaining('support assistant') }] },
       { role: 'user', parts: [{ text: 'I want to see the leaderboard.' }] },
     ]);
-    expect(screen.queryByText('Quick questions')).toBeNull();
+    await waitFor(() => expect(screen.queryByText('Quick questions')).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: /→ Go to \/somewhere/ }));
     expect(router.push).toHaveBeenCalledWith('/somewhere');
     await waitFor(() => expect(screen.queryByText('Here you go')).toBeNull());
@@ -132,6 +134,9 @@ describe('ChatbotWidget', () => {
     await waitFor(() => expect(screen.queryByText('Here you go')).toBeNull());
     expect(await screen.findByText('Quick questions')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close chat' }));
+    // The panel slides out (closing state) while the trigger pops straight back in
+    expect(document.getElementById('chatbot-panel')).toHaveAttribute('data-state', 'closed');
+    expect(document.getElementById('chatbot-trigger-btn')).toHaveAttribute('data-state', 'open');
     await waitFor(() => expect(document.getElementById('chatbot-panel')).toBeNull());
     fireEvent.click(await screen.findByRole('button', { name: 'Open AI support chat' }));
     await screen.findByRole('button', { name: 'Close chat' });
