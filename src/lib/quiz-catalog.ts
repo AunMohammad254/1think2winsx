@@ -29,6 +29,8 @@ export interface CatalogQuiz {
   updatedAt: string;
   questions: CatalogQuestion[];
   totalAttempts: number;
+  /** Name of the linked lucky-draw prize, for public listings such as the landing page. */
+  prizeName: string | null;
 }
 
 const TTL_MS = 15_000;
@@ -69,7 +71,7 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
   const db = getAdminDb();
   const { data: rawQuizzes, error } = await db
     .from('Quiz')
-    .select('id, title, description, duration, timeUpDuration, passingScore, status, accessPrice, quizType, isBumperPrize, startsAt, pushedAt, createdAt, updatedAt')
+    .select('id, title, description, duration, timeUpDuration, passingScore, status, accessPrice, quizType, isBumperPrize, prizeId, startsAt, pushedAt, createdAt, updatedAt')
     .in('status', ['active', 'upcoming', 'paused'])
     .order('createdAt', { ascending: false });
   if (error) throw error;
@@ -91,8 +93,9 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
 
   const ids = quizzes.map((q: { id: string }) => q.id);
   if (ids.length === 0) return [];
+  const prizeIds = [...new Set(quizzes.map((q: { prizeId?: string | null }) => q.prizeId).filter(Boolean))] as string[];
 
-  const [questionsRes, countsRes] = await Promise.all([
+  const [questionsRes, countsRes, prizesRes] = await Promise.all([
     db.from('Question')
       .select('id, quizId, text, options, createdAt')
       .in('quizId', ids)
@@ -102,6 +105,8 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     // 1,000 by PostgREST, and filtered by RLS to the caller's own attempts, so the
     // "total attempts" figure was wrong for everyone).
     db.rpc('get_quiz_attempt_counts_by_quiz', { quiz_ids: ids }),
+    // Prize names for public listings; most quizzes have no prize, and then there is no query at all
+    prizeIds.length > 0 ? db.from('Prize').select('id, name').in('id', prizeIds) : { data: [], error: null },
   ]);
   if (questionsRes.error) throw questionsRes.error;
 
@@ -123,11 +128,20 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     }
   }
 
-  return quizzes.map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts'>) => ({
+  const prizeNames = new Map<string, string>();
+  if (prizesRes.error) {
+    // Cosmetic too: listings then show the quiz without its prize's name
+    console.error('[QuizCatalog] Prize names failed:', prizesRes.error);
+  } else {
+    for (const row of (prizesRes.data || []) as Array<{ id: string; name: string }>) prizeNames.set(row.id, row.name);
+  }
+
+  return quizzes.map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts' | 'prizeName'> & { prizeId?: string | null }) => ({
     ...q,
     description: q.description || '',
     questions: byQuiz.get(q.id) || [],
     totalAttempts: counts.get(q.id) || 0,
+    prizeName: (q.prizeId && prizeNames.get(q.prizeId)) || null,
   }));
 }
 

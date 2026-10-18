@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { toUtcIso, formatBusinessTime } from '@/lib/schedule-time';
+import { toUtcIso, formatBusinessTime, formatBusinessStart } from '@/lib/schedule-time';
 import { QuizFormSchema } from '@/lib/schemas/QuizFormSchema';
 
 const originalTz = process.env.TZ;
@@ -80,6 +80,31 @@ describe('configurable business timezone', () => {
 
   it('writes the time in notification text in the business timezone with its abbreviation', () => {
     expect(formatBusinessTime("2026-12-01T11:30:00.000Z")).toBe("Dec 1, 2026, 4:30 PM PKT");
+  });
+});
+
+describe('formatBusinessStart', () => {
+  // 10:00 PM PKT on Oct 18 (17:00 UTC): Pakistan's "tomorrow" starts two hours later
+  const now = new Date('2026-10-18T17:00:00.000Z');
+
+  it.each(['UTC', 'Asia/Karachi', 'America/Los_Angeles'])(
+    'names the day in Pakistan time whatever the device timezone (%s)',
+    (tz) => {
+      process.env.TZ = tz;
+      expect(formatBusinessStart('2026-10-18T18:30:00.000Z', now)).toBe('Today, 11:30 PM PKT');
+      expect(formatBusinessStart('2026-10-18T19:15:00.000Z', now)).toBe('Tomorrow, 12:15 AM PKT');
+      expect(formatBusinessStart(new Date('2026-10-20T13:30:00.000Z'), now)).toBe('Tue, Oct 20, 6:30 PM PKT');
+    }
+  );
+
+  it('rolls "tomorrow" over month and year ends, and uses the configured zone', () => {
+    expect(formatBusinessStart('2027-01-01T04:00:00.000Z', new Date('2026-12-31T12:00:00.000Z'))).toBe('Tomorrow, 9:00 AM PKT');
+    process.env.NEXT_PUBLIC_APP_TIME_ZONE = 'Asia/Dubai';
+    expect(formatBusinessStart('2026-10-18T18:30:00.000Z', now)).toBe('Today, 10:30 PM GST');
+  });
+
+  it('defaults "now" to the current time', () => {
+    expect(formatBusinessStart(new Date())).toMatch(/^Today, \d{1,2}:\d{2} [AP]M PKT$/);
   });
 });
 

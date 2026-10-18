@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Section, Eyebrow, Reveal, Button } from "./Primitives";
+import { useLiveSnapshot } from "@/hooks/useLiveSnapshot";
+import { useNow } from "@/hooks/useNow";
+import { toLandingQuizzes, nextQuizStart, formatCountdown, type LandingQuiz } from "@/lib/landing-live";
+import { formatBusinessStart } from "@/lib/schedule-time";
 
 const WINNERS = [
   "Ali from Nazimabad won Ronin Earbuds",
@@ -59,9 +63,58 @@ function Countdown() {
   return <span className="font-mono font-bold text-amber-400">{display}</span>;
 }
 
+/** The countdown line, from the real schedule. */
+function NextQuiz({ quizzes, now }: { quizzes: LandingQuiz[]; now: number }) {
+  const next = nextQuizStart(quizzes, now);
+  if (next !== null) {
+    return (
+      <>
+        <span>Next quiz starts in</span>
+        <span className="font-mono font-bold text-amber-400">{formatCountdown(next - now, true)}</span>
+        <span>· {formatBusinessStart(new Date(next), new Date(now))}</span>
+      </>
+    );
+  }
+  if (quizzes.some((q) => q.state !== "upcoming")) {
+    return (
+      <span className="flex items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        A quiz is open right now — jump in
+      </span>
+    );
+  }
+  // Scheduled without a time, or past its time and about to go live
+  if (quizzes.length > 0) return <span>The next quiz starts soon</span>;
+  return <span>No quiz is scheduled right now — new ones are announced on the quizzes page</span>;
+}
+
+/** The social-proof line: real plays on the quizzes listed now. */
+function PlaysLine({ quizzes }: { quizzes: LandingQuiz[] }) {
+  const plays = quizzes.reduce((sum, q) => sum + q.totalAttempts, 0);
+  if (plays > 0) {
+    return (
+      <>
+        <span className="font-semibold text-white">{plays.toLocaleString()} {plays === 1 ? "play" : "plays"}</span> so far on the current {quizzes.length === 1 ? "quiz" : "quizzes"}
+      </>
+    );
+  }
+  if (quizzes.length > 0) {
+    return (
+      <>
+        <span className="font-semibold text-white">{quizzes.length} {quizzes.length === 1 ? "quiz" : "quizzes"}</span> open or coming up — be the first to play
+      </>
+    );
+  }
+  return <>Be first in line for the next quiz</>;
+}
+
 export default function CTA() {
   const { user } = useAuth();
   const isLoggedIn = !!user;
+  // Real schedule once the cached snapshot arrives; until then (or if it fails) the static copy stays
+  const { snapshot } = useLiveSnapshot();
+  const now = useNow(1000, snapshot !== null);
+  const quizzes = useMemo(() => (snapshot ? toLandingQuizzes(snapshot, now) : null), [snapshot, now]);
 
   return (
     <Section  className="relative">
@@ -89,9 +142,15 @@ export default function CTA() {
             <p className="mx-auto mt-5 max-w-xl text-base text-white/65 sm:text-lg">
               Join thousands of sports fans competing for amazing prizes. Your first quiz is on us — start your journey today.
             </p>
-            <div className="mt-8 flex items-center justify-center gap-2 text-sm text-white/55">
-              <span>Next tournament starts in</span>
-              <Countdown />
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-white/55">
+              {quizzes ? (
+                <NextQuiz quizzes={quizzes} now={now} />
+              ) : (
+                <>
+                  <span>Next tournament starts in</span>
+                  <Countdown />
+                </>
+              )}
             </div>
             <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Button
@@ -119,7 +178,13 @@ export default function CTA() {
                 )}
               </div>
               <p className="text-sm text-white/55">
-                <span className="font-semibold text-white">2,184 players</span> joined this week
+                {quizzes ? (
+                  <PlaysLine quizzes={quizzes} />
+                ) : (
+                  <>
+                    <span className="font-semibold text-white">2,184 players</span> joined this week
+                  </>
+                )}
               </p>
             </div>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
