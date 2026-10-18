@@ -1,7 +1,7 @@
 /* v8 ignore next -- an import line has no logic; Vitest's rewrite of it reports a phantom branch */
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { getDb, getAdminDb, quizDb, dailyPaymentDb } from '@/lib/supabase/db';
+import { getDb, getAdminDb, quizDb, dailyPaymentDb, notificationDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -13,6 +13,7 @@ import { getActiveQuizCatalog } from '@/lib/quiz-catalog';
 import { quizListCache } from '@/lib/quiz-cache';
 import { isWalletEnabled } from '@/lib/wallet/service';
 import { withLoadShed } from '@/lib/load-shed';
+import { computePushStatus } from '@/lib/live-catalog';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -72,9 +73,11 @@ export const GET = withLoadShed(async function GET(request: NextRequest) {
     const catalog = await getActiveQuizCatalog();
     const quizIds = catalog.map(q => q.id);
 
-    const [walletEnabled, payment, attemptsRes, questionAttemptsRes] = await Promise.all([
+    const [walletEnabled, payment, unreadNotifications, attemptsRes, questionAttemptsRes] = await Promise.all([
       isWalletEnabled(),
       dailyPaymentDb.findFirstActive(userId).catch(() => null),
+      // Carried here so the navbar bell needs no request (or Realtime connection) of its own
+      notificationDb.getUnreadCount(userId).catch(() => null),
       quizIds.length
         ? supabase.from('QuizAttempt').select('quizId, completedAt').eq('userId', userId).eq('isCompleted', true).in('quizId', quizIds)
         : Promise.resolve({ data: [] as Array<{ quizId: string; completedAt: string | null }> }),
@@ -106,19 +109,8 @@ export const GET = withLoadShed(async function GET(request: NextRequest) {
       const newQuestionsCount = quiz.questions.filter(q => !answered?.has(q.id)).length;
       const isCompleted = !!attempt;
       const hasNewQuestions = isCompleted && newQuestionsCount > 0;
-      let pushStatus: 'unanswered' | 'answered' | 'upcoming' | 'time-up' | null = null;
-      if (quiz.status === 'upcoming') {
-        pushStatus = 'upcoming';
-      } else if (quiz.pushedAt) {
-        if (isCompleted) {
-          pushStatus = 'answered';
-        } else if (quiz.status === 'paused') {
-          pushStatus = 'time-up';
-        } else {
-          // The catalog only holds active, upcoming and paused quizzes
-          pushStatus = 'unanswered';
-        }
-      }
+      // Shared with the page, which recomputes it when /api/live changes a quiz's status
+      const pushStatus = computePushStatus(quiz.status, quiz.pushedAt, isCompleted);
       return {
         id: quiz.id,
         title: quiz.title,
@@ -151,6 +143,8 @@ export const GET = withLoadShed(async function GET(request: NextRequest) {
       // Lets the page skip a separate /api/settings/wallet-enabled round-trip on every load
       walletEnabled,
       paymentInfo,
+      // null when the count could not be read: the bell then keeps its own value
+      unreadNotifications,
       accessError: hasAccess ? null : 'No active payment found. Please make a payment to access quizzes.',
     };
 

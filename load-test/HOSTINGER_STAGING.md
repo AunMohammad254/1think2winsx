@@ -117,7 +117,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 
    **Do not add** `BREVO_*`, `GEMINI_API_KEY`, `VAPID_*`, `CLOUDINARY_*`, `STRIPE_*`, Google OAuth, `DATABASE_URL`,
    `DIRECT_URL` or anything from production: staging must not be able to send real email/push or reach production.
-   Leave `NEXT_PUBLIC_LIVE_BROADCAST` unset (that experiment is off). `AUTH_SECRET` is not used by the code.
+   `AUTH_SECRET` is not used by the code.
 4. Deploy. Open `https://staging.yourdomain.com`.
 
 ## Step 5: Prove it is safe before any load

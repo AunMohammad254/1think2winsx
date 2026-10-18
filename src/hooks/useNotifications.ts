@@ -4,13 +4,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { toast } from 'sonner';
-import { createClient } from '@/lib/supabase/client';
 import { useJitteredPolling } from '@/hooks/useJitteredPolling';
-import { LIVE_BROADCAST_ENABLED } from '@/lib/live-config';
+import { UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
 
-// Module-level Supabase client singleton — avoids recreating the client on each
-// realtime subscription mount/unmount cycle.
-const supabaseClient = createClient();
+// The badge's safety-net poll, and how recent a count from the quiz page must be to skip it
+const UNREAD_POLL_MS = 5 * 60_000;
+const RECENT_COUNT_MS = 4 * 60_000;
 
 // Module-level AudioContext singleton — browsers cap concurrent AudioContext
 // instances (typically at 6). Reusing one instance prevents resource exhaustion.
@@ -116,7 +115,7 @@ export function useNotifications() {
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [permissionState, setPermissionState] = useState<NotificationPermission>('default');
 
-  // Ref to track sound setting inside real-time listener without re-binding channel
+  // Ref to track sound setting inside the badge callbacks without re-creating them
   const soundEnabledRef = useRef(soundEnabled);
 
   useEffect(() => {
@@ -184,6 +183,32 @@ export function useNotifications() {
     }
   }, [userId]);
 
+  // The badge count. There is no per-user Realtime subscription: the plan allows 500 connections,
+  // and a blast writes one Notification row per user that Supabase would check against every
+  // subscriber. The count comes from a slow jittered poll and, on the quiz page, from the personal
+  // list it already loads (UNREAD_COUNT_EVENT). New notifications still arrive instantly as Web Push.
+  const unreadCountRef = useRef(0);
+  // No "new notifications" toast before a first count is known, so loading a page never
+  // announces old ones
+  const countKnownRef = useRef(false);
+  const countReceivedAtRef = useRef(0);
+  useEffect(() => {
+    unreadCountRef.current = unreadCount;
+  }, [unreadCount]);
+  const applyUnreadCount = useCallback((next: number) => {
+    if (countKnownRef.current && next > unreadCountRef.current) {
+      // Something new arrived since the last check. The full list reloads when the bell opens.
+      listLoadedRef.current = false;
+      setListLoaded(false);
+      toast('You have new notifications', { duration: 4000 });
+      if (soundEnabledRef.current) playChime();
+    }
+    countKnownRef.current = true;
+    countReceivedAtRef.current = Date.now();
+    unreadCountRef.current = next;
+    setUnreadCount(next);
+  }, []);
+
   // Light fetch for the badge: runs on every page load, so it asks for the count only
   // (one cheap query) instead of the 50-row list.
   // Only called with a signed-in user (see the effect below)
@@ -192,11 +217,11 @@ export function useNotifications() {
       const res = await fetch('/api/notifications?countOnly=1');
       if (!res.ok) return;
       const data = await res.json();
-      setUnreadCount(data.unreadCount || 0);
+      applyUnreadCount(data.unreadCount || 0);
     } catch (err) {
       console.error('[useNotifications] unread count fetch error:', err);
     }
-  }, [userId]);
+  }, [applyUnreadCount]);
 
   // Load the list the first time the bell is opened
   const loadNotifications = useCallback(async () => {
@@ -371,6 +396,7 @@ export function useNotifications() {
   useEffect(() => {
     listLoadedRef.current = false;
     setListLoaded(false);
+    countKnownRef.current = false;
     if (userId) {
       fetchUnreadCount();
     } else {
@@ -405,76 +431,33 @@ export function useNotifications() {
     initPush();
   }, [userId, subscribeToPush]);
 
-  // With NEXT_PUBLIC_LIVE_BROADCAST=1 there is NO per-user realtime subscription: a blast writes one
-  // Notification row per user, and Supabase evaluates every row against every subscriber's filter
-  // (50,000 rows x 50,000 subscriptions). Instead the badge is refreshed by a cheap jittered poll of
-  // the unread count (new notifications still arrive instantly as Web Push).
-  const unreadCountRef = useRef(0);
-  useEffect(() => {
-    unreadCountRef.current = unreadCount;
-  }, [unreadCount]);
+  // Safety-net poll of the badge count: 5 min + 0-1 min jitter, paused while the tab is hidden,
+  // and skipped when the quiz page delivered a count recently
   const pollUnreadCount = useCallback(async (): Promise<boolean> => {
     if (!userId) return true;
+    if (Date.now() - countReceivedAtRef.current < RECENT_COUNT_MS) return true;
     try {
       const res = await fetch('/api/notifications?countOnly=1');
       if (!res.ok) return false;
       const data = await res.json();
-      const next: number = data.unreadCount || 0;
-      if (next > unreadCountRef.current) {
-        // Something new arrived since the last check. The full list reloads when the bell opens.
-        listLoadedRef.current = false;
-        setListLoaded(false);
-        toast('You have new notifications', { duration: 4000 });
-        if (soundEnabledRef.current) playChime();
-      }
-      unreadCountRef.current = next;
-      setUnreadCount(next);
+      applyUnreadCount(data.unreadCount || 0);
       return true;
     } catch {
       return false;
     }
-  }, [userId]);
-  useJitteredPolling(pollUnreadCount, { intervalMs: 90_000, jitterMs: 30_000, enabled: LIVE_BROADCAST_ENABLED && !!userId });
+  }, [userId, applyUnreadCount]);
+  useJitteredPolling(pollUnreadCount, { intervalMs: UNREAD_POLL_MS, jitterMs: 60_000, enabled: !!userId });
 
-  // Real-time subscription to Notification insertions (legacy path, used while the flag is off).
-  // Uses the module-level supabaseClient singleton — no new client per mount.
+  // On the quiz page, the personal list carries the count: no request of our own
   useEffect(() => {
-    if (!userId || LIVE_BROADCAST_ENABLED) return;
-
-    const channel = supabaseClient
-      .channel(`user-notifications-${userId}`)
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'Notification',
-        filter: `userId=eq.${userId}`
-      }, (payload) => {
-        const newNotif = payload.new as Notification;
-
-        toast(newNotif.title, {
-          description: newNotif.message,
-          action: newNotif.link ? {
-            label: 'View',
-            onClick: () => {
-              window.location.href = newNotif.link!;
-            }
-          } : undefined,
-          duration: 6000,
-        });
-
-        if (soundEnabledRef.current) {
-          playChime();
-        }
-
-        setNotifications(prev => [newNotif, ...prev]);
-        setUnreadCount(prev => prev + 1);
-      })
-      .subscribe();
-
-    return () => {
-      supabaseClient.removeChannel(channel);
+    if (!userId) return;
+    const onCount = (event: Event) => {
+      const next = (event as CustomEvent<unknown>).detail;
+      if (typeof next === 'number') applyUnreadCount(next);
     };
-  }, [userId]);
+    window.addEventListener(UNREAD_COUNT_EVENT, onCount);
+    return () => window.removeEventListener(UNREAD_COUNT_EVENT, onCount);
+  }, [userId, applyUnreadCount]);
 
   return {
     notifications,

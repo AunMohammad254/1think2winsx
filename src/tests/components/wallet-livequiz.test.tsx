@@ -168,7 +168,10 @@ describe('LiveQuizPush', () => {
     h.toast.error.mockReset();
     window.innerWidth = 1024;
   });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it('renders nothing until a quiz is pushed', () => {
     const { container } = setup();
@@ -300,6 +303,39 @@ describe('LiveQuizPush', () => {
     fireEvent.click(screen.getByTitle('Close'));
     fireEvent.click(document.body);
     expect(h.fetchWithRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens from the shared cached copy when the page allows it, and from the personal route otherwise', async () => {
+    const shared = vi.fn(async () => jsonResponse({ quiz }));
+    vi.stubGlobal('fetch', shared);
+    ref = createRef<LiveQuizPushHandle>();
+    render(<LiveQuizPush ref={ref} canUseSharedCopy={(id) => id !== 'q9'} />);
+
+    act(() => ref.current!.open('q1'));
+    expect(await screen.findByText('1. Who?')).toBeInTheDocument();
+    expect(shared).toHaveBeenCalledWith('/api/live/quizzes/q1', { credentials: 'omit' });
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+
+    // "Not started yet" from the copy is shown as it is
+    shared.mockResolvedValueOnce(jsonResponse({ upcoming: true, startsAt: '2026-10-20T15:00:00Z' }, 409));
+    act(() => ref.current!.open('q2'));
+    expect(await screen.findByText(/hasn't started yet/)).toBeInTheDocument();
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+
+    // A refusal (the wallet came on), an error or no network: the personal route answers instead
+    shared.mockResolvedValueOnce(jsonResponse({ personal: true }, 403));
+    act(() => ref.current!.open('q3'));
+    await waitFor(() => expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q3', undefined, { retries: 3 }));
+    expect(await screen.findByText('1. Who?')).toBeInTheDocument();
+    shared.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    act(() => ref.current!.open('q4'));
+    await waitFor(() => expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q4', undefined, { retries: 3 }));
+
+    // A quiz the page does not allow goes straight to the personal route
+    shared.mockClear();
+    act(() => ref.current!.open('q9'));
+    await waitFor(() => expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q9', undefined, { retries: 3 }));
+    expect(shared).not.toHaveBeenCalled();
   });
 
   it('reports submit failures and allows another try', async () => {

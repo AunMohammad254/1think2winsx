@@ -25,7 +25,10 @@ vi.mock('@supabase/ssr', () => ({
 }));
 vi.mock('@/lib/security-logger', () => ({ securityLogger: logger }));
 vi.mock('@/lib/supabase/db-modules/shared', () => ({ getAdminDb: () => adminDb.client, generateId: () => 'gen-id' }));
-vi.mock('next/navigation', () => ({ redirect: (...a: unknown[]) => redirect(...(a as [])) }));
+vi.mock('next/navigation', async () => ({
+  redirect: (...a: unknown[]) => redirect(...(a as [])),
+  unstable_rethrow: (await vi.importActual<typeof import('next/navigation')>('next/navigation')).unstable_rethrow,
+}));
 
 const am = await import('@/lib/auth-middleware');
 const authLib = await import('@/lib/auth');
@@ -311,6 +314,14 @@ describe('admin-session', () => {
     expect(await adminSession.validateAdminSession()).toEqual({ valid: false });
     adminDb.setTable('AdminSession', { error: { code: '500' } });
     expect(await adminSession.validateAdminSession()).toEqual({ valid: false });
+  });
+
+  it('validateAdminSession hands the prerender "dynamic server usage" signal back to Next.js unlogged', async () => {
+    const { DynamicServerError } = await import('next/dist/client/components/hooks-server-context');
+    vi.mocked(console.error).mockClear();
+    cookieStore.get.mockImplementationOnce(() => { throw new DynamicServerError('Route /admin/dashboard used `cookies`'); });
+    await expect(adminSession.validateAdminSession()).rejects.toMatchObject({ digest: 'DYNAMIC_SERVER_USAGE' });
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it('clearAdminSession deletes the row and the cookie, tolerating failures', async () => {

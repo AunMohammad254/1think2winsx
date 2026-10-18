@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { unstable_rethrow } from 'next/navigation';
 import { securityLogger } from './security-logger';
 import { adminSessionDb } from './supabase/db';
 
@@ -103,6 +104,9 @@ export async function validateAdminSession(): Promise<{ valid: boolean; email?: 
         const sessionEmail = (session as { email: string }).email;
         return { valid: true, email: sessionEmail };
     } catch (error) {
+        // cookies() throws a "dynamic server usage" signal while `next build` prerenders the
+        // admin pages; Next.js needs it back to mark them dynamic, so it is not a failure to log.
+        unstable_rethrow(error);
         console.error('Error validating admin session:', error);
         return { valid: false };
     }
