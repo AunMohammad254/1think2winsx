@@ -24,6 +24,7 @@
     "test:e2e:report": "playwright show-report",
     "test:all": "bun run test:ci && bun run test:e2e",
     "cleanup:orphaned": "bun scripts/cleanup-orphaned-records.ts",
+    "smoke:prod": "bun load-test/smoke.ts --base https://1think2win.com",
     "graphify:update": "GEMINI_API_KEY=$Graphify_GEMINI_API_KEY GEMINI_MODEL='gemini-3.5-flash-lite' graphify update ."
   },
   "ignoredBuiltDependencies": [

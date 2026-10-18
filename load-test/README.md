@@ -25,6 +25,41 @@ process is the bottleneck".
 are in [`RUNBOOK.md`](./RUNBOOK.md), [`REPORT_TEMPLATE.md`](./REPORT_TEMPLATE.md) and
 [`staging-extras.sql`](./staging-extras.sql).** The sections below are the reference version.
 
+## After a deploy: smoke check
+
+Unlike the load test, `smoke.ts` is meant for **production**: about ten requests, one at a time, no
+sign-in, no writes, no secrets. Run it after every Hostinger deploy and after any DNS or Cloudflare change:
+
+```bash
+bun run smoke:prod
+```
+
+It prints one line per check (outcome, status, key header) and exits 1 listing every failure:
+
+| Request | Expected |
+|---|---|
+| `GET /` | 200, title `1Think 2Win`, no "parked" text (a DNS rollback once served Hostinger's parked page with 200) |
+| `GET /api/live` ×2 | 200 `{ version, quizzes[] }`, `public, max-age=0, s-maxage=5, stale-while-revalidate=5`; second `cf-cache-status` HIT (or EXPIRED/REVALIDATED/UPDATING) |
+| `GET /api/live?smoke=1` | 403 from the Cloudflare WAF rule (query strings on `/api/live*`) |
+| `GET /api/settings/wallet-enabled` | 200 with a boolean `walletEnabled` |
+| `GET /api/live/quizzes/smoke-check-missing` | 404 `no-store` (403 `personal: true` while the wallet is on) |
+| `GET /api/live/quizzes/<active quiz>` ×2 | wallet off: 200, `s-maxage=10` copy with no answer-key field, second from cache. Wallet on: one request, 403 `personal: true`, `no-store`. Skipped when no quiz is active |
+| `GET /api/health` | 200 `{ status: "ok" }` (the plain probe, never `?stats=1`) |
+| `GET https://www.1think2win.com/` | 301 to `https://1think2win.com/` |
+
+For staging: `bun load-test/smoke.ts --base https://staging.example.com` (or set `SMOKE_BASE_URL`). The www
+check only runs for an apex host like `example.com`; `--www URL` or `--skip-www` overrides that. The same
+check can be run from GitHub: **Actions → Production smoke check → Run workflow** (manual only).
+
+| Failure | Usually means |
+|---|---|
+| title or "parked" on `/` | DNS or the Hostinger domain points somewhere else |
+| repeat request DYNAMIC/BYPASS/MISS | the Cloudflare Cache Rule for `/api/live` and `/api/live/quizzes/*` is off or changed |
+| Cache-Control differs | the deployed build is not the expected commit |
+| `?smoke=1` not 403 | the WAF custom rule is off |
+| everything 403 | Hostinger's abuse protection tripped site-wide: wait a few minutes, do not rerun in a loop |
+| answer key exposed | roll back the deploy now |
+
 ## Prerequisites
 
 - [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) (`winget install k6` / `brew install k6`) — a local tool, not a service
