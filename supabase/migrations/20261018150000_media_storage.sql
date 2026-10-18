@@ -81,6 +81,9 @@ create index if not exists "MediaDeletion_pending_createdAt_idx"
 
 alter table public."MediaDeletion" enable row level security;
 revoke all on table public."MediaDeletion" from anon, authenticated;
+-- This project's default privileges do not grant new tables to service_role, so grant it here
+-- (the server's admin client reads and writes the queue).
+grant select, insert, update, delete on table public."MediaDeletion" to service_role;
 
 -- 4. Retention setting (admin-editable on /admin/media) ----------------------------------
 insert into public."AppSettings" (key, value, description)

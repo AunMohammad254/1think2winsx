@@ -38,8 +38,10 @@ begin
 end $$;
 grant execute on function storage.foldername(text) to anon, authenticated, service_role;
 
--- Supabase's default privileges: new public tables/functions are granted to the API roles
-alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+-- Default privileges as found in production on 2026-10-18: new public tables are NOT granted to
+-- service_role (a stock project grants them), while anon/authenticated still get them. Modelling
+-- this makes a migration that forgets an explicit service_role grant fail here.
+alter default privileges in schema public grant all on tables to anon, authenticated;
 alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
 grant usage on schema public to anon, authenticated, service_role;
 
