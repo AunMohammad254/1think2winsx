@@ -2,18 +2,20 @@
 
 import { Reveal } from "./Primitives";
 
-const PARTNERS = [
-  { name: "Global Sports", icon: "🏏" },
-  { name: "BCCI Approved", icon: "🇮🇳" },
-  { name: "IPL Insider", icon: "🏆" },
-  { name: "Cricbuzz Partner", icon: "📊" },
-  { name: "Wisden", icon: "📖" },
-  { name: "ESPN Cricinfo", icon: "🌐" },
-  { name: "Star Sports", icon: "📺" },
-  { name: "Hotstar", icon: "▶️" },
+// Quiz topics, not partners: naming a league or broadcaster here must not read as an endorsement.
+const TOPICS = [
+  { name: "PSL", icon: "🏏" },
+  { name: "Karachi Kings", icon: "👑" },
+  { name: "National T20 Cup", icon: "🏆" },
+  { name: "Quaid-e-Azam Trophy", icon: "🏅" },
+  { name: "Hockey", icon: "🏑" },
+  { name: "Squash", icon: "🥇" },
+  { name: "Football", icon: "⚽" },
+  { name: "Snooker", icon: "🎱" },
+  { name: "Kabaddi", icon: "🤼" },
 ];
 
-function Track({ items, reverse = false }: { items: typeof PARTNERS; reverse?: boolean }) {
+function Track({ items, reverse = false }: { items: typeof TOPICS; reverse?: boolean }) {
   const doubled = [...items, ...items, ...items];
   return (
     <div className="relative overflow-hidden">
@@ -32,7 +34,7 @@ function Track({ items, reverse = false }: { items: typeof PARTNERS; reverse?: b
               <span className="grid h-10 w-10 place-items-center rounded-xl border border-white/15 bg-white/[0.04] text-lg shadow-sm transition-all duration-300 group-hover:border-white/30">
                 {p.icon}
               </span>
-              <span className="whitespace-nowrap font-display text-sm font-semibold uppercase tracking-wider text-white/40 transition-colors duration-300 hover:text-white/80">
+              <span className="whitespace-nowrap font-display text-sm font-semibold uppercase tracking-wider text-white/60 transition-colors duration-300 hover:text-white/90">
                 {p.name}
               </span>
             </div>
@@ -47,13 +49,13 @@ export default function Marquee() {
   return (
     <section  className="relative border-y border-white/5 bg-ink-950/60 py-12">
       <Reveal>
-        <p className="mb-7 text-center text-[11px] font-semibold uppercase tracking-[0.3em] text-white/45">
-          As featured in
+        <p className="mb-7 text-center text-[11px] font-semibold uppercase tracking-[0.3em] text-white/60">
+          Quizzes on every sport Pakistan loves
         </p>
       </Reveal>
       <div className="space-y-6">
-        <Track items={PARTNERS} />
-        <Track items={[...PARTNERS].reverse()} reverse />
+        <Track items={TOPICS} />
+        <Track items={[...TOPICS].reverse()} reverse />
       </div>
     </section>
   );

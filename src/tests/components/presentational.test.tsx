@@ -44,7 +44,7 @@ describe('hero decorations', () => {
     expect(screen.getByText('🏏').style.top).toBe('0%');
   });
 
-  it.each(['cricket', 'basketball', 'tennis', 'football', undefined] as const)('SportsBall draws a %s ball', (type) => {
+  it.each(['cricket', 'basketball', 'tennis', 'football', 'hockey', 'squash', undefined] as const)('SportsBall draws a %s ball', (type) => {
     const { container } = render(<SportsBall type={type} className={type ? 'w-full' : ''} />);
     const outer = container.firstElementChild as HTMLElement;
     expect(outer.className).toContain(type ? 'w-full' : 'w-48');
