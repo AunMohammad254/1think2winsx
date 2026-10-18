@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { motion } from 'framer-motion';
 import type { Prize, PrizeFormData, PrizeCategoryValue, PrizeStatus } from '@/types/prize';
 import Image from 'next/image';
-import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT, CLOUDINARY_CLOUD_NAME } from '@/lib/cloudinary';
+import { toast } from 'sonner';
+import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT } from '@/lib/cloudinary';
 
 // Form validation schema
 const prizeFormSchema = z.object({
@@ -99,19 +100,21 @@ export default function PrizeForm({
             setIsUploading(true);
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('target', 'prize');
 
             const res = await fetch('/api/upload', {
                 method: 'POST',
                 body: formData,
             });
 
-            if (!res.ok) throw new Error('Upload failed');
-            
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
+
+            // Resized to WebP and stored in Supabase Storage (prize-images bucket)
             setValue('imageUrl', data.url, { shouldValidate: true });
         } catch (error) {
             console.error('Error uploading image:', error);
-            // Optionally, we could add a toast notification here
+            toast.error((error as Error).message);
         } finally {
             setIsUploading(false);
         }
@@ -183,7 +186,7 @@ export default function PrizeForm({
                                         type="text"
                                         {...register('imageUrl')}
                                         className="w-full px-4 py-3 bg-slate-700/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                                        placeholder={`https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload/t_1Think2win/…`}
+                                        placeholder="Upload an image, or paste an image link"
                                     />
                                     {errors.imageUrl && (
                                         <p className="mt-1 text-xs text-red-400">{errors.imageUrl.message}</p>

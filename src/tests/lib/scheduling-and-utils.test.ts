@@ -7,10 +7,12 @@ const createBroadcast = vi.fn();
 const createNotification = vi.fn();
 const invalidateQuizCatalog = vi.fn();
 const loggerLog = vi.fn();
+const runMediaCleanupIfDue = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, notificationDb: { createBroadcast: (...a: unknown[]) => createBroadcast(...a), create: (...a: unknown[]) => createNotification(...a) } }));
 vi.mock('@/lib/quiz-catalog', () => ({ invalidateQuizCatalog: (...a: unknown[]) => invalidateQuizCatalog(...a) }));
 vi.mock('@/lib/logger', () => ({ default: { log: (...a: unknown[]) => loggerLog(...a) } }));
+vi.mock('@/lib/media/deletion-queue', () => ({ runMediaCleanupIfDue: (...a: unknown[]) => runMediaCleanupIfDue(...a) }));
 
 const scheduler = await import('@/lib/quiz-scheduler');
 const { runScheduledJobs } = await import('@/lib/scheduled-jobs');
@@ -22,7 +24,8 @@ const isClaim = (call: QueryCall) => hasOp(call, 'update');
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [createBroadcast, createNotification, invalidateQuizCatalog, loggerLog]) fn.mockReset();
+  for (const fn of [createBroadcast, createNotification, invalidateQuizCatalog, loggerLog, runMediaCleanupIfDue]) fn.mockReset();
+  runMediaCleanupIfDue.mockResolvedValue(null);
   createBroadcast.mockResolvedValue(undefined);
   createNotification.mockResolvedValue({});
   cache.quizListCache.clear();
@@ -74,7 +77,7 @@ describe('runScheduledJobs', () => {
 
   it('does nothing on a quiet tick', async () => {
     world();
-    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [] });
+    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [], processedMediaDeletions: [] });
     expect(invalidateQuizCatalog).not.toHaveBeenCalled();
   });
 
@@ -151,7 +154,7 @@ describe('runScheduledJobs', () => {
 
   it('treats missing rows as nothing to do', async () => {
     world({ Quiz: { data: null }, WalletTransaction: { data: null } });
-    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [] });
+    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [], processedMediaDeletions: [] });
   });
 
   it('broadcasts a scheduled notification that has no link', async () => {
@@ -225,6 +228,17 @@ describe('runScheduledJobs', () => {
     expect(eqValue(reject, 'status')).toBe('pending');
     expect(createNotification).toHaveBeenCalledWith('u1', expect.objectContaining({ title: 'Deposit Expired', message: expect.stringContaining('500 PKR') }));
     expect(console.error).toHaveBeenCalledWith('[Jobs] Failed to send expiration notification for tx notify-fails:', expect.any(Error));
+  });
+
+  it('deletes replaced prize images when the cleanup is due, and survives its failure', async () => {
+    world();
+    runMediaCleanupIfDue.mockResolvedValueOnce({ deleted: ['d1', 'd2'], kept: ['k'], failed: [] });
+    expect((await runScheduledJobs()).processedMediaDeletions).toEqual(['d1', 'd2']);
+    runMediaCleanupIfDue.mockRejectedValueOnce(new Error('MediaDeletion missing'));
+    const res = await runScheduledJobs();
+    expect(res.processedMediaDeletions).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith('[Jobs] Failed to process media deletions:', expect.any(Error));
+    expect(runMediaCleanupIfDue).toHaveBeenCalledTimes(2);
   });
 
   it('skips deposit expiry when the pending read fails', async () => {

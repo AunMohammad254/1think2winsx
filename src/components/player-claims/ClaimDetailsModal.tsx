@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 import {
     User,
     Phone,
@@ -61,6 +62,7 @@ export function ClaimDetailsModal({
                     <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
                         <Image
                             src={claim.prize.imageUrl}
+                            loader={loaderFor(claim.prize.imageUrl)}
                             alt={claim.prize.name}
                             width={80}
                             height={80}

@@ -1,20 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v2 as cloudinary } from 'cloudinary';
 import { auth } from '@/lib/auth';
-import { userDb } from '@/lib/supabase/db';
+import { getDb, userDb } from '@/lib/supabase/db';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { securityLogger } from '@/lib/security-logger';
 import { createSecureFileUploadResponse } from '@/lib/security-headers';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { requireCSRFToken } from '@/lib/csrf-protection';
+import { isCloudinaryUrl } from '@/lib/cloudinary';
 import { deleteCloudinaryImageByUrl } from '@/lib/cloudinary-server';
+import { MEDIA_BUCKETS } from '@/lib/media/config';
+import { InvalidImageError } from '@/lib/media/image-processing';
+import { deleteStoredImage, removeFolderExcept, storeImage } from '@/lib/media/storage.server';
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+type StorageClient = Awaited<ReturnType<typeof getDb>>;
+
+/**
+ * Deletes a player's previous profile pictures right away: every other file in their
+ * avatars/<userId>/ folder (also catches leftovers from an earlier failed delete), and an
+ * older Cloudinary avatar. Failures are logged, never shown to the player.
+ */
+async function deletePreviousPictures(
+  client: StorageClient,
+  userId: string,
+  keep: string[],
+  previousUrl: string | null | undefined,
+) {
+  try {
+    await removeFolderExcept(client, MEDIA_BUCKETS.avatar, userId, keep);
+  } catch (error) {
+    console.error('Failed to delete old profile pictures:', error);
+  }
+  if (isCloudinaryUrl(previousUrl)) {
+    await deleteCloudinaryImageByUrl(previousUrl); // logs and returns false on failure
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -97,51 +116,38 @@ export async function POST(request: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Get current user to see if they have an existing profile picture on Cloudinary
+    // Remember the current picture so it can be deleted once the new one is saved
     const currentUser = await userDb.findById(userId);
 
+    // The player's own session client: the storage policies only let it write avatars/<userId>/
+    const storage = await getDb();
+
+    let stored;
     try {
-      // Upload to Cloudinary using a stream
-      const uploadResult: any = await new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          { 
-            folder: 'avatars',
-            transformation: [
-              { width: 400, height: 400, crop: 'fill', gravity: 'face' }, // Automatically frame around faces!
-              { quality: 'auto', fetch_format: 'avif' }
-            ]
-          },
-          (error, result) => {
-            if (error) return reject(error);
-            resolve(result);
-          }
-        );
-        uploadStream.end(buffer);
-      });
-
-      const imageUrl = uploadResult.secure_url;
-
-      // Update user profile in database
-      await userDb.update(userId, {
-        profilePicture: imageUrl,
-      });
-
-      // Clean up old avatar if it was on Cloudinary (to save storage)
-      if (currentUser?.profilePicture && currentUser.profilePicture.includes('cloudinary.com')) {
-        await deleteCloudinaryImageByUrl(currentUser.profilePicture).catch(e => {
-          console.error('Failed to delete old avatar:', e);
-        });
-      }
-
-      return createSecureFileUploadResponse({
-        message: 'Profile picture uploaded successfully',
-        imageUrl: imageUrl
-      }, { status: 200 });
-
+      // Cropped to a 256px WebP square here, once, so pages link straight to it
+      stored = await storeImage(storage, MEDIA_BUCKETS.avatar, userId, buffer);
     } catch (imageError) {
-      console.error('Cloudinary Image processing error:', imageError);
-      return NextResponse.json({ message: 'Failed to process image through Cloudinary' }, { status: 500 });
+      if (imageError instanceof InvalidImageError) {
+        return NextResponse.json({ message: 'The file could not be read as an image.' }, { status: 400 });
+      }
+      console.error('Profile picture storage error:', imageError);
+      return NextResponse.json({ message: 'Failed to store the image' }, { status: 500 });
     }
+
+    try {
+      await userDb.update(userId, { profilePicture: stored.url });
+    } catch (dbError) {
+      // Don't keep a file the profile doesn't point to
+      await deleteStoredImage(storage, stored.url).catch(() => undefined);
+      throw dbError;
+    }
+
+    await deletePreviousPictures(storage, userId, stored.paths, currentUser?.profilePicture);
+
+    return createSecureFileUploadResponse({
+      message: 'Profile picture uploaded successfully',
+      imageUrl: stored.url
+    }, { status: 200 });
 
   } catch (error) {
     console.error('Profile picture upload error:', error);
@@ -163,17 +169,12 @@ export async function DELETE(request: NextRequest) {
     const userId = session.user.id;
     const currentUser = await userDb.findById(userId);
 
-    // If they have a Cloudinary picture, delete it from the CDN cloud too!
-    if (currentUser?.profilePicture && currentUser.profilePicture.includes('cloudinary.com')) {
-      await deleteCloudinaryImageByUrl(currentUser.profilePicture).catch(e => {
-        console.error('Failed to delete avatar from Cloudinary:', e);
-      });
-    }
-
-    // Remove profile picture from database
+    // Clear the profile first so it never points at a deleted file
     await userDb.update(userId, {
       profilePicture: null,
     });
+
+    await deletePreviousPictures(await getDb(), userId, [], currentUser?.profilePicture);
 
     return NextResponse.json({
       message: 'Profile picture removed successfully'

@@ -2,6 +2,16 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
   enabled: process.env.ANALYZE === 'true',
 });
 
+/** remotePatterns entry for this project's public Supabase Storage files (none if the URL is unset). */
+function supabaseStoragePatterns() {
+  try {
+    const { hostname } = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '');
+    return [{ protocol: 'https', hostname, port: '', pathname: '/storage/v1/object/public/**' }];
+  } catch {
+    return [];
+  }
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Standalone output for Docker deployments
@@ -132,6 +142,9 @@ const nextConfig = {
         port: '',
         pathname: `/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dszrz6s6u'}/**`,
       },
+      // Supabase Storage media buckets. Images there are stored pre-sized and use the loader in
+      // src/lib/media/config.ts; this entry only covers an <Image> rendered without it.
+      ...supabaseStoragePatterns(),
     ],
     unoptimized: false,
     // Image formats and sizes
