@@ -16,6 +16,7 @@ const store = {
   getBucketUsage: vi.fn(),
   listStoredObjects: vi.fn(),
   removeFolderExcept: vi.fn(),
+  storeImage: vi.fn(),
 };
 
 vi.mock('@/lib/admin-guard', () => ({ assertAdmin: () => assertAdmin() }));
@@ -26,6 +27,7 @@ vi.mock('@/lib/media/storage.server', async (orig) => ({
   getBucketUsage: (...a: unknown[]) => store.getBucketUsage(...a),
   listStoredObjects: (...a: unknown[]) => store.listStoredObjects(...a),
   removeFolderExcept: (...a: unknown[]) => store.removeFolderExcept(...a),
+  storeImage: (...a: unknown[]) => store.storeImage(...a),
 }));
 vi.mock('@/lib/media/deletion-queue', async (orig) => ({
   ...(await orig<typeof import('@/lib/media/deletion-queue')>()),
@@ -231,3 +233,38 @@ describe('profile pictures', () => {
     expect(store.removeFolderExcept).toHaveBeenCalledTimes(5);
   });
 });
+
+describe('importMediaFromUrl', () => {
+  it('imports an image from an external URL into the specified bucket', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    }));
+    store.storeImage.mockResolvedValue({
+      url: `${PUB}/prize-images/prizes/imported-1280.webp`,
+      paths: ['prizes/imported-1280.webp'],
+      bytes: 2048,
+    });
+
+    const res = await actions.importMediaFromUrl('https://example.com/item.png', 'prize-images');
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data.url).toBe(`${PUB}/prize-images/prizes/imported-1280.webp`);
+    }
+    expect(store.storeImage).toHaveBeenCalledWith(db.client, 'prize-images', 'prizes', expect.any(Buffer));
+  });
+
+  it('rejects invalid buckets or failed fetches', async () => {
+    expect(await actions.importMediaFromUrl('https://example.com/item.png', 'avatars' as any)).toEqual({
+      success: false,
+      error: 'Unknown media bucket',
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, statusText: 'Not Found' }));
+    expect(await actions.importMediaFromUrl('https://example.com/bad.png', 'site-media')).toEqual({
+      success: false,
+      error: 'Failed to fetch image: Not Found',
+    });
+  });
+});
+

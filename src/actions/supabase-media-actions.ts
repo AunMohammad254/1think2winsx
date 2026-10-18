@@ -2,13 +2,14 @@
 
 import { assertAdmin } from '@/lib/admin-guard';
 import { getAdminDb, userDb } from '@/lib/supabase/db';
-import { MEDIA_BUCKETS, mediaPublicUrl, mediaImageKey, parseMediaUrl } from '@/lib/media/config';
+import { MEDIA_BUCKETS, MEDIA_FOLDERS, mediaPublicUrl, mediaImageKey, parseMediaUrl } from '@/lib/media/config';
 import {
   canonicalSuffix,
   deleteStoredImage,
   getBucketUsage,
   listStoredObjects,
   removeFolderExcept,
+  storeImage,
   type BucketUsage,
 } from '@/lib/media/storage.server';
 import {
@@ -215,3 +216,25 @@ export async function updatePrizeImageRetention(days: number): Promise<Result<{ 
     return { days };
   });
 }
+
+/** Import an image from an external URL directly into a Supabase storage bucket */
+export async function importMediaFromUrl(
+  imageUrl: string,
+  bucket: typeof MEDIA_BUCKETS.site | typeof MEDIA_BUCKETS.prize
+): Promise<Result<{ url: string; paths: string[]; bytes: number }>> {
+  return adminAction(async () => {
+    if (bucket !== MEDIA_BUCKETS.site && bucket !== MEDIA_BUCKETS.prize) {
+      throw new Error('Unknown media bucket');
+    }
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const folder = bucket === MEDIA_BUCKETS.site ? MEDIA_FOLDERS.siteUploads : MEDIA_FOLDERS.prizes;
+    const stored = await storeImage(getAdminDb(), bucket, folder, buffer);
+    return { url: stored.url, paths: stored.paths, bytes: stored.bytes };
+  });
+}
+
