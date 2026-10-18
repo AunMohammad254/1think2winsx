@@ -122,11 +122,11 @@ export default function CTA() {
                 <span className="font-semibold text-white">2,184 players</span> joined this week
               </p>
             </div>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/35">
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
               <span>🔒 SSL Secure</span>
               <span>✅ PCI Compliant</span>
               <span>🛡️ 256-bit Encryption</span>
-              <span>⚡ UPI Instant Pay</span>
+              <span>📦 Prizes delivered nationwide</span>
             </div>
           </div>
         </div>

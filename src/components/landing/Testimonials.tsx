@@ -4,11 +4,11 @@ import { useState, useEffect, memo } from "react";
 import { Section, SectionHeading, Reveal } from "./Primitives";
 
 const REVIEWS = [
-  { name: "Aarav Mehta", role: "Top 50 player · Mumbai", quote: "Won my first prize within a week. The streak mechanic is addictive — feels like batting a perfect over every time you go on a roll.", avatar: "from-emerald-400 to-cyan-400", rating: 5 },
-  { name: "Priya Iyer", role: "Weekly champion · Bengaluru", quote: "I've tried every sports app out there. 1Think2Win is the only one with truly competitive players and real, instant prizes.", avatar: "from-violet-500 to-pink-500", rating: 5 },
-  { name: "Rahul Verma", role: "Season finalist · Delhi", quote: "The UI is so smooth and the questions are genuinely tough. You can tell the team are real sports fans — not just developers.", avatar: "from-amber-400 to-orange-500", rating: 5 },
-  { name: "Saima Khan", role: "Daily player · Lucknow", quote: "I play during my coffee break. 60 seconds, random prizes, zero stress. Already won an amazing smartwatch!", avatar: "from-rose-400 to-red-500", rating: 5 },
-  { name: "Dev Singh", role: "Pro tier · Chandigarh", quote: "The leaderboard pressure is real. I've made friends from Pakistan, Australia, even Sri Lanka — all united by our love of the game.", avatar: "from-blue-400 to-violet-500", rating: 5 },
+  { name: "Hamza Siddiqui", role: "Top 50 player · Gulshan-e-Iqbal, Karachi", quote: "Won my first prize within a week. The streak mechanic is addictive — feels like batting a perfect over every time you go on a roll.", avatar: "from-emerald-400 to-cyan-400", rating: 5 },
+  { name: "Areeba Khan", role: "Weekly champion · DHA, Karachi", quote: "I've tried every sports app out there. 1Think2Win is the only one with truly competitive players and real, instant prizes.", avatar: "from-violet-500 to-pink-500", rating: 5 },
+  { name: "Faizan Qureshi", role: "Season finalist · Lahore", quote: "The UI is so smooth and the questions are genuinely tough. You can tell the team are real sports fans — not just developers.", avatar: "from-amber-400 to-orange-500", rating: 5 },
+  { name: "Saima Khan", role: "Daily player · North Nazimabad, Karachi", quote: "I play during my coffee break. 60 seconds, random prizes, zero stress. Already won an amazing smartwatch!", avatar: "from-rose-400 to-red-500", rating: 5 },
+  { name: "Danish Baloch", role: "Pro tier · Lyari, Karachi", quote: "The leaderboard pressure is real. I've made friends from Lahore, Peshawar, even Gilgit — all united by our love of the game.", avatar: "from-blue-400 to-violet-500", rating: 5 },
 ];
 
 // One filled star per rating point (every review is currently rated 5)
@@ -52,7 +52,7 @@ const ReviewCard = memo(function ReviewCard({ r, index }: { r: (typeof REVIEWS)[
           </div>
           <div>
             <p className="font-semibold text-white">{r.name}</p>
-            <p className="text-xs text-white/45">{r.role}</p>
+            <p className="text-xs text-white/60">{r.role}</p>
           </div>
         </div>
         <Stars count={r.rating} />
@@ -99,22 +99,22 @@ export default function Testimonials() {
         <div className="mt-14 flex flex-wrap items-center justify-center gap-x-10 gap-y-6 text-center sm:gap-x-16">
           <div>
             <p className="font-display text-3xl font-bold text-white">4.9★</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/45">App rating</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-white/60">App rating</p>
           </div>
           <div className="h-10 w-px bg-white/10" />
           <div>
             <p className="font-display text-3xl font-bold text-white">10K+</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/45">Reviews</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Reviews</p>
           </div>
           <div className="h-10 w-px bg-white/10" />
           <div>
             <p className="font-display text-3xl font-bold text-white">93%</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/45">Recommend</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Recommend</p>
           </div>
           <div className="h-10 w-px bg-white/10" />
           <div>
             <p className="font-display text-3xl font-bold text-white">5min</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/45">Avg payout</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Avg payout</p>
           </div>
         </div>
       </Reveal>
@@ -134,7 +134,7 @@ export default function Testimonials() {
               </div>
               <div>
                 <p className="font-semibold text-white">{spotlight.name}</p>
-                <p className="text-xs text-white/45">{spotlight.role}</p>
+                <p className="text-xs text-white/60">{spotlight.role}</p>
               </div>
               <div className="ml-auto"><Stars count={spotlight.rating} /></div>
             </div>

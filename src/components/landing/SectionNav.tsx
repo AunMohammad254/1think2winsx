@@ -6,7 +6,7 @@ import { useActiveSection } from "./Primitives";
 const SECTIONS = [
   { id: "top", label: "Home" },
   { id: "stats", label: "Stats" },
-  { id: "marquee", label: "Featured" },
+  { id: "marquee", label: "Sports" },
   { id: "how", label: "How It Works" },
   { id: "live", label: "Live Quiz" },
   { id: "prizes", label: "Prizes" },
@@ -97,7 +97,7 @@ export default function SectionNav() {
               className={`text-right text-xs font-medium tracking-wider transition-all duration-300 ${
                 isActive
                   ? "text-emerald-400 opacity-100"
-                  : "text-white/35 opacity-0 group-hover:opacity-70"
+                  : "text-white opacity-0 group-hover:opacity-70"
               }`}
             >
               {s.label}
