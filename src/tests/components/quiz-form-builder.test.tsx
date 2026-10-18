@@ -46,7 +46,7 @@ const correctBtn = (n: number, q = 0) => within(optionRow(n, q)).getAllByRole('b
 
 /** Fills the one default question with two answer options and marks the first correct. */
 const fillValidQuestion = () => {
-  type('Enter your question', 'Who won the 1992 World Cup?');
+  type('Enter your question', 'Who won PSL 2020?');
   fireEvent.click(removeOptionBtn(4));
   fireEvent.click(removeOptionBtn(3));
   type('Option 1', 'Pakistan');
@@ -88,7 +88,7 @@ describe('QuizFormBuilder: creating', () => {
   it('needs a correct answer on every question of a normal quiz', async () => {
     render(<QuizFormBuilder />);
     type('Enter quiz title', 'Cricket Cup');
-    type('Enter your question', 'Who won the 1992 World Cup?');
+    type('Enter your question', 'Who won PSL 2020?');
     fireEvent.click(removeOptionBtn(4));
     fireEvent.click(removeOptionBtn(3));
     type('Option 1', 'Pakistan');
@@ -117,11 +117,11 @@ describe('QuizFormBuilder: creating', () => {
   it('asks for a new correct answer after the marked option is removed', async () => {
     render(<QuizFormBuilder />);
     type('Enter quiz title', 'Cricket Cup');
-    type('Enter your question', 'Who won the 1992 World Cup?');
+    type('Enter your question', 'Who won PSL 2020?');
     fireEvent.click(removeOptionBtn(4));
-    type('Option 1', 'Pakistan');
-    type('Option 2', 'England');
-    type('Option 3', 'India');
+    type('Option 1', 'Karachi Kings');
+    type('Option 2', 'Lahore Qalandars');
+    type('Option 3', 'Multan Sultans');
     fireEvent.click(correctBtn(3));
     fireEvent.click(removeOptionBtn(3));
     submit();
@@ -132,17 +132,17 @@ describe('QuizFormBuilder: creating', () => {
   it('keeps the correct answer when an option before it is removed', async () => {
     render(<QuizFormBuilder />);
     type('Enter quiz title', 'Cricket Cup');
-    type('Enter your question', 'Who won the 1992 World Cup?');
-    type('Option 1', 'England');
-    type('Option 2', 'India');
-    type('Option 3', 'Pakistan');
-    type('Option 4', 'Australia');
+    type('Enter your question', 'Who won PSL 2020?');
+    type('Option 1', 'Lahore Qalandars');
+    type('Option 2', 'Multan Sultans');
+    type('Option 3', 'Karachi Kings');
+    type('Option 4', 'Peshawar Zalmi');
     fireEvent.click(correctBtn(3));
     fireEvent.click(removeOptionBtn(1));
     submit();
     await waitFor(() => expect(h.createQuiz).toHaveBeenCalled());
     const q = h.createQuiz.mock.calls[0][0].questions[0];
-    expect(q.options.map((o: { text: string }) => o.text)).toEqual(['India', 'Pakistan', 'Australia']);
+    expect(q.options.map((o: { text: string }) => o.text)).toEqual(['Multan Sultans', 'Karachi Kings', 'Peshawar Zalmi']);
     expect(q.correctOption).toBe(1);
   });
 
