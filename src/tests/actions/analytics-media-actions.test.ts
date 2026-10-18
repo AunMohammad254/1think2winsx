@@ -7,15 +7,35 @@ let sb: SupabaseMock;
 const requireAdminSession = vi.fn();
 const cloudinaryApi = { usage: vi.fn(), resources: vi.fn() };
 const destroy = vi.fn();
+const upload = vi.fn();
+const cloudinaryUrl = vi.fn();
 const sendPasswordSetupEmail = vi.fn();
 const checkLimit = vi.fn();
+const storeImage = vi.fn();
+const listMediaImages = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => sb.client }));
 vi.mock('@/lib/admin-session', () => ({ requireAdminSession: (...a: unknown[]) => requireAdminSession(...a) }));
 vi.mock('next/cache', () => ({ unstable_cache: (fn: () => unknown) => fn }));
 vi.mock('next/headers', () => ({ headers: async () => new Headers() }));
-vi.mock('cloudinary', () => ({ v2: { config: vi.fn(), api: cloudinaryApi, uploader: { destroy: (...a: unknown[]) => destroy(...a) } } }));
+vi.mock('cloudinary', () => ({
+  v2: {
+    config: vi.fn(),
+    url: (...a: unknown[]) => cloudinaryUrl(...a),
+    api: cloudinaryApi,
+    uploader: {
+      destroy: (...a: unknown[]) => destroy(...a),
+      upload: (...a: unknown[]) => upload(...a),
+    },
+  },
+}));
+vi.mock('@/lib/media/storage.server', () => ({
+  storeImage: (...a: unknown[]) => storeImage(...a),
+}));
+vi.mock('@/actions/supabase-media-actions', () => ({
+  listMediaImages: (...a: unknown[]) => listMediaImages(...a),
+}));
 vi.mock('@/lib/password-setup', () => ({ sendPasswordSetupEmail: (...a: unknown[]) => sendPasswordSetupEmail(...a) }));
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { passwordChange: { checkLimit: (...a: unknown[]) => checkLimit(...a) } } }));
 
@@ -26,7 +46,7 @@ const pwSetup = await import('@/actions/password-setup-actions');
 beforeEach(() => {
   adminDb = createSupabaseMock();
   sb = createSupabaseMock({ user: { id: 'u1', email: 'ali@example.test' } });
-  for (const fn of [requireAdminSession, cloudinaryApi.usage, cloudinaryApi.resources, destroy, sendPasswordSetupEmail, checkLimit]) fn.mockReset();
+  for (const fn of [requireAdminSession, cloudinaryApi.usage, cloudinaryApi.resources, destroy, upload, cloudinaryUrl, storeImage, listMediaImages, sendPasswordSetupEmail, checkLimit]) fn.mockReset();
   requireAdminSession.mockResolvedValue('boss@example.test');
   checkLimit.mockResolvedValue({ success: true });
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -99,11 +119,79 @@ describe('Cloudinary media actions', () => {
     expect(await media.deleteCloudinaryResource('x')).toEqual({ success: false, error: 'not found' });
   });
 
+  it('uploads an image to Cloudinary', async () => {
+    upload.mockResolvedValue({
+      public_id: 'prizes/new-item',
+      secure_url: 'https://res.cloudinary.com/demo/image/upload/prizes/new-item.png',
+      format: 'png',
+      bytes: 1024,
+      width: 100,
+      height: 100,
+      created_at: '2026-10-18T00:00:00Z',
+    });
+
+    const formData = new FormData();
+    const file = new File(['fake-content'], 'test.png', { type: 'image/png' });
+    formData.append('file', file);
+    formData.append('folder', 'prizes');
+
+    const result = await media.uploadToCloudinary(formData);
+    expect(result.success).toBe(true);
+    expect(upload).toHaveBeenCalledWith(expect.stringContaining('data:image/png;base64,'), {
+      folder: 'prizes',
+      resource_type: 'image',
+    });
+
+    const emptyForm = new FormData();
+    expect(await media.uploadToCloudinary(emptyForm)).toEqual({ success: false, error: 'No file provided' });
+  });
+
+  it('transfers an image between Cloudinary and Supabase Storage', async () => {
+    cloudinaryUrl.mockReturnValue('https://res.cloudinary.com/demo/image/upload/prizes/phone.png');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    }));
+    storeImage.mockResolvedValue({
+      url: 'https://test.supabase.co/storage/v1/object/public/prize-images/prizes/123-1280.webp',
+      paths: ['prizes/123-1280.webp'],
+      bytes: 2048,
+    });
+
+    const cToS = await media.transferCloudinaryToSupabase('prizes/phone', 'prize-images');
+    expect(cToS.success).toBe(true);
+    expect(storeImage).toHaveBeenCalledWith(expect.anything(), 'prize-images', 'prizes', expect.any(Buffer));
+
+    upload.mockResolvedValue({
+      public_id: 'transfers/synced-img',
+      secure_url: 'https://res.cloudinary.com/demo/image/upload/transfers/synced-img.webp',
+      format: 'webp',
+      bytes: 2048,
+      width: 800,
+      height: 600,
+    });
+    const sToC = await media.transferSupabaseToCloudinary('https://test.supabase.co/img.webp', 'transfers');
+    expect(sToC.success).toBe(true);
+    expect(upload).toHaveBeenCalledWith('https://test.supabase.co/img.webp', { folder: 'transfers', resource_type: 'image' });
+
+    listMediaImages.mockResolvedValue({
+      success: true,
+      data: { images: [{ url: 'https://sb/p1.webp', name: 'p1', size: 1024 }] },
+    });
+    const picker = await media.getSupabaseMediaForPicker();
+    expect(picker.success).toBe(true);
+    expect(picker.images.length).toBeGreaterThan(0);
+  });
+
   it('needs an admin session', async () => {
     requireAdminSession.mockRejectedValue(new Error('NEXT_REDIRECT'));
     await expect(media.getCloudinaryUsage()).rejects.toThrow();
     await expect(media.getCloudinaryResources()).rejects.toThrow();
     await expect(media.deleteCloudinaryResource('x')).rejects.toThrow();
+    await expect(media.uploadToCloudinary(new FormData())).rejects.toThrow();
+    await expect(media.transferCloudinaryToSupabase('x')).rejects.toThrow();
+    await expect(media.transferSupabaseToCloudinary('x')).rejects.toThrow();
+    await expect(media.getSupabaseMediaForPicker()).rejects.toThrow();
     expect(destroy).not.toHaveBeenCalled();
   });
 });

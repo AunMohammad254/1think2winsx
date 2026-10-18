@@ -157,6 +157,20 @@ describe('media management: Cloudinary (old uploads) page', () => {
     expect(screen.getByText('PNG')).toBeInTheDocument();
   });
 
+  it('handles credit-based usage where limits are undefined without crashing', async () => {
+    const creditUsage = {
+      storage: { usage: 1024 * 1024 },
+      bandwidth: { usage: 2 * 1024 * 1024 },
+      transformations: { usage: 5 },
+      credits: { usage: 0.1, percent_used: 1, limit: 25 },
+    };
+    h.media.getCloudinaryUsage.mockResolvedValueOnce({ success: true, usage: creditUsage });
+    render(<MediaPage />);
+    expect(await screen.findByText('1.00 MB')).toBeInTheDocument();
+    expect(screen.getByText('2.00 MB')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+  });
+
   it('shows an empty gallery when loading fails', async () => {
     h.media.getCloudinaryUsage.mockResolvedValue({ success: false });
     h.media.getCloudinaryResources.mockResolvedValue({ success: false });
