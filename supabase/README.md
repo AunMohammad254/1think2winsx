@@ -12,6 +12,15 @@ working: the app still recognises and resizes Cloudinary URLs.
 All three buckets are public to read by URL, but nobody can list them. Only WebP is accepted, with
 1 MB per avatar file and 5 MB per file in the others.
 
+### Wallet deposit receipts (`receipts`, private)
+
+Deposit proof screenshots show account names and numbers, so this bucket is **private**: nothing
+in it has a public URL (`migrations/20261018160000_receipts_bucket.sql`). A player can upload JPG,
+PNG or WebP files of up to 5 MB into `receipts/<their id>/`. They can't replace or delete a receipt
+after sending it, since it's the admin's evidence. `WalletTransaction.proofImage` stores
+`receipts/<id>/<file>`. The admin wallet page gets a 1-hour signed link from the server, and only
+for a receipt in that transaction's own player folder (`src/lib/wallet/receipts.ts`).
+
 ## How image optimisation works
 
 - **Once, on upload.** The Next.js server uses `sharp`, which is already installed and already runs
@@ -68,13 +77,20 @@ of the public images and use up the quota.
    `bun supabase/data-migrations/migrate-cloudinary-images.ts` is a dry run that lists them. Adding
    `--apply` copies them and repoints the prizes. Cloudinary files are never deleted.
 4. Optional: turn off Image Transformations (see above).
+5. Apply `migrations/20261018160000_receipts_bucket.sql` before the wallet is turned back on. It
+   creates the private `receipts` bucket and 2 policies and changes no rows. Today production has
+   no `receipts` bucket, so deposits would fail without it. It doesn't depend on step 1.
 
 ## Tests
 
 - Unit tests: `bun run test:coverage` (`src/tests/lib/media-*.test.ts`,
   `src/tests/actions/supabase-media-actions.test.ts`, `src/tests/pages/admin-media-pages.test.tsx`
   and the route tests).
-- Policy tests, run locally only (never against the real project): see the header of
-  `tests/media_storage.test.sql`. They check that players write only their own avatar folder,
-  nobody can list buckets, players and anon cannot write `site-media`/`prize-images`, the listing
-  functions and the queue are server-only, and a re-run keeps an edited retention value.
+- Policy tests, run locally only (never against the real project): see the headers of
+  `tests/media_storage.test.sql` and `tests/receipts_storage.test.sql`. They check that:
+  - players write only their own avatar and receipt folders
+  - nobody can list buckets, and only the server can read every receipt
+  - players and anon cannot write `site-media`/`prize-images`
+  - players cannot replace or delete a sent receipt
+  - the listing functions and the queue are server-only
+  - a re-run keeps an edited retention value

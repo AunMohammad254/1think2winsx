@@ -250,7 +250,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                     <input
                         type="file"
                         id="deposit-proof"
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/webp"
                         onChange={(e) => setProofImage(e.target.files?.[0] || null)}
                         className={`w-full px-4 py-3 bg-white/5 border rounded-xl text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-500/20 file:text-emerald-300 hover:file:bg-emerald-500/30 transition-all duration-200 ${
                             proofImage ? 'border-emerald-400/50' : 'border-emerald-400/30'
@@ -259,7 +259,7 @@ export default function DepositForm({ onSubmit, isSubmitting = false }: DepositF
                         aria-describedby="deposit-proof-help"
                     />
                     <p id="deposit-proof-help" className="text-slate-400 text-xs mt-2">
-                        Required: Upload a clear screenshot of your successful transaction (Max 5MB)
+                        Required: Upload a clear screenshot of your successful transaction (JPG, PNG or WebP, max 5MB)
                     </p>
                 </div>
 

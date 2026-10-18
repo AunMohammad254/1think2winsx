@@ -12,7 +12,7 @@ vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => revalidatePa
 
 const actions = await import('@/app/profile/wallet/actions');
 
-const receipt = (bytes = 1024, name = 'receipt.jpg') => new File([new Uint8Array(bytes)], name, { type: 'image/jpeg' });
+const receipt = (bytes = 1024, name = 'receipt.jpg', type = 'image/jpeg') => new File([new Uint8Array(bytes)], name, { type });
 function depositForm(over: Record<string, string | File | null> = {}) {
   const fields: Record<string, string | File | null> = { amount: '500', paymentMethod: 'Easypaisa', transactionId: ' 7263652728817 ', proofImage: receipt(), ...over };
   const form = new FormData();
@@ -38,9 +38,13 @@ describe('submitDepositRequest', () => {
     const res = await actions.submitDepositRequest(depositForm());
 
     expect(res).toMatchObject({ success: true, message: 'Deposit request submitted successfully', transaction: { id: 'tx-1', status: 'pending' } });
-    const [path] = sb.storage.upload.mock.calls[0] as [string];
+    const [path, , options] = sb.storage.upload.mock.calls[0] as unknown as [string, File, Record<string, unknown>];
     expect(path).toMatch(/^user-1\/\d+_[a-z0-9]+\.jpg$/);
-    expect(sb.rpcCalls[0]).toEqual({ fn: 'submit_deposit_request', args: { p_amount: 500, p_payment_method: 'Easypaisa', p_transaction_id: '7263652728817', p_proof_image: `https://storage.example.test/${path}` } });
+    expect(sb.client.storage.from).toHaveBeenCalledWith('receipts');
+    expect(options).toEqual({ contentType: 'image/jpeg', upsert: false });
+    // Private bucket: the row stores a reference, never a public URL
+    expect(sb.storage.getPublicUrl).not.toHaveBeenCalled();
+    expect(sb.rpcCalls[0]).toEqual({ fn: 'submit_deposit_request', args: { p_amount: 500, p_payment_method: 'Easypaisa', p_transaction_id: '7263652728817', p_proof_image: `receipts/${path}` } });
     expect(eqValue(sb.callsTo('WalletTransaction')[2], 'id')).toBe('tx-1');
     expect(checkLimit).toHaveBeenCalledWith(expect.anything(), 'user-1', 'deposit');
     // the limiter gets a header-less stand-in request, so the key is the user id, not an IP
@@ -55,12 +59,24 @@ describe('submitDepositRequest', () => {
     expect(revalidatePath).toHaveBeenCalled();
   });
 
-  it.each(['noext', 'receipt.', 'receipt.j?g'])('stores a receipt named %j as .png', async (name) => {
+  it.each([
+    ['photo.jpg', 'image/png', 'png'],
+    ['noext', 'image/webp', 'webp'],
+    ['receipt.j?g', 'image/jpeg', 'jpg'],
+  ])('names a %j file of type %s by its type: .%s', async (name, type, ext) => {
     counts(0, 0);
     sb.setRpc('submit_deposit_request', { data: { success: true, id: 'tx-1' } });
-    await actions.submitDepositRequest(depositForm({ proofImage: receipt(10, name) }));
+    await actions.submitDepositRequest(depositForm({ proofImage: receipt(10, name, type) }));
     const [path] = sb.storage.upload.mock.calls[0] as [string];
-    expect(path).toMatch(/^user-1\/\d+_[a-z0-9]+\.png$/);
+    expect(path).toMatch(new RegExp(`^user-1/\\d+_[a-z0-9]+\\.${ext}$`));
+  });
+
+  it.each(['image/gif', 'image/heic', 'application/pdf', ''])('refuses a %j file before uploading', async (type) => {
+    counts(0, 0);
+    expect((await actions.submitDepositRequest(depositForm({ proofImage: receipt(10, 'r.x', type) }))).error)
+      .toBe('Please upload the screenshot as a JPG, PNG or WebP image.');
+    expect(sb.storage.upload).not.toHaveBeenCalled();
+    expect(sb.rpcCalls).toHaveLength(0);
   });
 
   it.each([
