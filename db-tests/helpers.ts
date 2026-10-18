@@ -240,6 +240,15 @@ export async function createNotification(pool: pg.Pool, userId: string): Promise
   return id;
 }
 
+export async function createPrize(pool: pg.Pool, overrides: { stock?: number } = {}): Promise<string> {
+  const id = newId('prize');
+  await pool.query(
+    `INSERT INTO "Prize" (id, name, type, "pointsRequired", stock, "updatedAt") VALUES ($1, 'Smart watch', 'physical', 250, $2, now())`,
+    [id, overrides.stock ?? 5],
+  );
+  return id;
+}
+
 export const answersFor = (questionIds: string[], selectedOption = 1): SubmitAnswer[] =>
   questionIds.map((questionId) => ({ questionId, selectedOption }));
 
