@@ -26,6 +26,104 @@
   }
 }
 
+/* ============================================
+   NAVBAR, MENU AND HERO BALL MOTION
+   Plain CSS rather than framer-motion, which would otherwise ship on every page.
+   Entrances use `backwards` fill: the start frame holds through any delay, and no
+   transform lingers afterwards. Closing states play until usePresence unmounts them.
+   ============================================ */
+@keyframes nav-drop-in {
+  from { opacity: 0; transform: translateY(-20px); }
+}
+@keyframes nav-item-in {
+  from { opacity: 0; transform: translateY(-10px); }
+}
+@keyframes logo-mark-in {
+  from { opacity: 0; transform: scale(0.8); }
+}
+@keyframes logo-text-in {
+  from { opacity: 0; transform: translateX(-10px); }
+}
+.nav-enter { animation: nav-drop-in 0.5s ease-out backwards; }
+.nav-item-enter { animation: nav-item-in 0.3s ease-out backwards; }
+.logo-mark-enter { animation: logo-mark-in 0.5s ease-out backwards; }
+.logo-text-enter { animation: logo-text-in 0.5s ease-out 0.1s backwards; }
+
+/* Mobile slide-in menu */
+@keyframes menu-fade-in {
+  from { opacity: 0; }
+}
+@keyframes menu-fade-out {
+  to { opacity: 0; }
+}
+@keyframes menu-slide-in {
+  from { opacity: 0; transform: translateX(100%); }
+}
+@keyframes menu-slide-out {
+  to { opacity: 0; transform: translateX(100%); }
+}
+@keyframes menu-item-in {
+  from { opacity: 0; transform: translate(50px, 10px) scale(0.9); filter: blur(4px); }
+}
+.menu-overlay[data-state="open"] { animation: menu-fade-in 0.3s ease-out; }
+.menu-overlay[data-state="closed"] { animation: menu-fade-out 0.3s ease-in-out forwards; }
+.menu-panel[data-state="open"] { animation: menu-slide-in 0.4s ease-out; }
+.menu-panel[data-state="closed"] { animation: menu-slide-out 0.3s ease-in-out forwards; }
+.menu-item-enter { animation: menu-item-in 0.4s ease-out backwards; }
+
+/* Navbar dropdowns (notifications, profile) */
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.95); }
+}
+@keyframes dropdown-out {
+  to { opacity: 0; transform: translateY(10px) scale(0.95); }
+}
+.dropdown-panel[data-state="open"] { animation: dropdown-in 0.15s ease-out; }
+.dropdown-panel[data-state="closed"] { animation: dropdown-out 0.15s ease-out forwards; }
+
+/* A closing menu or dropdown no longer takes clicks */
+.menu-overlay[data-state="closed"],
+.menu-panel[data-state="closed"],
+.dropdown-panel[data-state="closed"] {
+  pointer-events: none;
+}
+
+/* Unread badge pops in with a slight overshoot */
+@keyframes badge-pop {
+  from { transform: scale(0); }
+}
+.badge-pop { animation: badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* Hero balls: a springy flip-in, then a slow spin */
+@keyframes ball-enter {
+  from { transform: scale(0) rotateY(-180deg); }
+}
+.ball-enter { animation: ball-enter 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.4s backwards; }
+.ball-spin { animation: icon-spin 20s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-enter,
+  .nav-item-enter,
+  .logo-mark-enter,
+  .logo-text-enter,
+  .menu-overlay,
+  .menu-panel,
+  .menu-item-enter,
+  .dropdown-panel,
+  .badge-pop,
+  .ball-enter,
+  .ball-spin {
+    animation: none !important;
+  }
+
+  /* No exit animation to wait for: hide a closing menu or dropdown at once */
+  .menu-overlay[data-state="closed"],
+  .menu-panel[data-state="closed"],
+  .dropdown-panel[data-state="closed"] {
+    visibility: hidden;
+  }
+}
+
 :root {
   --background: linear-gradient(135deg, #1e3a8a 0%, #1f2937 50%, #000000 100%);
   --foreground: #ffffff;

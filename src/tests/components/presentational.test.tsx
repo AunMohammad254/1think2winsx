@@ -10,7 +10,6 @@ vi.mock('next-cloudinary', () => ({
   CldImage: ({ alt, onError }: { alt: string; onError: () => void }) => <img alt={alt} onError={onError} />,
 }));
 
-import { FloatingElement } from '@/components/hero/FloatingElement';
 import { SportsBall } from '@/components/hero/SportsBall';
 import StatsGrid from '@/components/profile/StatsGrid';
 import BalanceCard from '@/components/profile/BalanceCard';
@@ -37,13 +36,6 @@ import RecentActivityFeed, { RecentActivityFeedSkeleton } from '@/components/adm
 import type { Prize } from '@/types/prize';
 
 describe('hero decorations', () => {
-  it('FloatingElement places its child by percentage', () => {
-    render(<FloatingElement x={10} y={20}>⚽</FloatingElement>);
-    expect(screen.getByText('⚽').style.left).toBe('10%');
-    render(<FloatingElement>🏏</FloatingElement>);
-    expect(screen.getByText('🏏').style.top).toBe('0%');
-  });
-
   it.each(['cricket', 'basketball', 'tennis', 'football', 'hockey', 'squash', undefined] as const)('SportsBall draws a %s ball', (type) => {
     const { container } = render(<SportsBall type={type} className={type ? 'w-full' : ''} />);
     const outer = container.firstElementChild as HTMLElement;

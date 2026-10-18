@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, Volume2, VolumeX, Video, Hourglass, Zap, Info, Check, CheckCheck, Trash2, X } from 'lucide-react';
 import { useNotifications, Notification } from '@/hooks/useNotifications';
+import { usePresence } from '@/hooks/usePresence';
 
 // Icon and color map based on notification types
 const notificationTypeConfig: Record<string, { icon: any; iconColor: string; bgColor: string }> = {
@@ -46,6 +46,8 @@ export default function NotificationsDropdown() {
   } = useNotifications();
 
   const [isOpen, setIsOpen] = useState(false);
+  // 150ms = the .dropdown-panel exit animation in globals.css
+  const mounted = usePresence(isOpen, 150);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // The navbar only fetches the unread count on page load; the list is loaded the first
@@ -114,178 +116,164 @@ export default function NotificationsDropdown() {
   return (
     <div ref={dropdownRef} className="relative">
       {/* Bell Trigger Button */}
-      <motion.button
+      <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative flex items-center justify-center p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200"
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+        className="relative flex items-center justify-center p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-200 motion-safe:hover:scale-105 motion-safe:active:scale-95"
         aria-label="Notifications"
       >
         <Bell className="w-5 h-5 text-white/80" />
-        
-        {/* Animated Badge Counter */}
-        <AnimatePresence>
-          {unreadCount > 0 && (
-            <motion.span
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0 }}
-              className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-r from-red-500 to-pink-500 text-[10px] font-bold text-white shadow-lg shadow-pink-500/20 border border-black"
-            >
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </motion.button>
+
+        {/* Animated Badge Counter (pops in; disappears at once when everything is read) */}
+        {unreadCount > 0 && (
+          <span className="badge-pop absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-r from-red-500 to-pink-500 text-[10px] font-bold text-white shadow-lg shadow-pink-500/20 border border-black">
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </button>
 
       {/* Dropdown Panel */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
-            className="fixed md:absolute left-4 right-4 md:left-auto md:right-0 top-[72px] md:top-full mt-2 w-auto md:w-96 origin-top z-[1000]"
-          >
-            <div className="rounded-2xl bg-gray-950/95 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-black/80 overflow-hidden">
-              
-              {/* Dropdown Header */}
-              <div className="flex items-center justify-between px-3 py-3 border-b border-white/10 bg-white/5 gap-2">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <h3 className="text-sm font-semibold text-white truncate">Notifications</h3>
-                  {unreadCount > 0 && (
-                    <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-medium border border-purple-500/30 shrink-0">
-                      {unreadCount} new
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0">
-                  {/* Sound Toggle */}
-                  <button
-                    onClick={() => toggleSound(!soundEnabled)}
-                    className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-colors"
-                    title={soundEnabled ? 'Mute sound' : 'Unmute sound'}
-                  >
-                    {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-                  </button>
-
-                  {/* Mark All As Read */}
-                  {unreadCount > 0 && (
-                    <button
-                      onClick={markAllAsRead}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors"
-                    >
-                      <CheckCheck className="w-3.5 h-3.5 shrink-0" />
-                      <span className="hidden xs:inline">Read all</span>
-                    </button>
-                  )}
-
-                  {/* Close Dropdown on Mobile */}
-                  <button
-                    onClick={() => setIsOpen(false)}
-                    className="md:hidden p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-colors"
-                    aria-label="Close notifications"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Notifications List */}
-              <div className="max-h-[280px] xs:max-h-[360px] md:max-h-[420px] overflow-y-auto divide-y divide-white/5 custom-scrollbar">
-                {loading || (!listLoaded && !loadError) ? (
-                  <div className="flex items-center justify-center py-10 text-gray-500 text-sm">
-                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-500 border-t-transparent mr-2" />
-                    <span>Loading notifications...</span>
-                  </div>
-                ) : notifications.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-                    <div className="p-3 rounded-full bg-white/5 border border-white/5 text-gray-500 mb-3">
-                      <Bell className="w-6 h-6" />
-                    </div>
-                    <p className="text-sm font-medium text-white/80">All caught up!</p>
-                    <p className="text-xs text-white/40 mt-1">No notifications at the moment.</p>
-                  </div>
-                ) : (
-                  notifications.map((notif) => {
-                    const typeConfig = notificationTypeConfig[notif.type] || notificationTypeConfig.general;
-                    const TypeIcon = typeConfig.icon;
-
-                    return (
-                      <div
-                        key={notif.id}
-                        className={`relative flex gap-3 p-3.5 sm:p-4 transition-colors hover:bg-white/5 ${
-                          !notif.read ? 'bg-purple-500/[0.02]' : ''
-                        }`}
-                      >
-                        {/* Unread Status Dot Indicator */}
-                        {!notif.read && (
-                          <span className="absolute top-4 right-4 flex h-2 w-2 rounded-full bg-blue-500" />
-                        )}
-
-                        {/* Icon Wrapper */}
-                        <div className={`flex items-center justify-center w-8.5 h-8.5 rounded-xl border shrink-0 ${typeConfig.bgColor}`}>
-                          <TypeIcon className={`w-4 h-4 ${typeConfig.iconColor}`} />
-                        </div>
-
-                        {/* Text Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-xs font-semibold text-white break-words pr-2">
-                              {notif.title}
-                            </p>
-                            <span className="text-[10px] text-white/40 whitespace-nowrap shrink-0 pt-0.5">
-                              {formatRelativeTime(notif.createdAt)}
-                            </span>
-                          </div>
-                          <p className="text-xs text-white/60 mt-1 leading-relaxed break-words">
-                            {notif.message}
-                          </p>
-
-                          {/* Link Redirection or Mark Read Button and Delete */}
-                          <div className="flex items-center justify-between mt-2.5">
-                            <div className="flex items-center gap-3">
-                              {notif.link ? (
-                                <Link
-                                  href={resolveNotificationHref(notif.link)}
-                                  onClick={() => handleNotificationClick(notif)}
-                                  className="text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:underline"
-                                >
-                                  View Details →
-                                </Link>
-                              ) : (
-                                !notif.read && (
-                                  <button
-                                    onClick={() => markAsRead(notif.id)}
-                                    className="flex items-center gap-1 text-[10px] font-semibold text-white/40 hover:text-white transition-colors"
-                                  >
-                                    <Check className="w-3 h-3" />
-                                    <span>Mark as read</span>
-                                  </button>
-                                )
-                              )}
-                            </div>
-                            <button
-                              onClick={() => deleteNotification(notif.id)}
-                              className="text-white/40 hover:text-red-400 p-1 rounded hover:bg-white/5 transition-colors"
-                              title="Delete notification"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
+      {mounted && (
+        <div
+          data-state={isOpen ? 'open' : 'closed'}
+          className="dropdown-panel fixed md:absolute left-4 right-4 md:left-auto md:right-0 top-[72px] md:top-full mt-2 w-auto md:w-96 origin-top z-[1000]"
+        >
+          <div className="rounded-2xl bg-gray-950/95 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-black/80 overflow-hidden">
+            
+            {/* Dropdown Header */}
+            <div className="flex items-center justify-between px-3 py-3 border-b border-white/10 bg-white/5 gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h3 className="text-sm font-semibold text-white truncate">Notifications</h3>
+                {unreadCount > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-medium border border-purple-500/30 shrink-0">
+                    {unreadCount} new
+                  </span>
                 )}
               </div>
-              
+
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Sound Toggle */}
+                <button
+                  onClick={() => toggleSound(!soundEnabled)}
+                  className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-colors"
+                  title={soundEnabled ? 'Mute sound' : 'Unmute sound'}
+                >
+                  {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                </button>
+
+                {/* Mark All As Read */}
+                {unreadCount > 0 && (
+                  <button
+                    onClick={markAllAsRead}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-colors"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span className="hidden xs:inline">Read all</span>
+                  </button>
+                )}
+
+                {/* Close Dropdown on Mobile */}
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="md:hidden p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition-colors"
+                  aria-label="Close notifications"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+            {/* Notifications List */}
+            <div className="max-h-[280px] xs:max-h-[360px] md:max-h-[420px] overflow-y-auto divide-y divide-white/5 custom-scrollbar">
+              {loading || (!listLoaded && !loadError) ? (
+                <div className="flex items-center justify-center py-10 text-gray-500 text-sm">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-500 border-t-transparent mr-2" />
+                  <span>Loading notifications...</span>
+                </div>
+              ) : notifications.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                  <div className="p-3 rounded-full bg-white/5 border border-white/5 text-gray-500 mb-3">
+                    <Bell className="w-6 h-6" />
+                  </div>
+                  <p className="text-sm font-medium text-white/80">All caught up!</p>
+                  <p className="text-xs text-white/40 mt-1">No notifications at the moment.</p>
+                </div>
+              ) : (
+                notifications.map((notif) => {
+                  const typeConfig = notificationTypeConfig[notif.type] || notificationTypeConfig.general;
+                  const TypeIcon = typeConfig.icon;
+
+                  return (
+                    <div
+                      key={notif.id}
+                      className={`relative flex gap-3 p-3.5 sm:p-4 transition-colors hover:bg-white/5 ${
+                        !notif.read ? 'bg-purple-500/[0.02]' : ''
+                      }`}
+                    >
+                      {/* Unread Status Dot Indicator */}
+                      {!notif.read && (
+                        <span className="absolute top-4 right-4 flex h-2 w-2 rounded-full bg-blue-500" />
+                      )}
+
+                      {/* Icon Wrapper */}
+                      <div className={`flex items-center justify-center w-8.5 h-8.5 rounded-xl border shrink-0 ${typeConfig.bgColor}`}>
+                        <TypeIcon className={`w-4 h-4 ${typeConfig.iconColor}`} />
+                      </div>
+
+                      {/* Text Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-semibold text-white break-words pr-2">
+                            {notif.title}
+                          </p>
+                          <span className="text-[10px] text-white/40 whitespace-nowrap shrink-0 pt-0.5">
+                            {formatRelativeTime(notif.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-white/60 mt-1 leading-relaxed break-words">
+                          {notif.message}
+                        </p>
+
+                        {/* Link Redirection or Mark Read Button and Delete */}
+                        <div className="flex items-center justify-between mt-2.5">
+                          <div className="flex items-center gap-3">
+                            {notif.link ? (
+                              <Link
+                                href={resolveNotificationHref(notif.link)}
+                                onClick={() => handleNotificationClick(notif)}
+                                className="text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:underline"
+                              >
+                                View Details →
+                              </Link>
+                            ) : (
+                              !notif.read && (
+                                <button
+                                  onClick={() => markAsRead(notif.id)}
+                                  className="flex items-center gap-1 text-[10px] font-semibold text-white/40 hover:text-white transition-colors"
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>Mark as read</span>
+                                </button>
+                              )
+                            )}
+                          </div>
+                          <button
+                            onClick={() => deleteNotification(notif.id)}
+                            className="text-white/40 hover:text-red-400 p-1 rounded hover:bg-white/5 transition-colors"
+                            title="Delete notification"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            
+          </div>
+        </div>
+      )}
     </div>
   );
 }
