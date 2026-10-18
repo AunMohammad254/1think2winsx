@@ -63,7 +63,7 @@ import AdminDashboardPage from '@/app/admin/(protected)/dashboard/page';
 import AdminClaimsPage from '@/app/admin/(protected)/claims/page';
 import AdminStreamingPage from '@/app/admin/(protected)/streaming/page';
 import AdminWalletPage from '@/app/admin/(protected)/wallet/page';
-import MediaPage, { metadata as mediaMeta } from '@/app/admin/(protected)/media/page';
+import MediaPage, { metadata as mediaMeta } from '@/app/admin/(protected)/media/cloudinary/page';
 import LuckyWinnerPage from '@/app/admin/(protected)/lucky-winner/page';
 import QuizEvaluationPage from '@/app/admin/(protected)/quiz-evaluation/page';
 import AdminLogin from '@/app/admin/(public)/login/page';
@@ -137,7 +137,7 @@ describe('admin section pages', () => {
   });
 });
 
-describe('media management', () => {
+describe('media management: Cloudinary (old uploads) page', () => {
   const usage = { storage: { usage: 5 * 1024 * 1024, limit: 25 * 1024 ** 3 }, bandwidth: { usage: 10 * 1024 * 1024, limit: 25 * 1024 ** 3 }, transformations: { usage: 12, limit: 25000 } };
   const resources = [{ public_id: 'prizes/watch', bytes: 2048, format: 'png' }, { public_id: 'prizes/bike', bytes: 4096, format: 'jpg' }];
 
@@ -149,7 +149,8 @@ describe('media management', () => {
 
   it('shows usage and the asset gallery', async () => {
     render(<MediaPage />);
-    expect(mediaMeta.title).toBe('Media Management | Admin Dashboard');
+    expect(mediaMeta.title).toBe('Cloudinary Media | Admin Dashboard');
+    expect(screen.getByRole('link', { name: 'Cloudinary (old uploads)' })).toHaveAttribute('aria-current', 'page');
     expect(await screen.findByText('5.00 MB')).toBeInTheDocument();
     expect(screen.getByText('12')).toBeInTheDocument();
     expect(screen.getByText('2.0 KB')).toBeInTheDocument();

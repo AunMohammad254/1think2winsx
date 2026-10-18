@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useProfile } from '@/contexts/ProfileContext';
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 
 // Import extracted components
 import {
@@ -240,6 +241,7 @@ export default function PrizeRedemption() {
                 <div className="h-48 w-48 bg-gradient-glass-dark rounded-2xl overflow-hidden glass-border">
                   <Image
                     src={previewPrize?.imageUrl || previewRedemption?.prize.imageUrl || `/prizes/default.svg`}
+                    loader={loaderFor(previewPrize?.imageUrl || previewRedemption?.prize.imageUrl)}
                     alt={previewPrize?.name || previewRedemption!.prize.name} // prize names are required
                     width={160}
                     height={160}

@@ -8,8 +8,6 @@ const h = vi.hoisted(() => ({
   dynamics: [] as { loader: () => Promise<unknown>; opts: { loading: () => React.ReactNode } }[],
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
-// eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
-vi.mock('next-cloudinary', () => ({ CldImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
 vi.mock('next/dynamic', () => ({
   default: (loader: () => Promise<unknown>, opts: { loading: () => React.ReactNode }) => {
     h.dynamics.push({ loader, opts });
@@ -176,7 +174,7 @@ describe('PrizeForm', () => {
     render(<PrizeForm prize={p} isSubmitting={isSubmitting} {...props} />);
     return props;
   };
-  const urlInput = () => screen.getByPlaceholderText(/res\.cloudinary\.com/);
+  const urlInput = () => screen.getByPlaceholderText('Upload an image, or paste an image link');
 
   it('creates a prize with defaults', async () => {
     const p = setup();
@@ -205,7 +203,7 @@ describe('PrizeForm', () => {
     expect(screen.getByText('Stock cannot be negative')).toBeInTheDocument();
     expect(screen.getByText('Description too long')).toBeInTheDocument();
     expect(screen.getByText('Invalid URL')).toBeInTheDocument();
-    expect(screen.getByText(/Cloudinary|cloudinary/)).toBeInTheDocument();
+    expect(screen.getByText(/Supabase Storage/)).toBeInTheDocument();
     expect(p.onSubmit).not.toHaveBeenCalled();
   });
 
@@ -220,7 +218,9 @@ describe('PrizeForm', () => {
 
   it('edits an existing prize, previews and uploads an image', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ url: `${CLD}/new.png` }))
-      .mockResolvedValueOnce(jsonResponse({}, 500));
+      .mockResolvedValueOnce(jsonResponse({}, 500))
+      .mockResolvedValueOnce(jsonResponse({ error: 'The file could not be read as an image' }, 400))
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.reject(new Error('not json')) });
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const p = setup(prize({ description: null as unknown as string, modelUrl: null }));
@@ -229,10 +229,19 @@ describe('PrizeForm', () => {
     const file = screen.getByLabelText(/Upload/) as HTMLInputElement;
     fireEvent.change(file, { target: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } });
     await waitFor(() => expect(urlInput()).toHaveValue(`${CLD}/new.png`));
+    // Sent to the prize-images bucket
+    expect((fetchMock.mock.calls[0][1].body as FormData).get('target')).toBe('prize');
     fireEvent.change(file, { target: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } });
-    await waitFor(() => expect(console.error).toHaveBeenCalledWith('Error uploading image:', expect.any(Error)));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Upload failed'));
+    expect(console.error).toHaveBeenCalledWith('Error uploading image:', expect.any(Error));
+    fireEvent.change(file, { target: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } });
+    await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('The file could not be read as an image'));
+    // A 200 without a usable body is still a failure
+    fireEvent.change(file, { target: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } });
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledTimes(3));
+    expect(h.toast.error).toHaveBeenLastCalledWith('Upload failed');
     fireEvent.change(file, { target: { files: [] } });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     fireEvent.error(screen.getByRole('img', { name: 'Preview' }));
     fireEvent.click(screen.getByRole('button', { name: 'Update Prize' }));
     await waitFor(() => expect(p.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Phone', imageUrl: `${CLD}/new.png` })));

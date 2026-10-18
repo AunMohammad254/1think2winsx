@@ -6,4 +6,5 @@ ignoredBuiltDependencies = ["esbuild"]
 
 [test]
 # The Cloudflare Worker has its own workerd-based runner: cd edge-shield && npx vitest run
-pathIgnorePatterns = ["edge-shield/**"]
+# The database tests need a local Postgres and run with `bun run test:db` (db-tests/README.md)
+pathIgnorePatterns = ["edge-shield/**", "db-tests/**"]

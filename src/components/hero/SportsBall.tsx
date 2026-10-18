@@ -1,7 +1,5 @@
-'use client';
-
-import { motion } from 'framer-motion';
-import { memo } from 'react';
+// No client code: the flip-in and spin are CSS (.ball-enter / .ball-spin in globals.css), so the
+// hero renders these on the server and ships no JavaScript for them.
 
 export type SportsBallType = 'cricket' | 'basketball' | 'tennis' | 'football' | 'hockey' | 'squash';
 
@@ -10,7 +8,7 @@ interface SportsBallProps {
   type?: SportsBallType;
 }
 
-export const SportsBall = memo(({ className = "", type = "cricket" }: SportsBallProps) => {
+export function SportsBall({ className = "", type = "cricket" }: SportsBallProps) {
   const getBallStyles = () => {
     switch (type) {
       case 'basketball':
@@ -50,13 +48,10 @@ export const SportsBall = memo(({ className = "", type = "cricket" }: SportsBall
   const styles = getBallStyles();
 
   return (
-    <motion.div
+    <div
       // Default sizes only apply when the caller supplies none: the responsive defaults
       // (md:/lg:) would otherwise beat a caller's `w-full h-full` and blow the ball up to 320px.
-      className={`relative ${className || 'w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80'}`}
-      initial={{ scale: 0, rotateY: -180 }}
-      animate={{ scale: 1, rotateY: 0 }}
-      transition={{ duration: 0.8, delay: 0.4, type: "spring", stiffness: 100 }}
+      className={`ball-enter relative ${className || 'w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80'}`}
     >
       {/* Glow effect */}
       <div 
@@ -65,8 +60,8 @@ export const SportsBall = memo(({ className = "", type = "cricket" }: SportsBall
       />
 
       {/* Main ball */}
-      <motion.div
-        className="relative w-full h-full rounded-full overflow-hidden"
+      <div
+        className="ball-spin relative w-full h-full rounded-full overflow-hidden"
         style={{
           background: styles.background,
           boxShadow: `
@@ -75,14 +70,6 @@ export const SportsBall = memo(({ className = "", type = "cricket" }: SportsBall
             0 20px 60px rgba(0,0,0,0.5),
             0 0 80px ${styles.accent}
           `
-        }}
-        animate={{
-          rotateZ: [0, 360],
-        }}
-        transition={{
-          duration: 20,
-          repeat: Infinity,
-          ease: "linear"
         }}
       >
         {/* Ball Details based on type */}
@@ -146,9 +133,7 @@ export const SportsBall = memo(({ className = "", type = "cricket" }: SportsBall
             background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.6) 0%, transparent 70%)'
           }}
         />
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
-});
-
-SportsBall.displayName = 'SportsBall';
+}

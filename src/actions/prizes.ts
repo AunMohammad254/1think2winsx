@@ -5,20 +5,20 @@ import { adminActionGuard } from '@/lib/admin-guard';
 import { prizeDb, getDb, getAdminDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT, cloudinaryPublicIdFromUrl } from '@/lib/cloudinary';
-import { deleteCloudinaryImageByUrl } from '@/lib/cloudinary-server';
+import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT } from '@/lib/cloudinary';
+import { schedulePrizeImageDeletion, type MediaDeletionReason } from '@/lib/media/deletion-queue';
 
 /**
- * Delete a prize's old Cloudinary image, unless something else still needs it:
- * another prize using the same image (any transformation), or a site asset in "assets/".
+ * Queue a prize's old image for deletion after the retention period (AppSettings
+ * prize_image_retention_days, default 30 days). The scheduler keeps it if a prize uses it
+ * again by then. Never fails the prize change itself.
  */
-async function deletePrizeImageIfUnused(url: string, prizeId: string): Promise<void> {
-    const publicId = cloudinaryPublicIdFromUrl(url);
-    if (!publicId || publicId.startsWith('assets/')) return;
-    const { data, error } = await getAdminDb().from('Prize').select('id, imageUrl').neq('id', prizeId);
-    if (error) throw error; // can't prove it's unused, so keep it
-    const stillUsed = (data || []).some((p: { imageUrl: string | null }) => cloudinaryPublicIdFromUrl(p.imageUrl) === publicId);
-    if (!stillUsed) await deleteCloudinaryImageByUrl(url);
+async function queueOldPrizeImage(url: string, reason: MediaDeletionReason, prizeId: string): Promise<void> {
+    try {
+        await schedulePrizeImageDeletion(url, reason, prizeId);
+    } catch (error) {
+        console.error('Failed to queue old prize image for deletion:', error);
+    }
 }
 import type {
     Prize,
@@ -377,14 +377,13 @@ export async function updatePrize(
 
         const prize = await prizeDb.update(id, updateData);
 
-        // If the image URL changed, delete the old image from Cloudinary
+        // If the image changed, the old one is deleted later (after the retention period)
         if (
-            existing.imageUrl && 
-            updateData.imageUrl !== undefined && 
+            existing.imageUrl &&
+            updateData.imageUrl !== undefined &&
             existing.imageUrl !== updateData.imageUrl
         ) {
-            // Non-blocking delete
-            deletePrizeImageIfUnused(existing.imageUrl, id).catch(console.error);
+            await queueOldPrizeImage(existing.imageUrl, 'prize_image_replaced', id);
         }
 
         revalidatePath('/prizes');
@@ -427,10 +426,9 @@ export async function deletePrize(
         // Use prizeDb.delete which uses admin client to bypass RLS
         await prizeDb.delete(id);
 
-        // Clean up Cloudinary image if it exists
+        // Its image is deleted later (after the retention period), unless another prize uses it
         if (prize?.imageUrl) {
-            // Non-blocking delete
-            deletePrizeImageIfUnused(prize.imageUrl, id).catch(console.error);
+            await queueOldPrizeImage(prize.imageUrl, 'prize_deleted', id);
         }
 
         revalidatePath('/prizes');

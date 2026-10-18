@@ -5,12 +5,7 @@ import { Trophy } from 'lucide-react';
 
 const router = vi.hoisted(() => ({ prefetch: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
-vi.mock('next-cloudinary', () => ({
-  // eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
-  CldImage: ({ alt, onError }: { alt: string; onError: () => void }) => <img alt={alt} onError={onError} />,
-}));
 
-import { FloatingElement } from '@/components/hero/FloatingElement';
 import { SportsBall } from '@/components/hero/SportsBall';
 import StatsGrid from '@/components/profile/StatsGrid';
 import BalanceCard from '@/components/profile/BalanceCard';
@@ -37,13 +32,6 @@ import RecentActivityFeed, { RecentActivityFeedSkeleton } from '@/components/adm
 import type { Prize } from '@/types/prize';
 
 describe('hero decorations', () => {
-  it('FloatingElement places its child by percentage', () => {
-    render(<FloatingElement x={10} y={20}>⚽</FloatingElement>);
-    expect(screen.getByText('⚽').style.left).toBe('10%');
-    render(<FloatingElement>🏏</FloatingElement>);
-    expect(screen.getByText('🏏').style.top).toBe('0%');
-  });
-
   it.each(['cricket', 'basketball', 'tennis', 'football', 'hockey', 'squash', undefined] as const)('SportsBall draws a %s ball', (type) => {
     const { container } = render(<SportsBall type={type} className={type ? 'w-full' : ''} />);
     const outer = container.firstElementChild as HTMLElement;
@@ -102,7 +90,7 @@ describe('profile pieces', () => {
 });
 
 const prize = (over: Partial<Prize> = {}): Prize => ({
-  id: 'p1', name: 'Smart Watch', description: 'A watch', imageUrl: 'watch.png', modelUrl: null, type: 'physical', pointsRequired: 1000,
+  id: 'p1', name: 'Smart Watch', description: 'A watch', imageUrl: 'https://res.cloudinary.com/dszrz6s6u/image/upload/v1/prizes/watch.png', modelUrl: null, type: 'physical', pointsRequired: 1000,
   isActive: true, category: 'electronics', stock: 10, status: 'published', value: 15000, createdAt: new Date(), updatedAt: new Date(), ...over,
 });
 
@@ -154,6 +142,8 @@ describe('prizes', () => {
     const { rerender } = render(<PrizeCard prize={prize({ imageUrl: null })} />);
     expect(screen.queryByRole('img')).toBeNull();
     rerender(<PrizeCard prize={prize()} />);
+    // Cloudinary images are resized by Cloudinary's CDN through the shared loader
+    expect(screen.getByRole('img', { name: 'Smart Watch' }).getAttribute('src')).toContain('/t_1Think2win/w_3840,c_limit,q_auto,f_auto/');
     fireEvent.error(screen.getByRole('img', { name: 'Smart Watch' }));
     expect(screen.queryByRole('img')).toBeNull();
   });
