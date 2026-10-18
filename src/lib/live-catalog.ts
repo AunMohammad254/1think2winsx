@@ -37,11 +37,17 @@ export interface LiveQuiz {
   startsAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** What the landing page's cards show: the linked prize, the bumper flag and the day-pass price. */
+  prizeName: string | null;
+  isBumperPrize: boolean;
+  accessPrice: number;
 }
 
 export interface LiveSnapshot {
   version: string;
   quizzes: LiveQuiz[];
+  /** Off means every quiz is free, whatever its `accessPrice` says. */
+  walletEnabled: boolean;
 }
 
 // Same shape the personal list sends (Dates serialised as ISO strings), so merged and fetched
@@ -63,6 +69,9 @@ export function toLiveQuiz(quiz: CatalogQuiz): LiveQuiz {
     startsAt: quiz.status === 'upcoming' ? iso(quiz.startsAt) : null,
     createdAt: iso(quiz.createdAt) as string,
     updatedAt: iso(quiz.updatedAt) as string,
+    prizeName: quiz.prizeName ?? null,
+    isBumperPrize: !!quiz.isBumperPrize,
+    accessPrice: Number(quiz.accessPrice) || 0,
   };
 }
 

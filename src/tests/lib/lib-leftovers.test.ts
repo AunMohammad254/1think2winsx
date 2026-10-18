@@ -489,6 +489,37 @@ describe('quiz catalogue', () => {
     cat.invalidateQuizCatalog();
     expect(await cat.getActiveQuizCatalog()).toEqual([]);
   });
+
+  it('names linked prizes with one query, only when a quiz has one, and lists quizzes without names if it fails', async () => {
+    adminDb.setTable('Quiz', {
+      data: [
+        { id: 'a', status: 'upcoming', prizeId: 'p1' },
+        { id: 'b', status: 'upcoming', prizeId: 'p1' },
+        { id: 'c', status: 'upcoming', prizeId: 'deleted' },
+        { id: 'd', status: 'upcoming', prizeId: null },
+      ],
+    });
+    adminDb.setTable('Question', { data: [] });
+    adminDb.setTable('Prize', { data: [{ id: 'p1', name: 'Ronin Earbuds' }] });
+    expect((await cat.getActiveQuizCatalog()).map((q) => q.prizeName)).toEqual(['Ronin Earbuds', 'Ronin Earbuds', null, null]);
+    expect(adminDb.callsTo('Prize')).toHaveLength(1);
+    expect(adminDb.callsTo('Prize')[0].ops.find((o) => o.op === 'in')?.args).toEqual(['id', ['p1', 'deleted']]);
+
+    cat.invalidateQuizCatalog();
+    adminDb.setTable('Prize', { data: null });
+    expect((await cat.getActiveQuizCatalog())[0].prizeName).toBeNull();
+
+    // Prize names are cosmetic: the catalogue still loads, and the failure is logged
+    cat.invalidateQuizCatalog();
+    adminDb.setTable('Prize', { error: { message: 'prizes down' } });
+    expect((await cat.getActiveQuizCatalog())[0]).toMatchObject({ id: 'a', prizeName: null });
+    expect(console.error).toHaveBeenCalledWith('[QuizCatalog] Prize names failed:', { message: 'prizes down' });
+
+    cat.invalidateQuizCatalog();
+    adminDb.setTable('Quiz', { data: [{ id: 'd', status: 'upcoming' }] });
+    expect((await cat.getActiveQuizCatalog())[0].prizeName).toBeNull();
+    expect(adminDb.callsTo('Prize')).toHaveLength(3);
+  });
 });
 
 describe('sendEmail (Brevo REST)', () => {
