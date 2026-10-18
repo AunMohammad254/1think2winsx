@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { Section, SectionHeading, Reveal, TrophyIcon } from "./Primitives";
 import Link from "next/link";
 
@@ -43,7 +43,9 @@ function shuffleArray<T>(arr: T[]): T[] {
   return copy;
 }
 
-function PlayerRow({ player, index }: { player: Player; index: number }) {
+// ⚡ Bolt: Wrapped PlayerRow in memo to prevent unnecessary re-renders of the list items
+// when the parent Leaderboard's setInterval triggers state updates.
+const PlayerRow = memo(function PlayerRow({ player, index }: { player: Player; index: number }) {
   const maxPoints = BASE_LEADERS[0].points;
   const progress = (player.points / maxPoints) * 100;
   const [animate, setAnimate] = useState(false);
@@ -104,7 +106,7 @@ function PlayerRow({ player, index }: { player: Player; index: number }) {
       </div>
     </li>
   );
-}
+});
 
 export default function Leaderboard() {
   const [leaders, setLeaders] = useState(BASE_LEADERS);

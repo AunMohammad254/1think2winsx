@@ -10,3 +10,7 @@
 ## 2026-10-16 - [LiveQuiz Card React.memo optimization]
 **Learning:** `LiveQuiz` uses `useAnimatedCounter` and `setInterval` which forces the entire component to re-render very frequently. Extracted `QuizCarouselCard` inside `LiveQuiz` wasn't memoized and received props that caused unnecessary re-renders. A prop value `livePlayers` was passed to all cards unconditionally instead of only to the `active` card, which defeated the purpose of `React.memo`.
 **Action:** Extract list items into a `React.memo` component AND ensure that props passed to it are selectively assigned so that inactive components don't receive changing values (e.g. `livePlayers={i === active ? livePlayers : q.players}`).
+
+## 2023-11-20 - [PlayerRow React.memo optimization in Leaderboard]
+**Learning:** The `Leaderboard` component uses a `setInterval` that periodically updates the `leaders` state array, causing the entire component to re-render. Since `PlayerRow` receives its specific player data as props and does not change unless its data changes, omitting `React.memo` caused every single row to needlessly re-render every time the interval ticked, wasting main thread time.
+**Action:** Used `React.memo` on the `PlayerRow` component inside `Leaderboard.tsx` to ensure each row only re-renders when its specific player props change, rather than every time the parent component's interval ticks.
