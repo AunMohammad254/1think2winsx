@@ -88,7 +88,6 @@ export function toUtcIso(input: string | null | undefined): string | null {
 const ZONE_LABELS: Record<string, string> = {
   'Asia/Karachi': 'PKT',
   'Asia/Dubai': 'GST',
-  'Asia/Kolkata': 'IST',
   'Asia/Riyadh': 'AST',
 };
 

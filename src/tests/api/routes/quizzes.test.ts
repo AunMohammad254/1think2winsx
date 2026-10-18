@@ -306,7 +306,7 @@ describe('Quiz API Routes', () => {
       const submission = {
         answers: [
           { questionId: 'q1', selectedOption: 1 }, // Correct: 2+2=4
-          { questionId: 'q2', selectedOption: 1 }, // Correct: Delhi
+          { questionId: 'q2', selectedOption: 1 }, // Correct: Islamabad
         ],
         timeSpent: 120, // seconds
       };

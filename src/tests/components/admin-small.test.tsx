@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 const q = (over: Partial<Question> = {}): Question => ({
-  id: 'q1', quizId: 'z', text: 'Who won?', options: ['Pakistan', 'India'], correctOption: 0, hasCorrectAnswer: true, status: 'active', order: 0, ...over,
+  id: 'q1', quizId: 'z', text: 'Who won?', options: ['Karachi Kings', 'Lahore Qalandars'], correctOption: 0, hasCorrectAnswer: true, status: 'active', order: 0, ...over,
 });
 
 describe('QuestionList', () => {

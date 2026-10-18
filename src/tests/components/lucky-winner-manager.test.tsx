@@ -17,10 +17,13 @@ const board = (over: Record<string, unknown> = {}) => ({
   leaderboard: [attempt('a1', 90, 'Ali'), attempt('a2', 90, null), attempt('a3', 80, 'Sara'), attempt('a4', 70, 'Zed')],
   existingWinner: null, winnerAlreadyDrawn: false, ...over,
 });
+// The shape POST /api/admin/lucky-winner/[quizId]/draw really answers with: a `winners` list
+const drawnWinner = { id: 'w1', userId: 'u-a1', name: 'Ali', email: 'a1@x.com', score: 90, completedAt: '2026-10-01T10:00:00Z', selectionMethod: 'random_draw', seed: 'abc123', selectedAt: '2026-10-02T10:00:00Z' };
 const drawResult = (over: Record<string, unknown> = {}) => ({
   success: true, message: 'ok',
-  winner: { id: 'w1', userId: 'u-a1', name: 'Ali', email: 'a1@x.com', score: 90, selectionMethod: 'random_draw', seed: 'abc123', selectedAt: '2026-10-02T10:00:00Z' },
-  draw: { totalAttempts: 5, maxScore: 90, tiedCount: 2, selectedIndex: 0, seed: 'abc123' },
+  winners: [drawnWinner],
+  consolation: { points: 0, losersAwarded: 0 },
+  draw: { totalAttempts: 5, maxScore: 90, tiedCount: 2, winnerCount: 1, seed: 'abc123' },
   ...over,
 });
 
@@ -73,7 +76,8 @@ describe('LuckyWinnerManager', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/lucky-winner/q1/draw', { method: 'POST' });
     expect(screen.getByText('Fair random draw from tied candidates')).toBeInTheDocument();
     expect(screen.getByText('Seed: abc123')).toBeInTheDocument();
-    expect(screen.getByText(/Selected index:/)).toBeInTheDocument();
+    expect(screen.getByText('Ali', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByText(/Tied at top score \(90\)/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Draw for another quiz/ }));
     expect(await screen.findByText('Select a Prize-Linked Quiz')).toBeInTheDocument();
   });
@@ -81,7 +85,7 @@ describe('LuckyWinnerManager', () => {
   it('confirms a single top scorer without a draw', async () => {
     vi.stubGlobal('fetch', routes({
       board: () => jsonResponse(board({ tiedCount: 1, prize: null, tiedTopAttempts: [attempt('a1', 90, 'Ali')] })),
-      draw: () => jsonResponse(drawResult({ winner: { ...drawResult().winner, email: undefined, selectionMethod: 'auto_single_winner' }, draw: { ...drawResult().draw, selectedIndex: null, tiedCount: 1 } })),
+      draw: () => jsonResponse(drawResult({ winners: [{ ...drawnWinner, email: undefined, selectionMethod: 'auto_single_winner' }], draw: { ...drawResult().draw, tiedCount: 1 } })),
     }));
     render(<LuckyWinnerManager />);
     fireEvent.click(await screen.findByText('Cricket Cup'));
@@ -91,7 +95,23 @@ describe('LuckyWinnerManager', () => {
     expect(screen.getByText('Auto (single top scorer)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Confirm & Draw Winner/ }));
     expect(await screen.findByText('Single top scorer — no draw needed')).toBeInTheDocument();
-    expect(screen.queryByText(/Selected index/)).toBeNull();
+  });
+
+  it('reports a draw that answered without a winner instead of crashing', async () => {
+    const drawRes = vi.fn()
+      .mockReturnValueOnce(jsonResponse(drawResult({ winners: [] })))
+      .mockReturnValueOnce(jsonResponse({ success: true, message: 'ok', draw: drawResult().draw }));
+    vi.stubGlobal('fetch', routes({ draw: drawRes }));
+    render(<LuckyWinnerManager />);
+    fireEvent.click(await screen.findByText('Cricket Cup'));
+    fireEvent.click(await screen.findByRole('button', { name: /Run Fair Draw/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Confirm & Draw Winner/ }));
+    const noWinner = 'The draw finished but returned no winner. Reload the quiz to see it.';
+    expect(await screen.findByText(noWinner)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Confirm & Draw Winner/ }));
+    await waitFor(() => expect(drawRes).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(noWinner)).toBeInTheDocument();
+    expect(screen.queryByText('🎉 Winner Selected!')).toBeNull();
   });
 
   it('jumps straight to the result when a winner was already drawn', async () => {

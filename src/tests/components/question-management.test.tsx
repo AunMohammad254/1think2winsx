@@ -6,7 +6,7 @@ import { jsonResponse } from '@/tests/helpers/ui';
 import QuestionManagement from '@/components/admin/questions/QuestionManagement';
 
 const apiQuestions = [
-  { id: 'q1', quizId: 'z1', text: 'Who won in 1992?', options: '["India","Pakistan"]', correctOption: 1, status: 'active', order: 0 },
+  { id: 'q1', quizId: 'z1', text: 'Who won PSL 2020?', options: '["Lahore Qalandars","Karachi Kings"]', correctOption: 1, status: 'active', order: 0 },
   { id: 'q2', quizId: 'z1', text: 'Best bowler?', options: ['Wasim', 'Waqar'], correctOption: null, status: 'paused', order: 1 },
 ];
 
@@ -29,7 +29,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const loaded = () => screen.findByText('Who won in 1992?');
+const loaded = () => screen.findByText('Who won PSL 2020?');
 const card = (n: number) => screen.getByText(`Question ${n}`).closest('.glass-card') as HTMLElement;
 const dialog = () => screen.getByRole('dialog');
 const option = (i: number) => within(dialog()).getByPlaceholderText(`Option ${i}`);
@@ -44,9 +44,9 @@ describe('QuestionManagement', () => {
     expect(screen.getByText('Loading questions...')).toBeInTheDocument();
     await loaded();
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/quizzes/z1');
-    expect(screen.getByText('Pakistan')).toBeInTheDocument();
+    expect(screen.getByText('Karachi Kings')).toBeInTheDocument();
     expect(onChange).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 'q1', options: ['India', 'Pakistan'], hasCorrectAnswer: true }),
+      expect.objectContaining({ id: 'q1', options: ['Lahore Qalandars', 'Karachi Kings'], hasCorrectAnswer: true }),
       expect.objectContaining({ id: 'q2', hasCorrectAnswer: false }),
     ]);
   });
@@ -175,12 +175,12 @@ describe('QuestionManagement', () => {
     await loaded();
     fireEvent.click(within(card(1)).getAllByRole('button')[0]);
     expect(screen.getByText('Edit Question')).toBeInTheDocument();
-    expect(option(2)).toHaveValue('Pakistan');
-    setText('Who won the 1992 World Cup?');
+    expect(option(2)).toHaveValue('Karachi Kings');
+    setText('Who won the 2020 PSL final?');
     save();
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(writes()[0][0]).toBe('/api/admin/questions/q1');
-    expect(JSON.parse(writes()[0][1].body)).toEqual({ text: 'Who won the 1992 World Cup?', options: ['India', 'Pakistan'], correctOption: 1, status: 'active' });
+    expect(JSON.parse(writes()[0][1].body)).toEqual({ text: 'Who won the 2020 PSL final?', options: ['Lahore Qalandars', 'Karachi Kings'], correctOption: 1, status: 'active' });
 
     fireEvent.click(within(card(2)).getAllByRole('button')[0]);
     save();
@@ -191,7 +191,7 @@ describe('QuestionManagement', () => {
   });
 
   it('refuses to save a stored answer that points past the options', async () => {
-    const broken = { ...apiQuestions[0], options: ['India', 'Pakistan'], correctOption: 5 };
+    const broken = { ...apiQuestions[0], options: ['Lahore Qalandars', 'Karachi Kings'], correctOption: 5 };
     vi.stubGlobal('fetch', (fetchMock = routes({ quiz: () => jsonResponse({ quiz: { questions: [broken] } }) })));
     render(<QuestionManagement quizId="z1" />);
     await loaded();
