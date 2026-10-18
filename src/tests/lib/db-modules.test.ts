@@ -317,13 +317,13 @@ describe('notification.db push delivery', () => {
   const sub = (id: string) => ({ id, userId: 'u', endpoint: `https://push.example/${id}`, p256dh: 'p', auth: 'a', createdAt: 'c' });
 
   it('create stores the notification and pushes to every device of the player', async () => {
-    db.setTable('Notification', { data: { id: 'n1' } });
+    adminDb.setTable('Notification', { data: { id: 'n1' } });
     adminDb.setTable('PushSubscription', { data: [sub('s1'), sub('s2')] });
 
     expect(await notificationDb.create('u', { title: 'Hi', message: 'There', type: 'wallet', link: '/w' })).toEqual({ id: 'n1' });
     await flush();
 
-    expect(argOf(db.callsTo('Notification')[0], 'insert')).toMatchObject({ userId: 'u', title: 'Hi', message: 'There', link: '/w', read: false });
+    expect(argOf(adminDb.callsTo('Notification')[0], 'insert')).toMatchObject({ userId: 'u', title: 'Hi', message: 'There', link: '/w', read: false });
     expect(sendNotification).toHaveBeenCalledTimes(2);
     const [target, payload, opts] = sendNotification.mock.calls[0];
     expect(target).toEqual({ endpoint: 'https://push.example/s1', keys: { p256dh: 'p', auth: 'a' } });
@@ -332,11 +332,11 @@ describe('notification.db push delivery', () => {
   });
 
   it('create defaults the link and skips push without subscriptions', async () => {
-    db.setTable('Notification', { data: { id: 'n1' } });
+    adminDb.setTable('Notification', { data: { id: 'n1' } });
     adminDb.setTable('PushSubscription', { data: [sub('s1')] });
     await notificationDb.create('u', { title: 't', message: 'm', type: 'x' });
     await flush();
-    expect(argOf(db.callsTo('Notification')[0], 'insert')).toMatchObject({ link: null });
+    expect(argOf(adminDb.callsTo('Notification')[0], 'insert')).toMatchObject({ link: null });
     expect(JSON.parse(sendNotification.mock.calls[0][1]).url).toBe('/notifications');
 
     sendNotification.mockClear();
@@ -349,7 +349,7 @@ describe('notification.db push delivery', () => {
   });
 
   it('deletes subscriptions the push service says are gone, and logs other failures', async () => {
-    db.setTable('Notification', { data: { id: 'n1' } });
+    adminDb.setTable('Notification', { data: { id: 'n1' } });
     adminDb.setTable('PushSubscription', (call) => (call.ops.some((o) => o.op === 'delete') ? { error: null } : { data: [sub('gone'), sub('missing'), sub('flaky')] }));
     sendNotification.mockImplementation(async (target: { endpoint: string }) => {
       if (target.endpoint.endsWith('gone')) throw { statusCode: 410 };
@@ -367,7 +367,7 @@ describe('notification.db push delivery', () => {
   });
 
   it('logs when removing a dead subscription fails', async () => {
-    db.setTable('Notification', { data: { id: 'n1' } });
+    adminDb.setTable('Notification', { data: { id: 'n1' } });
     adminDb.setTable('PushSubscription', { data: [sub('gone')] });
     sendNotification.mockRejectedValue({ statusCode: 410 });
     adminDb.setTable('PushSubscription', (call) => {
@@ -380,8 +380,8 @@ describe('notification.db push delivery', () => {
   });
 
   it('create throws when the insert fails', async () => {
-    db.setTable('Notification', { error: { message: 'rls' } });
-    await expect(notificationDb.create('u', { title: 't', message: 'm', type: 'x' })).rejects.toEqual({ message: 'rls' });
+    adminDb.setTable('Notification', { error: { message: 'insert failed' } });
+    await expect(notificationDb.create('u', { title: 't', message: 'm', type: 'x' })).rejects.toEqual({ message: 'insert failed' });
   });
 
   it('createBroadcast inserts for every user in chunks of 500 and pushes in batches of 50', async () => {

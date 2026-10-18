@@ -74,7 +74,6 @@ interface DrawResult {
         totalAttempts: number;
         maxScore: number;
         tiedCount: number;
-        selectedIndex: number | null;
         seed: string;
     };
 }
@@ -202,7 +201,6 @@ export default function LuckyWinnerManager() {
                         totalAttempts: data.totalAttempts,
                         maxScore: data.maxScore,
                         tiedCount: data.tiedCount,
-                        selectedIndex: null,
                         seed: data.existingWinner.seed,
                     },
                 });
@@ -234,7 +232,11 @@ export default function LuckyWinnerManager() {
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Draw failed');
-            setDrawResult(data);
+            // The route answers with a `winners` list. This page never asks for more than one, and
+            // the database allows one winner per quiz, so the first entry is the winner.
+            const [winner] = data.winners ?? [];
+            if (!winner) throw new Error('The draw finished but returned no winner. Reload the quiz to see it.');
+            setDrawResult({ success: data.success, message: data.message, winner, draw: data.draw });
             setStep(4);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Draw failed. Please try again.');
@@ -506,9 +508,6 @@ export default function LuckyWinnerManager() {
                     <div className="bg-gray-900/50 border border-white/10 rounded-xl p-4 text-sm text-gray-400 space-y-1">
                         <p>Total attempts: <span className="text-white">{drawResult.draw.totalAttempts}</span></p>
                         <p>Tied at top score ({drawResult.draw.maxScore}): <span className="text-white">{drawResult.draw.tiedCount}</span></p>
-                        {drawResult.draw.selectedIndex !== null && (
-                            <p>Selected index: <span className="text-white">{drawResult.draw.selectedIndex}</span> (from seed mod {drawResult.draw.tiedCount})</p>
-                        )}
                     </div>
 
                     <button
