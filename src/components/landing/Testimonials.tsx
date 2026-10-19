@@ -62,6 +62,42 @@ const ReviewCard = memo(function ReviewCard({ r, index }: { r: (typeof REVIEWS)[
   );
 });
 
+const MemoizedSectionHeading = memo(function MemoizedSectionHeading() {
+  return (
+    <SectionHeading
+      eyebrow="Player love"
+      title={<>10,000+ players. <span className="text-gradient-cool">4.9 average rating.</span></>}
+      description="Real reviews from real sports fans who play — and win — every week."
+    />
+  );
+});
+
+const MemoizedTestimonialStats = memo(function MemoizedTestimonialStats() {
+  return (
+    <div className="mt-14 flex flex-wrap items-center justify-center gap-x-10 gap-y-6 text-center sm:gap-x-16">
+      <div>
+        <p className="font-display text-3xl font-bold text-white">4.9★</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-white/60">App rating</p>
+      </div>
+      <div className="h-10 w-px bg-white/10" />
+      <div>
+        <p className="font-display text-3xl font-bold text-white">10K+</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-white/60">Reviews</p>
+      </div>
+      <div className="h-10 w-px bg-white/10" />
+      <div>
+        <p className="font-display text-3xl font-bold text-white">93%</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-white/60">Recommend</p>
+      </div>
+      <div className="h-10 w-px bg-white/10" />
+      <div>
+        <p className="font-display text-3xl font-bold text-white">5min</p>
+        <p className="text-xs uppercase tracking-[0.16em] text-white/60">Avg payout</p>
+      </div>
+    </div>
+  );
+});
+
 export default function Testimonials() {
   const items = [...REVIEWS, ...REVIEWS];
   const [spotlightIndex, setSpotlightIndex] = useState(0);
@@ -77,11 +113,7 @@ export default function Testimonials() {
 
   return (
     <Section  className="relative overflow-hidden">
-      <SectionHeading
-        eyebrow="Player love"
-        title={<>10,000+ players. <span className="text-gradient-cool">4.9 average rating.</span></>}
-        description="Real reviews from real sports fans who play — and win — every week."
-      />
+      <MemoizedSectionHeading />
       <Reveal delay={150}>
         <div className="relative mt-14">
           <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-linear-to-r from-ink-950 to-transparent" />
@@ -96,27 +128,7 @@ export default function Testimonials() {
         </div>
       </Reveal>
       <Reveal delay={300}>
-        <div className="mt-14 flex flex-wrap items-center justify-center gap-x-10 gap-y-6 text-center sm:gap-x-16">
-          <div>
-            <p className="font-display text-3xl font-bold text-white">4.9★</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/60">App rating</p>
-          </div>
-          <div className="h-10 w-px bg-white/10" />
-          <div>
-            <p className="font-display text-3xl font-bold text-white">10K+</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Reviews</p>
-          </div>
-          <div className="h-10 w-px bg-white/10" />
-          <div>
-            <p className="font-display text-3xl font-bold text-white">93%</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Recommend</p>
-          </div>
-          <div className="h-10 w-px bg-white/10" />
-          <div>
-            <p className="font-display text-3xl font-bold text-white">5min</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Avg payout</p>
-          </div>
-        </div>
+        <MemoizedTestimonialStats />
       </Reveal>
       <Reveal delay={450}>
         <div className="mx-auto mt-14 max-w-md">

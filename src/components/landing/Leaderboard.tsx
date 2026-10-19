@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { Section, SectionHeading, Reveal, TrophyIcon } from "./Primitives";
 import Link from "next/link";
 
@@ -106,6 +106,47 @@ function PlayerRow({ player, index }: { player: Player; index: number }) {
   );
 }
 
+const MemoizedSectionHeading = memo(function MemoizedSectionHeading() {
+  return (
+    <SectionHeading
+      eyebrow="This week's champions"
+      title={<>Compete with <span className="text-gradient-trophy">Pakistan's best.</span></>}
+      description="Climb the weekly rankings and see how you stack up against the sharpest sports minds from Karachi to Khyber."
+    />
+  );
+});
+
+const MemoizedTableHeader = memo(function MemoizedTableHeader() {
+  return (
+    <div className="hidden grid-cols-12 gap-4 border-b border-white/10 bg-white/[0.02] px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70 sm:grid">
+      <div className="col-span-1">Rank</div>
+      <div className="col-span-5">Player</div>
+      <div className="col-span-2 text-right">Streak</div>
+      <div className="col-span-2 text-right">Points</div>
+      <div className="col-span-2 text-right">Won</div>
+    </div>
+  );
+});
+
+const MemoizedTableFooter = memo(function MemoizedTableFooter() {
+  return (
+    <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.02] px-6 py-4">
+      <p className="text-xs text-white/70">
+        Updated <span className="text-white">live</span> &middot; Weekly board counts the last 7 days
+      </p>
+      <Link
+        href="/leaderboard"
+        className="group inline-flex items-center gap-1 text-sm font-semibold text-emerald-400 hover:text-emerald-300"
+      >
+        View full rankings
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" fill="currentColor">
+          <path d="M13.4 5.6 12 7l4 4H4v2h12l-4 4 1.4 1.4L20 12l-6.6-6.4Z" />
+        </svg>
+      </Link>
+    </div>
+  );
+});
+
 export default function Leaderboard() {
   const [leaders, setLeaders] = useState(BASE_LEADERS);
 
@@ -121,39 +162,16 @@ export default function Leaderboard() {
 
   return (
     <Section  className="relative">
-      <SectionHeading
-        eyebrow="This week's champions"
-        title={<>Compete with <span className="text-gradient-trophy">Pakistan's best.</span></>}
-        description="Climb the weekly rankings and see how you stack up against the sharpest sports minds from Karachi to Khyber."
-      />
+      <MemoizedSectionHeading />
       <Reveal delay={150}>
         <div className="mt-14 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.06] to-transparent backdrop-blur-xl">
-          <div className="hidden grid-cols-12 gap-4 border-b border-white/10 bg-white/[0.02] px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70 sm:grid">
-            <div className="col-span-1">Rank</div>
-            <div className="col-span-5">Player</div>
-            <div className="col-span-2 text-right">Streak</div>
-            <div className="col-span-2 text-right">Points</div>
-            <div className="col-span-2 text-right">Won</div>
-          </div>
+          <MemoizedTableHeader />
           <ul>
             {leaders.map((p, i) => (
               <PlayerRow key={p.name} player={p} index={i} />
             ))}
           </ul>
-          <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.02] px-6 py-4">
-            <p className="text-xs text-white/70">
-              Updated <span className="text-white">live</span> &middot; Weekly board counts the last 7 days
-            </p>
-            <Link
-              href="/leaderboard"
-              className="group inline-flex items-center gap-1 text-sm font-semibold text-emerald-400 hover:text-emerald-300"
-            >
-              View full rankings
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" fill="currentColor">
-                <path d="M13.4 5.6 12 7l4 4H4v2h12l-4 4 1.4 1.4L20 12l-6.6-6.4Z" />
-              </svg>
-            </Link>
-          </div>
+          <MemoizedTableFooter />
         </div>
       </Reveal>
     </Section>
