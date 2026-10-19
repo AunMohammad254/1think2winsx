@@ -63,7 +63,8 @@ describe('getAnalyticsData', () => {
     adminDb.setRpc('get_admin_analytics', { data: { revenue: [{ date: 'd', amount: 4 }] } });
     adminDb.setTable('Quiz', { data: [{ id: 'q1' }, { id: 'q2' }, { id: 'q3' }] });
     adminDb.setTable('QuizAttempt', (call) => (call.ops.some((o) => o.op === 'in') ? { count: 10 } : { data: [{ score: 0 }, { score: 20 }, { score: 35 }, { score: 60 }, { score: 61 }, { score: 99 }, { score: null }] }));
-    adminDb.setTable('Notification', { data: [{ read: true }, { read: false }, { read: true }] });
+    // Counted in the database: all notifications, and the ones players opened
+    adminDb.setTable('Notification', (call) => (call.ops.some((o) => o.op === 'eq') ? { count: 2 } : { count: 3 }));
 
     const data = await analytics.getAnalyticsData();
 
@@ -75,10 +76,13 @@ describe('getAnalyticsData', () => {
     expect(data.notificationEfficacy).toEqual({ totalSent: 3, totalRead: 2, ctr: 67 });
   });
 
-  it('measures notifications of type "quiz_results", which nothing ever creates', async () => {
+  it('measures every notification players receive (it used to count only "quiz_results", which nothing sends)', async () => {
     adminDb.setRpc('get_admin_analytics', { data: {} });
     await analytics.getAnalyticsData();
-    expect(eqValue(adminDb.callsTo('Notification')[0], 'type')).toBe('quiz_results');
+    const [all, opened] = adminDb.callsTo('Notification');
+    expect(eqValue(all, 'type')).toBeUndefined();
+    expect(eqValue(opened, 'type')).toBeUndefined();
+    expect(eqValue(opened, 'read')).toBe(true);
   });
 
   it('handles no live quizzes, no scores and no notifications', async () => {
