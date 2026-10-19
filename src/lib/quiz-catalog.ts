@@ -106,7 +106,7 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     // "total attempts" figure was wrong for everyone).
     db.rpc('get_quiz_attempt_counts_by_quiz', { quiz_ids: ids }),
     // Prize names for public listings; most quizzes have no prize, and then there is no query at all
-    prizeIds.length > 0 ? db.from('Prize').select('id, name').in('id', prizeIds) : { data: [], error: null },
+    prizeIds.length > 0 ? db.from('Prize').select('id, name, category').in('id', prizeIds) : { data: [], error: null },
   ]);
   if (questionsRes.error) throw questionsRes.error;
 
@@ -129,16 +129,22 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
   }
 
   const prizeNames = new Map<string, string>();
+  const bumperPrizes = new Set<string>();
   if (prizesRes.error) {
     // Cosmetic too: listings then show the quiz without its prize's name
     console.error('[QuizCatalog] Prize names failed:', prizesRes.error);
   } else {
-    for (const row of (prizesRes.data || []) as Array<{ id: string; name: string }>) prizeNames.set(row.id, row.name);
+    for (const row of (prizesRes.data || []) as Array<{ id: string; name: string; category?: string }>) {
+      // A bumper prize is a secret until it is won: public listings say "Bumper prize", never its name
+      if (row.category === 'bumper') bumperPrizes.add(row.id);
+      else prizeNames.set(row.id, row.name);
+    }
   }
 
   return quizzes.map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts' | 'prizeName'> & { prizeId?: string | null }) => ({
     ...q,
     description: q.description || '',
+    isBumperPrize: q.isBumperPrize || (!!q.prizeId && bumperPrizes.has(q.prizeId)),
     questions: byQuiz.get(q.id) || [],
     totalAttempts: counts.get(q.id) || 0,
     prizeName: (q.prizeId && prizeNames.get(q.prizeId)) || null,

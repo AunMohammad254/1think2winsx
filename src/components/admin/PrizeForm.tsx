@@ -18,7 +18,7 @@ const prizeFormSchema = z.object({
     modelUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
     pointsRequired: z.number().min(1, 'Points must be at least 1'),
-    category: z.enum(['electronics', 'vehicles', 'accessories', 'general']),
+    category: z.enum(['electronics', 'vehicles', 'accessories', 'general', 'bumper']),
     stock: z.number().min(0, 'Stock cannot be negative'),
     status: z.enum(['draft', 'published']),
     value: z.number().min(0, 'Value cannot be negative'),
@@ -273,6 +273,7 @@ export default function PrizeForm({
                                 <option value="vehicles" className="bg-slate-800">Vehicles</option>
                                 <option value="accessories" className="bg-slate-800">Accessories</option>
                                 <option value="general" className="bg-slate-800">General</option>
+                                <option value="bumper" className="bg-slate-800">Bumper (secret: hidden from players)</option>
                             </select>
                         </div>
                     </div>

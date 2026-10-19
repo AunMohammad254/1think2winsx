@@ -353,7 +353,7 @@ describe('QuizFormBuilder: editing and prizes', () => {
 
   it('links and unlinks a prize and marks it as a bumper draw', async () => {
     render(<QuizFormBuilder />);
-    expect(screen.getByText('Optional — enables Lucky Winner Draw for this quiz')).toBeInTheDocument();
+    expect(screen.getByText('Optional: shows this prize on the quiz card. You award prizes when you settle the quiz')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Link to Prize'));
     await waitFor(() => expect(screen.getByRole('option', { name: 'Bike' })).toBeInTheDocument());
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'p1' } });
@@ -363,7 +363,7 @@ describe('QuizFormBuilder: editing and prizes', () => {
     expect(bumper.className).toContain('bg-yellow-500');
     fireEvent.click(bumper);
     fireEvent.change(screen.getByRole('combobox'), { target: { value: '' } });
-    expect(screen.getByText('Optional — enables Lucky Winner Draw for this quiz')).toBeInTheDocument();
+    expect(screen.getByText('Optional: shows this prize on the quiz card. You award prizes when you settle the quiz')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Link to Prize'));
     expect(screen.queryByRole('combobox')).toBeNull();
   });

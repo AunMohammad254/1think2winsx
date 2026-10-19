@@ -6,9 +6,9 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 
-// Lazy load the heavy QuizEvaluationManager component (967 lines, 36KB)
-const QuizEvaluationManager = dynamic(
-    () => import('@/components/QuizEvaluationManager'),
+// Lazy load the settlement screen: admin-only, so it stays out of every other page's bundle
+const QuizSettlementManager = dynamic(
+    () => import('@/components/admin/QuizSettlementManager'),
     {
         loading: () => (
             <div className="space-y-6">
@@ -78,13 +78,13 @@ export default function QuizEvaluationPage() {
                         >
                             <ChevronLeft className="w-5 h-5" />
                         </Link>
-                        <h1 className="text-3xl font-bold text-white">Quiz Evaluation</h1>
+                        <h1 className="text-3xl font-bold text-white">Settle Quizzes</h1>
                     </div>
-                    <p className="text-gray-400">Set correct answers and evaluate quiz attempts</p>
+                    <p className="text-gray-400">Enter each quiz&apos;s result, reward 1st to 3rd place with points or a prize, and settle it once</p>
                 </div>
 
-                {/* Quiz Evaluation Manager */}
-                <QuizEvaluationManager />
+                {/* Settlement: Open -> Awaiting result -> Ready to settle -> Settled */}
+                <QuizSettlementManager />
             </div>
         </div>
     );

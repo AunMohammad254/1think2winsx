@@ -1,0 +1,179 @@
+// @vitest-environment node
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextResponse } from 'next/server';
+import { makeRequest } from '@/tests/helpers/supabase-mock';
+
+const guard = vi.fn();
+const list = vi.fn();
+const detail = vi.fn();
+const save = vi.fn();
+const run = vi.fn();
+const notify = vi.fn();
+
+vi.mock('@/lib/admin-api-guard', () => ({ adminApiGuard: (...a: unknown[]) => guard(...a) }));
+vi.mock('@/lib/quiz-settlement', () => ({
+  listSettlementQuizzes: (...a: unknown[]) => list(...a),
+  getSettlementDetail: (...a: unknown[]) => detail(...a),
+  saveQuizResult: (...a: unknown[]) => save(...a),
+  runSettlement: (...a: unknown[]) => run(...a),
+  notifySettlement: (...a: unknown[]) => notify(...a),
+}));
+vi.mock('@/lib/logger', () => ({ default: { log: vi.fn() } }));
+
+const main = await import('@/app/api/admin/quiz-settlement/route');
+const preview = await import('@/app/api/admin/quiz-settlement/preview/route');
+const result = await import('@/app/api/admin/quiz-settlement/result/route');
+const { rewardsSchema, settleErrorStatus } = await import('@/app/api/admin/quiz-settlement/schema');
+
+const ADMIN = { id: 'admin-user', email: 'admin@1think2win.com' };
+const SEED = 'f'.repeat(32);
+const ok = { success: true, quizId: 'q1', quizTitle: 'Agli ball', winners: [{ rank: 1 }], seed: SEED };
+
+beforeEach(() => {
+  for (const fn of [guard, list, detail, save, run, notify]) fn.mockReset();
+  guard.mockResolvedValue(ADMIN);
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+});
+
+const post = (route: { POST: (r: never) => Promise<Response> }, url: string, body?: unknown, rawBody?: string) =>
+  route.POST(makeRequest(url, rawBody !== undefined ? { method: 'POST', rawBody } : { body }) as never);
+
+describe('GET /api/admin/quiz-settlement', () => {
+  it('lists every quiz with its stage, read-only for the guard', async () => {
+    list.mockResolvedValue({ quizzes: [{ id: 'q1' }], prizes: [] });
+    const res = await main.GET(makeRequest('/api/admin/quiz-settlement'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ quizzes: [{ id: 'q1' }], prizes: [] });
+    expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/quiz-settlement', { write: false });
+  });
+
+  it('gives one quiz, or 404', async () => {
+    detail.mockResolvedValueOnce({ quiz: { id: 'q1' } }).mockResolvedValueOnce(null);
+    expect(await (await main.GET(makeRequest('/api/admin/quiz-settlement?quizId=q1'))).json()).toEqual({ quiz: { id: 'q1' } });
+    expect(detail).toHaveBeenCalledWith('q1', expect.any(Number));
+    expect((await main.GET(makeRequest('/api/admin/quiz-settlement?quizId=nope'))).status).toBe(404);
+  });
+
+  it('answers 500 when loading fails, and the guard response when refused', async () => {
+    list.mockRejectedValue(new Error('down'));
+    expect((await main.GET(makeRequest('/api/admin/quiz-settlement'))).status).toBe(500);
+    guard.mockResolvedValue(NextResponse.json({}, { status: 401 }));
+    expect((await main.GET(makeRequest('/api/admin/quiz-settlement'))).status).toBe(401);
+  });
+});
+
+describe('POST /api/admin/quiz-settlement (settle)', () => {
+  const body = { quizId: 'q1', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p1' }], tieRule: 'random', seed: SEED };
+
+  it('settles as the signed-in admin, then notifies', async () => {
+    run.mockResolvedValue(ok);
+    notify.mockResolvedValue(true);
+    const res = await post(main, '/api/admin/quiz-settlement', body);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ result: ok, notified: true });
+    expect(run).toHaveBeenCalledWith({ ...body, settledBy: 'admin@1think2win.com', dryRun: false });
+    expect(notify).toHaveBeenCalledWith(ok);
+    expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/quiz-settlement', { write: true });
+  });
+
+  it('maps a refusal from the database to its status', async () => {
+    const cases: Array<[string, number]> = [['already_settled', 409], ['not_found', 404], ['out_of_stock', 409], ['result_missing', 409], ['invalid', 400]];
+    for (const [code, status] of cases) {
+      run.mockResolvedValueOnce({ success: false, code, error: `because ${code}` });
+      const res = await post(main, '/api/admin/quiz-settlement', body);
+      expect(res.status).toBe(status);
+      expect(await res.json()).toEqual({ error: `because ${code}`, code });
+    }
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('rejects bad input before touching the database', async () => {
+    for (const bad of [
+      { ...body, seed: 'short' },
+      { ...body, tieRule: 'coin' },
+      { ...body, rewards: [{ rank: 1, points: 5 }, { rank: 1, points: 6 }] },
+      { ...body, rewards: [{ rank: 4, points: 5 }] },
+      { ...body, rewards: [{ rank: 1, points: 5, prizeId: 'p' }] },
+    ]) {
+      expect((await post(main, '/api/admin/quiz-settlement', bad)).status).toBe(400);
+    }
+    const garbled = await post(main, '/api/admin/quiz-settlement', undefined, '{not json');
+    expect(garbled.status).toBe(400);
+    expect(await garbled.json()).toEqual({ error: 'Invalid input: expected object, received null' });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('answers 500 when settling throws, and the guard response when refused', async () => {
+    run.mockRejectedValue(new Error('boom'));
+    expect((await post(main, '/api/admin/quiz-settlement', body)).status).toBe(500);
+    guard.mockResolvedValue(NextResponse.json({}, { status: 403 }));
+    expect((await post(main, '/api/admin/quiz-settlement', body)).status).toBe(403);
+  });
+});
+
+describe('POST /api/admin/quiz-settlement/preview', () => {
+  const body = { quizId: 'q1', rewards: [{ rank: 1, points: 500 }], tieRule: 'earliest' };
+
+  it('runs a dry settlement with a fresh seed, or the one given', async () => {
+    run.mockResolvedValue({ ...ok, preview: true });
+    const res = await post(preview, '/api/admin/quiz-settlement/preview', body);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ result: { ...ok, preview: true } });
+    expect(run.mock.calls[0][0]).toMatchObject({ ...body, settledBy: 'admin@1think2win.com', dryRun: true });
+    expect(run.mock.calls[0][0].seed).toMatch(/^[0-9a-f]{32}$/);
+
+    await post(preview, '/api/admin/quiz-settlement/preview', { ...body, seed: SEED });
+    expect(run.mock.calls[1][0].seed).toBe(SEED);
+  });
+
+  it('maps refusals and bad input, and answers 500 on errors', async () => {
+    run.mockResolvedValueOnce({ success: false, code: 'result_missing', error: 'Save the result first' });
+    expect((await post(preview, '/api/admin/quiz-settlement/preview', body)).status).toBe(409);
+    const bad = await post(preview, '/api/admin/quiz-settlement/preview', { ...body, rewards: 'all' });
+    expect(bad.status).toBe(400);
+    expect((await post(preview, '/api/admin/quiz-settlement/preview', undefined, 'x')).status).toBe(400);
+    run.mockRejectedValueOnce(new Error('boom'));
+    expect((await post(preview, '/api/admin/quiz-settlement/preview', body)).status).toBe(500);
+    guard.mockResolvedValue(NextResponse.json({}, { status: 401 }));
+    expect((await post(preview, '/api/admin/quiz-settlement/preview', body)).status).toBe(401);
+  });
+});
+
+describe('POST /api/admin/quiz-settlement/result', () => {
+  it('saves the result, ending an open quiz only when asked', async () => {
+    save.mockResolvedValue({ ok: true });
+    const res = await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: { a: 1 } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(save).toHaveBeenLastCalledWith('q1', { a: 1 }, false, expect.any(Number));
+    await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: { a: 1 }, endNow: true });
+    expect(save).toHaveBeenLastCalledWith('q1', { a: 1 }, true, expect.any(Number));
+  });
+
+  it('passes on a refusal, rejects bad input, and answers 500 on errors', async () => {
+    save.mockResolvedValueOnce({ ok: false, status: 409, code: 'still_open', error: 'Players can still answer.' });
+    const refused = await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: { a: 1 } });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: 'Players can still answer.', code: 'still_open' });
+    expect((await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: { a: 12 } })).status).toBe(400);
+    expect((await post(result, '/api/admin/quiz-settlement/result', undefined, '')).status).toBe(400);
+    save.mockRejectedValueOnce(new Error('boom'));
+    expect((await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: {} })).status).toBe(500);
+    guard.mockResolvedValue(NextResponse.json({}, { status: 403 }));
+    expect((await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: {} })).status).toBe(403);
+  });
+});
+
+describe('schema', () => {
+  it('maps codes to statuses, anything unknown to 400', () => {
+    expect(settleErrorStatus('not_found')).toBe(404);
+    expect(settleErrorStatus('mystery')).toBe(400);
+  });
+
+  it('allows up to three places, one reward each', () => {
+    expect(rewardsSchema.safeParse([{ rank: 1, points: 1 }, { rank: 2, points: 1 }, { rank: 3, prizeId: 'p' }]).success).toBe(true);
+    const dup = rewardsSchema.safeParse([{ rank: 2, points: 1 }, { rank: 2, prizeId: 'p' }]);
+    expect(dup.success).toBe(false);
+    expect(dup.error!.issues[0].message).toBe('Each place (1st, 2nd, 3rd) can have one reward');
+  });
+});

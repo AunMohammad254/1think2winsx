@@ -460,7 +460,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                             <p className="text-gray-500 text-xs">
                                 {watchedPrizeId
                                     ? `Prize linked: ${prizes.find(p => p.id === watchedPrizeId)?.name ?? watchedPrizeId}`
-                                    : 'Optional — enables Lucky Winner Draw for this quiz'}
+                                    : 'Optional: shows this prize on the quiz card. You award prizes when you settle the quiz'}
                             </p>
                         </div>
                     </div>
