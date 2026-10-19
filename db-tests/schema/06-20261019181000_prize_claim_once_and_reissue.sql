@@ -1,5 +1,5 @@
--- NOT YET APPLIED TO PRODUCTION. Apply before deploying the app code that calls reissue_claim
--- (PUT /api/admin/claims with action "reissue").
+-- Applied to production on 2026-10-19 as migration 20261019093253 prize_claim_once_and_reissue.
+-- The app code that calls reissue_claim (PUT /api/admin/claims with action "reissue") depends on it.
 -- Prize claims: each player may claim a prize once, enforced by redeem_prize itself, and the admin's
 -- "Reissue" runs in one locked transaction instead of read-then-write calls from the server.
 
