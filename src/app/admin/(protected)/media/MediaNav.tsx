@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 
 const TABS = [
   { key: 'site', href: '/admin/media', label: 'Site & prize images' },
@@ -13,22 +13,20 @@ export type MediaTab = (typeof TABS)[number]['key'];
 export default function MediaNav({ active }: { active: MediaTab }) {
   return (
     <div className="mb-6">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 mb-2">
         <Link
           href="/admin/dashboard"
-          className="p-2 rounded-lg bg-gray-900/60 border border-white/10 text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+          className="text-gray-400 hover:text-white transition-colors"
           title="Back to Dashboard"
           aria-label="Back to Dashboard"
         >
-          <ArrowLeft className="w-5 h-5" />
+          <ChevronLeft className="w-5 h-5" />
         </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-white">Media Management</h1>
-          <p className="text-gray-400 text-sm mt-0.5">
-            Images are stored in Supabase Storage, resized to WebP once when uploaded.
-          </p>
-        </div>
+        <h1 className="text-2xl md:text-3xl font-bold text-white">Media Management</h1>
       </div>
+      <p className="text-gray-400 text-sm mt-1">
+        Images are stored in Supabase Storage, resized to WebP once when uploaded.
+      </p>
       <nav aria-label="Media sections" className="mt-4 flex flex-wrap gap-2 border-b border-white/10 pb-3">
         {TABS.map((tab) => (
           <Link

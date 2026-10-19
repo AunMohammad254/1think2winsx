@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
   getUser: vi.fn(),
   stats: vi.fn(),
   activity: vi.fn(),
-  media: { getCloudinaryUsage: vi.fn(), getCloudinaryResources: vi.fn(), deleteCloudinaryResource: vi.fn() },
+  media: { getCloudinaryUsage: vi.fn(), getCloudinaryResources: vi.fn(), deleteCloudinaryResource: vi.fn(), bulkDeleteCloudinaryResources: vi.fn() },
   log: vi.fn(),
   dynamics: [] as { loader: () => Promise<unknown>; opts?: { loading?: () => React.ReactNode } }[],
 }));
@@ -33,6 +33,7 @@ vi.mock('@/actions/media-actions', () => ({
   getCloudinaryUsage: () => h.media.getCloudinaryUsage(),
   getCloudinaryResources: () => h.media.getCloudinaryResources(),
   deleteCloudinaryResource: (id: string) => h.media.deleteCloudinaryResource(id),
+  bulkDeleteCloudinaryResources: (ids: string[]) => h.media.bulkDeleteCloudinaryResources(ids),
 }));
 vi.mock('@/lib/logger', () => ({ default: { log: h.log } }));
 // eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
@@ -147,6 +148,7 @@ describe('media management: Cloudinary (old uploads) page', () => {
     h.media.getCloudinaryUsage.mockReset().mockResolvedValue({ success: true, usage });
     h.media.getCloudinaryResources.mockReset().mockResolvedValue({ success: true, resources: { resources } });
     h.media.deleteCloudinaryResource.mockReset().mockResolvedValue({ success: true });
+    h.media.bulkDeleteCloudinaryResources.mockReset().mockResolvedValue({ success: true });
   });
 
   it('shows usage and the asset gallery', async () => {
@@ -157,6 +159,20 @@ describe('media management: Cloudinary (old uploads) page', () => {
     expect(screen.getByText('12')).toBeInTheDocument();
     expect(screen.getByText('2.0 KB')).toBeInTheDocument();
     expect(screen.getByText('PNG')).toBeInTheDocument();
+  });
+
+  it('handles credit-based usage where limits are undefined without crashing', async () => {
+    const creditUsage = {
+      storage: { usage: 1024 * 1024 },
+      bandwidth: { usage: 2 * 1024 * 1024 },
+      transformations: { usage: 5 },
+      credits: { usage: 0.1, percent_used: 1, limit: 25 },
+    };
+    h.media.getCloudinaryUsage.mockResolvedValueOnce({ success: true, usage: creditUsage });
+    render(<MediaPage />);
+    expect(await screen.findByText('1.00 MB')).toBeInTheDocument();
+    expect(screen.getByText('2.00 MB')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
   });
 
   it('shows an empty gallery when loading fails', async () => {
@@ -198,6 +214,25 @@ describe('media management: Cloudinary (old uploads) page', () => {
     await screen.findByText('5.00 MB');
     fireEvent.click(screen.getAllByTitle('Delete Image')[0]);
     await waitFor(() => expect(screen.getAllByTitle('Delete Image')[0]).toBeDisabled());
+  });
+
+  it('supports bulk selection and bulk deletion on Cloudinary', async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    h.media.bulkDeleteCloudinaryResources.mockResolvedValue({ success: true, result: {} });
+
+    render(<MediaPage />);
+    await screen.findByText('5.00 MB');
+
+    // Select all
+    fireEvent.click(screen.getByRole('button', { name: /Select All/ }));
+    expect(await screen.findByText('2 assets selected')).toBeInTheDocument();
+
+    // Bulk delete
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    await waitFor(() =>
+      expect(h.media.bulkDeleteCloudinaryResources).toHaveBeenCalledWith(['prizes/watch', 'prizes/bike'])
+    );
   });
 });
 

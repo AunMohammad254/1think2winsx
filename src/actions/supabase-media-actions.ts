@@ -2,13 +2,14 @@
 
 import { assertAdmin } from '@/lib/admin-guard';
 import { getAdminDb, userDb } from '@/lib/supabase/db';
-import { MEDIA_BUCKETS, mediaPublicUrl, mediaImageKey, parseMediaUrl } from '@/lib/media/config';
+import { MEDIA_BUCKETS, MEDIA_FOLDERS, mediaPublicUrl, mediaImageKey, parseMediaUrl } from '@/lib/media/config';
 import {
   canonicalSuffix,
   deleteStoredImage,
   getBucketUsage,
   listStoredObjects,
   removeFolderExcept,
+  storeImage,
   type BucketUsage,
 } from '@/lib/media/storage.server';
 import {
@@ -144,6 +145,49 @@ export async function deleteMediaImage(url: string): Promise<Result<{ deleted: t
   });
 }
 
+/**
+ * Bulk delete multiple admin images. Any image actively used by a prize is safely skipped
+ * with an explanatory reason rather than aborting the entire batch.
+ */
+export async function bulkDeleteMediaImages(
+  urls: string[]
+): Promise<Result<{ deletedCount: number; skipped: { url: string; reason: string }[] }>> {
+  return adminAction(async () => {
+    const db = getAdminDb();
+    const { data: prizes, error } = await db.from('Prize').select('name, imageUrl');
+    if (error) throw error;
+
+    let deletedCount = 0;
+    const skipped: { url: string; reason: string }[] = [];
+
+    for (const url of urls) {
+      const ref = parseMediaUrl(url);
+      if (!ref || ref.bucket === MEDIA_BUCKETS.avatar) {
+        skipped.push({ url, reason: 'Not an admin media image' });
+        continue;
+      }
+
+      if (ref.bucket === MEDIA_BUCKETS.prize) {
+        const key = mediaImageKey(ref);
+        const user = (prizes ?? []).find((p: { imageUrl: string | null }) => deletablePrizeImageKey(p.imageUrl) === key);
+        if (user) {
+          skipped.push({ url, reason: `Used by prize "${user.name}"` });
+          continue;
+        }
+      }
+
+      try {
+        await deleteStoredImage(db, url);
+        deletedCount++;
+      } catch (err: any) {
+        skipped.push({ url, reason: err.message || 'Delete error' });
+      }
+    }
+
+    return { deletedCount, skipped };
+  });
+}
+
 export interface ProfilePicture {
   userId: string;
   userName: string | null;
@@ -252,5 +296,26 @@ export async function migrateAllAssetsAction(): Promise<Result<FullMigrationResu
     const db = getAdminDb();
     const result = await migrateAllCloudinaryAssetsToSupabase(db, adminEmail);
     return result;
+  });
+}
+
+/** Import an image from an external URL directly into a Supabase storage bucket */
+export async function importMediaFromUrl(
+  imageUrl: string,
+  bucket: typeof MEDIA_BUCKETS.site | typeof MEDIA_BUCKETS.prize
+): Promise<Result<{ url: string; paths: string[]; bytes: number }>> {
+  return adminAction(async () => {
+    if (bucket !== MEDIA_BUCKETS.site && bucket !== MEDIA_BUCKETS.prize) {
+      throw new Error('Unknown media bucket');
+    }
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const folder = bucket === MEDIA_BUCKETS.site ? MEDIA_FOLDERS.siteUploads : MEDIA_FOLDERS.prizes;
+    const stored = await storeImage(getAdminDb(), bucket, folder, buffer);
+    return { url: stored.url, paths: stored.paths, bytes: stored.bytes };
   });
 }
