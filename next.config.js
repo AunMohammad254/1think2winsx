@@ -1,3 +1,10 @@
+// Hostinger's build server reports 64 CPUs but limits how many threads an account may start. By
+// default `next build` runs one worker per CPU (63), and each loads the Rust compiler with a thread
+// pool per CPU; on 2026-10-19 that ran out ("OS can't spawn worker thread", build 01a15397).
+// Four build workers (experimental.cpus below), each with a small Rust pool, stay far below the limit.
+// Set here so the build workers inherit it; an explicit value from the environment still wins.
+process.env.TOKIO_WORKER_THREADS ??= '4';
+
 const withBundleAnalyzer = require('@next/bundle-analyzer')({
   enabled: process.env.ANALYZE === 'true',
 });
@@ -33,6 +40,8 @@ const nextConfig = {
   experimental: {
     // optimizeCss needs the `critters` package (not installed) and broke builds before
     optimizePackageImports: ['framer-motion'],
+    // Build workers; see TOKIO_WORKER_THREADS at the top
+    cpus: 4,
   },
   serverExternalPackages: ['pdf-parse'],
 
