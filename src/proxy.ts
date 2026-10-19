@@ -36,6 +36,8 @@ const CSP = [
   "form-action 'self'",
   "object-src 'none'",
   "media-src 'self' https:",
+  // The service worker (sw.js), and Sentry Session Replay, which compresses recordings in a blob: worker
+  "worker-src 'self' blob:",
 ].join('; ');
 
 function applySecurityHeaders(response: NextResponse) {
@@ -74,9 +76,9 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Skip API routes (they authenticate themselves), Next internals, and
-     * static files in /public so the proxy never runs for assets.
+     * Skip API routes (they authenticate themselves), Sentry's tunnel (/monitoring, see
+     * next.config.js), Next internals, and static files in /public so the proxy never runs for assets.
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|sw.js|manifest|Favicon|images|.*\\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|css|js|map|txt|xml|json|woff2?|ttf|glb|gltf|mp4|webm)$).*)',
+    '/((?!api|monitoring|_next/static|_next/image|favicon.ico|sw.js|manifest|Favicon|images|.*\\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|css|js|map|txt|xml|json|woff2?|ttf|glb|gltf|mp4|webm)$).*)',
   ],
 };

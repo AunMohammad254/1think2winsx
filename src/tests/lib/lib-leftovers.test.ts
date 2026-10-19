@@ -720,16 +720,29 @@ describe('supabase clients, password flag and instrumentation', () => {
     vi.doUnmock('@/lib/supabase/db-modules/shared');
   });
 
-  it('instrumentation starts the scheduler only in the Node runtime', async () => {
+  it('instrumentation starts the scheduler only in the Node runtime, and Sentry in each runtime', async () => {
     const startScheduler = vi.fn();
+    const loaded: string[] = [];
+    const captureRequestError = vi.fn();
     vi.doMock('@/lib/scheduler-loop', () => ({ startScheduler }));
+    vi.doMock('@sentry/nextjs', () => ({ captureRequestError }));
+    vi.doMock('@/sentry.server.config', () => { loaded.push('server'); return {}; });
+    vi.doMock('@/sentry.edge.config', () => { loaded.push('edge'); return {}; });
     vi.resetModules();
-    const { register } = await import('@/instrumentation');
+    const { register, onRequestError } = await import('@/instrumentation');
+    // Next.js hands errors from rendering, route handlers, actions and the proxy to Sentry
+    expect(onRequestError).toBe(captureRequestError);
     vi.stubEnv('NEXT_RUNTIME', 'edge');
     await register();
     expect(startScheduler).not.toHaveBeenCalled();
+    expect(loaded).toEqual(['edge']);
     vi.stubEnv('NEXT_RUNTIME', 'nodejs');
     await register();
     expect(startScheduler).toHaveBeenCalledTimes(1);
+    expect(loaded).toEqual(['edge', 'server']);
+    // Any other runtime loads neither
+    vi.stubEnv('NEXT_RUNTIME', '');
+    await register();
+    expect(loaded).toHaveLength(2);
   });
 });

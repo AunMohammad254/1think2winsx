@@ -188,10 +188,18 @@ describe('proxy', () => {
     expect(directive('connect-src')).toContain('https://cloudflareinsights.com');
   });
 
+  it("lets the service worker and Sentry Session Replay's compression worker run, and needs no Sentry host (tunnel)", async () => {
+    const csp = (await proxyMod.proxy(req('/faq'))).headers.get('Content-Security-Policy')!;
+    const directive = (name: string) => csp.split('; ').find((d) => d.startsWith(`${name} `))!;
+    expect(directive('worker-src')).toBe("worker-src 'self' blob:");
+    expect(csp).not.toContain('sentry.io');
+  });
+
   it('never runs for API routes, Next internals or static files', () => {
     const matcher = new RegExp(`^${proxyMod.config.matcher[0]}$`);
     expect(matcher.test('/quizzes')).toBe(true);
-    for (const path of ['/api/quizzes', '/_next/static/chunk.js', '/favicon.ico', '/images/logo.png', '/sw.js', '/model.glb']) {
+    // /monitoring is Sentry's tunnel (next.config.js): no session refresh for every error report
+    for (const path of ['/api/quizzes', '/monitoring', '/_next/static/chunk.js', '/favicon.ico', '/images/logo.png', '/sw.js', '/model.glb']) {
       expect(matcher.test(path)).toBe(false);
     }
   });

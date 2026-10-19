@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { AlertTriangle, RefreshCw, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import * as Sentry from '@sentry/nextjs';
 
 export default function QuizError({
     error,
@@ -12,7 +13,8 @@ export default function QuizError({
     reset: () => void;
 }) {
     useEffect(() => {
-        console.error('Quiz page error:', error);
+        // This page caught the error, so Sentry's global handler never sees it: report it here
+        Sentry.captureException(error, { tags: { page: 'quiz' } });
     }, [error]);
 
     // Check for specific error types
