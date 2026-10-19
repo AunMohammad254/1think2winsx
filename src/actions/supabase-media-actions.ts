@@ -21,14 +21,12 @@ import {
   type MediaDeletion,
 } from '@/lib/media/deletion-queue';
 import {
-  getPrimaryStorageProvider,
-  setPrimaryStorageProvider,
   getCloudinaryPendingStats,
   migrateAllCloudinaryAssetsToSupabase,
-  type StorageProvider,
   type CloudinaryPendingStats,
   type FullMigrationResult,
 } from '@/lib/media/cloudinary-migration';
+import { fetchRemoteImage } from '@/lib/media/remote-image.server';
 
 /**
  * Admin actions for the Supabase Storage media pages (/admin/media and
@@ -38,6 +36,7 @@ import {
 type Result<T> = { success: true; data: T } | { success: false; error: string };
 
 const PAGE_SIZE = 48;
+const MAX_BULK = 100;
 
 async function adminAction<T>(fn: (adminEmail: string) => Promise<T>): Promise<Result<T>> {
   let adminEmail: string;
@@ -146,13 +145,15 @@ export async function deleteMediaImage(url: string): Promise<Result<{ deleted: t
 }
 
 /**
- * Bulk delete multiple admin images. Any image actively used by a prize is safely skipped
- * with an explanatory reason rather than aborting the entire batch.
+ * Deletes up to 100 admin images. An image a prize still shows is skipped, with the reason,
+ * rather than failing the whole batch.
  */
 export async function bulkDeleteMediaImages(
   urls: string[]
 ): Promise<Result<{ deletedCount: number; skipped: { url: string; reason: string }[] }>> {
   return adminAction(async () => {
+    if (!Array.isArray(urls) || urls.length === 0) throw new Error('No images selected');
+    if (urls.length > MAX_BULK) throw new Error(`Select at most ${MAX_BULK} images at a time`);
     const db = getAdminDb();
     const { data: prizes, error } = await db.from('Prize').select('name, imageUrl');
     if (error) throw error;
@@ -179,8 +180,8 @@ export async function bulkDeleteMediaImages(
       try {
         await deleteStoredImage(db, url);
         deletedCount++;
-      } catch (err: any) {
-        skipped.push({ url, reason: err.message || 'Delete error' });
+      } catch (err) {
+        skipped.push({ url, reason: err instanceof Error ? err.message : 'Delete error' });
       }
     }
 
@@ -269,37 +270,20 @@ export async function updatePrizeImageRetention(days: number): Promise<Result<{ 
   });
 }
 
-/** Get current primary storage provider and pending Cloudinary asset counts. */
-export async function getStorageProviderStatus(): Promise<Result<{ provider: StorageProvider; pendingStats: CloudinaryPendingStats }>> {
-  return adminAction(async () => {
-    const db = getAdminDb();
-    const [provider, pendingStats] = await Promise.all([
-      getPrimaryStorageProvider(db),
-      getCloudinaryPendingStats(db),
-    ]);
-    return { provider, pendingStats };
-  });
+/** How many prize images and profile pictures still load from Cloudinary. */
+export async function getCloudinaryLeftovers(): Promise<Result<CloudinaryPendingStats>> {
+  return adminAction(async () => getCloudinaryPendingStats(getAdminDb()));
 }
 
-/** Switch primary storage provider (supabase or cloudinary). */
-export async function setPrimaryStorageAction(provider: StorageProvider): Promise<Result<{ provider: StorageProvider }>> {
-  return adminAction(async (adminEmail) => {
-    const db = getAdminDb();
-    await setPrimaryStorageProvider(db, provider, adminEmail);
-    return { provider };
-  });
-}
-
-/** Move all Cloudinary assets to Supabase Storage and set Supabase as primary. */
+/** Copies every prize image and profile picture still on Cloudinary into Supabase Storage. */
 export async function migrateAllAssetsAction(): Promise<Result<FullMigrationResult>> {
-  return adminAction(async (adminEmail) => {
-    const db = getAdminDb();
-    const result = await migrateAllCloudinaryAssetsToSupabase(db, adminEmail);
-    return result;
-  });
+  return adminAction(async () => migrateAllCloudinaryAssetsToSupabase(getAdminDb()));
 }
 
-/** Import an image from an external URL directly into a Supabase storage bucket */
+/**
+ * Stores the image at a public https link in a media bucket. fetchRemoteImage refuses private
+ * and local addresses, slow downloads and files over 10 MB; storeImage then checks the bytes.
+ */
 export async function importMediaFromUrl(
   imageUrl: string,
   bucket: typeof MEDIA_BUCKETS.site | typeof MEDIA_BUCKETS.prize
@@ -308,14 +292,9 @@ export async function importMediaFromUrl(
     if (bucket !== MEDIA_BUCKETS.site && bucket !== MEDIA_BUCKETS.prize) {
       throw new Error('Unknown media bucket');
     }
-    const response = await fetch(imageUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.statusText}`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const image = await fetchRemoteImage(String(imageUrl));
     const folder = bucket === MEDIA_BUCKETS.site ? MEDIA_FOLDERS.siteUploads : MEDIA_FOLDERS.prizes;
-    const stored = await storeImage(getAdminDb(), bucket, folder, buffer);
+    const stored = await storeImage(getAdminDb(), bucket, folder, image);
     return { url: stored.url, paths: stored.paths, bytes: stored.bytes };
   });
 }

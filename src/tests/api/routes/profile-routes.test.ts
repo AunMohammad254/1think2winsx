@@ -16,6 +16,8 @@ const deleteCloudinaryImageByUrl = vi.fn();
 const storeImage = vi.fn();
 const deleteStoredImage = vi.fn();
 const removeFolderExcept = vi.fn();
+const uploadImageToCloudinary = vi.fn();
+const assertSupportedImage = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({ getDb: async () => db.client, getAdminDb: () => db.client, userDb }));
 vi.mock('@/lib/auth', () => ({ auth: (...a: unknown[]) => auth(...a) }));
@@ -24,7 +26,15 @@ vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) =>
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { profile: 'profile', fileUpload: 'fileUpload' }, applyRateLimit: (...a: unknown[]) => applyRateLimit(...a) }));
 vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: (...a: unknown[]) => recordSecurityEvent(...a) }));
 vi.mock('@/lib/security-logger', () => ({ securityLogger: logger }));
-vi.mock('@/lib/cloudinary-server', () => ({ deleteCloudinaryImageByUrl: (...a: unknown[]) => deleteCloudinaryImageByUrl(...a) }));
+vi.mock('@/lib/cloudinary-server', async (orig) => ({
+  isCloudinaryFolder: (await orig<typeof import('@/lib/cloudinary-server')>()).isCloudinaryFolder,
+  deleteCloudinaryImageByUrl: (...a: unknown[]) => deleteCloudinaryImageByUrl(...a),
+  uploadImageToCloudinary: (...a: unknown[]) => uploadImageToCloudinary(...a),
+}));
+vi.mock('@/lib/media/image-processing', async (orig) => ({
+  ...(await orig<typeof import('@/lib/media/image-processing')>()),
+  assertSupportedImage: (...a: unknown[]) => assertSupportedImage(...a),
+}));
 vi.mock('@/lib/media/storage.server', () => ({
   storeImage: (...a: unknown[]) => storeImage(...a),
   deleteStoredImage: (...a: unknown[]) => deleteStoredImage(...a),
@@ -42,7 +52,7 @@ const CLOUD_AVATAR = 'https://res.cloudinary.com/dszrz6s6u/image/upload/v1/avata
 
 beforeEach(() => {
   db = createSupabaseMock();
-  for (const fn of [auth, requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, deleteCloudinaryImageByUrl, storeImage, deleteStoredImage, removeFolderExcept, ...Object.values(logger), ...Object.values(userDb)]) fn.mockReset();
+  for (const fn of [auth, requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, deleteCloudinaryImageByUrl, storeImage, deleteStoredImage, removeFolderExcept, uploadImageToCloudinary, assertSupportedImage, ...Object.values(logger), ...Object.values(userDb)]) fn.mockReset();
   auth.mockResolvedValue(session());
   requireAuth.mockResolvedValue(authOk('admin-user'));
   requireCSRFToken.mockResolvedValue(null);
@@ -358,10 +368,11 @@ describe('/api/profile/upload-picture', () => {
 });
 
 describe('POST /api/upload (admin media)', () => {
-  const post = (file: File | null | string = image(), target?: string) => {
+  const post = (file: File | null | string = image(), target?: string, folder?: string) => {
     const form = new FormData();
     if (file !== null) form.append('file', file as Blob);
     if (target) form.append('target', target);
+    if (folder !== undefined) form.append('folder', folder);
     return upload.POST(new Request('http://localhost/api/upload', { method: 'POST', body: form }));
   };
   const PRIZE_URL = 'https://proj.supabase.co/storage/v1/object/public/prize-images/prizes/a-1280.webp';
@@ -386,6 +397,27 @@ describe('POST /api/upload (admin media)', () => {
     const res = await post();
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('The file could not be read as an image');
+  });
+
+  it('uploads straight to Cloudinary with target=cloudinary, into a checked folder', async () => {
+    const resource = { publicId: 'banners/a', url: 'https://res.cloudinary.com/dszrz6s6u/image/upload/v1/banners/a.png' };
+    uploadImageToCloudinary.mockResolvedValue(resource);
+    expect(await (await post(image(), 'cloudinary', 'banners')).json()).toEqual({ url: resource.url, resource });
+    expect(assertSupportedImage).toHaveBeenCalledWith(expect.any(Buffer));
+    expect(uploadImageToCloudinary).toHaveBeenLastCalledWith(expect.any(Buffer), 'banners');
+    await post(image(), 'cloudinary');
+    expect(uploadImageToCloudinary).toHaveBeenLastCalledWith(expect.any(Buffer), 'uploads');
+    expect(storeImage).not.toHaveBeenCalled();
+
+    const bad = await post(image(), 'cloudinary', '../secrets');
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toBe('Folder names may use letters, digits, - and _ only');
+    // The bytes are checked before anything is sent to Cloudinary
+    assertSupportedImage.mockRejectedValueOnce(new InvalidImageError());
+    expect((await post(image(), 'cloudinary', 'prizes')).status).toBe(400);
+    expect(uploadImageToCloudinary).toHaveBeenCalledTimes(2);
+    uploadImageToCloudinary.mockRejectedValueOnce(new Error('quota'));
+    expect((await post(image(), 'cloudinary', 'prizes')).status).toBe(500);
   });
 
   it('refuses non-admins and reports storage failures', async () => {

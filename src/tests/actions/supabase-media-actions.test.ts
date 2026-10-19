@@ -18,6 +18,8 @@ const store = {
   removeFolderExcept: vi.fn(),
   storeImage: vi.fn(),
 };
+const remote = { fetchRemoteImage: vi.fn() };
+const migration = { getCloudinaryPendingStats: vi.fn(), migrateAllCloudinaryAssetsToSupabase: vi.fn() };
 
 vi.mock('@/lib/admin-guard', () => ({ assertAdmin: () => assertAdmin() }));
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => db.client, userDb }));
@@ -28,6 +30,11 @@ vi.mock('@/lib/media/storage.server', async (orig) => ({
   listStoredObjects: (...a: unknown[]) => store.listStoredObjects(...a),
   removeFolderExcept: (...a: unknown[]) => store.removeFolderExcept(...a),
   storeImage: (...a: unknown[]) => store.storeImage(...a),
+}));
+vi.mock('@/lib/media/remote-image.server', () => ({ fetchRemoteImage: (...a: unknown[]) => remote.fetchRemoteImage(...a) }));
+vi.mock('@/lib/media/cloudinary-migration', () => ({
+  getCloudinaryPendingStats: (...a: unknown[]) => migration.getCloudinaryPendingStats(...a),
+  migrateAllCloudinaryAssetsToSupabase: (...a: unknown[]) => migration.migrateAllCloudinaryAssetsToSupabase(...a),
 }));
 vi.mock('@/lib/media/deletion-queue', async (orig) => ({
   ...(await orig<typeof import('@/lib/media/deletion-queue')>()),
@@ -44,7 +51,7 @@ const DENIED = { success: false, error: 'Unauthorized: admin session required' }
 
 beforeEach(() => {
   db = createSupabaseMock();
-  for (const fn of [assertAdmin, userDb.update, ...Object.values(queue), ...Object.values(store)]) fn.mockReset();
+  for (const fn of [assertAdmin, userDb.update, ...Object.values(queue), ...Object.values(store), ...Object.values(remote), ...Object.values(migration)]) fn.mockReset();
   assertAdmin.mockResolvedValue('admin@example.test');
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://proj.supabase.co');
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -62,10 +69,16 @@ describe('admin guard', () => {
       () => actions.removeProfilePicture('u1'),
       () => actions.keepQueuedImage('d1'),
       () => actions.updatePrizeImageRetention(7),
+      () => actions.bulkDeleteMediaImages([`${PUB}/site-media/uploads/a-1920.webp`]),
+      () => actions.importMediaFromUrl('https://example.com/a.png', 'site-media'),
+      () => actions.getCloudinaryLeftovers(),
+      () => actions.migrateAllAssetsAction(),
     ]) {
       expect(await call()).toEqual(DENIED);
     }
     expect(db.calls).toHaveLength(0);
+    expect(remote.fetchRemoteImage).not.toHaveBeenCalled();
+    expect(migration.migrateAllCloudinaryAssetsToSupabase).not.toHaveBeenCalled();
     expect(store.deleteStoredImage).not.toHaveBeenCalled();
     expect(store.removeFolderExcept).not.toHaveBeenCalled();
   });
@@ -197,6 +210,28 @@ describe('bulkDeleteMediaImages', () => {
     expect(store.deleteStoredImage).not.toHaveBeenCalledWith(db.client, `${PUB}/prize-images/prizes/bike-1280.webp`);
   });
 
+  it('needs 1 to 100 images and reports a failed delete per image', async () => {
+    expect(await actions.bulkDeleteMediaImages([])).toEqual({ success: false, error: 'No images selected' });
+    expect(await actions.bulkDeleteMediaImages('x' as unknown as string[])).toEqual({ success: false, error: 'No images selected' });
+    const many = Array.from({ length: 101 }, (_, i) => `${PUB}/site-media/uploads/${i}-1920.webp`);
+    expect(await actions.bulkDeleteMediaImages(many)).toEqual({ success: false, error: 'Select at most 100 images at a time' });
+    expect(db.calls).toHaveLength(0);
+
+    db.setTable('Prize', { data: null });
+    store.deleteStoredImage.mockRejectedValueOnce(new Error('Storage did not confirm')).mockRejectedValueOnce('odd');
+    const res = await actions.bulkDeleteMediaImages([`${PUB}/prize-images/prizes/a-1280.webp`, `${PUB}/site-media/uploads/b-1920.webp`]);
+    expect(res).toEqual({
+      success: true,
+      data: {
+        deletedCount: 0,
+        skipped: [
+          { url: `${PUB}/prize-images/prizes/a-1280.webp`, reason: 'Storage did not confirm' },
+          { url: `${PUB}/site-media/uploads/b-1920.webp`, reason: 'Delete error' },
+        ],
+      },
+    });
+  });
+
   it('reports database query failure when checking prizes', async () => {
     db.setTable('Prize', { error: { message: 'DB connection error' } });
     const res = await actions.bulkDeleteMediaImages([`${PUB}/prize-images/prizes/x-1280.webp`]);
@@ -268,36 +303,42 @@ describe('profile pictures', () => {
 });
 
 describe('importMediaFromUrl', () => {
-  it('imports an image from an external URL into the specified bucket', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
-    }));
-    store.storeImage.mockResolvedValue({
-      url: `${PUB}/prize-images/prizes/imported-1280.webp`,
-      paths: ['prizes/imported-1280.webp'],
-      bytes: 2048,
-    });
+  it('stores the image behind a public link, downloaded through the safe fetch', async () => {
+    remote.fetchRemoteImage.mockResolvedValue(Buffer.from([1, 2, 3]));
+    store.storeImage.mockResolvedValue({ url: `${PUB}/prize-images/prizes/imported-1280.webp`, paths: ['prizes/imported-1280.webp'], bytes: 2048 });
 
-    const res = await actions.importMediaFromUrl('https://example.com/item.png', 'prize-images');
-    expect(res.success).toBe(true);
-    if (res.success) {
-      expect(res.data.url).toBe(`${PUB}/prize-images/prizes/imported-1280.webp`);
-    }
-    expect(store.storeImage).toHaveBeenCalledWith(db.client, 'prize-images', 'prizes', expect.any(Buffer));
+    expect(await actions.importMediaFromUrl('https://example.com/item.png', 'prize-images')).toEqual({
+      success: true,
+      data: { url: `${PUB}/prize-images/prizes/imported-1280.webp`, paths: ['prizes/imported-1280.webp'], bytes: 2048 },
+    });
+    expect(remote.fetchRemoteImage).toHaveBeenCalledWith('https://example.com/item.png');
+    expect(store.storeImage).toHaveBeenCalledWith(db.client, 'prize-images', 'prizes', Buffer.from([1, 2, 3]));
+    await actions.importMediaFromUrl('https://example.com/banner.png', 'site-media');
+    expect(store.storeImage).toHaveBeenLastCalledWith(db.client, 'site-media', 'uploads', expect.any(Buffer));
   });
 
-  it('rejects invalid buckets or failed fetches', async () => {
-    expect(await actions.importMediaFromUrl('https://example.com/item.png', 'avatars' as any)).toEqual({
+  it('rejects other buckets and passes on why a download was refused', async () => {
+    expect(await actions.importMediaFromUrl('https://example.com/item.png', 'avatars' as never)).toEqual({
       success: false,
       error: 'Unknown media bucket',
     });
-
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, statusText: 'Not Found' }));
-    expect(await actions.importMediaFromUrl('https://example.com/bad.png', 'site-media')).toEqual({
+    remote.fetchRemoteImage.mockRejectedValue(new Error('That link points to a private or local address'));
+    expect(await actions.importMediaFromUrl('https://169.254.169.254/x', 'site-media')).toEqual({
       success: false,
-      error: 'Failed to fetch image: Not Found',
+      error: 'That link points to a private or local address',
     });
+    expect(store.storeImage).not.toHaveBeenCalled();
   });
 });
 
+describe('Cloudinary leftovers', () => {
+  it('counts what still loads from Cloudinary and moves it all', async () => {
+    migration.getCloudinaryPendingStats.mockResolvedValue({ prizes: 2, avatars: 1, total: 3 });
+    expect(await actions.getCloudinaryLeftovers()).toEqual({ success: true, data: { prizes: 2, avatars: 1, total: 3 } });
+    expect(migration.getCloudinaryPendingStats).toHaveBeenCalledWith(db.client);
+
+    migration.migrateAllCloudinaryAssetsToSupabase.mockResolvedValue({ totalMigrated: 3, totalFailed: 0 });
+    expect(await actions.migrateAllAssetsAction()).toEqual({ success: true, data: { totalMigrated: 3, totalFailed: 0 } });
+    expect(migration.migrateAllCloudinaryAssetsToSupabase).toHaveBeenCalledWith(db.client);
+  });
+});

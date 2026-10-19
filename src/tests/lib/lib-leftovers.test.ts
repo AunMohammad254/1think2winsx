@@ -328,6 +328,36 @@ describe('cloudinary helpers', () => {
     expect(await s.deleteCloudinaryImageByUrl(`${CLOUD}/v1/c.jpg`)).toBe(false);
     expect(s.getPublicIdFromUrl(`${CLOUD}/v1/d.jpg`)).toBe('d');
   });
+
+  it('checks upload folder names and streams uploads to Cloudinary', async () => {
+    type Done = (error?: unknown, result?: Record<string, unknown>) => void;
+    const answers: Parameters<Done>[] = [];
+    const sent: Buffer[] = [];
+    const upload_stream = vi.fn((_options: unknown, done: Done) => ({
+      end: (data: Buffer) => {
+        sent.push(data);
+        done(...answers.shift()!);
+      },
+    }));
+    vi.doMock('cloudinary', () => ({ v2: { config: vi.fn(), uploader: { upload_stream } } }));
+    vi.resetModules();
+    const s = await import('@/lib/cloudinary-server');
+
+    for (const ok of ['prizes', 'site/banners', 'a_b-c/d/e/f']) expect(s.isCloudinaryFolder(ok)).toBe(true);
+    for (const bad of ['', '../x', 'a//b', '/abs', 'a/b/c/d/e', 'has space', 'x'.repeat(65), 7, null]) expect(s.isCloudinaryFolder(bad)).toBe(false);
+
+    answers.push([undefined, { public_id: 'prizes/a', secure_url: `${CLOUD}/v1/prizes/a.png`, format: 'png', bytes: 3, width: 1, height: 2, created_at: '2026-10-19T00:00:00Z' }]);
+    expect(await s.uploadImageToCloudinary(Buffer.from([1, 2, 3]), 'prizes')).toEqual({
+      publicId: 'prizes/a', url: `${CLOUD}/v1/prizes/a.png`, format: 'png', bytes: 3, width: 1, height: 2, createdAt: '2026-10-19T00:00:00Z',
+    });
+    expect(upload_stream).toHaveBeenCalledWith({ folder: 'prizes', resource_type: 'image' }, expect.any(Function));
+    expect(sent[0]).toEqual(Buffer.from([1, 2, 3]));
+
+    answers.push([{ message: 'Invalid image file' }]);
+    await expect(s.uploadImageToCloudinary(Buffer.from([0]), 'prizes')).rejects.toEqual({ message: 'Invalid image file' });
+    answers.push([undefined, undefined]);
+    await expect(s.uploadImageToCloudinary(Buffer.from([0]), 'prizes')).rejects.toThrow('Cloudinary sent no upload result');
+  });
 });
 
 describe('auth helpers', () => {

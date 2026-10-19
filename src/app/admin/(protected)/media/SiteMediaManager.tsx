@@ -1,44 +1,54 @@
 'use client';
 
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { toast } from 'sonner';
 import {
+  ArrowRightLeft,
+  Check,
+  CheckSquare,
   Copy,
+  ExternalLink,
+  Eye,
   HardDrive,
+  Link2,
   Loader2,
+  RefreshCw,
+  Search,
+  Square,
   Trash2,
   Upload,
-  ArrowRightLeft,
-  Search,
   X,
-  Eye,
-  ExternalLink,
-  RefreshCw,
-  Check,
-  Link2,
-  CheckSquare,
-  Square,
 } from 'lucide-react';
-import { IMAGE_PRESETS, MEDIA_BUCKETS, mediaImageLoader, type MediaBucket, parseMediaUrl, mediaPublicUrl } from '@/lib/media/config';
+import {
+  IMAGE_PRESETS,
+  MEDIA_BUCKETS,
+  mediaImageLoader,
+  mediaPublicUrl,
+  mediaVariantPaths,
+  parseMediaUrl,
+  type MediaBucket,
+} from '@/lib/media/config';
 import { loaderFor } from '@/lib/cloudinary';
 import {
-  deleteMediaImage,
   bulkDeleteMediaImages,
+  deleteMediaImage,
   getMediaOverview,
+  importMediaFromUrl,
   keepQueuedImage,
   listMediaImages,
   updatePrizeImageRetention,
-  importMediaFromUrl,
   type MediaImage,
   type MediaImagePage,
   type MediaOverview,
 } from '@/actions/supabase-media-actions';
 import { transferSupabaseToCloudinary } from '@/actions/media-actions';
-import { formatBytes, formatDate, Pager } from './media-ui';
 import StorageProviderControl from '@/components/admin/media/StorageProviderControl';
+import { formatBytes, formatDate, Modal, Pager, plural } from './media-ui';
 
 type AdminBucket = typeof MEDIA_BUCKETS.prize | typeof MEDIA_BUCKETS.site;
+type UsageFilter = 'all' | 'used' | 'unused';
+type SortKey = keyof typeof SORTS;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -58,6 +68,20 @@ const STATUS_STYLES = {
   failed: 'bg-red-500/15 text-red-300',
 } as const;
 
+const SORTS = {
+  newest: (a: MediaImage, b: MediaImage) => b.createdAt.localeCompare(a.createdAt),
+  oldest: (a: MediaImage, b: MediaImage) => a.createdAt.localeCompare(b.createdAt),
+  largest: (a: MediaImage, b: MediaImage) => b.size - a.size,
+  smallest: (a: MediaImage, b: MediaImage) => a.size - b.size,
+};
+
+/** Every stored size of a listed image (listed URLs always parse: they are built from the bucket). */
+function storedSizes(url: string) {
+  const ref = parseMediaUrl(url)!;
+  const widths = IMAGE_PRESETS[ref.bucket].widths;
+  return mediaVariantPaths(ref).map((path, i) => ({ width: widths[i], path, url: mediaPublicUrl(ref.bucket, path) }));
+}
+
 /** /admin/media: admin-uploaded images (prize-images and site-media) and replaced-image cleanup. */
 export default function SiteMediaManager() {
   const [overview, setOverview] = useState<MediaOverview | null>(null);
@@ -68,29 +92,23 @@ export default function SiteMediaManager() {
   const [retention, setRetention] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
-  const [usageFilter, setUsageFilter] = useState<'all' | 'used' | 'unused'>('all');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'largest' | 'smallest'>('newest');
+  const [usageFilter, setUsageFilter] = useState<UsageFilter>('all');
+  const [sortBy, setSortBy] = useState<SortKey>('newest');
 
-  // Preview / Details Modal
   const [previewImage, setPreviewImage] = useState<MediaImage | null>(null);
-
-  // Transfer to Cloudinary State
   const [transferringUrl, setTransferringUrl] = useState<string | null>(null);
-
-  // Import from URL modal
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
-
-  // Copy URL state
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
-  // Bulk selection state
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [isBulkBusy, setIsBulkBusy] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+
+  // Copies to Cloudinary go to the folder matching the bucket
+  const cloudFolder = bucket === MEDIA_BUCKETS.prize ? 'prizes' : 'site';
 
   const loadOverview = useCallback(async () => {
     const res = await getMediaOverview();
@@ -157,21 +175,17 @@ export default function SiteMediaManager() {
 
   const handleImportUrl = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!importUrl.trim()) return;
-
     setIsImporting(true);
     try {
       const res = await importMediaFromUrl(importUrl.trim(), bucket);
-      if (res.success) {
-        toast.success(`Image imported successfully into ${BUCKET_LABELS[bucket]}!`);
-        setImportUrl('');
-        setIsImportModalOpen(false);
-        await refresh();
-      } else {
-        toast.error(res.error || 'Import failed');
+      if (!res.success) {
+        toast.error(res.error);
+        return;
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to import image');
+      toast.success(`Image imported into ${BUCKET_LABELS[bucket]}`);
+      setImportUrl('');
+      setIsImportModalOpen(false);
+      await refresh();
     } finally {
       setIsImporting(false);
     }
@@ -191,120 +205,79 @@ export default function SiteMediaManager() {
     await refresh();
   };
 
-  const copyUrl = async (url: string) => {
+  const copyText = async (text: string, success: string, failure: string) => {
     try {
-      await navigator.clipboard.writeText(url);
-      setCopiedUrl(url);
-      toast.success('Link copied');
-      setTimeout(() => setCopiedUrl(null), 2000);
+      await navigator.clipboard.writeText(text);
+      toast.success(success);
+      return true;
     } catch {
-      toast.error('Could not copy the link');
+      toast.error(failure);
+      return false;
     }
+  };
+
+  const copyUrl = async (url: string) => {
+    if (!(await copyText(url, 'Link copied', 'Could not copy the link'))) return;
+    setCopiedUrl(url);
+    setTimeout(() => setCopiedUrl(null), 2000);
   };
 
   const handleTransferToCloudinary = async (image: MediaImage) => {
     setTransferringUrl(image.url);
     try {
-      const folder = bucket === MEDIA_BUCKETS.prize ? 'prizes' : 'site';
-      const res = await transferSupabaseToCloudinary(image.url, folder);
-      if (res.success && res.publicId) {
-        toast.success(`Transferred to Cloudinary as "${res.publicId}"!`);
-      } else {
-        toast.error(res.error || 'Transfer failed');
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Error transferring to Cloudinary');
+      const res = await transferSupabaseToCloudinary(image.url, cloudFolder);
+      if (res.success) toast.success(`Copied to Cloudinary as "${res.publicId}"`);
+      else toast.error(res.error);
     } finally {
       setTransferringUrl(null);
     }
   };
 
-  // Bulk Selection Operations
   const toggleSelect = (url: string) => {
-    setSelectedUrls((prev) =>
-      prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url]
-    );
+    setSelectedUrls((prev) => (prev.includes(url) ? prev.filter((u) => u !== url) : [...prev, url]));
   };
 
-  const selectAll = () => {
-    setSelectedUrls(displayedImages.map((img) => img.url));
-  };
+  const clearSelection = () => setSelectedUrls([]);
 
-  const clearSelection = () => {
-    setSelectedUrls([]);
-  };
-
-  const handleBulkCopyUrls = async () => {
-    if (selectedUrls.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(selectedUrls.join('\n'));
-      toast.success(`Copied ${selectedUrls.length} link${selectedUrls.length > 1 ? 's' : ''} to clipboard`);
-    } catch {
-      toast.error('Failed to copy links');
-    }
-  };
+  const handleBulkCopyUrls = () =>
+    copyText(selectedUrls.join('\n'), `Copied ${plural(selectedUrls.length, 'link')} to clipboard`, 'Failed to copy links');
 
   const handleBulkDelete = async () => {
-    if (selectedUrls.length === 0) return;
-    if (!confirm(`Are you sure you want to delete ${selectedUrls.length} images? Active prize images will be kept safely.`)) {
-      return;
-    }
-
+    if (!confirm(`Delete ${plural(selectedUrls.length, 'image')}? Images a prize still shows are kept.`)) return;
     setIsBulkBusy(true);
     try {
       const res = await bulkDeleteMediaImages(selectedUrls);
-      if (res.success) {
-        const { deletedCount, skipped } = res.data;
-        if (deletedCount > 0) {
-          toast.success(`Deleted ${deletedCount} image${deletedCount > 1 ? 's' : ''}`);
-        }
-        if (skipped.length > 0) {
-          toast.error(
-            `${skipped.length} image(s) skipped: ${skipped.map((s) => s.reason).slice(0, 2).join(', ')}${
-              skipped.length > 2 ? '...' : ''
-            }`
-          );
-        }
-        clearSelection();
-        await refresh();
-      } else {
-        toast.error(res.error || 'Failed to delete images');
+      if (!res.success) {
+        toast.error(res.error);
+        return;
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Error performing bulk deletion');
+      const { deletedCount, skipped } = res.data;
+      if (deletedCount > 0) toast.success(`Deleted ${plural(deletedCount, 'image')}`);
+      if (skipped.length > 0) {
+        toast.error(`Skipped ${plural(skipped.length, 'image')}: ${[...new Set(skipped.map((s) => s.reason))].join('; ')}`);
+      }
+      clearSelection();
+      await refresh();
     } finally {
       setIsBulkBusy(false);
     }
   };
 
   const handleBulkTransferToCloudinary = async () => {
-    if (selectedUrls.length === 0) return;
+    const urls = selectedUrls;
     setIsBulkBusy(true);
-    const folder = bucket === MEDIA_BUCKETS.prize ? 'prizes' : 'site';
-    let successCount = 0;
-    let failCount = 0;
-
-    for (let i = 0; i < selectedUrls.length; i++) {
-      const url = selectedUrls[i];
-      setBulkProgress(`Transferring ${i + 1} of ${selectedUrls.length}...`);
-      try {
-        const res = await transferSupabaseToCloudinary(url, folder);
-        if (res.success) successCount++;
-        else failCount++;
-      } catch {
-        failCount++;
+    let copied = 0;
+    try {
+      for (const [i, url] of urls.entries()) {
+        setBulkProgress(`Copying ${i + 1} of ${urls.length}...`);
+        if ((await transferSupabaseToCloudinary(url, cloudFolder)).success) copied++;
       }
+    } finally {
+      setIsBulkBusy(false);
+      setBulkProgress(null);
     }
-
-    setIsBulkBusy(false);
-    setBulkProgress(null);
-
-    if (successCount > 0) {
-      toast.success(`Transferred ${successCount} image${successCount > 1 ? 's' : ''} to Cloudinary (${folder}/)`);
-    }
-    if (failCount > 0) {
-      toast.error(`${failCount} transfer(s) failed`);
-    }
+    if (copied > 0) toast.success(`Copied ${plural(copied, 'image')} to Cloudinary (${cloudFolder}/)`);
+    if (copied < urls.length) toast.error(`Could not copy ${plural(urls.length - copied, 'image')}`);
     clearSelection();
   };
 
@@ -326,66 +299,27 @@ export default function SiteMediaManager() {
     await loadOverview();
   };
 
-  // Filtered & Sorted Images
   const displayedImages = useMemo(() => {
-    if (!listing?.images) return [];
-    let list = [...listing.images];
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      list = list.filter((img) => {
-        const matchesName = img.name.toLowerCase().includes(q);
-        const matchesPrize = img.usedBy?.some((p) => p.name.toLowerCase().includes(q));
-        return matchesName || matchesPrize;
-      });
-    }
-
-    if (usageFilter === 'used') {
-      list = list.filter((img) => img.usedBy && img.usedBy.length > 0);
-    } else if (usageFilter === 'unused') {
-      list = list.filter((img) => !img.usedBy || img.usedBy.length === 0);
-    }
-
-    list.sort((a, b) => {
-      if (sortBy === 'newest') return (b.createdAt || '').localeCompare(a.createdAt || '');
-      if (sortBy === 'oldest') return (a.createdAt || '').localeCompare(b.createdAt || '');
-      if (sortBy === 'largest') return (b.size || 0) - (a.size || 0);
-      if (sortBy === 'smallest') return (a.size || 0) - (b.size || 0);
-      return 0;
-    });
-
-    return list;
-  }, [listing?.images, searchQuery, usageFilter, sortBy]);
+    const q = searchQuery.trim().toLowerCase();
+    return (listing?.images ?? [])
+      .filter((img) => !q || img.name.toLowerCase().includes(q) || img.usedBy.some((p) => p.name.toLowerCase().includes(q)))
+      .filter((img) => usageFilter === 'all' || (usageFilter === 'used') === img.usedBy.length > 0)
+      .sort(SORTS[sortBy]);
+  }, [listing, searchQuery, usageFilter, sortBy]);
 
   const isAllSelected = displayedImages.length > 0 && selectedUrls.length === displayedImages.length;
 
-  // Compute preset variant paths for preview modal
-  const getVariants = (url: string) => {
-    const ref = parseMediaUrl(url);
-    if (!ref) return [];
-    const preset = IMAGE_PRESETS[ref.bucket];
-    const base = ref.path.replace(/-\d+\.webp$/, '');
-    return preset.widths.map((w) => ({
-      width: w,
-      path: `${base}-${w}.webp`,
-      url: mediaPublicUrl(ref.bucket, `${base}-${w}.webp`),
-    }));
-  };
-
   return (
     <div className="space-y-6">
-      {/* Primary Storage Switch & Consolidation */}
       <StorageProviderControl onRefresh={refresh} />
 
       {/* Usage per bucket */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {(overview?.usage ?? []).map((u) => (
           <div key={u.bucket} className="rounded-xl border border-white/10 bg-gray-900/60 p-5">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <HardDrive className="h-5 w-5 text-blue-400" />
-                <h3 className="font-medium text-gray-300">{BUCKET_LABELS[u.bucket]}</h3>
-              </div>
+            <div className="mb-2 flex items-center gap-3">
+              <HardDrive className="h-5 w-5 text-blue-400" />
+              <h3 className="font-medium text-gray-300">{BUCKET_LABELS[u.bucket]}</h3>
             </div>
             <p className="text-2xl font-bold text-white">{formatBytes(u.bytes)}</p>
             <p className="mt-1 text-xs text-gray-500">
@@ -395,7 +329,7 @@ export default function SiteMediaManager() {
         ))}
       </div>
 
-      {/* Gallery Header and Controls */}
+      {/* Gallery */}
       <div className="rounded-xl border border-white/10 bg-gray-900/60 p-6">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Image bucket">
@@ -412,13 +346,11 @@ export default function SiteMediaManager() {
                 {BUCKET_LABELS[b]}
               </button>
             ))}
-
             <button
               type="button"
               onClick={refresh}
               disabled={refreshing}
-              className="rounded-lg border border-white/10 bg-gray-800/80 px-3 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 flex items-center gap-1.5"
-              title="Refresh images"
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-gray-800/80 px-3 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700"
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin text-blue-400' : ''}`} />
               Refresh
@@ -429,14 +361,13 @@ export default function SiteMediaManager() {
             <button
               type="button"
               onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-600/20 px-3.5 py-2 text-sm font-medium text-purple-300 hover:bg-purple-600/30 transition-colors"
+              className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-600/20 px-3.5 py-2 text-sm font-medium text-purple-300 hover:bg-purple-600/30"
             >
               <Link2 className="h-4 w-4 text-purple-400" />
               Import from URL
             </button>
-
             <label
-              className={`flex cursor-pointer items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors ${
+              className={`flex cursor-pointer items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 ${
                 busy === 'upload' ? 'pointer-events-none opacity-50' : ''
               }`}
             >
@@ -453,42 +384,48 @@ export default function SiteMediaManager() {
           </div>
         </div>
 
-        {/* Search, Usage Filter, and Sort Toolbar */}
+        {/* Search, usage filter and sort */}
         {listing && listing.images.length > 0 && (
-          <div className="mb-6 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 pt-2 border-t border-white/5">
+          <div className="mb-6 flex flex-col justify-between gap-3 border-t border-white/5 pt-2 md:flex-row md:items-center">
             <div className="flex flex-wrap items-center gap-2.5">
               <div className="relative min-w-[200px]">
                 <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search filename or prize..."
+                  aria-label="Search images"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-7 py-1.5 bg-gray-800 border border-white/10 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  className="w-full rounded-lg border border-white/10 bg-gray-800 py-1.5 pl-8 pr-7 text-xs text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
                 />
                 {searchQuery && (
-                  <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-2 text-gray-400 hover:text-white">
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    aria-label="Clear search"
+                    className="absolute right-2.5 top-2 text-gray-400 hover:text-white"
+                  >
                     <X className="h-3 w-3" />
                   </button>
                 )}
               </div>
-
               {bucket === MEDIA_BUCKETS.prize && (
                 <select
+                  aria-label="Filter by use"
                   value={usageFilter}
-                  onChange={(e) => setUsageFilter(e.target.value as any)}
-                  className="bg-gray-800 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
+                  onChange={(e) => setUsageFilter(e.target.value as UsageFilter)}
+                  className="rounded-lg border border-white/10 bg-gray-800 px-2.5 py-1.5 text-xs text-gray-300 focus:border-blue-500 focus:outline-none"
                 >
                   <option value="all">All Usage</option>
                   <option value="used">Used by Prize</option>
                   <option value="unused">Unused (Orphaned)</option>
                 </select>
               )}
-
               <select
+                aria-label="Sort images"
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-gray-800 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
+                onChange={(e) => setSortBy(e.target.value as SortKey)}
+                className="rounded-lg border border-white/10 bg-gray-800 px-2.5 py-1.5 text-xs text-gray-300 focus:border-blue-500 focus:outline-none"
               >
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
@@ -500,31 +437,19 @@ export default function SiteMediaManager() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={isAllSelected ? clearSelection : selectAll}
-                className={`px-3 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                onClick={isAllSelected ? clearSelection : () => setSelectedUrls(displayedImages.map((img) => img.url))}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
                   isAllSelected
-                    ? 'bg-blue-600/20 border-blue-500/40 text-blue-300 hover:bg-blue-600/30'
-                    : selectedUrls.length > 0
-                    ? 'bg-gray-800 border-white/20 text-white hover:bg-gray-700'
-                    : 'bg-gray-800 border-white/10 text-gray-400 hover:text-gray-200'
+                    ? 'border-blue-500/40 bg-blue-600/20 text-blue-300 hover:bg-blue-600/30'
+                    : 'border-white/10 bg-gray-800 text-gray-300 hover:text-white'
                 }`}
-                title={isAllSelected ? 'Deselect all images' : 'Select all displayed images'}
               >
-                {isAllSelected ? (
-                  <>
-                    <CheckSquare className="h-3.5 w-3.5 text-blue-400" />
-                    Deselect All
-                  </>
-                ) : (
-                  <>
-                    <Square className="h-3.5 w-3.5" />
-                    Select All ({displayedImages.length})
-                  </>
-                )}
+                {isAllSelected ? <CheckSquare className="h-3.5 w-3.5 text-blue-400" /> : <Square className="h-3.5 w-3.5" />}
+                {isAllSelected ? 'Deselect All' : `Select All (${displayedImages.length})`}
               </button>
-              <div className="text-xs text-gray-400 flex items-center gap-1.5">
-                <span>Showing {displayedImages.length} of {listing.images.length} images</span>
-              </div>
+              <span className="text-xs text-gray-400">
+                Showing {displayedImages.length} of {listing.images.length} images
+              </span>
             </div>
           </div>
         )}
@@ -539,37 +464,25 @@ export default function SiteMediaManager() {
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
             {displayedImages.map((image) => {
               const isSelected = selectedUrls.includes(image.url);
-              const isCopied = copiedUrl === image.url;
-              const isTransferring = transferringUrl === image.url;
-
+              const inUse = image.usedBy.length > 0;
               return (
                 <div
                   key={image.url}
-                  className={`group relative overflow-hidden rounded-lg border transition-all flex flex-col justify-between ${
-                    isSelected
-                      ? 'border-blue-500 ring-2 ring-blue-500/30 bg-blue-950/20 shadow-lg'
-                      : 'border-white/5 bg-gray-800 hover:border-blue-500/30 hover:shadow-lg'
+                  className={`group relative flex flex-col justify-between overflow-hidden rounded-lg border ${
+                    isSelected ? 'border-blue-500 bg-blue-950/20 ring-2 ring-blue-500/30' : 'border-white/5 bg-gray-800 hover:border-blue-500/30'
                   }`}
                 >
                   <div className="relative aspect-square overflow-hidden bg-gray-900/50">
-                    {/* Checkbox button */}
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleSelect(image.url);
-                      }}
-                      className={`absolute top-2 left-2 z-20 p-1.5 rounded-lg backdrop-blur-md transition-all ${
-                        isSelected
-                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
-                          : 'bg-black/60 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100'
+                      onClick={() => toggleSelect(image.url)}
+                      className={`absolute left-2 top-2 z-20 rounded-lg p-1.5 backdrop-blur-md ${
+                        isSelected ? 'bg-blue-600 text-white' : 'bg-black/60 text-gray-400 opacity-0 hover:text-white group-hover:opacity-100'
                       }`}
-                      title={isSelected ? 'Deselect image' : 'Select image'}
-                      aria-label={isSelected ? `Deselect ${image.name}` : `Select ${image.name}`}
+                      aria-label={`${isSelected ? 'Deselect' : 'Select'} ${image.name}`}
                     >
                       {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
                     </button>
-
                     <Image
                       src={image.url}
                       loader={mediaImageLoader}
@@ -578,61 +491,56 @@ export default function SiteMediaManager() {
                       sizes="160px"
                       className="object-cover transition-transform duration-300 group-hover:scale-105"
                     />
-
-                    {/* Quick Preview Button */}
                     <button
                       type="button"
                       onClick={() => setPreviewImage(image)}
-                      className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
-                      title="Inspect Image & Variants"
+                      aria-label={`Inspect ${image.name}`}
+                      className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition-opacity group-hover:opacity-100"
                     >
-                      <span className="p-2 bg-black/60 rounded-full hover:bg-blue-600 transition-colors">
+                      <span className="rounded-full bg-black/60 p-2 hover:bg-blue-600">
                         <Eye className="h-4 w-4" />
                       </span>
                     </button>
                   </div>
 
                   <div className="space-y-1 p-2.5 text-xs">
-                    <p className="text-gray-300 truncate font-mono text-[11px]" title={image.name}>
+                    <p className="truncate font-mono text-[11px] text-gray-300" title={image.name}>
                       {image.name.split('/').pop()}
                     </p>
                     <p className="text-[11px] text-gray-400">
                       {formatBytes(image.size)} · {formatDate(image.createdAt)}
                     </p>
                     {bucket === MEDIA_BUCKETS.prize && (
-                      <p className={`text-[11px] truncate ${image.usedBy.length > 0 ? 'text-emerald-300' : 'text-gray-500'}`}>
-                        {image.usedBy.length > 0 ? `Used by ${image.usedBy.map((p) => p.name).join(', ')}` : 'Not used by any prize'}
+                      <p className={`truncate text-[11px] ${inUse ? 'text-emerald-300' : 'text-gray-500'}`}>
+                        {inUse ? `Used by ${image.usedBy.map((p) => p.name).join(', ')}` : 'Not used by any prize'}
                       </p>
                     )}
-                    <div className="flex items-center gap-1.5 pt-1.5 border-t border-white/5">
+                    <div className="flex items-center gap-1.5 border-t border-white/5 pt-1.5">
                       <button
                         type="button"
                         onClick={() => copyUrl(image.url)}
-                        className="rounded bg-gray-700/80 p-1.5 text-gray-200 hover:bg-gray-600 transition-colors"
+                        className="rounded bg-gray-700/80 p-1.5 text-gray-200 hover:bg-gray-600"
                         title="Copy link"
                         aria-label={`Copy link to ${image.name}`}
                       >
-                        {isCopied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copiedUrl === image.url ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                       </button>
-
-                      {/* Transfer to Cloudinary */}
                       <button
                         type="button"
                         onClick={() => handleTransferToCloudinary(image)}
-                        disabled={isTransferring}
-                        className="rounded bg-purple-500/20 p-1.5 text-purple-300 hover:bg-purple-500 hover:text-white transition-colors disabled:opacity-50"
-                        title="Transfer to Cloudinary"
-                        aria-label={`Transfer ${image.name} to Cloudinary`}
+                        disabled={transferringUrl === image.url}
+                        className="rounded bg-purple-500/20 p-1.5 text-purple-300 hover:bg-purple-500 hover:text-white disabled:opacity-50"
+                        title="Copy to Cloudinary"
+                        aria-label={`Copy ${image.name} to Cloudinary`}
                       >
-                        {isTransferring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />}
+                        {transferringUrl === image.url ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />}
                       </button>
-
                       <button
                         type="button"
                         onClick={() => handleDelete(image)}
-                        disabled={busy === image.url || image.usedBy.length > 0}
-                        className="rounded bg-red-500/20 p-1.5 text-red-300 hover:bg-red-500 hover:text-white disabled:opacity-40 transition-colors ml-auto"
-                        title={image.usedBy.length > 0 ? 'Change the prize image first' : 'Delete image'}
+                        disabled={busy === image.url || inUse}
+                        className="ml-auto rounded bg-red-500/20 p-1.5 text-red-300 hover:bg-red-500 hover:text-white disabled:opacity-40"
+                        title={inUse ? 'Change the prize image first' : 'Delete image'}
                         aria-label={`Delete ${image.name}`}
                       >
                         {busy === image.url ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
@@ -651,7 +559,7 @@ export default function SiteMediaManager() {
             pageSize={listing.pageSize}
             onPage={(p) => {
               setPage(p);
-              setSelectedUrls([]);
+              clearSelection();
             }}
           />
         )}
@@ -679,7 +587,7 @@ export default function SiteMediaManager() {
               className="mt-1 block w-32 rounded-lg border border-white/10 bg-gray-800 px-3 py-2 text-white"
             />
           </label>
-          <button type="submit" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 transition-colors">
+          <button type="submit" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500">
             Save
           </button>
         </form>
@@ -722,7 +630,7 @@ export default function SiteMediaManager() {
                         <button
                           type="button"
                           onClick={() => keep(d.id)}
-                          className="rounded bg-emerald-600/20 px-3 py-1 text-xs text-emerald-200 hover:bg-emerald-600 hover:text-white transition-colors"
+                          className="rounded bg-emerald-600/20 px-3 py-1 text-xs text-emerald-200 hover:bg-emerald-600 hover:text-white"
                         >
                           Keep
                         </button>
@@ -736,247 +644,157 @@ export default function SiteMediaManager() {
         )}
       </div>
 
-      {/* Modal: High-Res Preview & WebP Variants Inspector */}
+      {/* Image details and its stored WebP sizes */}
       {previewImage && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-white/15 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setPreviewImage(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <h3 className="text-lg font-bold text-white mb-4">Supabase Media Inspector</h3>
-
-            <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black/60 border border-white/10 mb-4">
-              <Image
-                src={previewImage.url}
-                loader={mediaImageLoader}
-                alt={previewImage.name}
-                fill
-                className="object-contain"
-              />
-            </div>
-
-            <div className="space-y-3 bg-gray-800/40 p-4 rounded-xl border border-white/5 text-xs font-mono mb-4">
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-gray-400">Object Name:</span>
-                <span className="text-white select-all">{previewImage.name}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-gray-400">Canonical Size:</span>
-                <span className="text-white">{formatBytes(previewImage.size)}</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-white/5">
-                <span className="text-gray-400">Bucket:</span>
-                <span className="text-white">{bucket}</span>
-              </div>
-              {previewImage.usedBy && previewImage.usedBy.length > 0 && (
-                <div className="flex justify-between py-1 border-b border-white/5">
-                  <span className="text-gray-400">Associated Prizes:</span>
-                  <span className="text-emerald-300">{previewImage.usedBy.map((p) => p.name).join(', ')}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Stored WebP Variants */}
-            <div className="mb-5">
-              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                Stored WebP Width Variants ({IMAGE_PRESETS[bucket].widths.join(', ')} px)
-              </h4>
-              <div className="space-y-2">
-                {getVariants(previewImage.url).map((v) => (
-                  <div key={v.width} className="flex items-center justify-between p-2 bg-gray-800/60 rounded-lg text-xs font-mono">
-                    <span className="text-blue-400 font-semibold">{v.width}px</span>
-                    <span className="text-gray-400 truncate max-w-[240px] select-all">{v.path}</span>
-                    <button
-                      onClick={() => copyUrl(v.url)}
-                      className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded flex items-center gap-1"
-                    >
-                      <Copy className="h-3 w-3" />
-                      Copy
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => copyUrl(previewImage.url)}
-                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium flex items-center gap-1.5"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy Canonical URL
-                </button>
-                <a
-                  href={previewImage.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium flex items-center gap-1.5"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Open in New Tab
-                </a>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleTransferToCloudinary(previewImage)}
-                  disabled={transferringUrl === previewImage.url}
-                  className="px-3 py-2 bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 rounded-lg text-xs font-medium flex items-center gap-1.5"
-                >
-                  {transferringUrl === previewImage.url ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <ArrowRightLeft className="h-3.5 w-3.5" />
-                  )}
-                  Transfer to Cloudinary
-                </button>
-                <button
-                  onClick={() => handleDelete(previewImage)}
-                  disabled={previewImage.usedBy && previewImage.usedBy.length > 0}
-                  className="px-3 py-2 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-lg text-xs font-medium flex items-center gap-1.5 disabled:opacity-40"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete
-                </button>
-              </div>
-            </div>
+        <Modal title="Image details" onClose={() => setPreviewImage(null)}>
+          <div className="relative mb-4 aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black/60">
+            <Image src={previewImage.url} loader={mediaImageLoader} alt={`Preview of ${previewImage.name}`} fill className="object-contain" />
           </div>
-        </div>
-      )}
-
-      {/* Modal: Import from URL into Supabase */}
-      {isImportModalOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-white/15 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
-            <button
-              onClick={() => setIsImportModalOpen(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-                <Link2 className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Import from URL</h3>
-                <p className="text-xs text-gray-400">
-                  Download an image from the web or Cloudinary into {BUCKET_LABELS[bucket]}.
-                </p>
-              </div>
+          <dl className="mb-4 space-y-2 rounded-xl border border-white/5 bg-gray-800/40 p-4 font-mono text-xs">
+            <div className="flex justify-between gap-3">
+              <dt className="text-gray-400">Object name</dt>
+              <dd className="select-all text-white">{previewImage.name}</dd>
             </div>
-
-            <form onSubmit={handleImportUrl} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-300 mb-1.5">Image URL</label>
-                <input
-                  type="url"
-                  required
-                  placeholder="https://...jpg or https://res.cloudinary.com/..."
-                  value={importUrl}
-                  onChange={(e) => setImportUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-gray-800 border border-white/10 rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 font-mono"
-                />
+            <div className="flex justify-between gap-3">
+              <dt className="text-gray-400">Largest size</dt>
+              <dd className="text-white">{formatBytes(previewImage.size)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="text-gray-400">Bucket</dt>
+              <dd className="text-white">{bucket}</dd>
+            </div>
+            {previewImage.usedBy.length > 0 && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-400">Used by</dt>
+                <dd className="text-emerald-300">{previewImage.usedBy.map((p) => p.name).join(', ')}</dd>
               </div>
+            )}
+          </dl>
 
-              <div className="bg-gray-800/40 p-3 rounded-lg text-xs text-gray-400">
-                <p>
-                  Target bucket: <span className="text-white font-medium">{BUCKET_LABELS[bucket]}</span>
-                </p>
-                <p className="mt-1">
-                  Preset WebP widths: {IMAGE_PRESETS[bucket].widths.join(', ')} px
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">Stored sizes</h4>
+          <ul className="mb-5 space-y-2">
+            {storedSizes(previewImage.url).map((v) => (
+              <li key={v.width} className="flex items-center justify-between gap-2 rounded-lg bg-gray-800/60 p-2 font-mono text-xs">
+                <span className="font-semibold text-blue-400">{v.width}px</span>
+                <span className="max-w-[240px] truncate text-gray-400">{v.path}</span>
                 <button
                   type="button"
-                  onClick={() => setIsImportModalOpen(false)}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm"
+                  onClick={() => copyUrl(v.url)}
+                  aria-label={`Copy link to the ${v.width}px size`}
+                  className="flex items-center gap-1 rounded bg-gray-700 px-2 py-1 text-gray-200 hover:bg-gray-600"
                 >
-                  Cancel
+                  <Copy className="h-3 w-3" />
+                  Copy
                 </button>
-                <button
-                  type="submit"
-                  disabled={isImporting || !importUrl.trim()}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-                >
-                  {isImporting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" /> Importing...
-                    </>
-                  ) : (
-                    'Import & Process'
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {/* Floating Bulk Actions Bar */}
-      {selectedUrls.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-gray-900/95 backdrop-blur-md border border-white/20 rounded-2xl px-5 py-3 shadow-2xl flex items-center gap-4 text-sm animate-in fade-in slide-in-from-bottom-4">
-          <span className="font-semibold text-white flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
-            {selectedUrls.length} image{selectedUrls.length > 1 ? 's' : ''} selected
-          </span>
+              </li>
+            ))}
+          </ul>
 
-          <div className="h-4 w-px bg-white/20"></div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleBulkTransferToCloudinary}
-              disabled={isBulkBusy}
-              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 pt-3">
+            <a
+              href={previewImage.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 rounded-lg bg-gray-800 px-3 py-2 text-xs font-medium text-gray-200 hover:bg-gray-700"
             >
-              {isBulkBusy && bulkProgress ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>{bulkProgress}</span>
-                </>
-              ) : (
-                <>
-                  <ArrowRightLeft className="h-3.5 w-3.5" />
-                  Transfer to Cloudinary
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={handleBulkCopyUrls}
-              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
-            >
-              <Copy className="h-3.5 w-3.5" />
-              Copy Links
-            </button>
-
-            <button
-              onClick={handleBulkDelete}
-              disabled={isBulkBusy}
-              className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
-            >
-              {isBulkBusy && !bulkProgress ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open in new tab
+            </a>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleTransferToCloudinary(previewImage)}
+                disabled={transferringUrl === previewImage.url}
+                className="flex items-center gap-1.5 rounded-lg bg-purple-600/30 px-3 py-2 text-xs font-medium text-purple-300 hover:bg-purple-600/50 disabled:opacity-50"
+              >
+                <ArrowRightLeft className="h-3.5 w-3.5" />
+                Copy to Cloudinary
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(previewImage)}
+                disabled={previewImage.usedBy.length > 0}
+                className="flex items-center gap-1.5 rounded-lg bg-red-500/20 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-500 hover:text-white disabled:opacity-40"
+              >
                 <Trash2 className="h-3.5 w-3.5" />
-              )}
-              Delete Selected
-            </button>
+                Delete
+              </button>
+            </div>
           </div>
+        </Modal>
+      )}
 
+      {/* Import an image from a link */}
+      {isImportModalOpen && (
+        <Modal title="Import from URL" onClose={() => setIsImportModalOpen(false)}>
+          <form onSubmit={handleImportUrl} className="space-y-4">
+            <label className="block text-xs font-medium text-gray-300">
+              Image link (https)
+              <input
+                type="url"
+                required
+                placeholder="https://example.com/photo.jpg"
+                value={importUrl}
+                onChange={(e) => setImportUrl(e.target.value)}
+                className="mt-1.5 w-full rounded-lg border border-white/10 bg-gray-800 px-3 py-2 font-mono text-xs text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none"
+              />
+            </label>
+            <p className="rounded-lg bg-gray-800/40 p-3 text-xs text-gray-400">
+              Saved to {BUCKET_LABELS[bucket]} as {IMAGE_PRESETS[bucket].widths.join(' / ')}px WebP. JPEG, PNG, WebP,
+              AVIF or GIF, up to 10 MB.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(false)}
+                className="rounded-lg bg-gray-800 px-4 py-2 text-sm text-gray-300 hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isImporting}
+                className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50"
+              >
+                {isImporting && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isImporting ? 'Importing...' : 'Import'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Bulk actions for the selected images */}
+      {selectedUrls.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-4 rounded-2xl border border-white/20 bg-gray-900/95 px-5 py-3 text-sm shadow-2xl backdrop-blur-md">
+          <span className="font-semibold text-white">{plural(selectedUrls.length, 'image')} selected</span>
           <button
-            onClick={clearSelection}
-            className="text-gray-400 hover:text-white p-1 rounded-lg"
-            title="Clear selection"
-            aria-label="Clear selection"
+            type="button"
+            onClick={handleBulkTransferToCloudinary}
+            disabled={isBulkBusy}
+            className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50"
           >
+            {bulkProgress ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5" />}
+            {bulkProgress ?? 'Copy to Cloudinary'}
+          </button>
+          <button
+            type="button"
+            onClick={handleBulkCopyUrls}
+            className="flex items-center gap-1.5 rounded-lg bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-gray-700"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Copy Links
+          </button>
+          <button
+            type="button"
+            onClick={handleBulkDelete}
+            disabled={isBulkBusy}
+            className="flex items-center gap-1.5 rounded-lg bg-red-500/20 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500 hover:text-white disabled:opacity-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete Selected
+          </button>
+          <button type="button" onClick={clearSelection} className="rounded-lg p-1 text-gray-400 hover:text-white" aria-label="Clear selection">
             <X className="h-4 w-4" />
           </button>
         </div>

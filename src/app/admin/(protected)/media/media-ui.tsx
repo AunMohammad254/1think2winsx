@@ -1,4 +1,48 @@
 /** Small pieces shared by the media pages. */
+import type { ReactNode } from 'react';
+import { X } from 'lucide-react';
+
+/** "1 image", "3 images" */
+export function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? '' : 's'}`;
+}
+
+/** Dialog over the page with a title and a close button. */
+export function Modal({
+  title,
+  onClose,
+  wide = false,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  wide?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={`relative max-h-[90vh] w-full overflow-y-auto rounded-2xl border border-white/15 bg-gray-900 p-6 shadow-2xl ${
+          wide ? 'max-w-2xl' : 'max-w-lg'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-4 top-4 rounded-lg p-1 text-gray-400 hover:text-white"
+        >
+          <X className="h-5 w-5" />
+        </button>
+        <h3 className="mb-4 pr-8 text-lg font-bold text-white">{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
