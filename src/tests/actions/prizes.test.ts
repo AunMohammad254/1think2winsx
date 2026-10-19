@@ -191,6 +191,18 @@ describe('admin prize actions', () => {
     expect(schedulePrizeImageDeletion).not.toHaveBeenCalled();
   });
 
+  it('saves bumper prizes, the admin-only category the prize form offers', async () => {
+    prizeDb.create.mockResolvedValue({ id: 'new' });
+    expect(await actions.createPrize({ name: 'Mystery bike', type: 'bike', pointsRequired: 1, category: 'bumper' } as never))
+      .toEqual({ success: true, data: { id: 'new' } });
+    expect(prizeDb.create).toHaveBeenCalledWith(expect.objectContaining({ category: 'bumper' }));
+
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
+    prizeDb.update.mockResolvedValue({ id: 'prize-1' });
+    expect((await actions.updatePrize('prize-1', { category: 'bumper' })).success).toBe(true);
+    expect(prizeDb.update).toHaveBeenLastCalledWith('prize-1', { category: 'bumper' });
+  });
+
   it('leaves the fields a partial update omits untouched, instead of resetting them to the create defaults', async () => {
     prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
     prizeDb.update.mockResolvedValue({});

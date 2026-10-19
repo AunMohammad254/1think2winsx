@@ -36,7 +36,8 @@ const prizeFields = {
     modelUrl: z.string().url('Invalid model URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
     pointsRequired: z.number().min(1, 'Points must be at least 1'),
-    category: z.enum(['electronics', 'vehicles', 'accessories', 'general']),
+    // 'bumper': admin-only prizes given when settling a quiz (hidden from players by RLS)
+    category: z.enum(['electronics', 'vehicles', 'accessories', 'general', 'bumper']),
     stock: z.number().min(0, 'Stock cannot be negative'),
     status: z.enum(['draft', 'published']),
     value: z.number().min(0, 'Value cannot be negative'),
