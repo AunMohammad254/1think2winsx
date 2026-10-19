@@ -119,18 +119,18 @@ export default function PlayerClaimsManager() {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
         },
-        body: JSON.stringify({
-          claimId,
-          status,
-          ...(notes !== undefined ? { notes } : {}),
-          ...(action === 'reissue' ? { action, reissueMode } : {}),
-        }),
+        // A reissue names its mode; the database decides the claim's new status
+        body: JSON.stringify(
+          action === 'reissue'
+            ? { claimId, action, reissueMode, notes }
+            : { claimId, status, ...(notes !== undefined ? { notes } : {}) },
+        ),
       });
 
       if (response.ok) {
         const data = await response.json().catch(() => ({}));
         if (action === 'reissue') {
-          toast.success(data.message || (reissueMode === 'redelivery' ? 'Claim reissued for re-delivery!' : 'Claim reissued to allow re-claim!'));
+          toast.success(data.message || 'Claim reissued');
         } else {
           // approved / rejected / fulfilled -> Approved / Rejected / Fulfilled
           const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);

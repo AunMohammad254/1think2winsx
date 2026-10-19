@@ -59,6 +59,34 @@ describe('getPublicPrizes', () => {
     db.setTable('Prize', { error: { message: 'x' } });
     expect(await actions.getPublicPrizes()).toEqual({ success: false, error: 'Failed to fetch prizes' });
   });
+
+  it("marks prizes the signed-in player already claimed or won", async () => {
+    db.setTable('Prize', { data: [prize(), prize({ id: 'prize-2' }), prize({ id: 'prize-3' })] });
+    db.setTable('PrizeRedemption', { data: [{ prizeId: 'prize-1' }, {}] });
+    db.setTable('Winning', { data: [{ prizeId: 'prize-3' }, { prizeId: null }] });
+    const res = await actions.getPublicPrizes();
+    expect(res.data?.map((p) => [p.id, p.isClaimed])).toEqual([['prize-1', true], ['prize-2', false], ['prize-3', true]]);
+    const redemptions = db.callsTo('PrizeRedemption')[0];
+    expect(eqValue(redemptions, 'userId')).toBe('user-1');
+    expect(redemptions.ops.find((o) => o.op === 'in')?.args).toEqual(['status', ['pending', 'approved', 'fulfilled']]);
+    expect(eqValue(db.callsTo('Winning')[0], 'userId')).toBe('user-1');
+
+    // Nothing found, or no rows at all
+    db.setTable('PrizeRedemption', { data: null });
+    db.setTable('Winning', { data: null });
+    expect((await actions.getPublicPrizes()).success).toBe(true);
+    db.setTable('Prize', { data: null });
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [] });
+  });
+
+  it('lists prizes for guests, and when the session check fails, with nothing claimed', async () => {
+    db.setTable('Prize', { data: [prize()] });
+    db.setUser(null);
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [prize()] });
+    expect(db.callsTo('PrizeRedemption')).toHaveLength(0);
+    db.auth.getClaims.mockRejectedValueOnce(new Error('auth down'));
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [prize()] });
+  });
 });
 
 describe('redeemPrize', () => {

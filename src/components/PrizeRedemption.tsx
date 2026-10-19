@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useProfile } from '@/contexts/ProfileContext';
 import Image from 'next/image';
 import { loaderFor } from '@/lib/cloudinary';
@@ -14,6 +14,9 @@ import {
   type Prize,
   type RedemptionHistory,
 } from '@/components/prize-redemption';
+
+// A claim that is not rejected; the database allows one per player per prize
+const LIVE_CLAIM_STATUSES = ['pending', 'approved', 'fulfilled'];
 
 // ============================================
 // Main Component (Refactored - ~260 lines from 663)
@@ -68,16 +71,17 @@ export default function PrizeRedemption() {
     );
   }, [fetchPrizes, fetchRedemptionHistory]);
 
-  const handleRedeem = (prizeId: string, prizeName: string, pointsRequired: number) => {
-    const isClaimed = Boolean(
-      prizes.find(p => p.id === prizeId)?.isClaimed ||
-      redemptionHistory.some(r => (r.prizeId === prizeId || (r.prize as any)?.id === prizeId) && ['pending', 'approved', 'fulfilled'].includes(r.status))
-    );
-    if (isClaimed) {
-      setError(`You have already claimed ${prizeName}. Each prize can only be claimed once per account.`);
-      return;
-    }
+  // Prizes this player has claimed: flagged by the server, or a live claim in their history.
+  // Their cards show "Claimed" with no redeem button, and redeem_prize refuses them anyway.
+  const claimedIds = useMemo(
+    () => new Set([
+      ...prizes.filter((p) => p.isClaimed).map((p) => p.id),
+      ...redemptionHistory.filter((r) => LIVE_CLAIM_STATUSES.includes(r.status)).map((r) => r.prizeId),
+    ]),
+    [prizes, redemptionHistory],
+  );
 
+  const handleRedeem = (prizeId: string, prizeName: string, pointsRequired: number) => {
     if (!profile || profile.points < pointsRequired) {
       setError(`You need ${pointsRequired} points to redeem ${prizeName}. You currently have ${profile?.points || 0} points.`);
       return;
@@ -167,23 +171,17 @@ export default function PrizeRedemption() {
           <div>
             {prizes.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-                {prizes.map((prize) => {
-                  const isClaimed = Boolean(
-                    prize.isClaimed ||
-                    redemptionHistory.some(r => (r.prizeId === prize.id || (r.prize as any)?.id === prize.id) && ['pending', 'approved', 'fulfilled'].includes(r.status))
-                  );
-                  return (
-                    <PrizeCard
-                      key={prize.id}
-                      prize={prize}
-                      isClaimed={isClaimed}
-                      userPoints={profile?.points || 0}
-                      isRedeeming={redeeming === prize.id}
-                      onPreview={(p) => { setPreviewPrize(p); setShowPreviewModal(true); }}
-                      onRedeem={handleRedeem}
-                    />
-                  );
-                })}
+                {prizes.map((prize) => (
+                  <PrizeCard
+                    key={prize.id}
+                    prize={prize}
+                    isClaimed={claimedIds.has(prize.id)}
+                    userPoints={profile?.points || 0}
+                    isRedeeming={redeeming === prize.id}
+                    onPreview={(p) => { setPreviewPrize(p); setShowPreviewModal(true); }}
+                    onRedeem={handleRedeem}
+                  />
+                ))}
               </div>
             ) : (
               <div className="text-center py-8">

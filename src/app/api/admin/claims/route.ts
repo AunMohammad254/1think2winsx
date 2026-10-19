@@ -8,13 +8,24 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { securityLogger } from '@/lib/security-logger';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 
-const updateClaimSchema = z.object({
+const claimFields = {
   claimId: z.string().min(1, 'Claim ID is required'),
-  status: z.enum(['pending', 'approved', 'rejected', 'fulfilled']),
   notes: z.string().max(500, 'Notes too long').optional(),
-  action: z.enum(['update', 'reissue']).optional().default('update'),
-  reissueMode: z.enum(['redelivery', 'reclaim']).optional(),
-});
+};
+
+// A status change names the new status; a reissue names its mode instead (reissue_claim decides the status)
+const updateClaimSchema = z.union([
+  z.object({
+    ...claimFields,
+    action: z.literal('reissue'),
+    reissueMode: z.enum(['redelivery', 'reclaim']),
+  }),
+  z.object({
+    ...claimFields,
+    action: z.literal('update').optional().default('update'),
+    status: z.enum(['pending', 'approved', 'rejected', 'fulfilled']),
+  }),
+]);
 
 // GET /api/admin/claims - Get all prize claims for admin
 export async function GET(request: NextRequest) {
@@ -197,7 +208,8 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const { claimId, status, notes, action, reissueMode } = validationResult.data;
+    const input = validationResult.data;
+    const { claimId, notes } = input;
 
     // Get database client
     const supabase = getAdminDb();
@@ -205,8 +217,8 @@ export async function PUT(request: NextRequest) {
     // Reissue an approved or delivered claim: send it again ('redelivery') or refund it so the player
     // can claim again ('reclaim'). reissue_claim checks the status and moves points and stock in one
     // locked transaction (db-tests/schema/06-20261019181000_prize_claim_once_and_reissue.sql).
-    if (action === 'reissue') {
-      const mode = reissueMode || (status === 'pending' ? 'redelivery' : 'reclaim');
+    if (input.action === 'reissue') {
+      const mode = input.reissueMode;
       const { data: result, error: rpcError } = await supabase.rpc('reissue_claim', {
         p_claim_id: claimId,
         p_mode: mode,
@@ -243,6 +255,8 @@ export async function PUT(request: NextRequest) {
         claim: { id: claimId, status: result.status },
       });
     }
+
+    const { status } = input;
 
     // Try using the unified update_claim_status RPC function first
     try {

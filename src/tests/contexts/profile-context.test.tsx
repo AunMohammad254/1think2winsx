@@ -55,14 +55,17 @@ describe('ProfileProvider', () => {
       user: { id: 'u1', name: 'Ali', email: 'ali@example.test', profilePicture: null, createdAt: 'c', points: 10 },
       recentWinnings: [
         { id: 'w1', prize: { name: 'Earbuds', type: 'physical', imageUrl: 'https://cdn.example.test/earbuds.webp' }, dateWon: 'd', type: 'quiz_win', status: 'claimed' },
+        { id: 'w2', prize: { name: 'Cap', type: 'cap' }, dateWon: 'd', type: 'redemption', status: 'pending' },
+        { id: 'w3', dateWon: 'd', type: 'quiz_win', status: 'claimed' },
       ],
     }));
     const { result } = renderHook(() => useProfile(), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.profile?.prizes[0]).toMatchObject({
-      name: 'Earbuds',
-      image: 'https://cdn.example.test/earbuds.webp',
-    });
+    expect(result.current.profile?.prizes.map((p) => [p.name, p.image])).toEqual([
+      ['Earbuds', 'https://cdn.example.test/earbuds.webp'],
+      ['Cap', '/cap.svg'],
+      ['Prize', '/physical.svg'],
+    ]);
   });
 
   it('maps an empty API profile with defaults', async () => {

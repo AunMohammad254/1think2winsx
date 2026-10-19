@@ -8,7 +8,6 @@ interface PrizeCardProps {
     description: string;
     icon: LucideIcon;
     tier: 'grand' | 'major' | 'standard';
-    value?: string;
     delay?: number;
 }
 
@@ -39,7 +38,7 @@ const tierStyles = {
     },
 };
 
-export default function PrizeCard({ name, description, icon: Icon, tier, value, delay = 0 }: PrizeCardProps) {
+export default function PrizeCard({ name, description, icon: Icon, tier, delay = 0 }: PrizeCardProps) {
     const styles = tierStyles[tier];
 
     return (

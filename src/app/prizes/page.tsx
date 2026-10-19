@@ -177,14 +177,10 @@ export default function PrizesPage() {
     fetchPrizes();
   }, [fetchPrizes]);
 
-  // Handle redemption
+  // Handle redemption (a claimed prize's card has its button disabled, and redeem_prize refuses it anyway)
   const handleRedeem = (prize: Prize) => {
     if (!user) {
       toast.error('Please log in to redeem prizes');
-      return;
-    }
-    if (prize.isClaimed) {
-      toast.error('You have already claimed this prize.');
       return;
     }
     setSelectedPrize(prize);

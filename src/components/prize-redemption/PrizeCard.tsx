@@ -8,6 +8,7 @@ interface PrizeCardProps {
     prize: Prize;
     userPoints: number;
     isRedeeming: boolean;
+    /** Already claimed by this player: shown as "Claimed", with no redeem button */
     isClaimed?: boolean;
     onPreview: (prize: Prize) => void;
     onRedeem: (prizeId: string, prizeName: string, pointsRequired: number) => void;
@@ -24,8 +25,7 @@ export function PrizeCard({
     onPreview,
     onRedeem,
 }: PrizeCardProps) {
-    const isAlreadyClaimed = Boolean(isClaimed || prize.isClaimed);
-    const canAfford = !isAlreadyClaimed && userPoints >= prize.pointsRequired;
+    const canAfford = userPoints >= prize.pointsRequired;
 
     return (
         <div className="glass-card-blue glass-border glass-hover glass-transition overflow-hidden rounded-2xl relative">
@@ -33,7 +33,7 @@ export function PrizeCard({
                 className="h-48 bg-gradient-glass-dark relative flex items-center justify-center cursor-pointer hover:bg-white/5 transition-colors p-4"
                 onClick={() => onPreview(prize)}
             >
-                {isAlreadyClaimed && (
+                {isClaimed && (
                     <div className="absolute top-3 right-3 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
                         <span>✓</span> Claimed
                     </div>
@@ -67,7 +67,7 @@ export function PrizeCard({
                             </span>
                         )}
                     </div>
-                    {isAlreadyClaimed ? (
+                    {isClaimed ? (
                         <button
                             disabled
                             aria-label={`Prize ${prize.name} already claimed`}
