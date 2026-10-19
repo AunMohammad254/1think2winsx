@@ -19,6 +19,15 @@ import {
   setPrizeImageRetentionDays,
   type MediaDeletion,
 } from '@/lib/media/deletion-queue';
+import {
+  getPrimaryStorageProvider,
+  setPrimaryStorageProvider,
+  getCloudinaryPendingStats,
+  migrateAllCloudinaryAssetsToSupabase,
+  type StorageProvider,
+  type CloudinaryPendingStats,
+  type FullMigrationResult,
+} from '@/lib/media/cloudinary-migration';
 
 /**
  * Admin actions for the Supabase Storage media pages (/admin/media and
@@ -213,5 +222,35 @@ export async function updatePrizeImageRetention(days: number): Promise<Result<{ 
   return adminAction(async (adminEmail) => {
     await setPrizeImageRetentionDays(days, adminEmail);
     return { days };
+  });
+}
+
+/** Get current primary storage provider and pending Cloudinary asset counts. */
+export async function getStorageProviderStatus(): Promise<Result<{ provider: StorageProvider; pendingStats: CloudinaryPendingStats }>> {
+  return adminAction(async () => {
+    const db = getAdminDb();
+    const [provider, pendingStats] = await Promise.all([
+      getPrimaryStorageProvider(db),
+      getCloudinaryPendingStats(db),
+    ]);
+    return { provider, pendingStats };
+  });
+}
+
+/** Switch primary storage provider (supabase or cloudinary). */
+export async function setPrimaryStorageAction(provider: StorageProvider): Promise<Result<{ provider: StorageProvider }>> {
+  return adminAction(async (adminEmail) => {
+    const db = getAdminDb();
+    await setPrimaryStorageProvider(db, provider, adminEmail);
+    return { provider };
+  });
+}
+
+/** Move all Cloudinary assets to Supabase Storage and set Supabase as primary. */
+export async function migrateAllAssetsAction(): Promise<Result<FullMigrationResult>> {
+  return adminAction(async (adminEmail) => {
+    const db = getAdminDb();
+    const result = await migrateAllCloudinaryAssetsToSupabase(db, adminEmail);
+    return result;
   });
 }
