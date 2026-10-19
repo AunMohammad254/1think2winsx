@@ -145,6 +145,33 @@ describe('db modules: every simple operation', () => {
   );
 });
 
+describe('creating rows in tables that came from Prisma', () => {
+  // These tables have a NOT NULL "updatedAt" with no default (Prisma used to fill it in), so an insert
+  // without one is refused. Creating a prize failed this way in production on 2026-10-19.
+  it.each([
+    ['prizeDb.create', () => prizeDb.create({ name: 'Bike' } as never)],
+    ['prizeRedemptionDb.create', () => prizeRedemptionDb.create({} as never)],
+    ['quizAttemptDb.create', () => quizAttemptDb.create({} as never)],
+    ['userDb.create', () => userDb.create({} as never)],
+    ['streamConfigDb.create', () => streamConfigDb.create({} as never)],
+    ['quizDb.create', () => quizDb.create({ title: 't' } as never)],
+    ['questionDb.create', () => questionDb.create({ text: 't' } as never)],
+  ])('%s sends updatedAt', async (_name, call) => {
+    both({ data: ROW });
+    await call();
+    const row = argOf(lastCall(), 'insert') as Record<string, unknown>;
+    expect(Date.parse(row.updatedAt as string)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('gives a new prize matching created and updated times, and keeps what the caller sent', async () => {
+    both({ data: ROW });
+    await prizeDb.create({ name: 'Bike', pointsRequired: 500 } as never);
+    const row = argOf(lastCall(), 'insert') as Record<string, unknown>;
+    expect(row).toMatchObject({ id: 'id-1', name: 'Bike', pointsRequired: 500 });
+    expect(row.createdAt).toBe(row.updatedAt);
+  });
+});
+
 describe('quiz.db specifics', () => {
   it('list reads and bulk inserts return [] when Supabase sends no rows', async () => {
     both({ data: null });
