@@ -8,6 +8,7 @@ interface PrizeCardProps {
     prize: Prize;
     userPoints: number;
     isRedeeming: boolean;
+    isClaimed?: boolean;
     onPreview: (prize: Prize) => void;
     onRedeem: (prizeId: string, prizeName: string, pointsRequired: number) => void;
 }
@@ -19,17 +20,24 @@ export function PrizeCard({
     prize,
     userPoints,
     isRedeeming,
+    isClaimed = false,
     onPreview,
     onRedeem,
 }: PrizeCardProps) {
-    const canAfford = userPoints >= prize.pointsRequired;
+    const isAlreadyClaimed = Boolean(isClaimed || prize.isClaimed);
+    const canAfford = !isAlreadyClaimed && userPoints >= prize.pointsRequired;
 
     return (
-        <div className="glass-card-blue glass-border glass-hover glass-transition overflow-hidden rounded-2xl">
+        <div className="glass-card-blue glass-border glass-hover glass-transition overflow-hidden rounded-2xl relative">
             <div
-                className="h-48 bg-gradient-glass-dark flex items-center justify-center cursor-pointer hover:bg-white/5 transition-colors p-4"
+                className="h-48 bg-gradient-glass-dark relative flex items-center justify-center cursor-pointer hover:bg-white/5 transition-colors p-4"
                 onClick={() => onPreview(prize)}
             >
+                {isAlreadyClaimed && (
+                    <div className="absolute top-3 right-3 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                        <span>✓</span> Claimed
+                    </div>
+                )}
                 <div className="h-32 w-32 rounded-2xl overflow-hidden">
                     <Image
                         src={prize.imageUrl || `/prizes/${prize.type}.svg`}
@@ -49,19 +57,36 @@ export function PrizeCard({
                     {prize.description}
                 </p>
                 <div className="flex items-center justify-between">
-                    <span className="text-lg font-bold text-blue-400">
-                        {prize.pointsRequired} points
-                    </span>
-                    <button
-                        onClick={() => onRedeem(prize.id, prize.name, prize.pointsRequired)}
-                        disabled={!canAfford || isRedeeming}
-                        className={`px-4 py-2 rounded-md text-sm font-medium glass-transition ${canAfford && !isRedeeming
-                                ? 'bg-blue-600 text-white hover:bg-blue-500 glass-hover-blue'
-                                : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-                            }`}
-                    >
-                        {isRedeeming ? 'Redeeming...' : canAfford ? 'Redeem' : 'Not enough points'}
-                    </button>
+                    <div>
+                        <span className="text-lg font-bold text-blue-400 block">
+                            {prize.pointsRequired} points
+                        </span>
+                        {prize.stock !== undefined && prize.stock > 0 && (
+                            <span className="text-xs text-gray-400 block">
+                                {prize.stock <= 5 ? `Only ${prize.stock} left!` : `Stock: ${prize.stock}`}
+                            </span>
+                        )}
+                    </div>
+                    {isAlreadyClaimed ? (
+                        <button
+                            disabled
+                            aria-label={`Prize ${prize.name} already claimed`}
+                            className="px-4 py-2 rounded-md text-sm font-semibold bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 cursor-not-allowed flex items-center gap-1.5 shadow-sm"
+                        >
+                            <span>✓</span> Claimed
+                        </button>
+                    ) : (
+                        <button
+                            onClick={() => onRedeem(prize.id, prize.name, prize.pointsRequired)}
+                            disabled={!canAfford || isRedeeming}
+                            className={`px-4 py-2 rounded-md text-sm font-medium glass-transition ${canAfford && !isRedeeming
+                                    ? 'bg-blue-600 text-white hover:bg-blue-500 glass-hover-blue'
+                                    : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
+                                }`}
+                        >
+                            {isRedeeming ? 'Redeeming...' : canAfford ? 'Redeem' : 'Not enough points'}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

@@ -50,6 +50,21 @@ describe('ProfileProvider', () => {
     });
   });
 
+  it('maps prize imageUrl from recent winnings when present', async () => {
+    fetchMock.mockResolvedValue(json({
+      user: { id: 'u1', name: 'Ali', email: 'ali@example.test', profilePicture: null, createdAt: 'c', points: 10 },
+      recentWinnings: [
+        { id: 'w1', prize: { name: 'Earbuds', type: 'physical', imageUrl: 'https://cdn.example.test/earbuds.webp' }, dateWon: 'd', type: 'quiz_win', status: 'claimed' },
+      ],
+    }));
+    const { result } = renderHook(() => useProfile(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.profile?.prizes[0]).toMatchObject({
+      name: 'Earbuds',
+      image: 'https://cdn.example.test/earbuds.webp',
+    });
+  });
+
   it('maps an empty API profile with defaults', async () => {
     fetchMock.mockResolvedValue(json({ user: { id: 'u1', name: 'A', email: 'e' } }));
     const { result } = renderHook(() => useProfile(), { wrapper });

@@ -119,7 +119,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use RPC function for atomic redemption
+    // Use RPC function for atomic redemption. It also refuses a prize this player has already
+    // claimed (1 claim per player per prize, under a lock), with the message shown below.
     const { data: rpcResult, error: rpcError } = await supabase.rpc('redeem_prize', {
       p_user_id: user.id,
       p_prize_id: prizeId,

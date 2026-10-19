@@ -97,7 +97,13 @@ export default function PlayerClaimsManager() {
   // ============================================
   // Actions
   // ============================================
-  const updateClaimStatus = async (claimId: string, status: string, notes?: string) => {
+  const updateClaimStatus = async (
+    claimId: string,
+    status: string,
+    notes?: string,
+    action: 'update' | 'reissue' = 'update',
+    reissueMode?: 'redelivery' | 'reclaim'
+  ) => {
     try {
       setUpdating(claimId);
 
@@ -113,14 +119,23 @@ export default function PlayerClaimsManager() {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
         },
-        body: JSON.stringify({ claimId, status, notes }),
+        body: JSON.stringify({
+          claimId,
+          status,
+          ...(notes !== undefined ? { notes } : {}),
+          ...(action === 'reissue' ? { action, reissueMode } : {}),
+        }),
       });
 
       if (response.ok) {
-        // approved / rejected / fulfilled -> Approved / Rejected / Fulfilled
-        const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
-
-        toast.success(`Claim ${statusLabel.toLowerCase()}!`);
+        const data = await response.json().catch(() => ({}));
+        if (action === 'reissue') {
+          toast.success(data.message || (reissueMode === 'redelivery' ? 'Claim reissued for re-delivery!' : 'Claim reissued to allow re-claim!'));
+        } else {
+          // approved / rejected / fulfilled -> Approved / Rejected / Fulfilled
+          const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+          toast.success(`Claim ${statusLabel.toLowerCase()}!`);
+        }
         await fetchClaims();
         setShowDetailsModal(false);
         setSelectedClaim(null);

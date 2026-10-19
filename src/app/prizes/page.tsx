@@ -183,6 +183,10 @@ export default function PrizesPage() {
       toast.error('Please log in to redeem prizes');
       return;
     }
+    if (prize.isClaimed) {
+      toast.error('You have already claimed this prize.');
+      return;
+    }
     setSelectedPrize(prize);
   };
 
@@ -209,6 +213,7 @@ export default function PrizesPage() {
       if (result.success) {
         toast.success('🎉 Prize redeemed successfully! We will contact you soon.');
         setSelectedPrize(null);
+        setPrizes(prev => prev.map(p => p.id === selectedPrize.id ? { ...p, isClaimed: true } : p));
         refreshProfile?.();
         fetchPrizes(); // Refresh to get latest stock
       } else {
@@ -313,6 +318,7 @@ export default function PrizesPage() {
                     <PrizeCard
                       key={prize.id}
                       prize={prize}
+                      isClaimed={prize.isClaimed}
                       userPoints={userPoints}
                       onRedeem={handleRedeem}
                       isRedeeming={redeemingId === prize.id}

@@ -9,7 +9,45 @@ import dynamic from 'next/dynamic';
 import { useProfile } from '@/contexts/ProfileContext';
 import ProfilePictureUpload from '@/components/ProfilePictureUpload';
 import { getCSRFHeaders } from '@/lib/csrf';
+import { loaderFor } from '@/lib/cloudinary';
 import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal, SignInMethodBadge } from '@/components/profile';
+
+function PrizeThumbnail({ image, name }: { image?: string; name: string }) {
+  const [hasError, setHasError] = useState(false);
+
+  if (!image || hasError) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-amber-300/80">
+        <svg
+          className="w-10 h-10"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M12 8v13m0-13V4a2 2 0 114 0v4m-4 0H4a2 2 0 00-2 2v2a2 2 0 002 2h16a2 2 0 002-2v-2a2 2 0 00-2-2h-8zM4 14h16v7a2 2 0 01-2 2H6a2 2 0 01-2-2v-7z"
+          />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={image}
+      loader={loaderFor(image)}
+      alt={name}
+      width={80}
+      height={80}
+      className="w-full h-full object-contain"
+      onError={() => setHasError(true)}
+    />
+  );
+}
 
 // Dynamic import for large component
 const PrizeRedemption = dynamic(
@@ -380,13 +418,7 @@ export default function ProfilePage() {
                           className="aspect-square bg-gradient-to-br from-amber-500/10 to-amber-700/10 flex items-center justify-center p-4"
                           aria-hidden="true"
                         >
-                          <Image
-                            src={prize.image}
-                            alt={prize.name}
-                            width={80}
-                            height={80}
-                            className="w-full h-full object-contain"
-                          />
+                          <PrizeThumbnail image={prize.image} name={prize.name} />
                         </div>
                         <div className="p-3">
                           <h3 className="font-medium text-white text-sm truncate">

@@ -99,15 +99,6 @@ export default function PrizeCard({ name, description, icon: Icon, tier, value, 
                         <p className="text-gray-400 text-sm sm:text-base mb-3">
                             {description}
                         </p>
-
-                        {/* Value Tag */}
-                        {value && (
-                            <div className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-gradient-to-r ${styles.gradient} bg-opacity-20`}>
-                                <span className={`font-bold text-sm ${styles.iconColor}`}>
-                                    {value}
-                                </span>
-                            </div>
-                        )}
                     </div>
                 </div>
 

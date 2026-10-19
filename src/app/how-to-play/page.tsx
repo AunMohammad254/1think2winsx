@@ -38,7 +38,7 @@ const steps = [
 
 // Prize Data
 const prizes = [
-  { name: "CD 70 Bike", description: "Honda CD 70 Motorcycle - Your ticket to freedom!", icon: Bike, tier: 'grand' as const, value: "Worth ₨55,000+" },
+  { name: "CD 70 Bike", description: "Honda CD 70 Motorcycle - Your ticket to freedom!", icon: Bike, tier: 'grand' as const },
   { name: "Smartphone", description: "Latest Android phone with all modern features", icon: Smartphone, tier: 'major' as const },
   { name: "Wireless Earbuds", description: "Premium Bluetooth earbuds for music lovers", icon: Headphones, tier: 'standard' as const },
   { name: "Smart Watch", description: "Fitness tracker with all the bells and whistles", icon: Watch, tier: 'standard' as const },
@@ -157,7 +157,7 @@ export default function HowToPlayPage() {
             className="text-lg sm:text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto mb-8 sm:mb-12 leading-relaxed"
           >
             Join the ultimate sports quiz. Test your knowledge, top the leaderboard,
-            and win <span className="text-amber-400 font-semibold">random prizes</span> worth thousands!
+            and win <span className="text-amber-400 font-semibold">random prizes</span>!
           </motion.p>
 
           {/* CTA Buttons */}
@@ -296,7 +296,6 @@ export default function HowToPlayPage() {
                 description={prize.description}
                 icon={prize.icon}
                 tier={prize.tier}
-                value={prize.value}
                 delay={index * 0.15}
               />
             ))}

@@ -9,6 +9,7 @@ import {
     XCircle,
     Package,
     Loader2,
+    RotateCcw,
 } from 'lucide-react';
 import { statusConfig, formatDate, type Claim } from './types';
 
@@ -61,6 +62,11 @@ export function ClaimCard({ claim, updating, onViewDetails, onUpdateStatus }: Cl
                         <StatusIcon className="w-3.5 h-3.5" />
                         {config.label}
                     </span>
+                    {claim.notes?.includes('[REISSUED') && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            <RotateCcw className="w-3 h-3" /> Reissued
+                        </span>
+                    )}
                 </div>
 
                 {/* Actions */}
@@ -72,6 +78,17 @@ export function ClaimCard({ claim, updating, onViewDetails, onUpdateStatus }: Cl
                         <Eye className="w-4 h-4" />
                         Details
                     </button>
+                    {/* Rejected claims were refunded already, so only a delivered one can be reissued here */}
+                    {claim.status === 'fulfilled' && (
+                        <button
+                            onClick={() => onViewDetails(claim)}
+                            className="px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 hover:bg-amber-500/20 transition-all flex items-center gap-1.5 text-xs font-medium"
+                            title="Reissue this item if the user encounters any issues"
+                        >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Reissue
+                        </button>
+                    )}
                     {claim.status === 'pending' && (
                         <>
                             <button
