@@ -20,12 +20,10 @@ export interface ImageVariant {
 }
 
 /**
- * Turns an uploaded image into the preset's WebP sizes, once, at upload time.
- * The real format is read from the bytes (the browser's MIME type is not trusted), the photo is
- * rotated upright from its EXIF orientation, metadata (EXIF/GPS) is dropped, and nothing is
- * enlarged. Animated GIFs keep their first frame.
+ * Reads the real format from the bytes (the browser's MIME type is not trusted) and throws
+ * InvalidImageError for anything that is not an accepted image, or is too large to decode.
  */
-export async function toWebpVariants(input: Buffer, preset: ImagePreset): Promise<ImageVariant[]> {
+export async function assertSupportedImage(input: Buffer): Promise<void> {
   let format: string | undefined;
   try {
     ({ format } = await sharp(input, { limitInputPixels: MAX_INPUT_PIXELS }).metadata());
@@ -33,6 +31,16 @@ export async function toWebpVariants(input: Buffer, preset: ImagePreset): Promis
     throw new InvalidImageError();
   }
   if (!format || !ACCEPTED_FORMATS.has(format)) throw new InvalidImageError();
+}
+
+/**
+ * Turns an uploaded image into the preset's WebP sizes, once, at upload time.
+ * The format is checked first (assertSupportedImage), the photo is rotated upright from its
+ * EXIF orientation, metadata (EXIF/GPS) is dropped, and nothing is enlarged. Animated GIFs keep
+ * their first frame.
+ */
+export async function toWebpVariants(input: Buffer, preset: ImagePreset): Promise<ImageVariant[]> {
+  await assertSupportedImage(input);
 
   try {
     return await Promise.all(

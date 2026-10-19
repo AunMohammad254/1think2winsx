@@ -36,7 +36,8 @@ const prizeFields = {
     modelUrl: z.string().url('Invalid model URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
     pointsRequired: z.number().min(1, 'Points must be at least 1'),
-    category: z.enum(['electronics', 'vehicles', 'accessories', 'general']),
+    // 'bumper': admin-only prizes given when settling a quiz (hidden from players by RLS)
+    category: z.enum(['electronics', 'vehicles', 'accessories', 'general', 'bumper']),
     stock: z.number().min(0, 'Stock cannot be negative'),
     status: z.enum(['draft', 'published']),
     value: z.number().min(0, 'Value cannot be negative'),
@@ -107,7 +108,45 @@ export async function getPublicPrizes(
 
         if (error) throw error;
 
-        return { success: true, data: prizes as Prize[] };
+        // Determine if current user has already claimed any prize
+        const claimedPrizeIds = new Set<string>();
+        try {
+            const { data: claims } = await supabase.auth.getClaims();
+            const userId = claims?.claims?.sub;
+            if (userId) {
+                const { data: userRedemptions } = await supabase
+                    .from('PrizeRedemption')
+                    .select('prizeId')
+                    .eq('userId', userId)
+                    .in('status', ['pending', 'approved', 'fulfilled']);
+
+                if (userRedemptions) {
+                    for (const r of (userRedemptions as { prizeId?: string }[])) {
+                        if (r.prizeId) claimedPrizeIds.add(r.prizeId);
+                    }
+                }
+
+                const { data: userWinnings } = await supabase
+                    .from('Winning')
+                    .select('prizeId')
+                    .eq('userId', userId);
+
+                if (userWinnings) {
+                    for (const w of (userWinnings as { prizeId?: string }[])) {
+                        if (w.prizeId) claimedPrizeIds.add(w.prizeId);
+                    }
+                }
+            }
+        } catch {
+            // Unauthenticated or auth check unavailable; proceed with empty claims set
+        }
+
+        const prizesWithClaims = ((prizes || []) as Prize[]).map((prize) => ({
+            ...prize,
+            isClaimed: claimedPrizeIds.has(prize.id),
+        }));
+
+        return { success: true, data: prizesWithClaims };
     } catch (error) {
         console.error('Error fetching public prizes:', error);
         return { success: false, error: 'Failed to fetch prizes' };
@@ -147,17 +186,6 @@ export async function redeemPrize(
         }
 
         const { prizeId, fullName, whatsappNumber, address } = validation.data;
-
-        const { data: existingRedemption } = await supabase
-            .from('PrizeRedemption')
-            .select('id')
-            .eq('userId', userId)
-            .eq('prizeId', prizeId)
-            .eq('status', 'pending')
-            .maybeSingle();
-        if (existingRedemption) {
-            return { success: false, error: 'You already have a pending redemption for this prize' };
-        }
 
         const prize = await prizeDb.findById(prizeId);
         if (!prize || !prize.isActive || prize.status !== 'published') {

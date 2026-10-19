@@ -38,6 +38,7 @@ export interface Prize {
     stock: number;
     status: PrizeStatus;
     value: number;
+    isClaimed?: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -127,6 +128,7 @@ export interface PrizesResponse {
     data?: Prize[];
     error?: string;
     message?: string;
+    claimedPrizeIds?: string[];
 }
 
 // Optimistic update state

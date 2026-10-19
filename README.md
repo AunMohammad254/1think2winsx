@@ -58,7 +58,7 @@ Status as of **5 October 2026**: the player app and the full admin back-office a
 | **Navigation speed** | Quiz cards prefetch their route on hover or focus. |
 | **Security and email** | Auth-callback open-redirect fix, CSRF hardening, dead session-cookie cleanup, one-click signed newsletter unsubscribe, configurable Brevo sender. |
 | **Support tooling** | Admin support desk: user lookup, points and wallet adjustments, suspend or restore, force-verify email, refunds, notes and tags, GDPR export. |
-| **Deployment** | Hostinger guide ([`docs/HOSTINGER_DEPLOY.md`](./docs/HOSTINGER_DEPLOY.md)) and scripted build. |
+| **Deployment** | Hostinger upload ZIP built by [`scripts/build-hostinger.ps1`](./scripts/build-hostinger.ps1) (steps in its header). |
 | **Installable app** | `public/manifest.json` (192 and 512 icons) is wired into the root layout. |
 
 > [!NOTE]
@@ -176,7 +176,6 @@ flowchart LR
 ├── 📂 SQL                       # Schema, functions, RLS, indexes, patches and supabase/migrations
 ├── 📂 e2e                       # Playwright specs
 ├── 📂 deploy                    # Dockerfile, docker-compose, nginx.conf
-├── 📂 docs                      # Hostinger deploy guide, testing docs
 ├── 📂 scripts                   # VAPID generator, cleanup, Hostinger build, test runner
 ├── 📂 presentation              # Client deck generator (pptxgenjs), git-ignored
 ├── 📂 public                    # Service worker (sw.js), manifest.json, favicons
@@ -319,12 +318,10 @@ supabase db push
 | `bun run lint` | ESLint |
 | `bun run cleanup:orphaned` | Remove orphaned DB records |
 
-- **Unit and integration**: **241 tests in 16 files**, using Vitest with Testing Library and jsdom, covering API routes, auth, quizzes, user flows, the `quiz-evaluation` components and their integration flow, player claims, prize redemption, streaming utilities and scale hardening.
+- **Unit and integration**: **2,115 tests in 129 files**, using Vitest with Testing Library and jsdom, covering API routes, server actions, auth, quizzes, components, pages and scale hardening. CI requires **100% statement, branch, function and line coverage**.
 - **E2E**: Playwright across **Chromium, Firefox, WebKit, Pixel 5 and iPhone 12**.
 - **CI (GitHub Actions)**: lint and type check, unit/API tests with coverage, cross-browser E2E, nightly coverage (Codecov and GitHub Pages report), and nightly performance runs (bundle size, **Lighthouse CI**, performance E2E, PR regression comments).
 - **Lighthouse budgets**: accessibility ≥ 0.9, performance ≥ 0.7, best-practices ≥ 0.8, SEO ≥ 0.8.
-
-More detail: [`docs/testing/`](./docs/testing).
 
 ---
 
@@ -333,7 +330,7 @@ More detail: [`docs/testing/`](./docs/testing).
 | Target | How |
 |---|---|
 | **Docker** | `docker compose -f deploy/docker-compose.yml up -d --build` (Bun Alpine image, nginx config included, Next.js `standalone` output) |
-| **Hostinger** | Follow [`docs/HOSTINGER_DEPLOY.md`](./docs/HOSTINGER_DEPLOY.md); `scripts/build-hostinger.ps1` builds the deployment ZIP |
+| **Hostinger** | `powershell -ExecutionPolicy Bypass -File scripts\build-hostinger.ps1` builds `hostinger-deploy.zip` (committed source only, lockfile pinned to the tested `bun.lock` versions). hPanel: Deployments → Settings and redeploy → Upload new files → Redeploy. Settings and links to Hostinger's docs are in the script header. |
 | **Vercel** | `vercel.json` registers a daily cron for `/api/cron/process-scheduled` (activates scheduled quizzes and sends scheduled notifications) |
 
 Other endpoints: `GET /api/health` for health checks, and `/api/cron/process-scheduled` secured by `CRON_SECRET`.

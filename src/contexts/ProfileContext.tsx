@@ -134,10 +134,17 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           totalScore: totalScore,
           winCount: data.user.totalWinnings || 0,
           quizHistory: quizHistory,
-          prizes: data.recentWinnings?.map((prizeData: { id: string; prize: { name: string; type: string }; dateWon: string; type: string; status: string; pointsUsed: number }) => ({
+          prizes: data.recentWinnings?.map((prizeData: {
+            id: string;
+            prize?: { name: string; type: string; imageUrl?: string };
+            dateWon: string;
+            type: string;
+            status: string;
+            pointsUsed: number;
+          }) => ({
             id: prizeData.id,
-            name: prizeData.prize.name,
-            image: `/${prizeData.prize.type}.svg`,
+            name: prizeData.prize?.name || 'Prize',
+            image: prizeData.prize?.imageUrl || `/${prizeData.prize?.type || 'physical'}.svg`,
             dateWon: prizeData.dateWon,
             type: prizeData.type, // 'quiz_win' or 'redemption'
             status: prizeData.status,

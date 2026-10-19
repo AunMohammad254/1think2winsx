@@ -4,15 +4,20 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { jsonResponse } from '@/tests/helpers/ui';
 
 const h = vi.hoisted(() => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), loading: vi.fn() },
   actions: {
     getMediaOverview: vi.fn(),
     listMediaImages: vi.fn(),
     deleteMediaImage: vi.fn(),
+    bulkDeleteMediaImages: vi.fn(),
     keepQueuedImage: vi.fn(),
     updatePrizeImageRetention: vi.fn(),
     listProfilePictures: vi.fn(),
     removeProfilePicture: vi.fn(),
+    importMediaFromUrl: vi.fn(),
+    getCloudinaryLeftovers: vi.fn(),
+    migrateAllAssetsAction: vi.fn(),
+    transferSupabaseToCloudinary: vi.fn(),
   },
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
@@ -20,10 +25,17 @@ vi.mock('@/actions/supabase-media-actions', () => ({
   getMediaOverview: (...a: unknown[]) => h.actions.getMediaOverview(...a),
   listMediaImages: (...a: unknown[]) => h.actions.listMediaImages(...a),
   deleteMediaImage: (...a: unknown[]) => h.actions.deleteMediaImage(...a),
+  bulkDeleteMediaImages: (...a: unknown[]) => h.actions.bulkDeleteMediaImages(...a),
   keepQueuedImage: (...a: unknown[]) => h.actions.keepQueuedImage(...a),
   updatePrizeImageRetention: (...a: unknown[]) => h.actions.updatePrizeImageRetention(...a),
   listProfilePictures: (...a: unknown[]) => h.actions.listProfilePictures(...a),
   removeProfilePicture: (...a: unknown[]) => h.actions.removeProfilePicture(...a),
+  importMediaFromUrl: (...a: unknown[]) => h.actions.importMediaFromUrl(...a),
+  getCloudinaryLeftovers: (...a: unknown[]) => h.actions.getCloudinaryLeftovers(...a),
+  migrateAllAssetsAction: (...a: unknown[]) => h.actions.migrateAllAssetsAction(...a),
+}));
+vi.mock('@/actions/media-actions', () => ({
+  transferSupabaseToCloudinary: (...a: unknown[]) => h.actions.transferSupabaseToCloudinary(...a),
 }));
 
 import MediaPage, { metadata } from '@/app/admin/(protected)/media/page';
@@ -57,7 +69,8 @@ const overview = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://proj.supabase.co');
-  for (const fn of [...Object.values(h.actions), h.toast.success, h.toast.error]) fn.mockReset();
+  for (const fn of [...Object.values(h.actions), ...Object.values(h.toast)]) fn.mockReset();
+  h.actions.getCloudinaryLeftovers.mockResolvedValue({ success: true, data: { prizes: 0, avatars: 0, total: 0 } });
   h.actions.getMediaOverview.mockResolvedValue(overview());
   h.actions.listMediaImages.mockResolvedValue({ success: true, data: { images: [prizeImage('a', [{ id: 'p1', name: 'Bike' }]), prizeImage('b')], total: 2, pageSize: 48 } });
   h.actions.deleteMediaImage.mockResolvedValue({ success: true, data: { deleted: true } });
@@ -208,6 +221,55 @@ describe('/admin/media (site & prize images)', () => {
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Unauthorized: admin session required'));
   });
 
+  it('supports bulk selection, select all, deselect, copy links, and bulk delete', async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirm);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+
+    h.actions.bulkDeleteMediaImages.mockResolvedValue({
+      success: true,
+      data: {
+        deletedCount: 1,
+        skipped: [{ url: `${PUB}/prize-images/prizes/a-1280.webp`, reason: 'Used by prize "Bike"' }],
+      },
+    });
+
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+
+    // Click "Select All"
+    fireEvent.click(screen.getByRole('button', { name: /Select All/ }));
+    expect(await screen.findByText('2 images selected')).toBeInTheDocument();
+
+    // Copy links
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Links' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Copied 2 links to clipboard'));
+
+    // Deselect All
+    fireEvent.click(screen.getByRole('button', { name: 'Deselect All' }));
+    expect(screen.queryByText(/images selected/)).toBeNull();
+
+    // Select single image using checkbox
+    fireEvent.click(screen.getByRole('button', { name: 'Select prizes/b-1280.webp' }));
+    expect(await screen.findByText('1 image selected')).toBeInTheDocument();
+
+    // Bulk Delete
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    await waitFor(() => expect(h.actions.bulkDeleteMediaImages).toHaveBeenCalledWith([`${PUB}/prize-images/prizes/b-1280.webp`]));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Deleted 1 image'));
+    expect(h.toast.error).toHaveBeenCalledWith('Skipped 1 image: Used by prize "Bike"');
+
+    // Nothing skipped: no warning
+    h.toast.error.mockClear();
+    h.actions.bulkDeleteMediaImages.mockResolvedValueOnce({ success: true, data: { deletedCount: 1, skipped: [] } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Select prizes/b-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    await waitFor(() => expect(h.actions.bulkDeleteMediaImages).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(h.toast.success.mock.calls.filter(([m]) => m === 'Deleted 1 image')).toHaveLength(2));
+    expect(h.toast.error).not.toHaveBeenCalled();
+  });
+
   it('reports loading failures and an empty cleanup queue', async () => {
     h.actions.getMediaOverview.mockResolvedValueOnce({ success: false, error: 'function media_storage_usage does not exist' });
     h.actions.listMediaImages.mockResolvedValueOnce({ success: false, error: 'storage down' });
@@ -220,6 +282,235 @@ describe('/admin/media (site & prize images)', () => {
     h.actions.getMediaOverview.mockResolvedValueOnce(overview({ deletions: [] }));
     render(<MediaPage />);
     expect(await screen.findByText('No replaced prize images yet.')).toBeInTheDocument();
+  });
+});
+
+describe('/admin/media gallery tools', () => {
+  const deferred = <T,>() => {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => { resolve = r; });
+    return { promise, resolve };
+  };
+  const three = () => [
+    { ...prizeImage('a', [{ id: 'p1', name: 'Bike' }]), size: 2048, createdAt: '2026-10-01T10:00:00Z' },
+    { ...prizeImage('b'), size: 5000, createdAt: '2026-10-03T10:00:00Z' },
+    { ...prizeImage('c'), size: 100, createdAt: '2026-09-01T10:00:00Z' },
+  ];
+  const order = () => screen.getAllByRole('img').map((i) => i.getAttribute('alt')).filter((a) => a?.startsWith('prizes/')).map((a) => a!.slice(7, 8));
+  const writeText = vi.fn();
+
+  beforeEach(() => {
+    h.actions.listMediaImages.mockResolvedValue({ success: true, data: { images: three(), total: 3, pageSize: 48 } });
+    writeText.mockReset().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    vi.stubGlobal('confirm', vi.fn(() => true));
+  });
+
+  it('searches by file or prize name, filters by use and sorts', async () => {
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+    expect(order()).toEqual(['b', 'a', 'c']);
+    const sort = screen.getByLabelText('Sort images');
+    fireEvent.change(sort, { target: { value: 'oldest' } });
+    expect(order()).toEqual(['c', 'a', 'b']);
+    fireEvent.change(sort, { target: { value: 'largest' } });
+    expect(order()).toEqual(['b', 'a', 'c']);
+    fireEvent.change(sort, { target: { value: 'smallest' } });
+    expect(order()).toEqual(['c', 'a', 'b']);
+
+    const search = screen.getByLabelText('Search images');
+    fireEvent.change(search, { target: { value: ' BIKE ' } });
+    expect(order()).toEqual(['a']);
+    expect(screen.getByText('Showing 1 of 3 images')).toBeInTheDocument();
+    fireEvent.change(search, { target: { value: 'prizes/c' } });
+    expect(order()).toEqual(['c']);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(order()).toHaveLength(3);
+
+    const use = screen.getByLabelText('Filter by use');
+    fireEvent.change(use, { target: { value: 'used' } });
+    expect(order()).toEqual(['a']);
+    fireEvent.change(use, { target: { value: 'unused' } });
+    expect(order()).toEqual(['c', 'b']);
+    fireEvent.change(use, { target: { value: 'all' } });
+    expect(order()).toHaveLength(3);
+  });
+
+  it('inspects an image: its stored sizes, links, a copy to Cloudinary and delete', async () => {
+    h.actions.transferSupabaseToCloudinary.mockResolvedValue({ success: true, publicId: 'prizes/a-1280' });
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect prizes/a-1280.webp' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Image details' }));
+    expect(dialog.getByText('Bike')).toBeInTheDocument();
+    expect(dialog.getByText('prizes/a-320.webp')).toBeInTheDocument();
+    expect(dialog.getByText('prizes/a-640.webp')).toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Copy link to the 640px size' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${PUB}/prize-images/prizes/a-640.webp`));
+    expect(dialog.getByRole('link', { name: 'Open in new tab' })).toHaveAttribute('href', `${PUB}/prize-images/prizes/a-1280.webp`);
+    fireEvent.click(dialog.getByRole('button', { name: 'Copy to Cloudinary' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Copied to Cloudinary as "prizes/a-1280"'));
+    expect(h.actions.transferSupabaseToCloudinary).toHaveBeenCalledWith(`${PUB}/prize-images/prizes/a-1280.webp`, 'prizes');
+    expect(dialog.getByRole('button', { name: 'Delete' })).toBeDisabled();
+    fireEvent.click(dialog.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    // Deleting from the dialog closes it
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect prizes/b-1280.webp' }));
+    expect(screen.queryByText('Used by', { selector: 'dt' })).toBeNull();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Image deleted'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('copies one image to Cloudinary from its card, into the folder of the bucket shown', async () => {
+    const pending = deferred<unknown>();
+    h.actions.transferSupabaseToCloudinary
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce({ success: false, error: 'quota' })
+      .mockResolvedValueOnce({ success: true, publicId: 'site/b' });
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+    const copy = () => screen.getByRole('button', { name: 'Copy prizes/b-1280.webp to Cloudinary' });
+    fireEvent.click(copy());
+    await waitFor(() => expect(copy()).toBeDisabled());
+    await act(async () => pending.resolve({ success: true, publicId: 'prizes/b' }));
+    expect(h.toast.success).toHaveBeenCalledWith('Copied to Cloudinary as "prizes/b"');
+    expect(copy()).toBeEnabled();
+    fireEvent.click(copy());
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('quota'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Site images' }));
+    await waitFor(() => expect(h.actions.listMediaImages).toHaveBeenLastCalledWith('site-media', 0));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy prizes/b-1280.webp to Cloudinary' }));
+    await waitFor(() => expect(h.actions.transferSupabaseToCloudinary).toHaveBeenLastCalledWith(`${PUB}/prize-images/prizes/b-1280.webp`, 'site'));
+    await waitFor(() => expect(h.toast.success).toHaveBeenLastCalledWith('Copied to Cloudinary as "site/b"'));
+  });
+
+  it('imports an image from a link into the bucket shown', async () => {
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+    const open = () => fireEvent.click(screen.getByRole('button', { name: 'Import from URL' }));
+
+    open();
+    fireEvent.change(screen.getByLabelText('Image link (https)'), { target: { value: ' https://example.com/a.png ' } });
+    h.actions.importMediaFromUrl.mockResolvedValueOnce({ success: false, error: 'That link is not an image' });
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('That link is not an image'));
+    expect(h.actions.importMediaFromUrl).toHaveBeenCalledWith('https://example.com/a.png', 'prize-images');
+    expect(screen.getByRole('dialog', { name: 'Import from URL' })).toBeInTheDocument();
+
+    const pending = deferred<unknown>();
+    h.actions.importMediaFromUrl.mockReturnValueOnce(pending.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    expect(await screen.findByRole('button', { name: 'Importing...' })).toBeDisabled();
+    await act(async () => pending.resolve({ success: true, data: { url: 'x', paths: [], bytes: 1 } }));
+    expect(h.toast.success).toHaveBeenCalledWith('Image imported into Prize images');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(h.actions.listMediaImages).toHaveBeenCalledTimes(2));
+
+    open();
+    expect(screen.getByLabelText('Image link (https)')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('bulk copies to Cloudinary with progress, and reports what was not copied', async () => {
+    const pending = deferred<unknown>();
+    h.actions.transferSupabaseToCloudinary.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ success: true, publicId: 'x' }).mockResolvedValueOnce({ success: false, error: 'quota' });
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+    fireEvent.click(screen.getByRole('button', { name: /Select All/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Cloudinary' }));
+    expect(await screen.findByText('Copying 1 of 3...')).toBeInTheDocument();
+    await act(async () => pending.resolve({ success: false, error: 'quota' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Copied 1 image to Cloudinary (prizes/)'));
+    expect(h.toast.error).toHaveBeenCalledWith('Could not copy 2 images');
+    expect(screen.queryByText(/selected/)).toBeNull();
+
+    // Everything copied: no failure toast
+    h.toast.error.mockClear();
+    h.actions.transferSupabaseToCloudinary.mockResolvedValueOnce({ success: true, publicId: 'c' });
+    fireEvent.click(screen.getByRole('button', { name: 'Select prizes/c-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Cloudinary' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Copied 1 image to Cloudinary (prizes/)'));
+    expect(h.toast.error).not.toHaveBeenCalled();
+
+    // Nothing copied: only the failure is reported
+    h.toast.success.mockClear();
+    h.actions.transferSupabaseToCloudinary.mockResolvedValue({ success: false, error: 'quota' });
+    fireEvent.click(screen.getByRole('button', { name: 'Select prizes/c-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy to Cloudinary' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('Could not copy 1 image'));
+    expect(h.toast.success).not.toHaveBeenCalled();
+  });
+
+  it('selects and deselects, and handles refused, partial and cancelled bulk deletes', async () => {
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+    fireEvent.click(screen.getByRole('button', { name: 'Select prizes/a-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select prizes/b-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Deselect prizes/a-1280.webp' }));
+    expect(screen.getByText('1 image selected')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Select All (3)' }));
+    expect(screen.getByText('3 images selected')).toBeInTheDocument();
+
+    writeText.mockRejectedValueOnce(new Error('denied'));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Links' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Failed to copy links'));
+
+    vi.stubGlobal('confirm', vi.fn(() => false));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    expect(h.actions.bulkDeleteMediaImages).not.toHaveBeenCalled();
+
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    h.actions.bulkDeleteMediaImages.mockResolvedValueOnce({ success: false, error: 'Select at most 100 images at a time' });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Select at most 100 images at a time'));
+    expect(screen.getByText('3 images selected')).toBeInTheDocument();
+
+    h.actions.bulkDeleteMediaImages.mockResolvedValueOnce({
+      success: true,
+      data: { deletedCount: 0, skipped: [{ url: 'a', reason: 'Used by prize "Bike"' }, { url: 'b', reason: 'Used by prize "Bike"' }] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Skipped 2 images: Used by prize "Bike"'));
+    expect(h.toast.success).not.toHaveBeenCalledWith(expect.stringMatching(/^Deleted/));
+    expect(screen.queryByText(/selected/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select prizes/c-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(screen.queryByText(/selected/)).toBeNull();
+  });
+
+  it('refreshes, resets the copied tick, and clears the selection when paging', async () => {
+    h.actions.listMediaImages.mockResolvedValue({ success: true, data: { images: three(), total: 100, pageSize: 48 } });
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    render(<MediaPage />);
+    await screen.findByText('Used by Bike');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy link to prizes/c-1280.webp' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Link copied'));
+    const reset = timers.mock.calls.find(([, ms]) => ms === 2000)![0] as () => void;
+    act(() => reset());
+    timers.mockRestore();
+
+    const pending = deferred<unknown>();
+    h.actions.listMediaImages.mockReturnValueOnce(pending.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled());
+    await act(async () => pending.resolve({ success: true, data: { images: three(), total: 100, pageSize: 48 } }));
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+    expect(h.actions.getMediaOverview).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select prizes/c-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(h.actions.listMediaImages).toHaveBeenLastCalledWith('prize-images', 1));
+    expect(screen.queryByText(/selected/)).toBeNull();
   });
 });
 

@@ -29,6 +29,7 @@ vi.mock('lucide-react', () => ({
     X: () => <div data-testid="icon-x-simple" />,
     Phone: () => <div data-testid="icon-phone-simple" />,
     Calendar: () => <div data-testid="icon-calendar" />,
+    RotateCcw: () => <div data-testid="icon-rotate" />,
 }));
 
 // Mock Next.js Image
@@ -221,6 +222,17 @@ describe('PlayerClaims sub-components', () => {
             );
 
             expect(screen.getByText('Please send ASAP')).toBeInTheDocument();
+            expect(screen.queryByText('Reissued')).toBeNull();
+        });
+
+        it('marks a reissued claim, and offers Reissue on a delivered one', () => {
+            const delivered = { ...mockClaim, status: 'fulfilled', notes: '[REISSUED FOR REDELIVERY] Courier lost it' } as Claim;
+            render(
+                <ClaimCard claim={delivered} updating={null} onViewDetails={mockOnViewDetails} onUpdateStatus={mockOnUpdateStatus} />
+            );
+            expect(screen.getByText('Reissued')).toBeInTheDocument();
+            fireEvent.click(screen.getByRole('button', { name: 'Reissue' }));
+            expect(mockOnViewDetails).toHaveBeenLastCalledWith(delivered);
         });
     });
 
@@ -295,6 +307,26 @@ describe('PlayerClaims sub-components', () => {
                 fireEvent.click(closeButton);
                 expect(mockOnClose).toHaveBeenCalled();
             }
+        });
+
+        it('reissues an approved or delivered claim, for re-delivery or a re-claim, with the reason', () => {
+            const approved = { ...mockClaim, status: 'approved', notes: '[REISSUED - PLAYER MAY RE-CLAIM] Wrong size' } as Claim;
+            const { rerender } = render(
+                <ClaimDetailsModal claim={approved} updating={null} onClose={mockOnClose} onUpdateStatus={mockOnUpdateStatus} />
+            );
+            expect(screen.getByText('Reissued')).toBeInTheDocument();
+            fireEvent.change(screen.getByPlaceholderText(/Enter reason for reissue/), { target: { value: 'Courier returned it' } });
+            fireEvent.click(screen.getByRole('button', { name: /Reissue for Re-Delivery/ }));
+            expect(mockOnUpdateStatus).toHaveBeenLastCalledWith('claim-1', 'pending', 'Courier returned it', 'reissue', 'redelivery');
+            fireEvent.click(screen.getByRole('button', { name: /Reissue & Allow Re-Claim/ }));
+            expect(mockOnUpdateStatus).toHaveBeenLastCalledWith('claim-1', 'rejected', 'Courier returned it', 'reissue', 'reclaim');
+
+            rerender(
+                <ClaimDetailsModal claim={{ ...approved, status: 'fulfilled', notes: 'Delivered by TCS' } as Claim} updating="claim-1" onClose={mockOnClose} onUpdateStatus={mockOnUpdateStatus} />
+            );
+            expect(screen.queryByText('Reissued')).toBeNull();
+            expect(screen.getByRole('button', { name: /Reissue for Re-Delivery/ })).toBeDisabled();
+            expect(screen.getByRole('button', { name: /Reissue & Allow Re-Claim/ })).toBeDisabled();
         });
     });
 

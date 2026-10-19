@@ -14,7 +14,6 @@ const h = vi.hoisted(() => ({
   getUser: vi.fn(),
   stats: vi.fn(),
   activity: vi.fn(),
-  media: { getCloudinaryUsage: vi.fn(), getCloudinaryResources: vi.fn(), deleteCloudinaryResource: vi.fn() },
   log: vi.fn(),
   dynamics: [] as { loader: () => Promise<unknown>; opts?: { loading?: () => React.ReactNode } }[],
 }));
@@ -29,11 +28,6 @@ vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => h.auth }));
 vi.mock('@/lib/admin-session', () => ({ requireAdminSession: () => h.requireAdminSession() }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: () => h.getUser() } }) }));
 vi.mock('@/actions/dashboard-actions', () => ({ getDashboardStats: () => h.stats(), getRecentActivity: (n: number) => h.activity(n) }));
-vi.mock('@/actions/media-actions', () => ({
-  getCloudinaryUsage: () => h.media.getCloudinaryUsage(),
-  getCloudinaryResources: () => h.media.getCloudinaryResources(),
-  deleteCloudinaryResource: (id: string) => h.media.deleteCloudinaryResource(id),
-}));
 vi.mock('@/lib/logger', () => ({ default: { log: h.log } }));
 // eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
 vi.mock('next-cloudinary', () => ({ CldImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
@@ -63,7 +57,6 @@ import AdminDashboardPage from '@/app/admin/(protected)/dashboard/page';
 import AdminClaimsPage from '@/app/admin/(protected)/claims/page';
 import AdminStreamingPage from '@/app/admin/(protected)/streaming/page';
 import AdminWalletPage from '@/app/admin/(protected)/wallet/page';
-import MediaPage, { metadata as mediaMeta } from '@/app/admin/(protected)/media/cloudinary/page';
 import LuckyWinnerPage from '@/app/admin/(protected)/lucky-winner/page';
 import { redirect } from 'next/navigation';
 import QuizEvaluationPage from '@/app/admin/(protected)/quiz-evaluation/page';
@@ -136,68 +129,6 @@ describe('admin section pages', () => {
   it('shows the wallet switch on the wallet page', async () => {
     render(await AdminWalletPage());
     expect(screen.getByText('wallet toggle')).toBeInTheDocument();
-  });
-});
-
-describe('media management: Cloudinary (old uploads) page', () => {
-  const usage = { storage: { usage: 5 * 1024 * 1024, limit: 25 * 1024 ** 3 }, bandwidth: { usage: 10 * 1024 * 1024, limit: 25 * 1024 ** 3 }, transformations: { usage: 12, limit: 25000 } };
-  const resources = [{ public_id: 'prizes/watch', bytes: 2048, format: 'png' }, { public_id: 'prizes/bike', bytes: 4096, format: 'jpg' }];
-
-  beforeEach(() => {
-    h.media.getCloudinaryUsage.mockReset().mockResolvedValue({ success: true, usage });
-    h.media.getCloudinaryResources.mockReset().mockResolvedValue({ success: true, resources: { resources } });
-    h.media.deleteCloudinaryResource.mockReset().mockResolvedValue({ success: true });
-  });
-
-  it('shows usage and the asset gallery', async () => {
-    render(<MediaPage />);
-    expect(mediaMeta.title).toBe('Cloudinary Media | Admin Dashboard');
-    expect(screen.getByRole('link', { name: 'Cloudinary (old uploads)' })).toHaveAttribute('aria-current', 'page');
-    expect(await screen.findByText('5.00 MB')).toBeInTheDocument();
-    expect(screen.getByText('12')).toBeInTheDocument();
-    expect(screen.getByText('2.0 KB')).toBeInTheDocument();
-    expect(screen.getByText('PNG')).toBeInTheDocument();
-  });
-
-  it('shows an empty gallery when loading fails', async () => {
-    h.media.getCloudinaryUsage.mockResolvedValue({ success: false });
-    h.media.getCloudinaryResources.mockResolvedValue({ success: false });
-    const { unmount } = render(<MediaPage />);
-    expect(await screen.findByText('No media found in your Cloudinary account.')).toBeInTheDocument();
-    expect(screen.queryByText('Storage Used')).toBeNull();
-    unmount();
-    h.media.getCloudinaryUsage.mockRejectedValue(new Error('cloudinary down'));
-    render(<MediaPage />);
-    await waitFor(() => expect(console.error).toHaveBeenCalledWith('Failed to load media data', expect.any(Error)));
-  });
-
-  it('deletes an asset after confirmation, and reports failures', async () => {
-    const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
-    const alert = vi.fn();
-    vi.stubGlobal('confirm', confirm);
-    vi.stubGlobal('alert', alert);
-    render(<MediaPage />);
-    await screen.findByText('5.00 MB');
-    const del = () => fireEvent.click(screen.getAllByTitle('Delete Image')[0]);
-    del();
-    expect(h.media.deleteCloudinaryResource).not.toHaveBeenCalled();
-    h.media.deleteCloudinaryResource.mockResolvedValueOnce({ success: false, error: 'in use' }).mockRejectedValueOnce(new Error('x'));
-    del();
-    await waitFor(() => expect(alert).toHaveBeenCalledWith('Failed to delete image: in use'));
-    del();
-    await waitFor(() => expect(alert).toHaveBeenCalledWith('An error occurred while deleting.'));
-    del();
-    await waitFor(() => expect(screen.queryByRole('img', { name: 'prizes/watch' })).toBeNull());
-    expect(h.media.deleteCloudinaryResource).toHaveBeenLastCalledWith('prizes/watch');
-  });
-
-  it('shows a spinner on the asset being deleted', async () => {
-    vi.stubGlobal('confirm', () => true);
-    h.media.deleteCloudinaryResource.mockReturnValueOnce(new Promise(() => {}));
-    render(<MediaPage />);
-    await screen.findByText('5.00 MB');
-    fireEvent.click(screen.getAllByTitle('Delete Image')[0]);
-    await waitFor(() => expect(screen.getAllByTitle('Delete Image')[0]).toBeDisabled());
   });
 });
 

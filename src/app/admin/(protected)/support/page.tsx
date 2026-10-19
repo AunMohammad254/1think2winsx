@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, User, CreditCard, History, Trophy, AlertCircle, Plus, Minus, ArrowRight, Wallet, Loader2, CheckCircle2, ArrowLeft, Key, Save, Edit3, Ban, Mail, Link as LinkIcon, ShieldAlert, RefreshCcw, Bell, Download, FileText, Tag, Send } from 'lucide-react';
+import { Search, User, CreditCard, History, Trophy, AlertCircle, Plus, Minus, ArrowRight, Wallet, Loader2, CheckCircle2, ArrowLeft, ChevronLeft, Key, Save, Edit3, Ban, Mail, Link as LinkIcon, ShieldAlert, RefreshCcw, Bell, Download, FileText, Tag, Send } from 'lucide-react';
 import { lookupUserAction, adjustUserBalanceAction, updateUserProfileAction, updateUserPasswordAction, suspendUserAction, forceVerifyEmailAction, resendVerificationEmailAction, generateImpersonationLinkAction, sendNotificationAction, refundQuizAttemptAction, getUserSecurityLogsAction, addAdminNoteAction, getAdminNotesAction, generateGDPRExportAction } from '@/actions/support-actions';
 import Link from 'next/link';
 
@@ -267,7 +267,15 @@ export default function UserSupportPage() {
             <div className="max-w-6xl mx-auto space-y-8">
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-3">
+                        <Link
+                            href="/admin/dashboard"
+                            className="text-gray-400 hover:text-white transition-colors"
+                            title="Back to Dashboard"
+                            aria-label="Back to Dashboard"
+                        >
+                            <ChevronLeft className="w-5 h-5" />
+                        </Link>
                         <div className="p-3 bg-purple-500/20 rounded-xl">
                             <User className="w-8 h-8 text-purple-400" />
                         </div>

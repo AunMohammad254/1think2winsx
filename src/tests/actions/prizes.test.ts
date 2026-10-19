@@ -19,7 +19,7 @@ const actions = await import('@/actions/prizes');
 const CLOUD = 'https://res.cloudinary.com/dszrz6s6u/image/upload';
 const DENIED = { success: false, error: 'Unauthorized: admin session required' };
 const form = { prizeId: 'prize-1', fullName: 'Ali Khan', whatsappNumber: '03001234567', address: 'House 1, Street 2, Lahore' };
-const prize = (over: Record<string, unknown> = {}) => ({ id: 'prize-1', name: 'Phone', imageUrl: `${CLOUD}/v1/prizes/phone.jpg`, isActive: true, status: 'published', ...over });
+const prize = (over: Record<string, unknown> = {}) => ({ id: 'prize-1', name: 'Phone', imageUrl: `${CLOUD}/v1/prizes/phone.jpg`, isActive: true, status: 'published', isClaimed: false, ...over });
 
 beforeEach(() => {
   db = createSupabaseMock({ user: { id: 'user-1', email: 'p@example.test' } });
@@ -59,6 +59,34 @@ describe('getPublicPrizes', () => {
     db.setTable('Prize', { error: { message: 'x' } });
     expect(await actions.getPublicPrizes()).toEqual({ success: false, error: 'Failed to fetch prizes' });
   });
+
+  it("marks prizes the signed-in player already claimed or won", async () => {
+    db.setTable('Prize', { data: [prize(), prize({ id: 'prize-2' }), prize({ id: 'prize-3' })] });
+    db.setTable('PrizeRedemption', { data: [{ prizeId: 'prize-1' }, {}] });
+    db.setTable('Winning', { data: [{ prizeId: 'prize-3' }, { prizeId: null }] });
+    const res = await actions.getPublicPrizes();
+    expect(res.data?.map((p) => [p.id, p.isClaimed])).toEqual([['prize-1', true], ['prize-2', false], ['prize-3', true]]);
+    const redemptions = db.callsTo('PrizeRedemption')[0];
+    expect(eqValue(redemptions, 'userId')).toBe('user-1');
+    expect(redemptions.ops.find((o) => o.op === 'in')?.args).toEqual(['status', ['pending', 'approved', 'fulfilled']]);
+    expect(eqValue(db.callsTo('Winning')[0], 'userId')).toBe('user-1');
+
+    // Nothing found, or no rows at all
+    db.setTable('PrizeRedemption', { data: null });
+    db.setTable('Winning', { data: null });
+    expect((await actions.getPublicPrizes()).success).toBe(true);
+    db.setTable('Prize', { data: null });
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [] });
+  });
+
+  it('lists prizes for guests, and when the session check fails, with nothing claimed', async () => {
+    db.setTable('Prize', { data: [prize()] });
+    db.setUser(null);
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [prize()] });
+    expect(db.callsTo('PrizeRedemption')).toHaveLength(0);
+    db.auth.getClaims.mockRejectedValueOnce(new Error('auth down'));
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [prize()] });
+  });
 });
 
 describe('redeemPrize', () => {
@@ -83,11 +111,14 @@ describe('redeemPrize', () => {
     expect(await actions.redeemPrize('', form)).toEqual({ success: false, error: 'You must be logged in to redeem prizes' });
   });
 
-  it('refuses a duplicate pending request and unavailable prizes', async () => {
-    db.setTable('PrizeRedemption', { data: { id: 'pending' } });
-    expect((await actions.redeemPrize('', form)).error).toBe('You already have a pending redemption for this prize');
+  it('refuses duplicate claims and unavailable prizes', async () => {
+    // redeem_prize refuses a prize the player has already claimed (checked under a lock in the database)
+    const already = 'You have already claimed this prize. Each prize can only be claimed once per account.';
+    prizeDb.findById.mockResolvedValueOnce(prize());
+    db.setRpc('redeem_prize', { data: { success: false, code: 'already_claimed', error: already } });
+    expect(await actions.redeemPrize('', form)).toEqual({ success: false, error: already });
+    db.rpcCalls.length = 0;
 
-    db.setTable('PrizeRedemption', { data: null });
     for (const p of [null, prize({ isActive: false }), prize({ status: 'draft' })]) {
       prizeDb.findById.mockResolvedValueOnce(p);
       expect((await actions.redeemPrize('', form)).error).toBe('This prize is no longer available');
@@ -189,6 +220,18 @@ describe('admin prize actions', () => {
       name: 'New', description: null, imageUrl: null, modelUrl: null, type: 't', pointsRequired: 5, category: 'vehicles', stock: 0, status: 'draft', value: 9,
     });
     expect(schedulePrizeImageDeletion).not.toHaveBeenCalled();
+  });
+
+  it('saves bumper prizes, the admin-only category the prize form offers', async () => {
+    prizeDb.create.mockResolvedValue({ id: 'new' });
+    expect(await actions.createPrize({ name: 'Mystery bike', type: 'bike', pointsRequired: 1, category: 'bumper' } as never))
+      .toEqual({ success: true, data: { id: 'new' } });
+    expect(prizeDb.create).toHaveBeenCalledWith(expect.objectContaining({ category: 'bumper' }));
+
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
+    prizeDb.update.mockResolvedValue({ id: 'prize-1' });
+    expect((await actions.updatePrize('prize-1', { category: 'bumper' })).success).toBe(true);
+    expect(prizeDb.update).toHaveBeenLastCalledWith('prize-1', { category: 'bumper' });
   });
 
   it('leaves the fields a partial update omits untouched, instead of resetting them to the create defaults', async () => {

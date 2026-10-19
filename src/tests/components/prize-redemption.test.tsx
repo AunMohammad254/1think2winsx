@@ -55,6 +55,21 @@ describe('PrizeRedemption', () => {
     expect(screen.getByText('Bike')).toBeInTheDocument();
   });
 
+  it('marks prizes the player already claimed, from the server flag or a live claim in the history', async () => {
+    const cap = { ...watch, id: 'p3', name: 'Cap', pointsRequired: 100 };
+    const earbuds = { ...watch, id: 'p4', name: 'Earbuds', pointsRequired: 100 };
+    vi.stubGlobal('fetch', routes(
+      { data: [{ ...watch, isClaimed: true }, cap, earbuds, bike] },
+      { redemptions: [{ ...history[1], prizeId: 'p3' }, { ...history[0], id: 'r3', status: 'rejected', prizeId: 'p4' }] },
+    ));
+    render(<PrizeRedemption />);
+    expect(await screen.findByRole('button', { name: 'Prize Watch already claimed' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Prize Cap already claimed' })).toBeDisabled();
+    // A rejected claim was refunded, so that prize can be claimed again
+    expect(screen.queryByRole('button', { name: 'Prize Earbuds already claimed' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Redeem' })).toHaveLength(1);
+  });
+
   it('shows empty states, and survives failed requests', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({}, 500)));
     h.profile = null;

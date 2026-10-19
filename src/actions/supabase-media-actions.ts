@@ -2,13 +2,14 @@
 
 import { assertAdmin } from '@/lib/admin-guard';
 import { getAdminDb, userDb } from '@/lib/supabase/db';
-import { MEDIA_BUCKETS, mediaPublicUrl, mediaImageKey, parseMediaUrl } from '@/lib/media/config';
+import { MEDIA_BUCKETS, MEDIA_FOLDERS, mediaPublicUrl, mediaImageKey, parseMediaUrl } from '@/lib/media/config';
 import {
   canonicalSuffix,
   deleteStoredImage,
   getBucketUsage,
   listStoredObjects,
   removeFolderExcept,
+  storeImage,
   type BucketUsage,
 } from '@/lib/media/storage.server';
 import {
@@ -19,6 +20,13 @@ import {
   setPrizeImageRetentionDays,
   type MediaDeletion,
 } from '@/lib/media/deletion-queue';
+import {
+  getCloudinaryPendingStats,
+  migrateAllCloudinaryAssetsToSupabase,
+  type CloudinaryPendingStats,
+  type FullMigrationResult,
+} from '@/lib/media/cloudinary-migration';
+import { fetchRemoteImage } from '@/lib/media/remote-image.server';
 
 /**
  * Admin actions for the Supabase Storage media pages (/admin/media and
@@ -28,6 +36,7 @@ import {
 type Result<T> = { success: true; data: T } | { success: false; error: string };
 
 const PAGE_SIZE = 48;
+const MAX_BULK = 100;
 
 async function adminAction<T>(fn: (adminEmail: string) => Promise<T>): Promise<Result<T>> {
   let adminEmail: string;
@@ -135,6 +144,51 @@ export async function deleteMediaImage(url: string): Promise<Result<{ deleted: t
   });
 }
 
+/**
+ * Deletes up to 100 admin images. An image a prize still shows is skipped, with the reason,
+ * rather than failing the whole batch.
+ */
+export async function bulkDeleteMediaImages(
+  urls: string[]
+): Promise<Result<{ deletedCount: number; skipped: { url: string; reason: string }[] }>> {
+  return adminAction(async () => {
+    if (!Array.isArray(urls) || urls.length === 0) throw new Error('No images selected');
+    if (urls.length > MAX_BULK) throw new Error(`Select at most ${MAX_BULK} images at a time`);
+    const db = getAdminDb();
+    const { data: prizes, error } = await db.from('Prize').select('name, imageUrl');
+    if (error) throw error;
+
+    let deletedCount = 0;
+    const skipped: { url: string; reason: string }[] = [];
+
+    for (const url of urls) {
+      const ref = parseMediaUrl(url);
+      if (!ref || ref.bucket === MEDIA_BUCKETS.avatar) {
+        skipped.push({ url, reason: 'Not an admin media image' });
+        continue;
+      }
+
+      if (ref.bucket === MEDIA_BUCKETS.prize) {
+        const key = mediaImageKey(ref);
+        const user = (prizes ?? []).find((p: { imageUrl: string | null }) => deletablePrizeImageKey(p.imageUrl) === key);
+        if (user) {
+          skipped.push({ url, reason: `Used by prize "${user.name}"` });
+          continue;
+        }
+      }
+
+      try {
+        await deleteStoredImage(db, url);
+        deletedCount++;
+      } catch (err) {
+        skipped.push({ url, reason: err instanceof Error ? err.message : 'Delete error' });
+      }
+    }
+
+    return { deletedCount, skipped };
+  });
+}
+
 export interface ProfilePicture {
   userId: string;
   userName: string | null;
@@ -213,5 +267,34 @@ export async function updatePrizeImageRetention(days: number): Promise<Result<{ 
   return adminAction(async (adminEmail) => {
     await setPrizeImageRetentionDays(days, adminEmail);
     return { days };
+  });
+}
+
+/** How many prize images and profile pictures still load from Cloudinary. */
+export async function getCloudinaryLeftovers(): Promise<Result<CloudinaryPendingStats>> {
+  return adminAction(async () => getCloudinaryPendingStats(getAdminDb()));
+}
+
+/** Copies every prize image and profile picture still on Cloudinary into Supabase Storage. */
+export async function migrateAllAssetsAction(): Promise<Result<FullMigrationResult>> {
+  return adminAction(async () => migrateAllCloudinaryAssetsToSupabase(getAdminDb()));
+}
+
+/**
+ * Stores the image at a public https link in a media bucket. fetchRemoteImage refuses private
+ * and local addresses, slow downloads and files over 10 MB; storeImage then checks the bytes.
+ */
+export async function importMediaFromUrl(
+  imageUrl: string,
+  bucket: typeof MEDIA_BUCKETS.site | typeof MEDIA_BUCKETS.prize
+): Promise<Result<{ url: string; paths: string[]; bytes: number }>> {
+  return adminAction(async () => {
+    if (bucket !== MEDIA_BUCKETS.site && bucket !== MEDIA_BUCKETS.prize) {
+      throw new Error('Unknown media bucket');
+    }
+    const image = await fetchRemoteImage(String(imageUrl));
+    const folder = bucket === MEDIA_BUCKETS.site ? MEDIA_FOLDERS.siteUploads : MEDIA_FOLDERS.prizes;
+    const stored = await storeImage(getAdminDb(), bucket, folder, image);
+    return { url: stored.url, paths: stored.paths, bytes: stored.bytes };
   });
 }

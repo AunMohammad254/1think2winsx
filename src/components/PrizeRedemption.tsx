@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useProfile } from '@/contexts/ProfileContext';
 import Image from 'next/image';
 import { loaderFor } from '@/lib/cloudinary';
@@ -14,6 +14,9 @@ import {
   type Prize,
   type RedemptionHistory,
 } from '@/components/prize-redemption';
+
+// A claim that is not rejected; the database allows one per player per prize
+const LIVE_CLAIM_STATUSES = ['pending', 'approved', 'fulfilled'];
 
 // ============================================
 // Main Component (Refactored - ~260 lines from 663)
@@ -67,6 +70,16 @@ export default function PrizeRedemption() {
       setLoading(false)
     );
   }, [fetchPrizes, fetchRedemptionHistory]);
+
+  // Prizes this player has claimed: flagged by the server, or a live claim in their history.
+  // Their cards show "Claimed" with no redeem button, and redeem_prize refuses them anyway.
+  const claimedIds = useMemo(
+    () => new Set([
+      ...prizes.filter((p) => p.isClaimed).map((p) => p.id),
+      ...redemptionHistory.filter((r) => LIVE_CLAIM_STATUSES.includes(r.status)).map((r) => r.prizeId),
+    ]),
+    [prizes, redemptionHistory],
+  );
 
   const handleRedeem = (prizeId: string, prizeName: string, pointsRequired: number) => {
     if (!profile || profile.points < pointsRequired) {
@@ -162,6 +175,7 @@ export default function PrizeRedemption() {
                   <PrizeCard
                     key={prize.id}
                     prize={prize}
+                    isClaimed={claimedIds.has(prize.id)}
                     userPoints={profile?.points || 0}
                     isRedeeming={redeeming === prize.id}
                     onPreview={(p) => { setPreviewPrize(p); setShowPreviewModal(true); }}

@@ -12,6 +12,7 @@ interface PrizeCardProps {
     onRedeem?: (prize: Prize) => void;
     isRedeeming?: boolean;
     variant?: 'default' | 'featured' | 'compact';
+    isClaimed?: boolean;
 }
 
 export default function PrizeCard({
@@ -20,9 +21,11 @@ export default function PrizeCard({
     onRedeem,
     isRedeeming = false,
     variant = 'default',
+    isClaimed = false,
 }: PrizeCardProps) {
     const [imageError, setImageError] = useState(false);
-    const canRedeem = userPoints >= prize.pointsRequired && prize.stock > 0;
+    const isAlreadyClaimed = Boolean(isClaimed || prize.isClaimed);
+    const canRedeem = !isAlreadyClaimed && userPoints >= prize.pointsRequired && prize.stock > 0;
     const isOutOfStock = prize.stock <= 0;
 
     // Category badge colors
@@ -76,19 +79,16 @@ export default function PrizeCard({
                         {prize.category.charAt(0).toUpperCase() + prize.category.slice(1)}
                     </div>
 
-                    {/* Stock Badge */}
-                    {isOutOfStock && (
+                    {/* Status Badge */}
+                    {isAlreadyClaimed ? (
+                        <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow-sm">
+                            <span className="font-bold">✓</span> Claimed
+                        </div>
+                    ) : isOutOfStock ? (
                         <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
                             Out of Stock
                         </div>
-                    )}
-
-                    {/* Value Badge */}
-                    {prize.value > 0 && (
-                        <div className="absolute bottom-3 right-3 px-3 py-1 rounded-full text-xs font-bold bg-green-500/20 text-green-400 border border-green-500/30">
-                            PKR {prize.value.toLocaleString()}
-                        </div>
-                    )}
+                    ) : null}
                 </div>
 
                 {/* Content Section */}
@@ -120,9 +120,9 @@ export default function PrizeCard({
                         </div>
 
                         {/* Stock Indicator */}
-                        {prize.stock > 0 && prize.stock <= 5 && (
-                            <div className="text-xs text-orange-400">
-                                Only {prize.stock} left!
+                        {prize.stock > 0 && (
+                            <div className={`text-xs ${prize.stock <= 5 ? 'text-orange-400 font-medium' : 'text-gray-400'}`}>
+                                {prize.stock <= 5 ? `Only ${prize.stock} left!` : `Stock: ${prize.stock} left`}
                             </div>
                         )}
                     </div>
@@ -138,14 +138,18 @@ export default function PrizeCard({
                         </div>
                     )}
 
-                    {/* Redeem Button */}
+                    {/* Redeem / Claimed Button */}
                     <button
                         onClick={() => onRedeem?.(prize)}
-                        disabled={!canRedeem || isRedeeming || isOutOfStock}
-                        className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-2 ${canRedeem && !isRedeeming && !isOutOfStock
-                            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 hover:shadow-lg hover:shadow-blue-500/25 active:scale-[0.98]'
-                            : 'bg-slate-700 text-gray-400 cursor-not-allowed'
-                            }`}
+                        disabled={isAlreadyClaimed || !canRedeem || isRedeeming || isOutOfStock}
+                        aria-label={!isRedeeming && isAlreadyClaimed ? `Prize ${prize.name} already claimed` : undefined}
+                        className={`w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center justify-center gap-2 ${
+                            isAlreadyClaimed
+                                ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-500/30 cursor-not-allowed shadow-inner'
+                                : canRedeem && !isRedeeming && !isOutOfStock
+                                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 hover:shadow-lg hover:shadow-blue-500/25 active:scale-[0.98]'
+                                    : 'bg-slate-700 text-gray-400 cursor-not-allowed'
+                        }`}
                     >
                         {isRedeeming ? (
                             <>
@@ -154,6 +158,11 @@ export default function PrizeCard({
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                                 </svg>
                                 Processing...
+                            </>
+                        ) : isAlreadyClaimed ? (
+                            <>
+                                <span className="font-bold">✓</span>
+                                Claimed
                             </>
                         ) : isOutOfStock ? (
                             'Out of Stock'

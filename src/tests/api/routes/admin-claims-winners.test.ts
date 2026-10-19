@@ -198,5 +198,76 @@ describe('PUT /api/admin/claims', () => {
     requireAuth.mockRejectedValueOnce(new z.ZodError([]));
     expect((await put({ claimId: 'c1', status: 'approved' })).status).toBe(400);
   });
+
+  it('reissues through reissue_claim, which moves the points and stock in the database', async () => {
+    // 1. Send it again
+    adminDb.setRpc('reissue_claim', { data: { success: true, status: 'pending', previousStatus: 'fulfilled', pointsRefunded: 0 } });
+    const redeliveryRes = await put({
+      claimId: 'c1',
+      status: 'pending',
+      action: 'reissue',
+      reissueMode: 'redelivery',
+      notes: 'Customer reported missing package',
+    });
+    expect(redeliveryRes.status).toBe(200);
+    expect(await redeliveryRes.json()).toEqual({
+      message: 'Claim reissued for re-delivery successfully',
+      claim: { id: 'c1', status: 'pending' },
+    });
+    expect(adminDb.rpcCalls[0]).toEqual({
+      fn: 'reissue_claim',
+      args: { p_claim_id: 'c1', p_mode: 'redelivery', p_notes: 'Customer reported missing package', p_admin_email: 'player@example.test' },
+    });
+
+    // 2. Refund instead, so the player may claim again (no status needed: reissue_claim sets it)
+    adminDb.setRpc('reissue_claim', { data: { success: true, status: 'rejected', previousStatus: 'approved', pointsRefunded: 250 } });
+    const reclaimRes = await put({ claimId: 'c2', action: 'reissue', reissueMode: 'reclaim' });
+    expect(reclaimRes.status).toBe(200);
+    expect(await reclaimRes.json()).toEqual({
+      message: 'Claim reissued. Points refunded and player may now re-claim this reward.',
+      claim: { id: 'c2', status: 'rejected' },
+    });
+    expect(adminDb.rpcCalls[1].args).toMatchObject({ p_claim_id: 'c2', p_mode: 'reclaim', p_notes: null });
+    expect(logger.logSecurityEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      details: { action: 'REISSUE_CLAIM_ALLOW_RECLAIM', claimId: 'c2', previousStatus: 'approved', pointsRefunded: 250 },
+    }));
+    expect(adminDb.callsTo('User')).toHaveLength(0);
+    expect(adminDb.callsTo('Prize')).toHaveLength(0);
+
+    // An admin session without an email leaves "processed by" to the database
+    requireAuth.mockResolvedValueOnce(authOk('admin-1', ''));
+    await put({ claimId: 'c3', action: 'reissue', reissueMode: 'redelivery' });
+    expect(adminDb.rpcCalls[2].args).toMatchObject({ p_claim_id: 'c3', p_admin_email: null });
+  });
+
+  it("passes on reissue_claim's refusals, and reports database errors", async () => {
+    adminDb.setRpc('reissue_claim', { data: { success: false, code: 'invalid_status', error: 'Only approved or fulfilled claims can be reissued (this one is rejected)' } });
+    const refused = await put({ claimId: 'c1', status: 'pending', action: 'reissue', reissueMode: 'redelivery' });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ message: 'Only approved or fulfilled claims can be reissued (this one is rejected)' });
+
+    adminDb.setRpc('reissue_claim', { data: { success: false, code: 'not_found', error: 'Claim not found' } });
+    expect((await put({ claimId: 'nope', action: 'reissue', reissueMode: 'reclaim' })).status).toBe(404);
+
+    adminDb.setRpc('reissue_claim', { data: null });
+    const empty = await put({ claimId: 'c1', action: 'reissue', reissueMode: 'reclaim' });
+    expect(empty.status).toBe(409);
+    expect(await empty.json()).toEqual({ message: 'Failed to reissue claim' });
+
+    adminDb.setRpc('reissue_claim', { error: { message: 'function reissue_claim does not exist' } });
+    expect((await put({ claimId: 'c1', action: 'reissue', reissueMode: 'reclaim' })).status).toBe(500);
+  });
+
+  it('needs a mode for a reissue and a status for an update', async () => {
+    for (const body of [
+      { claimId: 'c1', status: 'rejected', action: 'reissue' },
+      { claimId: 'c1', action: 'reissue', reissueMode: 'refund' },
+      { claimId: 'c1', notes: 'no status' },
+      { claimId: 'c1', action: 'update' },
+    ]) {
+      expect((await put(body)).status, JSON.stringify(body)).toBe(400);
+    }
+    expect(adminDb.rpcCalls).toHaveLength(0);
+  });
 });
 

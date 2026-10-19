@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import logger from '@/lib/logger';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -174,9 +174,19 @@ export default function QuizManagementPage() {
 
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-white">
-                {quiz?.title || 'Quiz Management'}
-              </h1>
+              <div className="flex items-center gap-3 mb-1">
+                <Link
+                  href="/admin/quiz"
+                  className="text-gray-400 hover:text-white transition-colors"
+                  title="Back to Quizzes"
+                  aria-label="Back to Quizzes"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Link>
+                <h1 className="text-3xl font-bold text-white">
+                  {quiz?.title || 'Quiz Management'}
+                </h1>
+              </div>
               <p className="text-gray-300 mt-1">
                 Manage quiz settings and questions
               </p>

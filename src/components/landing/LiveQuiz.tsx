@@ -178,6 +178,42 @@ function EmptyCard({ isLoggedIn }: { isLoggedIn: boolean }) {
   );
 }
 
+// Memoized: the section re-renders every second (clock) and on every animated-counter frame, but this
+// column only changes with the sign-in state, so React can skip reconciling it.
+const LiveQuizIntro = memo(function LiveQuizIntro({ isLoggedIn }: { isLoggedIn: boolean }) {
+  return (
+    <div>
+      <Reveal><Eyebrow tone="live">Live arena</Eyebrow></Reveal>
+      <Reveal delay={100}>
+        <h2 className="mt-5 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
+          Jump into a <span className="text-gradient-pitch">live quiz</span> right now.
+        </h2>
+      </Reveal>
+      <Reveal delay={200}>
+        <p className="mt-5 text-lg text-white/65">New tournaments drop every hour. Pick your format, secure your spot, and battle real players for exciting physical prizes.</p>
+      </Reveal>
+      <Reveal delay={300}>
+        <ul className="mt-8 space-y-3">
+          {["10 questions, 60 seconds per round", "Streak multipliers up to 5×", "Prizes delivered anywhere in Pakistan", "Free entry on daily challenges"].map((item, i) => (
+            <li key={item} className="flex items-start gap-3 text-white/75" style={{ animation: `fade-up 0.5s ease-out ${0.4 + i * 0.1}s both` }}>
+              <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-500/20 text-emerald-400">
+                <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor"><path d="m10 16-4-4 1.4-1.4 2.6 2.6 5.6-5.6L17 9l-7 7Z" /></svg>
+              </span>
+              <span className="text-sm sm:text-base">{item}</span>
+            </li>
+          ))}
+        </ul>
+      </Reveal>
+      <Reveal delay={500}>
+        <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+          <Button href={isLoggedIn ? "/quizzes" : "/register"} size="lg" variant="primary">▶ Play live quiz</Button>
+          <Button href="/quizzes#schedule" size="lg" variant="secondary">View schedule</Button>
+        </div>
+      </Reveal>
+    </div>
+  );
+});
+
 export default function LiveQuiz() {
   const { user } = useAuth();
   const isLoggedIn = !!user;
@@ -256,35 +292,7 @@ export default function LiveQuiz() {
   return (
     <Section  ref={ref as React.RefObject<HTMLDivElement>} className="relative overflow-hidden">
       <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
-        <div>
-          <Reveal><Eyebrow tone="live">Live arena</Eyebrow></Reveal>
-          <Reveal delay={100}>
-            <h2 className="mt-5 font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
-              Jump into a <span className="text-gradient-pitch">live quiz</span> right now.
-            </h2>
-          </Reveal>
-          <Reveal delay={200}>
-            <p className="mt-5 text-lg text-white/65">New tournaments drop every hour. Pick your format, secure your spot, and battle real players for exciting physical prizes.</p>
-          </Reveal>
-          <Reveal delay={300}>
-            <ul className="mt-8 space-y-3">
-              {["10 questions, 60 seconds per round", "Streak multipliers up to 5×", "Prizes delivered anywhere in Pakistan", "Free entry on daily challenges"].map((item, i) => (
-                <li key={item} className="flex items-start gap-3 text-white/75" style={{ animation: `fade-up 0.5s ease-out ${0.4 + i * 0.1}s both` }}>
-                  <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-emerald-500/20 text-emerald-400">
-                    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor"><path d="m10 16-4-4 1.4-1.4 2.6 2.6 5.6-5.6L17 9l-7 7Z" /></svg>
-                  </span>
-                  <span className="text-sm sm:text-base">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </Reveal>
-          <Reveal delay={500}>
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-              <Button href={isLoggedIn ? "/quizzes" : "/register"} size="lg" variant="primary">▶ Play live quiz</Button>
-              <Button href="/quizzes#schedule" size="lg" variant="secondary">View schedule</Button>
-            </div>
-          </Reveal>
-        </div>
+        <LiveQuizIntro isLoggedIn={isLoggedIn} />
         <div className="relative">
           <Reveal variant="scale" delay={200}>
             {count === 0 ? (

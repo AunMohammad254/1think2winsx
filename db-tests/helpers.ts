@@ -231,6 +231,20 @@ export async function createDailyPayment(
   return id;
 }
 
+/** A published prize costing 100 points. */
+export async function createPrize(
+  pool: pg.Pool,
+  overrides: { name?: string; stock?: number; category?: string; isActive?: boolean } = {},
+): Promise<string> {
+  const id = newId('prize');
+  await pool.query(
+    `INSERT INTO "Prize" (id, name, type, "pointsRequired", "isActive", "updatedAt", category, stock, status)
+     VALUES ($1, $2, 'gadget', 100, $3, now(), $4, $5, 'published')`,
+    [id, overrides.name ?? 'Smartwatch', overrides.isActive ?? true, overrides.category ?? 'electronics', overrides.stock ?? 2],
+  );
+  return id;
+}
+
 export async function createNotification(pool: pg.Pool, userId: string): Promise<string> {
   const id = newId('n');
   await pool.query(

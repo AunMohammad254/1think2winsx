@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { ChevronLeft } from 'lucide-react';
 
 type DatabaseStats = {
   overview: {
@@ -132,7 +133,17 @@ export default function DatabaseStatsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 sm:py-6 space-y-4 sm:space-y-0">
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-white">Database Statistics</h1>
+              <div className="flex items-center gap-3 mb-1">
+                <Link
+                  href="/admin/dashboard"
+                  className="text-gray-400 hover:text-white transition-colors"
+                  title="Back to Dashboard"
+                  aria-label="Back to Dashboard"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Link>
+                <h1 className="text-2xl sm:text-3xl font-bold text-white">Database Statistics</h1>
+              </div>
               <p className="text-gray-200 text-sm sm:text-base">Comprehensive database insights and metrics</p>
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full sm:w-auto">

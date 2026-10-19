@@ -2,12 +2,12 @@
  * settle_quiz: the one-step settlement behind the admin Settle screen (POST /api/admin/quiz-settlement),
  * plus the admin-only bumper prize category. Run for real against the schema baseline and migration 06.
  */
-import { createHash, randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import type pg from 'pg';
 import {
   anon,
   createPool,
+  createPrize,
   createQuestions,
   createQuiz,
   createUser,
@@ -30,16 +30,6 @@ beforeEach(async () => {
   await resetData(pool);
   await setWalletEnabled(pool, false);
 });
-
-async function createPrize(db: pg.Pool, overrides: { name?: string; stock?: number; category?: string; isActive?: boolean } = {}) {
-  const id = `prize_${randomUUID()}`;
-  await db.query(
-    `INSERT INTO "Prize" (id, name, type, "pointsRequired", "isActive", "updatedAt", category, stock, status)
-     VALUES ($1, $2, 'gadget', 100, $3, now(), $4, $5, 'published')`,
-    [id, overrides.name ?? 'Smartwatch', overrides.isActive ?? true, overrides.category ?? 'electronics', overrides.stock ?? 2],
-  );
-  return id;
-}
 
 /** A quiz with `questions` questions, the answer key saved (option 1 correct), and the given players' answers. */
 async function quizWithResults(correctPerPlayer: number[], questions = 4) {
@@ -152,6 +142,29 @@ describe('settling', () => {
     const { quizId } = await quizWithResults([1]);
     expect(await settle(quizId, [])).toMatchObject({ success: true, winners: [], unfilled: [] });
     expect(await settlement(quizId)).toBeDefined();
+  });
+
+  it('pays points first on a connection that has never settled before', async () => {
+    // PL/pgSQL plans each statement once per connection, so the tests above (on `pool`) can hide a
+    // failure that only a new connection shows. A new pool is a new connection.
+    const { quizId, players } = await quizWithResults([4, 3]);
+    const prize = await createPrize(pool, { stock: 1 });
+    const rewards = JSON.stringify([{ rank: 1, points: 300 }, { rank: 2, prizeId: prize }]);
+    const fresh = createPool();
+    try {
+      const call = (dryRun: boolean) => queryAs(fresh, serviceRole,
+        `SELECT settle_quiz($1, $2::jsonb, 'random', $3, 'admin', $4) AS r`, [quizId, rewards, SEED, dryRun]);
+      const preview = (await call(true))[0].r;
+      expect(preview.winners).toMatchObject([
+        { rank: 1, userId: players[0].id, points: 300, prizeName: null, prizeCategory: null },
+        { rank: 2, userId: players[1].id, points: null, prizeName: 'Smartwatch', prizeCategory: 'electronics' },
+      ]);
+      expect((await call(false))[0].r.winners).toEqual(preview.winners);
+    } finally {
+      await fresh.end();
+    }
+    expect(await points(players[0].id)).toBe(300);
+    expect(await stock(prize)).toBe(0);
   });
 });
 

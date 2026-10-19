@@ -9,7 +9,12 @@ vi.mock('@/lib/media/storage.server', () => ({
   deleteStoredImage: (...a: unknown[]) => deleteStoredImage(...a),
 }));
 
-const { migratePrizeImagesFromCloudinary } = await import('@/lib/media/cloudinary-migration');
+const {
+  migratePrizeImagesFromCloudinary,
+  migrateUserAvatarsFromCloudinary,
+  getCloudinaryPendingStats,
+  migrateAllCloudinaryAssetsToSupabase,
+} = await import('@/lib/media/cloudinary-migration');
 
 const CLOUD = 'https://res.cloudinary.com/dszrz6s6u/image/upload/t_1Think2win/f_auto/q_auto';
 const NEW = 'https://proj.supabase.co/storage/v1/object/public/prize-images/prizes/n-1280.webp';
@@ -89,5 +94,98 @@ describe('migratePrizeImagesFromCloudinary', () => {
     expect(await migratePrizeImagesFromCloudinary(db.client as never, { apply: false })).toEqual([]);
     db.setTable('Prize', { error: { message: 'no table' } });
     await expect(migratePrizeImagesFromCloudinary(db.client as never, { apply: false })).rejects.toEqual({ message: 'no table' });
+  });
+});
+
+describe('migrateUserAvatarsFromCloudinary', () => {
+  const users = [
+    { id: 'u1', name: 'Alice', email: 'alice@test.com', profilePicture: `${CLOUD}/avatar1.jpg` },
+    { id: 'u2', name: null, email: 'bob@test.com', profilePicture: `${CLOUD}/avatar2.jpg` },
+    { id: 'u3', name: null, email: null, profilePicture: `${CLOUD}/avatar3.jpg` },
+    // The LIKE filter is a prefix match; another account's Cloudinary link is still left alone
+    { id: 'u4', name: 'Dan', email: null, profilePicture: 'https://res.cloudinary.com/other/image/upload/a.jpg' },
+  ];
+
+  it('dry run lists Cloudinary profile pictures, named by name, then email, then id', async () => {
+    db.setTable('User', { data: users });
+    const fetchImpl = vi.fn();
+    const moves = await migrateUserAvatarsFromCloudinary(db.client as never, { apply: false, fetchImpl });
+    expect(moves).toEqual([
+      { userId: 'u1', name: 'Alice', from: users[0].profilePicture },
+      { userId: 'u2', name: 'bob@test.com', from: users[1].profilePicture },
+      { userId: 'u3', name: 'u3', from: users[2].profilePicture },
+    ]);
+    // Only Cloudinary rows are read, so the 1,000-row API cap can't hide any
+    expect(db.callsTo('User')[0].ops).toContainEqual({ op: 'like', args: ['profilePicture', 'https://res.cloudinary.com/%'] });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(storeImage).not.toHaveBeenCalled();
+  });
+
+  it("copies each picture into the player's avatars folder and points the profile at it", async () => {
+    db.setTable('User', (call) => (isUpdate(call) ? { data: [{ id: eqValue(call, 'id') }] } : { data: [users[0]] }));
+    const fetchImpl = vi.fn(async () => image());
+    const moves = await migrateUserAvatarsFromCloudinary(db.client as never, { apply: true, fetchImpl: fetchImpl as never });
+    expect(moves).toEqual([{ userId: 'u1', name: 'Alice', from: users[0].profilePicture, to: NEW }]);
+    expect(fetchImpl).toHaveBeenCalledWith(users[0].profilePicture);
+    expect(storeImage).toHaveBeenCalledWith(db.client, 'avatars', 'u1', Buffer.from([1, 2, 3]));
+    const update = db.callsTo('User', 'update')[0];
+    expect(argOf(update, 'update')).toMatchObject({ profilePicture: NEW });
+    expect(update.ops.filter((o) => o.op === 'eq').map((o) => o.args)).toEqual([['id', 'u1'], ['profilePicture', users[0].profilePicture]]);
+  });
+
+  it('records a picture changed meanwhile, and fails fast when players cannot be read', async () => {
+    db.setTable('User', (call) => (isUpdate(call) ? { data: [] } : { data: [users[0]] }));
+    const moves = await migrateUserAvatarsFromCloudinary(db.client as never, { apply: true, fetchImpl: vi.fn(async () => image()) });
+    expect(moves[0].error).toBe('The profile picture was changed meanwhile, so it was left alone');
+    expect(deleteStoredImage).toHaveBeenCalledWith(db.client, NEW);
+
+    db.setTable('User', { data: null });
+    expect(await migrateUserAvatarsFromCloudinary(db.client as never, { apply: false })).toEqual([]);
+    db.setTable('User', { error: { message: 'no table' } });
+    await expect(migrateUserAvatarsFromCloudinary(db.client as never, { apply: false })).rejects.toEqual({ message: 'no table' });
+  });
+});
+
+describe('getCloudinaryPendingStats', () => {
+  it('counts prize images and profile pictures still on Cloudinary, without copying anything', async () => {
+    db.setTable('User', { data: [{ id: 'u1', name: 'A', email: null, profilePicture: `${CLOUD}/avatar1.jpg` }] });
+    expect(await getCloudinaryPendingStats(db.client as never)).toEqual({ prizes: 2, avatars: 1, total: 3 });
+    expect(storeImage).not.toHaveBeenCalled();
+  });
+});
+
+describe('migrateAllCloudinaryAssetsToSupabase', () => {
+  const avatar = { id: 'u1', name: 'User 1', email: 'u1@test.com', profilePicture: `${CLOUD}/avatar.jpg` };
+
+  it('moves prize images and profile pictures and sums them up', async () => {
+    db.setTable('User', (call) => (isUpdate(call) ? { data: [{ id: 'u1' }] } : { data: [avatar] }));
+    const fetchImpl = vi.fn(async () => image());
+    const result = await migrateAllCloudinaryAssetsToSupabase(db.client as never, { fetchImpl: fetchImpl as never });
+    expect(result).toMatchObject({
+      prizesMigrated: 2,
+      prizesFailed: 0,
+      avatarsMigrated: 1,
+      avatarsFailed: 0,
+      totalMigrated: 3,
+      totalFailed: 0,
+      message: 'Moved 3 image(s) to Supabase Storage.',
+    });
+    expect(result.details.avatars).toHaveLength(1);
+  });
+
+  it('reports what could not be moved, and when there is nothing to move', async () => {
+    db.setTable('User', { data: [avatar] });
+    const fetchImpl = vi.fn(async () => new Response('gone', { status: 404 }));
+    const failed = await migrateAllCloudinaryAssetsToSupabase(db.client as never, { fetchImpl: fetchImpl as never });
+    expect(failed).toMatchObject({ totalMigrated: 0, totalFailed: 3, prizesFailed: 2, avatarsFailed: 1 });
+    expect(failed.message).toBe('Moved 0 image(s); 3 could not be moved and still load from Cloudinary.');
+
+    db.setTable('Prize', { data: [] });
+    db.setTable('User', { data: [] });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const none = await migrateAllCloudinaryAssetsToSupabase(db.client as never);
+    expect(none.message).toBe('Nothing to move: no prize image or profile picture loads from Cloudinary.');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 });
