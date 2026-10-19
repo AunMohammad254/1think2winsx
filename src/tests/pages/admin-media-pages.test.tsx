@@ -366,7 +366,10 @@ describe('/admin/media gallery tools', () => {
 
   it('copies one image to Cloudinary from its card, into the folder of the bucket shown', async () => {
     const pending = deferred<unknown>();
-    h.actions.transferSupabaseToCloudinary.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ success: false, error: 'quota' });
+    h.actions.transferSupabaseToCloudinary
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValueOnce({ success: false, error: 'quota' })
+      .mockResolvedValueOnce({ success: true, publicId: 'site/b' });
     render(<MediaPage />);
     await screen.findByText('Used by Bike');
     const copy = () => screen.getByRole('button', { name: 'Copy prizes/b-1280.webp to Cloudinary' });
@@ -382,6 +385,7 @@ describe('/admin/media gallery tools', () => {
     await waitFor(() => expect(h.actions.listMediaImages).toHaveBeenLastCalledWith('site-media', 0));
     fireEvent.click(await screen.findByRole('button', { name: 'Copy prizes/b-1280.webp to Cloudinary' }));
     await waitFor(() => expect(h.actions.transferSupabaseToCloudinary).toHaveBeenLastCalledWith(`${PUB}/prize-images/prizes/b-1280.webp`, 'site'));
+    await waitFor(() => expect(h.toast.success).toHaveBeenLastCalledWith('Copied to Cloudinary as "site/b"'));
   });
 
   it('imports an image from a link into the bucket shown', async () => {
