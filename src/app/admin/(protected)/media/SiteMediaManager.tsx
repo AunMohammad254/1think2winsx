@@ -17,6 +17,7 @@ import {
   type MediaOverview,
 } from '@/actions/supabase-media-actions';
 import { formatBytes, formatDate, Pager } from './media-ui';
+import StorageProviderControl from '@/components/admin/media/StorageProviderControl';
 
 type AdminBucket = typeof MEDIA_BUCKETS.prize | typeof MEDIA_BUCKETS.site;
 
@@ -142,6 +143,9 @@ export default function SiteMediaManager() {
 
   return (
     <div className="space-y-6">
+      {/* Primary Storage Switch & Consolidation */}
+      <StorageProviderControl onRefresh={refresh} />
+
       {/* Usage per bucket */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {(overview?.usage ?? []).map((u) => (

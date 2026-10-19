@@ -120,7 +120,7 @@ describe('prizes', () => {
     const onRedeem = vi.fn();
     render(<PrizeCard prize={prize()} userPoints={1500} onRedeem={onRedeem} variant="featured" />);
     expect(screen.getByText('Electronics')).toBeInTheDocument();
-    expect(screen.getByText('PKR 15,000')).toBeInTheDocument();
+    expect(screen.queryByText(/PKR/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Redeem Now/ }));
     expect(onRedeem).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
   });
@@ -136,6 +136,17 @@ describe('prizes', () => {
     expect(screen.getByRole('button', { name: /Processing/ })).toBeDisabled();
     rerender(<PrizeCard prize={prize()} onRedeem={undefined} userPoints={5000} />);
     fireEvent.click(screen.getByRole('button', { name: /Redeem Now/ }));
+  });
+
+  it('PrizeCard displays Claimed instead of Redeem and disables re-claiming while showing remaining stock', () => {
+    const onRedeem = vi.fn();
+    render(<PrizeCard prize={prize({ stock: 4 })} userPoints={5000} onRedeem={onRedeem} isClaimed />);
+    expect(screen.getByText('Only 4 left!')).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /claimed/i });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onRedeem).not.toHaveBeenCalled();
   });
 
   it('PrizeCard falls back to a gift icon when the image is missing or fails', () => {
@@ -263,12 +274,12 @@ describe('how-to-play sections', () => {
   it('StepCard and the prize cards render each tier', () => {
     render(<StepCard step={2} title="Pay" description="Pay 2 PKR" icon={Trophy} />);
     expect(screen.getByText('2')).toBeInTheDocument();
-    render(<HowToPlayPrizeCard name="Bike" description="CD 70" icon={Trophy} tier="grand" value="PKR 150,000" />);
+    render(<HowToPlayPrizeCard name="Bike" description="CD 70" icon={Trophy} tier="grand" />);
     expect(screen.getByText('🏆 GRAND PRIZE')).toBeInTheDocument();
     render(<HowToPlayPrizeCard name="Phone" description="Android" icon={Trophy} tier="major" />);
     render(<HowToPlayPrizeCard name="Buds" description="Earbuds" icon={Trophy} tier="standard" delay={0.2} />);
     expect(screen.getAllByText('🏆 GRAND PRIZE')).toHaveLength(1);
-    expect(screen.getByText('PKR 150,000')).toBeInTheDocument();
+    expect(screen.queryByText(/PKR 150,000/)).toBeNull();
   });
 
   it('WinningTips lists three tips', () => {

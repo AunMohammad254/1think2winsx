@@ -12,6 +12,8 @@ const updateClaimSchema = z.object({
   claimId: z.string().min(1, 'Claim ID is required'),
   status: z.enum(['pending', 'approved', 'rejected', 'fulfilled']),
   notes: z.string().max(500, 'Notes too long').optional(),
+  action: z.enum(['update', 'reissue']).optional().default('update'),
+  reissueMode: z.enum(['redelivery', 'reclaim']).optional(),
 });
 
 // GET /api/admin/claims - Get all prize claims for admin
@@ -195,10 +197,52 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const { claimId, status, notes } = validationResult.data;
+    const { claimId, status, notes, action, reissueMode } = validationResult.data;
 
     // Get database client
     const supabase = getAdminDb();
+
+    // Reissue an approved or delivered claim: send it again ('redelivery') or refund it so the player
+    // can claim again ('reclaim'). reissue_claim checks the status and moves points and stock in one
+    // locked transaction (db-tests/schema/06-20261019181000_prize_claim_once_and_reissue.sql).
+    if (action === 'reissue') {
+      const mode = reissueMode || (status === 'pending' ? 'redelivery' : 'reclaim');
+      const { data: result, error: rpcError } = await supabase.rpc('reissue_claim', {
+        p_claim_id: claimId,
+        p_mode: mode,
+        p_notes: notes || null,
+        p_admin_email: session.user.email || null,
+      });
+      if (rpcError) throw rpcError;
+      if (!result?.success) {
+        return NextResponse.json(
+          { message: result?.error || 'Failed to reissue claim' },
+          { status: result?.code === 'not_found' ? 404 : 409 }
+        );
+      }
+
+      await securityLogger.logSecurityEvent({
+        type: 'ADMIN_ACCESS',
+        userId: session.user.id,
+        ip: request.headers.get('x-forwarded-for') || 'unknown',
+        userAgent: request.headers.get('user-agent') || undefined,
+        endpoint: '/api/admin/claims',
+        details: {
+          action: mode === 'redelivery' ? 'REISSUE_CLAIM_REDELIVERY' : 'REISSUE_CLAIM_ALLOW_RECLAIM',
+          claimId,
+          previousStatus: result.previousStatus,
+          pointsRefunded: result.pointsRefunded,
+        },
+        severity: 'MEDIUM'
+      });
+
+      return createSecureJsonResponse({
+        message: mode === 'redelivery'
+          ? 'Claim reissued for re-delivery successfully'
+          : 'Claim reissued. Points refunded and player may now re-claim this reward.',
+        claim: { id: claimId, status: result.status },
+      });
+    }
 
     // Try using the unified update_claim_status RPC function first
     try {

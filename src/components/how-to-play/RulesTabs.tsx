@@ -50,7 +50,7 @@ const paymentRules: RuleItem[] = [
     {
         icon: <CreditCard className="w-5 h-5" />,
         title: "Entry Fee: 2 PKR",
-        description: "Minimal investment for a chance to win amazing prizes worth thousands!"
+        description: "Minimal investment for a chance to win amazing prizes!"
     },
     {
         icon: <Wallet className="w-5 h-5" />,
