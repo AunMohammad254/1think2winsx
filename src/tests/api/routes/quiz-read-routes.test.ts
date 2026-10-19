@@ -99,7 +99,8 @@ describe('GET /api/quizzes', () => {
       catalogQuiz({ id: 'done', pushedAt: iso(-HOUR) }),
       catalogQuiz({ id: 'paused', status: 'paused' }),
       catalogQuiz({ id: 'soon', status: 'upcoming', pushedAt: null, startsAt: iso(HOUR) }),
-      catalogQuiz({ id: 'draft', pushedAt: null }),
+      catalogQuiz({ id: 'announced', status: 'upcoming', pushedAt: null, startsAt: iso(HOUR), announcedAt: '2026-10-16T09:00:00+00:00' }),
+      catalogQuiz({ id: 'draft', pushedAt: null, announcedAt: '2026-10-16T09:00:00+00:00' }),
     ]);
     db.setTable('QuizAttempt', { data: [{ quizId: 'done', completedAt: '2026-10-10T10:00:00.000Z' }] });
     db.setTable('QuestionAttempt', { data: [{ quizId: 'done', questionId: 'q1' }, { quizId: 'done', questionId: 'q2' }, { quizId: 'live', questionId: 'q1' }] });
@@ -117,7 +118,11 @@ describe('GET /api/quizzes', () => {
     expect(byId.paused.pushStatus).toBe('time-up');
     expect(byId.soon).toMatchObject({ pushStatus: 'upcoming', pushedAt: null });
     expect(byId.soon.startsAt).not.toBeNull();
-    expect(byId.draft).toMatchObject({ pushStatus: null, startsAt: null });
+    // The page pops up announcements it hasn't seen, so it needs to know the ones it has
+    expect(byId.soon.announcedAt).toBeNull();
+    expect(byId.announced.announcedAt).toBe('2026-10-16T09:00:00.000Z');
+    // An announcement only matters while the quiz is upcoming
+    expect(byId.draft).toMatchObject({ pushStatus: null, startsAt: null, announcedAt: null });
     // the attempts are looked up for this user only
     expect(eqValue(db.callsTo('QuizAttempt')[0], 'userId')).toBe('user-1');
     expect(res.headers.get('ETag')).toMatch(/^".+"$/);
@@ -219,8 +224,8 @@ describe('GET /api/live', () => {
   it('serves only the public part of the catalogue, cacheable for 5 s at the edge', async () => {
     getActiveQuizCatalog.mockResolvedValue([
       catalogQuiz({ id: 'live', pushedAt: '2026-10-16T10:00:00+00:00' }),
-      catalogQuiz({ id: 'soon', status: 'upcoming', pushedAt: null, startsAt: '2026-10-16T12:00:00+00:00', prizeName: 'Ronin Earbuds', isBumperPrize: true, accessPrice: '2.50' }),
-      catalogQuiz({ id: 'paused', status: 'paused', startsAt: '2026-10-01T00:00:00+00:00' }),
+      catalogQuiz({ id: 'soon', status: 'upcoming', pushedAt: null, startsAt: '2026-10-16T12:00:00+00:00', announcedAt: '2026-10-16T09:00:00+00:00', prizeName: 'Ronin Earbuds', isBumperPrize: true, accessPrice: '2.50' }),
+      catalogQuiz({ id: 'paused', status: 'paused', startsAt: '2026-10-01T00:00:00+00:00', announcedAt: '2026-09-30T00:00:00+00:00' }),
     ]);
     isWalletEnabled.mockResolvedValue(false);
     const res = await liveRoute.GET();
@@ -233,16 +238,18 @@ describe('GET /api/live', () => {
     // Same date format as the personal list, so a pushedAt never looks new because of formatting
     expect(body.quizzes[0]).toEqual({
       id: 'live', title: 'Cricket night', description: 'Predict the match', duration: 10, passingScore: 70,
-      status: 'active', questionCount: 2, totalAttempts: 3, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null,
+      status: 'active', questionCount: 2, totalAttempts: 3, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null, announcedAt: null,
       createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z',
       prizeName: null, isBumperPrize: false, accessPrice: 0,
     });
     // The landing page's cards: prize, bumper flag and price (numeric columns may arrive as strings)
     expect(body.quizzes[1]).toMatchObject({ pushedAt: null, startsAt: '2026-10-16T12:00:00.000Z', prizeName: 'Ronin Earbuds', isBumperPrize: true, accessPrice: 2.5 });
+    // A new announcement is what pops an upcoming quiz up on the stream
+    expect(body.quizzes[1].announcedAt).toBe('2026-10-16T09:00:00.000Z');
     // With the wallet off every quiz is free, so the landing page needs the flag too
     expect(body.walletEnabled).toBe(false);
-    // A start time only matters while the quiz is upcoming
-    expect(body.quizzes[2].startsAt).toBeNull();
+    // A start time and an announcement only matter while the quiz is upcoming
+    expect(body.quizzes[2]).toMatchObject({ startsAt: null, announcedAt: null });
     // Nothing per player and no question bodies (let alone the answer key) leave the server
     expect(JSON.stringify(body)).not.toContain('Who wins the toss');
     expect(requireAuth).not.toHaveBeenCalled();

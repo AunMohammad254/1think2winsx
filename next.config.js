@@ -32,6 +32,10 @@ const nextConfig = {
   logging: {
     serverFunctions: false,
   },
+  // `next dev` only: lets a phone on the same home network open the dev server by its LAN address
+  // (http://192.168.x.y:3000) with hot reload working. Each `*` matches one part of the address,
+  // so it keeps working when the router hands this machine a new one. Ignored by `next build`.
+  allowedDevOrigins: ['192.168.*.*'],
 
   // Compression
   compress: true,

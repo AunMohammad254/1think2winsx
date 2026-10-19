@@ -188,6 +188,12 @@ describe('notifyUpcomingQuiz', () => {
     expect(await actions.notifyUpcomingQuiz('q')).toEqual({ success: true, message: 'Users notified about the upcoming quiz. The quiz is still scheduled.' });
     expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ title: UPCOMING_NOTICE_TITLE, link: '/quizzes?upcoming=q', message: expect.stringMatching(/^"Final" goes live /) }));
     expect(eqValue(adminDb.callsTo('Notification')[0], 'link')).toBe('/quizzes?upcoming=q');
+    // Marked as announced after the broadcast (the bell has it when the stream pops it up), and the
+    // cached snapshot dropped so the stream shows it within seconds
+    const [mark] = adminDb.callsTo('Quiz', 'update');
+    expect(eqValue(mark, 'id')).toBe('q');
+    expect(createBroadcast.mock.invocationCallOrder[0]).toBeLessThan(clearQuizListCache.mock.invocationCallOrder[0]);
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
 
     adminDb.setTable('Notification', { data: [{ id: 'sent' }] });
     expect(await actions.notifyUpcomingQuiz('q')).toEqual({ success: false, error: 'Users were already notified about this quiz.', code: 'ALREADY_NOTIFIED' });

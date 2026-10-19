@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { createSupabaseMock, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { argOf, createSupabaseMock, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 const quiet = () => {
   for (const level of ['log', 'info', 'warn', 'error'] as const) vi.spyOn(console, level).mockImplementation(() => {});
@@ -275,13 +275,49 @@ describe('embed utils', () => {
     expect(e.isYouTubeContent('<iframe src="https://player.twitch.tv"/>')).toBe(false);
   });
 
+  it('finds the video in every form an admin might paste: privacy-mode embeds, Shorts, extra watch parameters', async () => {
+    const e = await import('@/lib/embed-utils');
+    expect(e.getYouTubeVideoId('<iframe src="https://www.youtube-nocookie.com/embed/NOCOOK1?si=x" allowfullscreen></iframe>')).toBe('NOCOOK1');
+    expect(e.getYouTubeVideoId('https://youtube.com/shorts/SHORT_1')).toBe('SHORT_1');
+    expect(e.getYouTubeVideoId('https://m.youtube.com/watch?app=desktop&v=MOBILE1&t=4')).toBe('MOBILE1');
+    // A channel's live stream has no video id
+    expect(e.getYouTubeVideoId('https://www.youtube.com/embed/live_stream?channel=UC123')).toBeNull();
+    expect(e.isYouTubeContent('https://www.youtube-nocookie.com/embed/x')).toBe(true);
+  });
+
+  it("builds the live stream's player URL with our parameters, whatever the pasted code asked for", async () => {
+    const e = await import('@/lib/embed-utils');
+    const params = 'autoplay=1&playsinline=1&fs=0&rel=0&iv_load_policy=3';
+    expect(e.youTubeEmbedUrl('<iframe src="https://www.youtube.com/embed/HBmgriPFYT8?fs=1&autoplay=0" allowfullscreen></iframe>'))
+      .toBe(`https://www.youtube.com/embed/HBmgriPFYT8?${params}`);
+    expect(e.youTubeEmbedUrl('<iframe src="https://www.youtube.com/embed/live_stream?autoplay=1&channel=UCabc-_1"></iframe>'))
+      .toBe(`https://www.youtube.com/embed/live_stream?channel=UCabc-_1&${params}`);
+    // Not YouTube, or YouTube with nothing to play
+    expect(e.youTubeEmbedUrl('<iframe src="https://player.twitch.tv/?channel=x"></iframe>')).toBeNull();
+    expect(e.youTubeEmbedUrl('https://www.youtube.com/@somechannel')).toBeNull();
+  });
+
+  it("switches off the embed's own fullscreen in pasted embed code", async () => {
+    const e = await import('@/lib/embed-utils');
+    expect(e.withoutEmbedFullscreen('<iframe src="https://x.test/p" allowfullscreen webkitallowfullscreen="true" mozAllowFullScreen=\'\' allow="autoplay; fullscreen; encrypted-media"></iframe>'))
+      .toBe('<iframe src="https://x.test/p" allow="autoplay; encrypted-media"></iframe>');
+    expect(e.withoutEmbedFullscreen('<iframe src="https://www.facebook.com/plugins/video.php?href=v&amp;allowfullscreen=true" allowFullScreen></iframe>'))
+      .toBe('<iframe src="https://www.facebook.com/plugins/video.php?href=v&amp;allowfullscreen=false"></iframe>');
+    expect(e.withoutEmbedFullscreen("<iframe src='?allowfullscreen=TRUE' allow='fullscreen'></iframe>")).toBe("<iframe src='?allowfullscreen=false' allow=''></iframe>");
+    expect(e.withoutEmbedFullscreen('<video src="a.mp4" controls></video>')).toBe('<video playsinline controlslist="nofullscreen" src="a.mp4" controls></video>');
+    // A video that already sets its controls is left as it is
+    expect(e.withoutEmbedFullscreen('<video controlslist="nodownload" src="a.mp4"></video>')).toBe('<video controlslist="nodownload" src="a.mp4"></video>');
+    // The wrapped document applies it too
+    expect(e.buildResponsiveEmbedDocument('<iframe src="https://player.twitch.tv/?channel=x" allowfullscreen></iframe>')).not.toContain('allowfullscreen');
+  });
+
   it('turns a bare YouTube URL into an embed and normalises iframe URLs', async () => {
     const e = await import('@/lib/embed-utils');
-    expect(e.buildResponsiveEmbedDocument('https://www.youtube.com/watch?v=VID')).toContain('<iframe src="https://www.youtube.com/embed/VID?autoplay=1&mute=0"');
+    expect(e.buildResponsiveEmbedDocument('https://www.youtube.com/watch?v=VID')).toContain('<iframe src="https://www.youtube.com/embed/VID?autoplay=1&playsinline=1&fs=0&rel=0&iv_load_policy=3"');
     const doc = e.buildResponsiveEmbedDocument('<iframe src="https://youtube.com/watch?v=A"></iframe><iframe src="https://youtu.be/B"></iframe><iframe src="https://www.youtube.com/live/C"></iframe>');
     expect(doc.match(/youtube\.com\/embed\/[ABC]/g)).toEqual(['youtube.com/embed/A', 'youtube.com/embed/B', 'youtube.com/embed/C']);
     expect(e.buildResponsiveEmbedDocument('youtube.com/channel/x')).toContain('<div class="wrapper">youtube.com/channel/x</div>');
-    expect(e.buildResponsiveEmbedDocument('<video src="a.mp4"></video>')).toContain('<video src="a.mp4"></video>');
+    expect(e.buildResponsiveEmbedDocument('<video src="a.mp4"></video>')).toContain('<video playsinline controlslist="nofullscreen" src="a.mp4"></video>');
     const uri = e.buildEmbedDataUri('<b>hi</b>');
     expect(uri.startsWith('data:text/html;charset=utf-8,')).toBe(true);
     expect(decodeURIComponent(uri.split(',')[1])).toContain('<b>hi</b>');
@@ -432,6 +468,29 @@ describe('quiz catalogue', () => {
     expect(list[1]).toMatchObject({ totalAttempts: 0, questions: [{ id: 'q3', options: [] }] });
     expect(await cat.getCatalogQuiz('soon')).toMatchObject({ id: 'soon' });
     expect(await cat.getCatalogQuiz('ghost')).toBeUndefined();
+  });
+
+  it('lists a scheduled quiz as upcoming once players were told about it, and reads every column so it works before the migration', async () => {
+    adminDb.setTable('Quiz', {
+      data: [
+        { id: 'announced', status: 'scheduled', startsAt: '2026-10-20T15:00:00Z', announcedAt: '2026-10-20T14:50:00Z' },
+        { id: 'secret', status: 'scheduled', startsAt: '2026-10-20T16:00:00Z', announcedAt: null },
+        // Before the migration the column is simply missing
+        { id: 'pre-migration', status: 'scheduled', startsAt: '2026-10-20T17:00:00Z' },
+        { id: 'legacy', status: 'upcoming', startsAt: '2026-10-20T18:00:00Z' },
+      ],
+    });
+    adminDb.setTable('Question', { data: [] });
+
+    const list = await cat.getActiveQuizCatalog();
+
+    expect(list.map((q) => [q.id, q.status, q.announcedAt])).toEqual([
+      ['announced', 'upcoming', '2026-10-20T14:50:00Z'],
+      ['legacy', 'upcoming', null],
+    ]);
+    const [read] = adminDb.callsTo('Quiz');
+    expect(argOf(read, 'select')).toBe('*');
+    expect(read.ops.find((o) => o.op === 'in')?.args).toEqual(['status', ['active', 'upcoming', 'paused', 'scheduled']]);
   });
 
   it('shows 0 attempts when the count RPC returns no rows', async () => {

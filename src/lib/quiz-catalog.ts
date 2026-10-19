@@ -25,6 +25,8 @@ export interface CatalogQuiz {
   isBumperPrize: boolean;
   startsAt: string | null;
   pushedAt: string | null;
+  /** When players were last told this upcoming quiz is coming (it pops up on the stream). */
+  announcedAt: string | null;
   createdAt: string;
   updatedAt: string;
   questions: CatalogQuestion[];
@@ -69,16 +71,22 @@ async function load(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }
 
 async function loadCatalog(): Promise<CatalogQuiz[]> {
   const db = getAdminDb();
+  // `*` rather than a column list: "announcedAt" comes from a migration that may not be applied yet
+  // (db-tests/schema/06-20261019200000_quiz_announced_at.sql), and naming a missing column would
+  // fail the whole read. The routes pick the fields they send, so other columns stay on the server.
   const { data: rawQuizzes, error } = await db
     .from('Quiz')
-    .select('id, title, description, duration, timeUpDuration, passingScore, status, accessPrice, quizType, isBumperPrize, prizeId, startsAt, pushedAt, createdAt, updatedAt')
-    .in('status', ['active', 'upcoming', 'paused'])
+    .select('*')
+    .in('status', ['active', 'upcoming', 'paused', 'scheduled'])
     .order('createdAt', { ascending: false });
   if (error) throw error;
 
-  // Include upcoming. Include active/paused only within their (duration + timeUpDuration) window from pushedAt
+  // Include upcoming, and scheduled quizzes once players were told about them (listed as upcoming:
+  // the quiz routes refuse their questions until the scheduler makes them active). Include
+  // active/paused only within their (duration + timeUpDuration) window from pushedAt
   const now = Date.now();
   const quizzes = (rawQuizzes || []).filter((q: any) => {
+    if (q.status === 'scheduled') return !!q.announcedAt;
     if (q.status === 'upcoming') return true;
     // Never-pushed quizzes: active ones stay listed as before; paused ones were hidden
     // by an admin and must not reappear
@@ -143,6 +151,9 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
 
   return quizzes.map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts' | 'prizeName'> & { prizeId?: string | null }) => ({
     ...q,
+    // Players only ever see "upcoming" before a quiz starts, whichever status the admin used
+    status: q.status === 'scheduled' ? 'upcoming' : q.status,
+    announcedAt: q.announcedAt ?? null,
     description: q.description || '',
     isBumperPrize: q.isBumperPrize || (!!q.prizeId && bumperPrizes.has(q.prizeId)),
     questions: byQuiz.get(q.id) || [],

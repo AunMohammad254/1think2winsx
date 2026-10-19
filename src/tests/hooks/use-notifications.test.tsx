@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
+import { NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
 
 const h = vi.hoisted(() => {
   const state = { user: { id: 'u1' } as { id: string } | null, poll: null as null | { task: () => Promise<boolean | void>; opts: { enabled: boolean } } };
@@ -241,12 +241,31 @@ describe('useNotifications: badge updates without a Realtime connection', () => 
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
+  it('counts a quiz the stream just announced at once, silently, and reloads the list on the next open', async () => {
+    const { result } = renderHook(() => mod.useNotifications());
+    await act(() => result.current.loadNotifications());
+    expect(result.current).toMatchObject({ unreadCount: 1, listLoaded: true });
+    act(() => { window.dispatchEvent(new Event(NEW_NOTICE_EVENT)); });
+    act(() => { window.dispatchEvent(new Event(NEW_NOTICE_EVENT)); });
+    expect(result.current).toMatchObject({ unreadCount: 3, listLoaded: false });
+    // The stream's pop-up already announced it
+    expect(h.toast).not.toHaveBeenCalled();
+    expect(FakeAudio.instances).toHaveLength(0);
+    await act(() => result.current.loadNotifications());
+    expect(fetchMock.mock.calls.filter((c) => c[0] === '/api/notifications')).toHaveLength(2);
+    // The real count replaces the guess, without announcing it again
+    act(() => { window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: 1 })); });
+    expect(result.current.unreadCount).toBe(1);
+    expect(h.toast).not.toHaveBeenCalled();
+  });
+
   it('stays idle for signed-out visitors', async () => {
     h.state.user = null;
     const { result } = renderHook(() => mod.useNotifications());
     expect(h.state.poll!.opts).toMatchObject({ enabled: false });
     expect(await h.state.poll!.task()).toBe(true);
     act(() => { window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: 3 })); });
+    act(() => { window.dispatchEvent(new Event(NEW_NOTICE_EVENT)); });
     expect(result.current.unreadCount).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -275,6 +294,19 @@ describe('playChime', () => {
     vi.stubGlobal('AudioContext', undefined);
     await load();
     expect(() => mod.playChime()).not.toThrow();
+  });
+});
+
+describe('isNotificationSoundOn', () => {
+  it("follows the bell's sound setting, on unless turned off or unreadable", async () => {
+    const { isNotificationSoundOn } = await import('@/lib/notification-sound');
+    expect(isNotificationSoundOn()).toBe(true);
+    localStorage.setItem('notifications_sound_enabled', 'false');
+    expect(isNotificationSoundOn()).toBe(false);
+    localStorage.setItem('notifications_sound_enabled', 'true');
+    expect(isNotificationSoundOn()).toBe(true);
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+    expect(isNotificationSoundOn()).toBe(true);
   });
 });
 

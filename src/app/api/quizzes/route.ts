@@ -127,6 +127,8 @@ export const GET = withLoadShed(async function GET(request: NextRequest) {
         lastAttemptDate: attempt?.completedAt ? new Date(attempt.completedAt) : null,
         pushedAt: quiz.pushedAt ? new Date(quiz.pushedAt) : null,
         startsAt: quiz.status === 'upcoming' && quiz.startsAt ? new Date(quiz.startsAt) : null,
+        // The page pops up announcements it has not seen; this tells it which ones it already has
+        announcedAt: quiz.status === 'upcoming' && quiz.announcedAt ? new Date(quiz.announcedAt) : null,
         pushStatus,
         createdAt: new Date(quiz.createdAt),
         updatedAt: new Date(quiz.updatedAt),

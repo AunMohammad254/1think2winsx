@@ -116,6 +116,26 @@ describe('runScheduledJobs', () => {
     expect(createBroadcast).toHaveBeenCalledWith({ title: scheduler.TEN_MINUTE_WARNING_TITLE, message: 'Get ready! "Challenge" starts in 10 minutes. Don\'t miss out!', type: 'quiz_starts_soon', link: '/quizzes?upcoming=soon' });
     expect(eqValue(adminDb.callsTo('Notification')[0], 'title')).toBe(scheduler.TEN_MINUTE_WARNING_TITLE);
     expect(console.error).toHaveBeenCalledWith('[Jobs] Failed to process warning notification for quiz boom:', expect.any(Error));
+    // The warned quiz pops up on the stream too, so the cached snapshot is dropped
+    const marks = adminDb.callsTo('Quiz', 'update');
+    expect(marks.map((call) => eqValue(call, 'id'))).toEqual(['soon']);
+    expect(argOf(marks[0], 'update')).toMatchObject({ announcedAt: expect.any(String) });
+    expect(invalidateQuizCatalog).toHaveBeenCalled();
+  });
+
+  it('markQuizAnnounced lists an upcoming quiz on the stream, and only logs when it cannot (migration not applied)', async () => {
+    adminDb.setTable('Quiz', { data: null });
+    await scheduler.markQuizAnnounced('q1');
+    const [mark] = adminDb.callsTo('Quiz', 'update');
+    expect(eqValue(mark, 'id')).toBe('q1');
+    const { announcedAt, updatedAt } = argOf(mark, 'update') as { announcedAt: string; updatedAt: string };
+    expect(announcedAt).toBe(updatedAt);
+    expect(Date.parse(announcedAt)).toBeGreaterThan(Date.now() - 5_000);
+    expect(console.error).not.toHaveBeenCalledWith('[QuizScheduler] Could not mark quiz q1 as announced:', expect.anything());
+
+    adminDb.setTable('Quiz', { error: { message: 'column "announcedAt" does not exist' } });
+    await expect(scheduler.markQuizAnnounced('q1')).resolves.toBeUndefined();
+    expect(console.error).toHaveBeenCalledWith('[QuizScheduler] Could not mark quiz q1 as announced:', { message: 'column "announcedAt" does not exist' });
   });
 
   it('pauses active quizzes whose answering window is over', async () => {

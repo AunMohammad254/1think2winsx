@@ -164,14 +164,14 @@ describe('proxy', () => {
     let res = await mod.proxy(req('/faq'));
     expect(res.headers.get('Strict-Transport-Security')).toBe('max-age=31536000; includeSubDomains');
     expect(res.headers.get('Content-Security-Policy')).not.toContain('unsafe-eval');
-    expect(res.headers.get('Content-Security-Policy')).toContain("script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com;");
+    expect(res.headers.get('Content-Security-Policy')).toContain("script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com;");
 
     vi.stubEnv('NODE_ENV', 'development');
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', '');
     vi.resetModules();
     mod = await import('@/proxy');
     res = await mod.proxy(req('/faq'));
-    expect(res.headers.get('Content-Security-Policy')).toContain("script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com;");
+    expect(res.headers.get('Content-Security-Policy')).toContain("script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://static.cloudflareinsights.com;");
   });
 
   it('lets the Turnstile check on the auth forms load its script and iframe', async () => {
@@ -179,6 +179,13 @@ describe('proxy', () => {
     const directive = (name: string) => csp.split('; ').find((d) => d.startsWith(`${name} `))!;
     expect(directive('script-src')).toContain('https://challenges.cloudflare.com');
     expect(directive('frame-src')).toContain('https://challenges.cloudflare.com');
+  });
+
+  it("lets Cloudflare's Web Analytics beacon, which the zone injects into every page, load and report", async () => {
+    const csp = (await proxyMod.proxy(req('/faq'))).headers.get('Content-Security-Policy')!;
+    const directive = (name: string) => csp.split('; ').find((d) => d.startsWith(`${name} `))!;
+    expect(directive('script-src')).toContain('https://static.cloudflareinsights.com');
+    expect(directive('connect-src')).toContain('https://cloudflareinsights.com');
   });
 
   it('never runs for API routes, Next internals or static files', () => {

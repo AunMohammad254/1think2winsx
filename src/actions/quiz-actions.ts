@@ -3,7 +3,7 @@
 import { adminActionGuard } from '@/lib/admin-guard';
 
 import { quizDb, questionDb, notificationDb, getAdminDb } from '@/lib/supabase/db';
-import { UPCOMING_NOTICE_TITLE, upcomingQuizLink } from '@/lib/quiz-scheduler';
+import { UPCOMING_NOTICE_TITLE, upcomingQuizLink, markQuizAnnounced } from '@/lib/quiz-scheduler';
 import { toUtcIso, formatBusinessTime } from '@/lib/schedule-time';
 import { revalidatePath } from 'next/cache';
 import { clearQuizListCache } from '@/lib/quiz-cache';
@@ -382,6 +382,9 @@ export async function notifyUpcomingQuiz(id: string, force = false): Promise<Act
             type: 'quiz_starts_soon',
             link,
         });
+        // After the broadcast, so the bell already holds the notice when the stream pops it up
+        await markQuizAnnounced(id);
+        clearQuizListCache();
 
         return { success: true, message: 'Users notified about the upcoming quiz. The quiz is still scheduled.' };
     } catch (error) {
