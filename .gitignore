@@ -134,6 +134,9 @@ load-test/.data/
 # Hostinger env import file (contains secrets)
 .env.hostinger-import
 
+# Unredacted copies of the deploy runbooks (server addresses, limits): never publish
+deploy/private/
+
 # My Skills: begin
 # CLAUDE.md
 # My Skills: end
