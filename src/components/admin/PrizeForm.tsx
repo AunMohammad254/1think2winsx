@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -8,20 +8,28 @@ import { motion } from 'framer-motion';
 import type { Prize, PrizeFormData, PrizeCategoryValue, PrizeStatus } from '@/types/prize';
 import Image from 'next/image';
 import { toast } from 'sonner';
+import { Images, Loader2, Upload, X } from 'lucide-react';
 import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT } from '@/lib/cloudinary';
+import {
+    MAX_UPLOAD_BYTES,
+    MAX_UPLOAD_ERROR,
+    UPLOAD_IMAGE_TYPES,
+    UPLOAD_IMAGE_TYPES_ERROR,
+} from '@/lib/media/config';
+import PrizeImageLibrary from './PrizeImageLibrary';
 
-// Form validation schema
+// Form validation schema. An emptied number field is NaN, which z.number() reports as its type error.
 const prizeFormSchema = z.object({
     name: z.string().min(1, 'Name is required').max(100, 'Name too long'),
     description: z.string().max(500, 'Description too long').optional(),
     imageUrl: z.string().refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
     modelUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
-    pointsRequired: z.number().min(1, 'Points must be at least 1'),
+    pointsRequired: z.number({ error: 'Enter a number' }).int('Points must be a whole number').min(1, 'Points must be at least 1'),
     category: z.enum(['electronics', 'vehicles', 'accessories', 'general', 'bumper']),
-    stock: z.number().min(0, 'Stock cannot be negative'),
+    stock: z.number({ error: 'Enter a number' }).int('Stock must be a whole number').min(0, 'Stock cannot be negative'),
     status: z.enum(['draft', 'published']),
-    value: z.number().min(0, 'Value cannot be negative'),
+    value: z.number({ error: 'Enter a number' }).min(0, 'Value cannot be negative'),
 });
 
 type FormValues = z.infer<typeof prizeFormSchema>;
@@ -50,8 +58,12 @@ export default function PrizeForm({
     onClose,
     isSubmitting,
 }: PrizeFormProps) {
-    const [previewUrl, setPreviewUrl] = useState<string>(prize?.imageUrl || '');
     const [isUploading, setIsUploading] = useState(false);
+    const [showLibrary, setShowLibrary] = useState(false);
+    // The last image URL that failed to load, so the preview falls back to the placeholder
+    // instead of retrying it on every render
+    const [brokenImage, setBrokenImage] = useState('');
+    const fileInput = useRef<HTMLInputElement>(null);
 
     const {
         register,
@@ -75,13 +87,11 @@ export default function PrizeForm({
         },
     });
 
-    const imageUrl = watch('imageUrl');
+    const imageUrl = watch('imageUrl') || '';
+    // Only an image the prize can be saved with is previewed (and fetched)
+    const previewUrl = imageUrl !== brokenImage && isAllowedPrizeImageUrl(imageUrl) ? imageUrl : '';
 
-    useEffect(() => {
-        if (imageUrl && imageUrl !== previewUrl) {
-            setPreviewUrl(imageUrl);
-        }
-    }, [imageUrl, previewUrl]);
+    const setImageUrl = (url: string) => setValue('imageUrl', url, { shouldValidate: true, shouldDirty: true });
 
     const handleFormSubmit = async (data: FormValues) => {
         await onSubmit({
@@ -94,7 +104,18 @@ export default function PrizeForm({
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
+        // Cleared so choosing the same file again (e.g. after a failed upload) fires onChange again
+        e.target.value = '';
         if (!file) return;
+        // The same checks /api/upload makes, before sending up to 10 MB for nothing
+        if (!UPLOAD_IMAGE_TYPES.includes(file.type)) {
+            toast.error(UPLOAD_IMAGE_TYPES_ERROR);
+            return;
+        }
+        if (file.size > MAX_UPLOAD_BYTES) {
+            toast.error(MAX_UPLOAD_ERROR);
+            return;
+        }
 
         try {
             setIsUploading(true);
@@ -111,7 +132,8 @@ export default function PrizeForm({
             if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
 
             // Resized to WebP and stored in Supabase Storage (prize-images bucket)
-            setValue('imageUrl', data.url, { shouldValidate: true });
+            setImageUrl(data.url);
+            setShowLibrary(false);
         } catch (error) {
             console.error('Error uploading image:', error);
             toast.error((error as Error).message);
@@ -125,20 +147,25 @@ export default function PrizeForm({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
             onClick={onClose}
         >
+            {/* Header and footer stay put and the form scrolls between them, so nothing is pushed
+                off screen on short viewports (a centred modal taller than the screen loses its top) */}
             <motion.div
                 initial={{ scale: 0.9, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                className="relative w-full max-w-2xl my-8 bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="prize-form-title"
+                className="relative flex flex-col w-full max-w-2xl max-h-full bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-white/10 bg-gradient-to-r from-blue-600/20 to-purple-600/20">
+                <div className="flex shrink-0 items-center justify-between p-6 border-b border-white/10 bg-gradient-to-r from-blue-600/20 to-purple-600/20">
                     <div>
-                        <h2 className="text-xl font-bold text-white">
+                        <h2 id="prize-form-title" className="text-xl font-bold text-white">
                             {prize ? 'Edit Prize' : 'Create New Prize'}
                         </h2>
                         <p className="text-sm text-gray-400">
@@ -147,6 +174,7 @@ export default function PrizeForm({
                     </div>
                     <button
                         onClick={onClose}
+                        aria-label="Close"
                         className="p-2 rounded-full hover:bg-white/10 transition-colors"
                     >
                         <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -156,59 +184,98 @@ export default function PrizeForm({
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit(handleFormSubmit)} className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
-                    {/* Image Preview */}
-                    <div className="flex items-start gap-6">
-                        <div className="relative w-32 h-32 rounded-xl bg-slate-700/50 border border-white/10 overflow-hidden flex-shrink-0">
-                            {previewUrl ? (
-                                <Image
-                                    src={previewUrl}
-                                    alt="Preview"
-                                    fill
-                                    unoptimized
-                                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                                    className="object-cover"
-                                    onError={() => setPreviewUrl('')}
-                                />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center text-4xl text-gray-500">
-                                    🎁
-                                </div>
-                            )}
-                        </div>
-                        <div className="flex-1 space-y-4">
-                            <div className="flex items-end gap-2">
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                                        Image URL (or upload)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        {...register('imageUrl')}
-                                        className="w-full px-4 py-3 bg-slate-700/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                                        placeholder="Upload an image, or paste an image link"
+                <form onSubmit={handleSubmit(handleFormSubmit)} className="flex-1 min-h-0 p-6 space-y-6 overflow-y-auto">
+                    {/* Image: upload, pick from the library, or paste a link */}
+                    <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row gap-4 sm:gap-6">
+                            <div className="relative w-32 h-32 self-center sm:self-start rounded-xl bg-slate-700/50 border border-white/10 overflow-hidden flex-shrink-0">
+                                {previewUrl ? (
+                                    <Image
+                                        src={previewUrl}
+                                        alt="Preview"
+                                        fill
+                                        unoptimized
+                                        sizes="128px"
+                                        className="object-cover"
+                                        onError={() => setBrokenImage(previewUrl)}
                                     />
-                                    {errors.imageUrl && (
-                                        <p className="mt-1 text-xs text-red-400">{errors.imageUrl.message}</p>
-                                    )}
-                                </div>
-                                <div className="flex-shrink-0 mb-[2px]">
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-4xl text-gray-500">
+                                        🎁
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex-1 min-w-0 space-y-3">
+                                <label htmlFor="prizeImageUrl" className="block text-sm font-medium text-gray-300">
+                                    Prize Image
+                                </label>
+                                <div className="flex flex-wrap gap-2">
                                     <input
+                                        ref={fileInput}
                                         type="file"
-                                        accept="image/*"
+                                        accept={UPLOAD_IMAGE_TYPES.join(',')}
                                         className="hidden"
-                                        id="prizeImageUpload"
+                                        tabIndex={-1}
+                                        aria-label="Upload prize image"
                                         onChange={handleImageUpload}
                                     />
-                                    <label
-                                        htmlFor="prizeImageUpload"
-                                        className={`cursor-pointer px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInput.current!.click()}
+                                        disabled={isUploading}
+                                        className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
+                                        {isUploading ? (
+                                            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                                        ) : (
+                                            <Upload className="w-4 h-4" aria-hidden="true" />
+                                        )}
                                         {isUploading ? 'Uploading...' : 'Upload'}
-                                    </label>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowLibrary((open) => !open)}
+                                        aria-expanded={showLibrary}
+                                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${showLibrary
+                                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                                            : 'bg-slate-700/50 text-gray-200 border-white/10 hover:border-white/20'
+                                            }`}
+                                    >
+                                        <Images className="w-4 h-4" aria-hidden="true" />
+                                        Choose from library
+                                    </button>
+                                    {imageUrl && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setImageUrl('')}
+                                            className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-red-400 hover:bg-white/5 transition-colors"
+                                        >
+                                            <X className="w-4 h-4" aria-hidden="true" />
+                                            Remove
+                                        </button>
+                                    )}
                                 </div>
+                                <input
+                                    id="prizeImageUrl"
+                                    type="text"
+                                    {...register('imageUrl')}
+                                    className="w-full px-4 py-3 bg-slate-700/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                                    placeholder="Upload an image, or paste an image link"
+                                />
+                                {errors.imageUrl && (
+                                    <p className="text-xs text-red-400">{errors.imageUrl.message}</p>
+                                )}
                             </div>
                         </div>
+                        {showLibrary && (
+                            <PrizeImageLibrary
+                                selectedUrl={imageUrl}
+                                onSelect={(url) => {
+                                    setImageUrl(url);
+                                    setShowLibrary(false);
+                                }}
+                            />
+                        )}
                     </div>
 
                     {/* Name */}
@@ -244,7 +311,7 @@ export default function PrizeForm({
                     </div>
 
                     {/* Type & Category */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-2">
                                 Type *
@@ -279,7 +346,7 @@ export default function PrizeForm({
                     </div>
 
                     {/* Points & Value */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-2">
                                 Points Required *
@@ -314,7 +381,7 @@ export default function PrizeForm({
                     </div>
 
                     {/* Stock & Status */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-2">
                                 Stock Quantity

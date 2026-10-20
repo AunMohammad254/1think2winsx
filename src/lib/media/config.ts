@@ -36,6 +36,12 @@ export const IMAGE_PRESETS: Record<MediaBucket, ImagePreset> = {
   avatars: { widths: [256], fit: 'cover' },
 };
 
+/** What the admin upload route (/api/upload) accepts; the prize form checks the same before sending. */
+export const UPLOAD_IMAGE_TYPES: readonly string[] = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif'];
+export const UPLOAD_IMAGE_TYPES_ERROR = 'Only JPEG, PNG, WebP, AVIF or GIF images can be uploaded';
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+export const MAX_UPLOAD_ERROR = 'Image must be 10 MB or smaller';
+
 /** Folders used inside the buckets. Avatars use the player's auth user id as the folder. */
 export const MEDIA_FOLDERS = {
   siteUploads: 'uploads',

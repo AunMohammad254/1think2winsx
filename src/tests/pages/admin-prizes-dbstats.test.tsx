@@ -9,8 +9,10 @@ const h = vi.hoisted(() => ({
   actions: { getAllPrizesAdmin: vi.fn(), createPrize: vi.fn(), updatePrize: vi.fn(), deletePrize: vi.fn(), togglePrizeStatus: vi.fn(), togglePrizeActive: vi.fn() },
   auth: { user: { id: 'u1', email: 'boss@x.com' } as Record<string, unknown> | null, isLoading: false },
   router: { push: vi.fn() },
+  picker: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
+vi.mock('@/actions/media-actions', () => ({ getSupabaseMediaForPicker: (...a: unknown[]) => h.picker(...a) }));
 vi.mock('@/actions/prizes', () => ({
   getAllPrizesAdmin: (...a: unknown[]) => h.actions.getAllPrizesAdmin(...a),
   createPrize: (...a: unknown[]) => h.actions.createPrize(...a),
@@ -51,7 +53,9 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  h.picker.mockReset();
 });
 
 const loaded = async () => (await screen.findAllByText('Prize a'))[0];
@@ -100,6 +104,42 @@ describe('admin prizes page', () => {
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Prize created successfully!'));
     expect(h.actions.createPrize).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Smart Watch' }));
     expect(screen.queryByText('Create New Prize')).toBeNull();
+  });
+
+  it('creates a prize with an image from the library or an upload, and gives an existing prize a library image', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://proj.supabase.co');
+    const PUB = 'https://proj.supabase.co/storage/v1/object/public';
+    const picked = `${PUB}/prize-images/prizes/earbuds-1280.webp`;
+    const uploaded = `${PUB}/prize-images/prizes/fresh-1280.webp`;
+    h.picker.mockResolvedValue({ success: true, images: [{ url: picked, name: 'prizes/earbuds-1280.webp', bucket: 'prize-images', size: 1 }] });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ url: uploaded })));
+    render(<AdminPrizesPage />);
+    await loaded();
+
+    // From the library
+    fireEvent.click(screen.getByRole('button', { name: /Add New Prize/ }));
+    fireEvent.change(screen.getByPlaceholderText('e.g., iPhone 15 Pro'), { target: { value: 'Ronin Wireless Earbuds' } });
+    fireEvent.click(screen.getByRole('button', { name: /Choose from library/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use prizes/earbuds-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Prize' }));
+    await waitFor(() => expect(h.actions.createPrize).toHaveBeenCalledWith(expect.objectContaining({ name: 'Ronin Wireless Earbuds', imageUrl: picked })));
+
+    // Uploaded from the create form
+    await waitFor(() => expect(screen.queryByText('Create New Prize')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /Add New Prize/ }));
+    fireEvent.change(screen.getByPlaceholderText('e.g., iPhone 15 Pro'), { target: { value: 'Smart Watch' } });
+    fireEvent.change(screen.getByLabelText('Upload prize image'), { target: { files: [new File(['x'], 'w.png', { type: 'image/png' })] } });
+    await waitFor(() => expect(screen.getByPlaceholderText('Upload an image, or paste an image link')).toHaveValue(uploaded));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Prize' }));
+    await waitFor(() => expect(h.actions.createPrize).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Smart Watch', imageUrl: uploaded })));
+
+    // And on edit
+    await waitFor(() => expect(screen.queryByText('Create New Prize')).toBeNull());
+    fireEvent.click(within(row('Prize a')).getByTitle('Edit'));
+    fireEvent.click(screen.getByRole('button', { name: /Choose from library/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use prizes/earbuds-1280.webp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update Prize' }));
+    await waitFor(() => expect(h.actions.updatePrize).toHaveBeenCalledWith('a', expect.objectContaining({ imageUrl: picked })));
   });
 
   it('edits a prize, and reports update failures', async () => {
