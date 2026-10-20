@@ -1,7 +1,7 @@
 'use server';
 
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { siteUrl } from '@/lib/site-url';
 import { sendPasswordSetupEmail } from '@/lib/password-setup';
@@ -56,6 +56,18 @@ async function createSupabaseClient() {
             },
         }
     );
+}
+
+/**
+ * The address the visitor is using, for links that finish a sign-in (Google's return, the sign-up
+ * email). They must come back to the same address: the PKCE verifier cookie that completes the
+ * sign-in only exists there. The configured site URL sent a phone testing the dev server over the
+ * network (http://192.168.x.y:3000) to localhost instead. Next.js rejects a Server Action whose Origin
+ * differs from the host it was sent to, so the header can be trusted; without one, the site URL.
+ */
+async function visitorOrigin(): Promise<string> {
+    const origin = (await headers()).get('origin');
+    return origin && /^https?:\/\/[^/\s]+$/.test(origin) ? origin : siteUrl();
 }
 
 /**
@@ -121,8 +133,8 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
 
         const supabase = await createSupabaseClient();
 
-        // Get the origin for email redirect
-        const origin = siteUrl();
+        // The confirmation link comes back to the address the person signed up on
+        const origin = await visitorOrigin();
 
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
             email: formData.email,
@@ -157,7 +169,6 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
         // this does not reveal whether an address is registered. Sends are limited per address.
         if (signUpData.user && (signUpData.user.identities?.length ?? 0) === 0) {
             try {
-                const { headers } = await import('next/headers');
                 const { rateLimiters } = await import('@/lib/rate-limiter');
                 const limit = await rateLimiters.auth.checkLimit(
                     { headers: await headers() } as never,
@@ -227,7 +238,7 @@ export async function signOutAction(): Promise<void> {
 export async function getGoogleOAuthUrl(redirectTo: string = '/quizzes'): Promise<string | null> {
     try {
         const supabase = await createSupabaseClient();
-        const origin = siteUrl();
+        const origin = await visitorOrigin();
 
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider: 'google',

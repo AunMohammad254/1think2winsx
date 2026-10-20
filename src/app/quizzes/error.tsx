@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import Link from 'next/link';
+import * as Sentry from '@sentry/nextjs';
 
 export default function QuizzesError({
     error,
@@ -12,8 +13,8 @@ export default function QuizzesError({
     reset: () => void;
 }) {
     useEffect(() => {
-        // Log the error to an error reporting service
-        console.error('Quizzes page error:', error);
+        // This page caught the error, so Sentry's global handler never sees it: report it here
+        Sentry.captureException(error, { tags: { page: 'quizzes' } });
     }, [error]);
 
     return (

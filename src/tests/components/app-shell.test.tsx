@@ -195,6 +195,25 @@ describe('NotificationsDropdown', () => {
     expect(screen.getByText('Loading notifications...')).toBeInTheDocument();
   });
 
+  it('reloads the list when something new arrives while it is open', async () => {
+    const { rerender } = render(<NotificationsDropdown />);
+    open();
+    expect(h.notif.loadNotifications).not.toHaveBeenCalled();
+    // The stream announced a quiz: the hook marks the list stale
+    notifState({ listLoaded: false, unreadCount: 1 });
+    rerender(<NotificationsDropdown />);
+    expect(h.notif.loadNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks upcoming-quiz notices with their own icon, linking to the countdown on the stream', async () => {
+    notifState({ notifications: [{ id: 'u1', type: 'quiz_starts_soon', title: 'Upcoming Quiz!', message: 'Toss', link: '/quizzes?upcoming=t1', read: false, createdAt: ago(60_000) }], unreadCount: 1 });
+    render(<NotificationsDropdown />);
+    open();
+    const link = await screen.findByRole('link', { name: /View Details/ });
+    expect(link).toHaveAttribute('href', '/quizzes?upcoming=t1');
+    expect(document.querySelector('.bg-orange-500\\/10 .text-orange-400')).not.toBeNull();
+  });
+
   it('leaves the time blank for an unparseable date', async () => {
     notifState({ notifications: [{ ...items[4], createdAt: 'not a date' }], unreadCount: 0 });
     render(<NotificationsDropdown />);

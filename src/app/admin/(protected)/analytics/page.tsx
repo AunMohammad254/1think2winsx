@@ -437,7 +437,7 @@ async function AnalyticsDashboardContent() {
         {/* Notification Efficacy */}
         <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl p-6 flex flex-col">
           <h3 className="text-lg font-bold text-white mb-2">Notification Efficacy</h3>
-          <p className="text-xs text-gray-400 mb-6">Click-through rate for Quiz Results</p>
+          <p className="text-xs text-gray-400 mb-6">Share of all notifications players opened</p>
 
           <div className="flex-1 flex flex-col items-center justify-center mt-2">
             <div className="relative w-32 h-32 flex items-center justify-center">
@@ -457,7 +457,7 @@ async function AnalyticsDashboardContent() {
               </svg>
               <div className="text-center">
                 <span className="text-3xl font-bold text-white">{data.notificationEfficacy.ctr}%</span>
-                <p className="text-[10px] uppercase tracking-wider text-pink-400 font-semibold mt-1">CTR</p>
+                <p className="text-[10px] uppercase tracking-wider text-pink-400 font-semibold mt-1">Opened</p>
               </div>
             </div>
             

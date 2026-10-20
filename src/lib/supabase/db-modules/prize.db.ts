@@ -58,9 +58,11 @@ export const prizeDb = {
 
     async create(prizeData: Insertable<'Prize'>) {
         const supabase = getAdminDb()
+        // "updatedAt" is NOT NULL with no default (Prisma used to fill it in): without it every insert failed
+        const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('Prize')
-            .insert({ id: generateId(), ...prizeData } as any)
+            .insert({ id: generateId(), createdAt: now, updatedAt: now, ...prizeData } as any)
             .select()
             .single()
 
@@ -196,9 +198,10 @@ export const prizeRedemptionDb = {
 
     async create(redemptionData: Insertable<'PrizeRedemption'>) {
         const supabase = getAdminDb()
+        const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('PrizeRedemption')
-            .insert({ id: generateId(), ...redemptionData })
+            .insert({ id: generateId(), createdAt: now, updatedAt: now, ...redemptionData })
             .select()
             .single()
 

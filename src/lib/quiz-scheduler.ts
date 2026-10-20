@@ -39,6 +39,21 @@ export const TEN_MINUTE_WARNING_TITLE = '⏰ Sports Quiz Starts in 10 Min!';
  */
 export const upcomingQuizLink = (quizId: string) => `/quizzes?upcoming=${quizId}`;
 
+/**
+ * Records that players were just told a scheduled quiz is coming up. That lists it as "upcoming" in
+ * the public snapshot (GET /api/live) and pops it up for everyone watching the stream. Never throws:
+ * until the "announcedAt" migration is applied the update fails, and the notifications already sent
+ * are what matters. Callers clear the quiz list cache so the snapshot shows it within seconds.
+ */
+export async function markQuizAnnounced(quizId: string): Promise<void> {
+  const now = new Date().toISOString();
+  const { error } = await getAdminDb()
+    .from('Quiz')
+    .update({ announcedAt: now, updatedAt: now })
+    .eq('id', quizId);
+  if (error) console.error(`[QuizScheduler] Could not mark quiz ${quizId} as announced:`, error);
+}
+
 export async function activateDueQuizzes(): Promise<DueQuizResult> {
   const adminDb = getAdminDb();
   const now = new Date().toISOString();

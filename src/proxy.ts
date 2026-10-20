@@ -19,19 +19,25 @@ const supabaseWs = supabaseUrl.replace(/^http/, 'ws');
 // (no static HTML / CDN caching), which is the wrong trade-off for a 50k-user site.
 // challenges.cloudflare.com serves the Turnstile check (a script and an iframe) on the auth forms.
 const TURNSTILE = 'https://challenges.cloudflare.com';
+// Cloudflare Web Analytics: the zone injects its beacon script into every page it serves, and the
+// beacon reports to cloudflareinsights.com. Without these the browser blocked it on every page.
+const CF_BEACON = 'https://static.cloudflareinsights.com';
+const CF_BEACON_REPORTS = 'https://cloudflareinsights.com';
 const CSP = [
   "default-src 'self'",
-  isDev ? `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${TURNSTILE}` : `script-src 'self' 'unsafe-inline' ${TURNSTILE}`,
+  isDev ? `script-src 'self' 'unsafe-inline' 'unsafe-eval' ${TURNSTILE} ${CF_BEACON}` : `script-src 'self' 'unsafe-inline' ${TURNSTILE} ${CF_BEACON}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' ${supabaseUrl} ${supabaseWs} https://accounts.google.com`,
+  `connect-src 'self' ${supabaseUrl} ${supabaseWs} https://accounts.google.com ${CF_BEACON_REPORTS}`,
   `frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.facebook.com https://player.twitch.tv https://player.cloudinary.com ${TURNSTILE}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",
   "media-src 'self' https:",
+  // The service worker (sw.js), and Sentry Session Replay, which compresses recordings in a blob: worker
+  "worker-src 'self' blob:",
 ].join('; ');
 
 function applySecurityHeaders(response: NextResponse) {
@@ -70,9 +76,9 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Skip API routes (they authenticate themselves), Next internals, and
-     * static files in /public so the proxy never runs for assets.
+     * Skip API routes (they authenticate themselves), Sentry's tunnel (/monitoring, see
+     * next.config.js), Next internals, and static files in /public so the proxy never runs for assets.
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|sw.js|manifest|Favicon|images|.*\\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|css|js|map|txt|xml|json|woff2?|ttf|glb|gltf|mp4|webm)$).*)',
+    '/((?!api|monitoring|_next/static|_next/image|favicon.ico|sw.js|manifest|Favicon|images|.*\\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|css|js|map|txt|xml|json|woff2?|ttf|glb|gltf|mp4|webm)$).*)',
   ],
 };

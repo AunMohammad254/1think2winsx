@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Loader2, Settings, Maximize2, Minimize2 } from 'lucide-react';
-import { buildEmbedDataUri, getYouTubeVideoId, isYouTubeContent } from '@/lib/embed-utils';
+import { Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import { buildEmbedDataUri, youTubeEmbedUrl } from '@/lib/embed-utils';
+import { STREAM_FULLSCREEN_ATTR, type StreamFullscreenMode } from '@/lib/stream-fullscreen';
 
 interface StreamData {
   id: string;
@@ -14,8 +15,12 @@ interface StreamData {
 interface StreamPlayerProps {
   className?: string;
   onError?: (error: string) => void;
+  /** Element that goes fullscreen instead of the player, so the quiz pop-ups beside it come along. */
   fullscreenTargetId?: string;
 }
+
+/** How long to wait for the Fullscreen API before filling the window instead. */
+const FULLSCREEN_WAIT_MS = 1500;
 
 // Responsive helper (exported for tests)
 export function getResponsiveClasses(width: number): string {
@@ -25,16 +30,24 @@ export function getResponsiveClasses(width: number): string {
   return 'aspect-video w-full';
 }
 
+/**
+ * The live stream: a title bar, the video, and ONE fullscreen button.
+ *
+ * The embed's own fullscreen is switched off (`fs=0`, and no `fullscreen` in the iframe's `allow`
+ * list, which also stops YouTube's double-click fullscreen). It could only put the video itself in
+ * fullscreen, where nothing of ours can be drawn: the quiz pop-ups and toasts would be hidden. Ours
+ * puts `fullscreenTargetId` in fullscreen, so they come along. Where the browser can't put a page
+ * element in fullscreen (iPhone Safari), the target fills the window with CSS instead ("immersive").
+ */
 export default function StreamPlayer({ className = '', onError, fullscreenTargetId }: StreamPlayerProps) {
   const [streamData, setStreamData] = useState<StreamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [fullscreen, setFullscreen] = useState<StreamFullscreenMode | null>(null);
+  // The player inside the iframe has loaded
+  const [frameReady, setFrameReady] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  // (removed) resizeTimeoutRef no longer needed
 
   const fetchStreamData = useCallback(async () => {
     try {
@@ -59,86 +72,100 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
     }
   }, [onError]);
 
-  // (Removed) responsiveClasses state was unused; container uses fixed responsive CSS
+  const getTarget = useCallback(
+    () => (fullscreenTargetId ? document.getElementById(fullscreenTargetId) : containerRef.current),
+    [fullscreenTargetId],
+  );
 
-  const toggleFullscreen = useCallback(async () => {
-    const target = fullscreenTargetId 
-      ? document.getElementById(fullscreenTargetId) 
-      : containerRef.current;
-    
+  const enterFullscreen = useCallback(async () => {
+    const target = getTarget();
     if (!target) return;
-    
-    try {
-      if (!isFullscreen) {
-        if (target.requestFullscreen) {
-          await target.requestFullscreen();
-        }
-      } else {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        }
+    if (document.fullscreenEnabled && target.requestFullscreen) {
+      try {
+        // The fullscreenchange listener below records the mode. Some in-app browsers never settle
+        // the request: after a moment the window is filled instead (a late success still wins).
+        const entered = await Promise.race([
+          target.requestFullscreen({ navigationUI: 'hide' }).then(() => true),
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), FULLSCREEN_WAIT_MS)),
+        ]);
+        if (entered) return;
+      } catch (err) {
+        console.warn('Fullscreen request refused, filling the window instead', err);
       }
-    } catch (err) {
-      console.error('Fullscreen toggle failed', err);
     }
-  }, [isFullscreen, fullscreenTargetId]);
+    setFullscreen('immersive');
+  }, [getTarget]);
 
-  // Sync fullscreen state with native browser events
+  const exitFullscreen = useCallback(async () => {
+    if (fullscreen === 'immersive') {
+      setFullscreen(null);
+      return;
+    }
+    try {
+      await document.exitFullscreen();
+    } catch (err) {
+      console.error('Leaving fullscreen failed', err);
+    }
+  }, [fullscreen]);
+
+  const toggleFullscreen = fullscreen ? exitFullscreen : enterFullscreen;
+
+  // Native fullscreen: follow the browser (Esc, the system back gesture), and turn phones sideways
   useEffect(() => {
-    const handleFullscreenChange = async () => {
-      const target = fullscreenTargetId 
-        ? document.getElementById(fullscreenTargetId) 
-        : containerRef.current;
-      
-      const currentFullscreenElement = document.fullscreenElement;
-      setIsFullscreen(currentFullscreenElement === target || currentFullscreenElement === iframeRef.current);
-
-      if (currentFullscreenElement) {
-        // Force landscape on mobile devices when entering any fullscreen (including native iframe)
-        const screenOrientation: any = window.screen?.orientation;
-        if (screenOrientation && screenOrientation.lock) {
-          try {
-            await screenOrientation.lock('landscape');
-          } catch {
-            console.log('Screen orientation lock not supported or denied');
-          }
+    const onChange = async () => {
+      const orientation: any = window.screen?.orientation;
+      if (document.fullscreenElement && document.fullscreenElement === getTarget()) {
+        setFullscreen('native');
+        try {
+          await orientation?.lock?.('landscape');
+        } catch {
+          // Desktop browsers and iOS refuse; the layout works in both orientations
         }
       } else {
-        // Unlock orientation when exiting fullscreen
-        const screenOrientation: any = window.screen?.orientation;
-        if (screenOrientation && screenOrientation.unlock) {
-          screenOrientation.unlock();
-        }
+        setFullscreen((mode) => (mode === 'native' ? null : mode));
+        orientation?.unlock?.();
       }
     };
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, [getTarget]);
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, [fullscreenTargetId]);
-
-  // Keyboard controls (F toggles fullscreen).
-  // Uses a ref so the listener does not need to be re-attached on every
-  // isFullscreen state change.
-  const isFullscreenRef = useRef(isFullscreen);
-  useEffect(() => { isFullscreenRef.current = isFullscreen; }, [isFullscreen]);
-
+  // Mark the target for live-quiz.css and the quiz pop-ups. Immersive mode also stops the page
+  // behind it from scrolling, and Esc leaves it like it leaves native fullscreen.
   useEffect(() => {
+    const target = getTarget();
+    if (!fullscreen || !target) return;
+    target.setAttribute(STREAM_FULLSCREEN_ATTR, fullscreen);
+    if (fullscreen === 'native') return () => target.removeAttribute(STREAM_FULLSCREEN_ATTR);
+    const root = document.documentElement;
+    const overflow = root.style.overflow;
+    root.style.overflow = 'hidden';
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      target.removeAttribute(STREAM_FULLSCREEN_ATTR);
+      root.style.overflow = overflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [fullscreen, getTarget]);
+
+  // F toggles fullscreen while the player has focus
+  useEffect(() => {
+    const node = containerRef.current;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'f') {
         e.preventDefault();
         toggleFullscreen();
       }
     };
-    const node = containerRef.current;
     node?.addEventListener('keydown', onKeyDown);
     return () => node?.removeEventListener('keydown', onKeyDown);
-    // toggleFullscreen is stable (useCallback with no deps that change per frame)
-  }, [toggleFullscreen]);
+  }, [toggleFullscreen, streamData]);
 
   const handleIframeLoad = useCallback(() => {
-    setLoading(false);
+    setFrameReady(true);
   }, []);
 
   // Initialize stream
@@ -147,21 +174,20 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
   }, [fetchStreamData]);
 
   // Memoized embed source — must be declared before any early returns to satisfy
-  // the Rules of Hooks (hooks must always be called in the same order).
-  const embedSrc = useMemo(() => {
-    if (!streamData) return '';
-    const ytId = isYouTubeContent(streamData.embedHtml)
-      ? getYouTubeVideoId(streamData.embedHtml)
-      : null;
-    if (ytId) {
-      return `https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1&fs=1`;
-    }
-    return buildEmbedDataUri(streamData.embedHtml);
+  // the Rules of Hooks (hooks must always be called in the same order). YouTube plays in its own
+  // player with our parameters (no fullscreen button, inline on iPhones); anything else is the admin's
+  // embed code in an isolated document, with its fullscreen switched off too (see embed-utils).
+  const embed = useMemo(() => {
+    if (!streamData) return null;
+    const youTubeSrc = youTubeEmbedUrl(streamData.embedHtml);
+    return youTubeSrc
+      ? { src: youTubeSrc, className: 'w-full h-full border-0' }
+      : { src: buildEmbedDataUri(streamData.embedHtml), className: 'yt-player-frame' };
   }, [streamData]);
 
   if (loading) {
     return (
-      <div className={`flex items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="status" aria-live="polite">
+      <div className={`yt-responsive-player flex items-center justify-center border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="status" aria-live="polite">
         <div className="text-center text-white p-8">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-purple-400" />
           <p className="text-gray-300">Loading stream...</p>
@@ -172,7 +198,7 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
 
   if (error || !streamData) {
     return (
-      <div className={`flex items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="alert" aria-live="assertive">
+      <div className={`yt-responsive-player flex items-center justify-center border border-white/10 bg-gradient-to-br from-gray-900/90 to-gray-800/70 ${className}`} role="alert" aria-live="assertive">
         <div className="text-center text-white p-8">
           <p className="mb-4 text-gray-300">{error /* a finished load sets either streamData or error */}</p>
           <button
@@ -187,88 +213,54 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
     );
   }
 
-  // For YouTube, render iframe directly (avoids Error 153)
-  const renderStreamContent = () => {
-    return (
-      <iframe
-        ref={iframeRef}
-        src={embedSrc}
-        className={isYouTubeContent(streamData.embedHtml) ? 'w-full h-full border-0' : 'yt-player-frame'}
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-        loading="lazy"
-        aria-label={streamData.title}
-        onLoad={handleIframeLoad}
-        title={streamData.title}
-      />
-    );
-  };
-
+  const fullscreenLabel = fullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
   return (
-    <div className={`flex flex-col w-full h-full ${className}`}>
-      {/* Mobile-only visible header above stream */}
-      <div className="flex sm:hidden items-center justify-between bg-gray-900 p-3 rounded-t-xl border border-white/10 border-b-0">
-        <div className="flex items-center space-x-2">
-          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-          <span className="text-sm font-bold text-white line-clamp-1">{streamData.name}</span>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button onClick={() => setShowSettings(!showSettings)} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-white" aria-label="Toggle settings">
-            <Settings className="w-4 h-4" />
-          </button>
-          <button onClick={toggleFullscreen} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-colors text-white" aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+    <div className={`stream-player flex flex-col w-full ${className}`}>
+      {/* The only chrome outside the video; hidden in fullscreen so the video gets the whole screen */}
+      {!fullscreen && (
+        <div className="stream-bar">
+          <span className="live-tag"><span className="rec" aria-hidden="true" />LIVE</span>
+          <span className="stream-name">{streamData.name}</span>
+          <button onClick={toggleFullscreen} className="bar-btn" aria-label={fullscreenLabel} title="Fullscreen (F)">
+            <Maximize2 className="w-4 h-4" />
           </button>
         </div>
-      </div>
+      )}
 
       <div
         ref={containerRef}
-        className={`relative bg-black overflow-hidden yt-responsive-player w-full flex-1 sm:rounded-2xl max-sm:rounded-b-xl ${isFullscreen ? '!rounded-none' : ''}`}
+        className="stream-video relative bg-black overflow-hidden yt-responsive-player w-full"
         role="application"
         aria-label="Live stream viewer"
         tabIndex={0}
       >
-        {/* Stream iframe */}
-        <div className="relative w-full h-full">
-          {renderStreamContent()}
-        </div>
+        <iframe
+          src={embed!.src}
+          className={embed!.className}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          // YouTube identifies the embedding site from the referrer and refuses to play without one
+          // (error 153), so this is set here instead of relying on the page's header
+          referrerPolicy="strict-origin-when-cross-origin"
+          loading="lazy"
+          aria-label={streamData.title}
+          onLoad={handleIframeLoad}
+          title={streamData.title}
+        />
 
-        {/* Desktop-only controls overlay */}
-        <div className="hidden sm:block absolute inset-0 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-          {/* Top bar */}
-          <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent p-4">
-            <div className="flex items-center justify-between text-white">
-              <div className="flex items-center space-x-3">
-                <div className="text-sm text-gray-300">
-                  {streamData.name}
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button onClick={() => setShowSettings(!showSettings)} className="p-2 hover:bg-white/20 rounded-lg transition-colors pointer-events-auto" aria-label="Toggle settings">
-                  <Settings className="w-4 h-4" />
-                </button>
-                <button onClick={toggleFullscreen} className="p-2 hover:bg-white/20 rounded-lg transition-colors pointer-events-auto" aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
-                  {isFullscreen ? (
-                    <Minimize2 className="w-4 h-4" />
-                  ) : (
-                    <Maximize2 className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-            </div>
+        {/* Black until the player has loaded: say so instead of showing an empty box */}
+        {!frameReady && (
+          <div className="stream-connecting" role="status" aria-live="polite">
+            <Loader2 className="w-7 h-7 animate-spin text-purple-400" aria-hidden="true" />
+            <span>Connecting to the stream…</span>
           </div>
-        </div>
+        )}
 
-        {/* Settings panel: outside the desktop-only overlay so the mobile header button works too */}
-        {showSettings && (
-          <div className="absolute top-3 right-3 sm:top-16 sm:right-4 z-10 bg-black/90 rounded-lg p-4 text-white min-w-48">
-            <h3 className="text-sm font-semibold mb-3">Viewer Settings</h3>
-            <p className="text-xs text-gray-300">Keyboard: press F or use YouTube native controls for fullscreen.</p>
-            <p className="text-xs text-gray-300">Captions are controlled by the embed provider.</p>
-          </div>
+        {fullscreen && (
+          <button onClick={toggleFullscreen} className="stream-exit" aria-label={fullscreenLabel} title="Exit fullscreen (Esc)">
+            <Minimize2 className="w-4 h-4" />
+          </button>
         )}
       </div>
     </div>
   );
 }
-

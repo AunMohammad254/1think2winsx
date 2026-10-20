@@ -3,6 +3,7 @@ import { clearQuizListCache } from '@/lib/quiz-cache';
 import {
   activateDueQuizzes,
   broadcastQuizLive,
+  markQuizAnnounced,
   TEN_MINUTE_WARNING_TITLE,
   upcomingQuizLink,
 } from '@/lib/quiz-scheduler';
@@ -50,6 +51,7 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
   }
 
   // 2. 10-minute warning for quizzes about to start
+  let announcedAny = false;
   const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   const { data: warningQuizzes } = await adminDb
     .from('Quiz')
@@ -78,6 +80,9 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
           link: upcomingQuizLink(quiz.id),
         });
         logger.log(`[Jobs] Broadcasted 10-minute warning for quiz ${quiz.id}`);
+        // Pops it up on the stream too, also for a quiz the admin never announced
+        await markQuizAnnounced(quiz.id);
+        announcedAny = true;
       }
     } catch (warningErr) {
       console.error(`[Jobs] Failed to process warning notification for quiz ${quiz.id}:`, warningErr);
@@ -202,7 +207,7 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
     console.error('[Jobs] Failed to process media deletions:', mediaErr);
   }
 
-  if (processedQuizIds.length > 0) clearQuizListCache();
+  if (processedQuizIds.length > 0 || announcedAny) clearQuizListCache();
 
   return {
     processedQuizzes: processedQuizIds,

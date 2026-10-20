@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { jsonResponse } from '@/tests/helpers/ui';
 
 import StreamPlayer, { getResponsiveClasses } from '@/components/StreamPlayer';
+import { isStreamFullscreen, STREAM_FULLSCREEN_ATTR } from '@/lib/stream-fullscreen';
 
 const YT = '<iframe src="https://www.youtube.com/embed/abc123XYZ_0" allowfullscreen></iframe>';
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -22,13 +23,27 @@ afterEach(() => {
   delete document.exitFullscreen;
   // @ts-expect-error test cleanup
   delete document.fullscreenElement;
+  // @ts-expect-error test cleanup
+  delete document.fullscreenEnabled;
+  Object.defineProperty(window.screen, 'orientation', { configurable: true, value: undefined });
 });
 
 const iframe = () => screen.findByTitle(/PSL Final|Livestream|FB title/);
+const viewer = () => screen.getByRole('application', { name: 'Live stream viewer' });
 const setFullscreenElement = (el: Element | null) => {
   Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => el });
   act(() => void document.dispatchEvent(new Event('fullscreenchange')));
 };
+/** A browser with the Fullscreen API (desktop, Android). */
+const nativeFullscreen = (request = vi.fn(async () => {}), exit = vi.fn(async () => {})) => {
+  Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true });
+  HTMLElement.prototype.requestFullscreen = request;
+  document.exitFullscreen = exit;
+  return { request, exit };
+};
+const orientation = (value: unknown) => Object.defineProperty(window.screen, 'orientation', { configurable: true, value });
+const enter = () => fireEvent.click(screen.getByRole('button', { name: 'Enter fullscreen' }));
+const exitButton = () => screen.getByRole('button', { name: 'Exit fullscreen' });
 
 describe('getResponsiveClasses', () => {
   it('caps the width per breakpoint', () => {
@@ -39,13 +54,37 @@ describe('getResponsiveClasses', () => {
 });
 
 describe('StreamPlayer', () => {
-  it('plays a YouTube stream through the embed URL', async () => {
+  it("plays a YouTube stream through the embed URL, with the embed's own fullscreen turned off", async () => {
     render(<StreamPlayer className="slot" />);
     expect(screen.getByText('Loading stream...')).toBeInTheDocument();
     const frame = await iframe();
-    expect(frame).toHaveAttribute('src', 'https://www.youtube.com/embed/abc123XYZ_0?autoplay=1&rel=0&modestbranding=1&fs=1');
-    expect(screen.getAllByText('Final')).toHaveLength(2);
+    // fs=0 hides YouTube's button, playsinline keeps iPhones from opening their own player
+    expect(frame).toHaveAttribute('src', 'https://www.youtube.com/embed/abc123XYZ_0?autoplay=1&playsinline=1&fs=0&rel=0&iv_load_policy=3');
+    // Without `fullscreen` in `allow`, the embed can't go fullscreen at all (not even on double-click)
+    expect(frame.getAttribute('allow')).not.toContain('fullscreen');
+    // YouTube refuses to play without knowing the embedding site
+    expect(frame).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    // Until the player has loaded, the box says what is happening instead of staying black
+    expect(screen.getByText('Connecting to the stream…')).toBeInTheDocument();
+    // One title bar with one LIVE badge and one fullscreen button
+    expect(screen.getAllByText('Final')).toHaveLength(1);
+    expect(screen.getAllByText('LIVE')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /fullscreen/ })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Toggle settings' })).toBeNull();
     fireEvent.load(frame);
+    expect(screen.queryByText('Connecting to the stream…')).toBeNull();
+  });
+
+  it("plays pasted YouTube code the player didn't recognise before (privacy mode, channel live) in our own player", async () => {
+    fetchMock.mockResolvedValueOnce(active({ id: 's5', name: 'Channel', title: 'Channel live', embedHtml: '<iframe src="https://www.youtube.com/embed/live_stream?channel=UC42" allowfullscreen></iframe>' }));
+    const { unmount } = render(<StreamPlayer />);
+    expect(await screen.findByTitle('Channel live')).toHaveAttribute('src', 'https://www.youtube.com/embed/live_stream?channel=UC42&autoplay=1&playsinline=1&fs=0&rel=0&iv_load_policy=3');
+    unmount();
+    fetchMock.mockResolvedValueOnce(active({ id: 's6', name: 'Private', title: 'Privacy mode', embedHtml: '<iframe src="https://www.youtube-nocookie.com/embed/NOCOOK1" allowfullscreen></iframe>' }));
+    render(<StreamPlayer />);
+    const frame = await screen.findByTitle('Privacy mode');
+    expect(frame.getAttribute('src')).toMatch(/^https:\/\/www\.youtube\.com\/embed\/NOCOOK1\?.*fs=0/);
+    expect(frame).toHaveClass('w-full', 'h-full');
   });
 
   it('wraps other embeds in an isolated data URI, with title fallbacks', async () => {
@@ -86,70 +125,127 @@ describe('StreamPlayer', () => {
     await waitFor(() => expect(screen.getAllByText('Failed to load stream')).toHaveLength(2));
   });
 
-  it('toggles the viewer settings panel', async () => {
-    render(<StreamPlayer />);
-    await iframe();
-    const [mobile, desktop] = screen.getAllByRole('button', { name: 'Toggle settings' });
-    fireEvent.click(mobile);
-    expect(screen.getByText('Viewer Settings')).toBeInTheDocument();
-    fireEvent.click(desktop);
-    expect(screen.queryByText('Viewer Settings')).toBeNull();
-  });
-
-  it('enters and exits fullscreen on the player, locking landscape', async () => {
-    const request = vi.fn(async () => {});
-    const exit = vi.fn(async () => {});
-    HTMLElement.prototype.requestFullscreen = request;
-    document.exitFullscreen = exit;
+  it('goes fullscreen through the Fullscreen API, turning phones sideways, and follows the browser out', async () => {
+    const { request, exit } = nativeFullscreen();
     const lock = vi.fn(async () => {});
     const unlock = vi.fn();
-    Object.defineProperty(window.screen, 'orientation', { configurable: true, value: { lock, unlock } });
+    orientation({ lock, unlock });
     render(<StreamPlayer />);
     await iframe();
-    const viewer = screen.getByRole('application', { name: 'Live stream viewer' });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Enter fullscreen' })[0]);
-    await waitFor(() => expect(request).toHaveBeenCalled());
-    setFullscreenElement(viewer);
+    enter();
+    await waitFor(() => expect(request).toHaveBeenCalledWith({ navigationUI: 'hide' }));
+    // Not fullscreen until the browser says so
+    expect(viewer()).not.toHaveAttribute(STREAM_FULLSCREEN_ATTR);
+    setFullscreenElement(viewer());
     await waitFor(() => expect(lock).toHaveBeenCalledWith('landscape'));
-    expect(screen.getAllByRole('button', { name: 'Exit fullscreen' })).toHaveLength(2);
-    fireEvent.keyDown(viewer, { key: 'F' });
+    expect(viewer()).toHaveAttribute(STREAM_FULLSCREEN_ATTR, 'native');
+    expect(isStreamFullscreen()).toBe(true);
+    // The title bar steps aside; a single exit button sits over the video
+    expect(screen.queryByText('Final')).toBeNull();
+    expect(screen.getAllByRole('button', { name: /fullscreen/ })).toHaveLength(1);
+    fireEvent.keyDown(viewer(), { key: 'F' });
     await waitFor(() => expect(exit).toHaveBeenCalled());
     setFullscreenElement(null);
     expect(unlock).toHaveBeenCalled();
-    fireEvent.keyDown(viewer, { key: 'x' });
+    expect(viewer()).not.toHaveAttribute(STREAM_FULLSCREEN_ATTR);
+    expect(isStreamFullscreen()).toBe(false);
+    expect(screen.getByText('Final')).toBeInTheDocument();
+    fireEvent.keyDown(viewer(), { key: 'x' });
     expect(request).toHaveBeenCalledTimes(1);
   });
 
-  it('copes with orientation lock refusal and missing fullscreen APIs', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    Object.defineProperty(window.screen, 'orientation', { configurable: true, value: { lock: vi.fn(async () => { throw new Error('denied'); }) } });
+  it('logs a failed exit, and copes with no orientation lock', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    nativeFullscreen(undefined, vi.fn(async () => { throw new Error('not fullscreen'); }));
     render(<StreamPlayer />);
     await iframe();
-    const viewer = screen.getByRole('application', { name: 'Live stream viewer' });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Enter fullscreen' })[0]); // no requestFullscreen: nothing happens
-    setFullscreenElement(document.querySelector('iframe'));
-    await waitFor(() => expect(log).toHaveBeenCalledWith('Screen orientation lock not supported or denied'));
-    expect(screen.getAllByRole('button', { name: 'Exit fullscreen' }).length).toBe(2);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Exit fullscreen' })[0]); // no exitFullscreen either
-    Object.defineProperty(window.screen, 'orientation', { configurable: true, value: undefined });
+    // Desktop browsers refuse the lock; iOS has none at all
+    orientation({ lock: vi.fn(async () => { throw new Error('denied'); }) });
+    setFullscreenElement(viewer());
+    fireEvent.click(exitButton());
+    await waitFor(() => expect(err).toHaveBeenCalledWith('Leaving fullscreen failed', expect.any(Error)));
+    orientation({});
     setFullscreenElement(null);
-    setFullscreenElement(viewer);
+    setFullscreenElement(viewer());
+    orientation(undefined);
+    setFullscreenElement(null);
+    expect(screen.getByRole('button', { name: 'Enter fullscreen' })).toBeInTheDocument();
   });
 
-  it('uses a separate fullscreen target, and logs a refused request', async () => {
-    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('fills the window with CSS where the browser has no Fullscreen API (iPhone), and leaves it on Esc', async () => {
+    document.documentElement.style.overflow = 'auto';
+    render(<StreamPlayer />);
+    await iframe();
+    enter();
+    expect(viewer()).toHaveAttribute(STREAM_FULLSCREEN_ATTR, 'immersive');
+    // The page behind can't scroll
+    expect(document.documentElement.style.overflow).toBe('hidden');
+    // Unrelated fullscreen changes and keys leave it alone
+    setFullscreenElement(null);
+    fireEvent.keyDown(document, { key: 'Enter' });
+    expect(viewer()).toHaveAttribute(STREAM_FULLSCREEN_ATTR, 'immersive');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(viewer()).not.toHaveAttribute(STREAM_FULLSCREEN_ATTR);
+    expect(document.documentElement.style.overflow).toBe('auto');
+    // And from the exit button
+    enter();
+    fireEvent.click(exitButton());
+    expect(viewer()).not.toHaveAttribute(STREAM_FULLSCREEN_ATTR);
+  });
+
+  it('falls back to filling the window when the browser refuses fullscreen', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    nativeFullscreen(vi.fn(async () => { throw new Error('not allowed'); }));
+    render(<StreamPlayer />);
+    await iframe();
+    enter();
+    await waitFor(() => expect(viewer()).toHaveAttribute(STREAM_FULLSCREEN_ATTR, 'immersive'));
+    expect(warn).toHaveBeenCalledWith('Fullscreen request refused, filling the window instead', expect.any(Error));
+  });
+
+  it('fills the window when the browser never answers the request (some in-app browsers), and a late success still wins', async () => {
+    let grant!: () => void;
+    const request = vi.fn(() => new Promise<void>((resolve) => { grant = resolve; }));
+    nativeFullscreen(request);
+    render(<StreamPlayer />);
+    await iframe();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      enter();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1499); });
+      expect(viewer()).not.toHaveAttribute(STREAM_FULLSCREEN_ATTR);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(viewer()).toHaveAttribute(STREAM_FULLSCREEN_ATTR, 'immersive');
+    } finally {
+      vi.useRealTimers();
+    }
+    await act(async () => grant());
+    setFullscreenElement(viewer());
+    expect(viewer()).toHaveAttribute(STREAM_FULLSCREEN_ATTR, 'native');
+  });
+
+  it('puts a separate target in fullscreen so the quiz beside the player comes along', async () => {
+    const { request } = nativeFullscreen();
     document.body.insertAdjacentHTML('beforeend', '<div id="stage"></div>');
     const stage = document.getElementById('stage')!;
-    stage.requestFullscreen = vi.fn(async () => { throw new Error('not allowed'); });
     render(<StreamPlayer fullscreenTargetId="stage" />);
     await iframe();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Enter fullscreen' })[0]);
-    await waitFor(() => expect(err).toHaveBeenCalledWith('Fullscreen toggle failed', expect.any(Error)));
+    enter();
+    await waitFor(() => expect(request).toHaveBeenCalled());
+    expect(request.mock.contexts[0]).toBe(stage);
+    // Another element going fullscreen is not ours
+    setFullscreenElement(viewer());
+    expect(stage).not.toHaveAttribute(STREAM_FULLSCREEN_ATTR);
     setFullscreenElement(stage);
-    expect(screen.getAllByRole('button', { name: 'Exit fullscreen' })).toHaveLength(2);
+    expect(stage).toHaveAttribute(STREAM_FULLSCREEN_ATTR, 'native');
+    setFullscreenElement(null);
     stage.remove();
+
+    // A target that isn't on the page: nothing to put in fullscreen
     render(<StreamPlayer fullscreenTargetId="missing" />);
     await waitFor(() => expect(screen.getAllByRole('application')).toHaveLength(2));
     fireEvent.click(screen.getAllByRole('button', { name: 'Enter fullscreen' }).at(-1)!);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(isStreamFullscreen()).toBe(false);
   });
 });
