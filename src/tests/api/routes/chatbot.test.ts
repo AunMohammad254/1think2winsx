@@ -5,14 +5,20 @@ import { createSupabaseMock, makeRequest, type SupabaseMock } from '@/tests/help
 let adminDb: SupabaseMock;
 const auth = vi.fn();
 const fetchMock = vi.fn();
-vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client }));
+const h = vi.hoisted(() => ({
+  walletEnabled: vi.fn(),
+  tickets: { create: vi.fn(), findForUser: vi.fn(), listForUser: vi.fn() },
+}));
+vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, supportTicketDb: h.tickets }));
 vi.mock('@/lib/auth', () => ({ auth: (...a: unknown[]) => auth(...a) }));
+vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: () => h.walletEnabled() }));
 
 let POST: typeof import('@/app/api/chatbot/route').POST;
 const gemini = (text: string) => new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }));
 const hello = [{ role: 'user', parts: [{ text: 'hi' }] }];
 const chat = (messages: unknown = hello, ip = '1.2.3.4') => POST(makeRequest('/api/chatbot', { body: { messages }, headers: { 'x-forwarded-for': ip } }));
 const sentBody = (i = 0) => JSON.parse(fetchMock.mock.calls[i][1].body);
+const sentPrompt = (i = 0) => sentBody(i).system_instruction.parts[0].text as string;
 
 beforeEach(async () => {
   vi.resetModules();
@@ -20,6 +26,8 @@ beforeEach(async () => {
   ({ POST } = await import('@/app/api/chatbot/route'));
   adminDb = createSupabaseMock({ tables: { Quiz: { data: [{ title: 'Cricket', accessPrice: 2, duration: 10, passingScore: 60 }] } } });
   auth.mockReset().mockResolvedValue(null);
+  h.walletEnabled.mockReset().mockResolvedValue(true);
+  for (const fn of Object.values(h.tickets)) fn.mockReset();
   fetchMock.mockReset().mockImplementation(async () => gemini('Hello! [REDIRECT:/quizzes] Join now [REDIRECT:/prizes]'));
   vi.stubGlobal('fetch', fetchMock);
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -39,7 +47,7 @@ describe('POST /api/chatbot', () => {
     expect(init.signal).toBeInstanceOf(AbortSignal);
     const body = sentBody();
     expect(body.contents).toEqual(hello);
-    expect(body.system_instruction.parts[0].text).toContain('- "Cricket": Entry Fee PKR 2, Duration 10 min, Passing Score 60%');
+    expect(body.system_instruction.parts[0].text).toContain('- "Cricket": Duration 10 min, Passing Score 60%');
     expect(body.generationConfig.maxOutputTokens).toBe(512);
   });
 
@@ -223,4 +231,93 @@ describe('POST /api/chatbot', () => {
     expect(r.status).toBe(200);
     for (let i = 0; i < 10_001; i++) await chat(hello, `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`);
   }, 120_000);
+});
+
+describe('POST /api/chatbot: what playing costs follows the wallet switch', () => {
+  it("quotes the oldest active quiz's price for 24-hour access while the wallet is on", async () => {
+    adminDb.setTable('Quiz', { data: [{ title: 'Old', accessPrice: 5, duration: 10, passingScore: 50 }, { title: 'New', accessPrice: 9, duration: 5, passingScore: 40 }] });
+    await chat();
+    const prompt = sentPrompt();
+    expect(prompt).toContain('Entry fee: 5 PKR, paid from the player\'s 1Think2Win wallet, unlocks 24 hours of quiz access');
+    expect(prompt).toContain('Easypaisa or JazzCash');
+    expect(prompt).not.toContain('FREE TO PLAY');
+    // the same quiz pay_quiz_access charges for
+    expect(adminDb.callsTo('Quiz')[0].ops).toContainEqual({ op: 'order', args: ['createdAt', { ascending: true }] });
+  });
+
+  it.each([
+    ['no quiz is active', null],
+    ['the oldest quiz has no price', [{ title: 'Cricket', accessPrice: null, duration: 10, passingScore: 60 }]],
+  ])('charges 2 PKR when %s, as pay_quiz_access does', async (_label, data) => {
+    adminDb.setTable('Quiz', { data });
+    await chat();
+    expect(sentPrompt()).toContain('Entry fee: 2 PKR');
+  });
+
+  it.each([
+    ['the wallet is off', false, 5],
+    ['the price is 0', true, 0],
+  ])('says quizzes are free and never brings up fees or deposits when %s', async (_label, wallet, price) => {
+    h.walletEnabled.mockResolvedValue(wallet);
+    adminDb.setTable('Quiz', { data: [{ title: 'Cricket', accessPrice: price, duration: 10, passingScore: 60 }] });
+    await chat();
+    const prompt = sentPrompt();
+    expect(prompt).toContain('Quizzes are free to play right now: no entry fee, no payment and no wallet top-up needed');
+    for (const paid of ['Entry fee', 'Register & Pay', '/profile/wallet', 'pay a small entry fee']) expect(prompt).not.toContain(paid);
+    // only in the instruction not to mention them
+    expect(prompt.match(/Easypaisa|JazzCash/g)).toEqual(['Easypaisa', 'JazzCash']);
+    expect(prompt).toContain('Never mention entry fees, prices, paying to play, wallets, deposits, Easypaisa or JazzCash.');
+  });
+
+  it('reads the switch for every message', async () => {
+    await chat();
+    h.walletEnabled.mockResolvedValue(false);
+    await chat(hello, '4.4.4.4');
+    expect(h.walletEnabled).toHaveBeenCalledTimes(2);
+    expect(sentPrompt(0)).toContain('Entry fee: 2 PKR');
+    expect(sentPrompt(1)).not.toContain('Entry fee');
+  });
+
+  it("leaves the player's wallet balance out while the wallet is off", async () => {
+    h.walletEnabled.mockResolvedValue(false);
+    auth.mockResolvedValue({ user: { id: 'user-1' } });
+    adminDb.setTable('User', (call) => (call.ops.some((o) => o.op === 'gt') ? { count: 0 } : { data: { name: 'Ali', email: 'ali@example.test', points: 7, walletBalance: 30 } }));
+    await chat();
+    expect(sentPrompt()).not.toContain('Wallet Balance');
+    expect(sentPrompt()).toContain('- Email: ali@example.test\n- Total Points: 7');
+  });
+});
+
+describe('POST /api/chatbot: support tickets', () => {
+  const signedIn = () => auth.mockResolvedValue({ user: { id: 'user-1' } });
+
+  it('tells a guest to sign in, in the prompt and when the model asks for a ticket anyway', async () => {
+    fetchMock.mockImplementation(async () => gemini('Please sign in first. [REDIRECT:/login] [TICKET_CREATE:Deposit missing]'));
+    const body = await (await chat()).json();
+    expect(sentPrompt()).toContain('The user is NOT signed in.');
+    expect(body.redirects).toEqual(['/login']); // the model's and the server's, once
+    expect(body.message).toBe('Please sign in first.\n\n🔒 Please sign in to send or check a support ticket. Tickets belong to your account, so only you can see yours.');
+    expect(body.ticketNumber).toBeUndefined();
+    expect(h.tickets.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a ticket for the signed-in player and returns its number', async () => {
+    signedIn();
+    h.tickets.create.mockResolvedValue({ success: true, ticket: { ticketNumber: 'TKT-7KQ2XM' } });
+    fetchMock.mockImplementation(async () => gemini('Sending this to our support team now. [TICKET_CREATE:Deposit missing]'));
+    const body = await (await chat([{ role: 'user', parts: [{ text: 'My deposit is missing' }] }])).json();
+    expect(sentPrompt()).toContain('The user is signed in, so you can send a problem to the support team');
+    expect(h.tickets.create).toHaveBeenCalledWith('user-1', 'Deposit missing', 'My deposit is missing');
+    expect(body.ticketNumber).toBe('TKT-7KQ2XM');
+    expect(body.message).toMatch(/^Sending this to our support team now\.\n\n🎫 Your ticket number is TKT-7KQ2XM\./);
+  });
+
+  it('does the ticket work once, on the reply it keeps, when an earlier model failed', async () => {
+    signedIn();
+    h.tickets.create.mockResolvedValue({ success: true, ticket: { ticketNumber: 'TKT-7KQ2XM' } });
+    fetchMock.mockRejectedValueOnce(new Error('down')).mockImplementation(async () => gemini('[TICKET_CREATE:Deposit missing]'));
+    const body = await (await chat()).json();
+    expect(body.model).toBe('Gemini 3.1 Flash Lite');
+    expect(h.tickets.create).toHaveBeenCalledTimes(1);
+  });
 });

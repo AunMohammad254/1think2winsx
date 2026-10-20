@@ -66,11 +66,29 @@ describe('ChatbotWidget', () => {
     expect(lastBody().messages.at(-1)).toEqual({ role: 'user', parts: [{ text: 'second' }] });
   });
 
+  it('offers to copy the number of a ticket the server created', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ message: '🎫 Your ticket number is TKT-7KQ2XM.', redirects: [], ticketNumber: 'TKT-7KQ2XM' }));
+    const writeText = vi.fn().mockRejectedValueOnce(new Error('denied')).mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    render(<ChatbotWidget />);
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: '🎫 My support tickets' }));
+    expect(lastBody().messages.at(-1)).toEqual({ role: 'user', parts: [{ text: 'What is the status of my support tickets?' }] });
+    const copy = await screen.findByRole('button', { name: 'Copy TKT-7KQ2XM' });
+    // No clipboard access: nothing changes, the number is still in the message
+    fireEvent.click(copy);
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: 'Copy TKT-7KQ2XM' })).toBeInTheDocument();
+    fireEvent.click(copy);
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(writeText).toHaveBeenLastCalledWith('TKT-7KQ2XM');
+  });
+
   it('shows a rate-limit notice without a retry button', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ rateLimited: true, error: 'Slow down a little' }, 429));
     render(<ChatbotWidget />);
     await open();
-    fireEvent.click(screen.getByRole('button', { name: '💳 Payment methods?' }));
+    fireEvent.click(screen.getByRole('button', { name: '💳 Do I need to pay?' }));
     expect(await screen.findByText('Slow down a little')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
   });

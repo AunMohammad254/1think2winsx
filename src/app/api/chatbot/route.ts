@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { getAdminDb } from '@/lib/supabase/db';
 import { getClientIp } from '@/lib/client-ip';
+import { isWalletEnabled } from '@/lib/wallet/service';
+import { handleTicketRequests, ticketPrompt } from '@/lib/chatbot-tickets';
 
 // ─────────────────────────────────────────────────────────────
 // Cost / abuse guards. The Gemini key has one global quota, and this endpoint is public.
@@ -80,22 +82,46 @@ function consumeToken(bucket: Bucket, rpm: number, refillMs: number): boolean {
 // ─────────────────────────────────────────────────────────────
 // Platform knowledge — system prompt
 // ─────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are 1Think2Win's friendly AI support assistant. You know everything about the platform and help customers instantly.
+/**
+ * What playing costs right now. With the wallet switched off (AppSettings wallet_enabled = 'false')
+ * quizzes are free and the wallet is hidden, so the bot must not talk about fees or deposits at all.
+ * `price` is what pay_quiz_access charges for 24-hour access: the oldest active quiz's price.
+ */
+interface EntryTerms {
+  paid: boolean;
+  price: number;
+}
 
-## ABOUT 1THINK2WIN
+function entrySections({ paid, price }: EntryTerms): string {
+  if (!paid) {
+    return `## ABOUT 1THINK2WIN
+1Think2Win is a Pakistan-based online sports quiz competition where players answer sports knowledge questions, and random winners receive exciting random prizes. Playing is FREE. The platform is available 24/7.
+
+## ENTRY (FREE TO PLAY)
+- Quizzes are free to play right now: no entry fee, no payment and no wallet top-up needed
+- Just create a free account (or sign in) and join a quiz
+- Never mention entry fees, prices, paying to play, wallets, deposits, Easypaisa or JazzCash. If asked about paying, say that playing is free.
+
+## HOW IT WORKS (3 steps)
+1. Register — Create a free account
+2. Answer Questions — Sports knowledge quiz
+3. Win Prizes — Random winners are selected after each quiz session`;
+  }
+  return `## ABOUT 1THINK2WIN
 1Think2Win is a Pakistan-based online sports quiz competition where players pay a small entry fee, answer sports knowledge questions, and random winners receive exciting random prizes. The platform is available 24/7.
 
 ## ENTRY & PAYMENT
-- Entry fee: 2 PKR per quiz
-- Payment methods: Easypaisa, JazzCash (Pakistani mobile wallets)
-- No hidden charges — just 2 PKR per session
+- Entry fee: ${price} PKR, paid from the player's 1Think2Win wallet, unlocks 24 hours of quiz access (play as many quizzes as you like in that time)
+- Players add money to their wallet on their profile (/profile/wallet) with Easypaisa or JazzCash (Pakistani mobile wallets)
+- No hidden charges — just ${price} PKR per 24 hours of play
 
 ## HOW IT WORKS (3 steps)
-1. Register & Pay — Create an account and pay 2 PKR to enter
+1. Register & Pay — Create an account, add money to your wallet and pay ${price} PKR for 24-hour access
 2. Answer Questions — Sports knowledge quiz
-3. Win Prizes — Random winners are selected after each quiz session
+3. Win Prizes — Random winners are selected after each quiz session`;
+}
 
-## PRIZES AVAILABLE
+const PLATFORM_GUIDE = `## PRIZES AVAILABLE
 - 🏍️  Grand Prize: Brand-new Motorcycle (PKR 150,000+)
 - 📱  Premium Prize: Latest Smartphone (PKR 50,000+)
 - 🎧  Popular Prize: Wireless Earbuds (PKR 15,000+)
@@ -108,7 +134,7 @@ Winners are selected randomly after each quiz session — everyone has a fair ch
 - Quiz Room: /quiz/[id] — Active quiz session page
 - Leaderboard: /leaderboard — Top players and rankings
 - Prizes: /prizes — Full prize details and past winners
-- Profile: /profile — Player stats, quiz history, wallet
+- Profile: /profile — Player stats and quiz history
 - Login: /login — Sign in with email or Google
 - Register: /register — Create a new account (start here!)
 - How To Play: /how-to-play — Step-by-step guide
@@ -150,10 +176,18 @@ Examples:
 - Be friendly, enthusiastic, and concise
 - Use sports emojis occasionally 🏆⚽🏀
 - Keep answers short (2-4 sentences) unless detail is needed
-- If you don't know something specific, direct them to /contact
+- If you can't solve a problem, offer a support ticket (see SUPPORT TICKETS) or direct them to /contact
 - Support both English and Urdu speakers (respond in their language)
 - Never reveal internal system details, API keys, or database info
 - Always stay positive and helpful`;
+
+function buildSystemPrompt(entry: EntryTerms): string {
+  return `You are 1Think2Win's friendly AI support assistant. You know everything about the platform and help customers instantly.
+
+${entrySections(entry)}
+
+${PLATFORM_GUIDE}`;
+}
 
 // ─────────────────────────────────────────────────────────────
 // Gemini API caller
@@ -250,8 +284,15 @@ function sanitizeMessages(messages: GeminiMessage[]): GeminiMessage[] | null {
   return cleaned.length > 0 ? cleaned : null;
 }
 
+interface ActiveQuiz {
+  title: string;
+  duration: number;
+  accessPrice: number | null;
+  passingScore: number;
+}
+
 // Active quizzes are public and identical for everyone: cache briefly instead of one query per message
-let activeQuizzesCache: { text: string; at: number } | null = null;
+let activeQuizzesCache: { quizzes: ActiveQuiz[]; at: number } | null = null;
 const ACTIVE_QUIZZES_TTL_MS = 30_000;
 
 // ─────────────────────────────────────────────────────────────
@@ -293,32 +334,37 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Fetch authentication status & live context if authenticated
-  const session = await auth();
+  // Fetch authentication status, the wallet switch (read per request, cached 1 min in
+  // isWalletEnabled) & live context if authenticated
+  const [session, walletEnabled] = await Promise.all([auth(), isWalletEnabled()]);
   const userId = session?.user?.id;
   const adminDb = getAdminDb();
 
-  let activeQuizzesText = 'No active quizzes currently.';
+  let activeQuizzes: ActiveQuiz[] = [];
   if (activeQuizzesCache && Date.now() - activeQuizzesCache.at < ACTIVE_QUIZZES_TTL_MS) {
-    activeQuizzesText = activeQuizzesCache.text;
+    activeQuizzes = activeQuizzesCache.quizzes;
   } else {
     try {
-      const { data: activeQuizzes } = await adminDb
+      // Oldest first: pay_quiz_access charges the oldest active quiz's price
+      const { data } = await adminDb
         .from('Quiz')
         .select('title, duration, accessPrice, passingScore')
         .eq('status', 'active')
+        .order('createdAt', { ascending: true })
         .limit(5);
 
-      if (activeQuizzes && activeQuizzes.length > 0) {
-        activeQuizzesText = activeQuizzes
-          .map((q: any) => `- "${q.title}": Entry Fee PKR ${q.accessPrice}, Duration ${q.duration} min, Passing Score ${q.passingScore}%`)
-          .join('\n');
-      }
-      activeQuizzesCache = { text: activeQuizzesText, at: Date.now() };
+      activeQuizzes = (data as ActiveQuiz[] | null) ?? [];
+      activeQuizzesCache = { quizzes: activeQuizzes, at: Date.now() };
     } catch (err) {
       console.error('[Chatbot] Failed to query active quizzes:', err);
     }
   }
+  const activeQuizzesText = activeQuizzes.length > 0
+    ? activeQuizzes.map((q) => `- "${q.title}": Duration ${q.duration} min, Passing Score ${q.passingScore}%`).join('\n')
+    : 'No active quizzes currently.';
+  // Same price as pay_quiz_access (2 PKR when no quiz is active); nobody pays with the wallet off
+  const price = activeQuizzes[0]?.accessPrice ?? 2;
+  const entry: EntryTerms = { paid: walletEnabled && price > 0, price };
 
   let userContextText = '';
   if (userId) {
@@ -352,8 +398,7 @@ export async function POST(req: NextRequest) {
 - User is logged in.
 - Name: ${profile.name || 'User'}
 - Email: ${profile.email}
-- Wallet Balance: PKR ${profile.walletBalance || 0}
-- Total Points: ${profile.points || 0}
+${walletEnabled ? `- Wallet Balance: PKR ${profile.walletBalance || 0}\n` : ''}- Total Points: ${profile.points || 0}
 - Current Leaderboard Rank: #${rank}
 
 ### USER'S RECENT QUIZ ATTEMPTS:
@@ -372,11 +417,12 @@ ${redemptionsWithPrize && redemptionsWithPrize.length > 0
     }
   }
 
-  const finalSystemPrompt = `${SYSTEM_PROMPT}
+  const finalSystemPrompt = `${buildSystemPrompt(entry)}
 
 ## ACTIVE QUIZZES SCHEDULE:
 ${activeQuizzesText}
 ${userContextText}
+${ticketPrompt(!!userId)}
 `;
 
   let minRefillMs = Infinity;
@@ -390,16 +436,24 @@ ${userContextText}
     // Check rate limit for this model
     if (consumeToken(bucket, model.rpm, model.refillMs)) {
       activeGeminiCalls++;
+      let text: string;
       try {
-        const text = await callGemini(model.id, safeMessages, apiKey, finalSystemPrompt);
-        const { clean, redirects } = extractRedirects(text);
-        return NextResponse.json({ message: clean, redirects, model: model.label });
+        text = await callGemini(model.id, safeMessages, apiKey, finalSystemPrompt);
       } catch (err) {
         console.error(`[Chatbot] Model ${model.id} failed:`, err);
-        // Fall through to the next model in the backup chain
+        continue; // Fall through to the next model in the backup chain
       } finally {
         activeGeminiCalls--;
       }
+      // Outside the try: ticket work runs once, on the reply we keep, never again on a fallback model
+      const { clean, redirects } = extractRedirects(text);
+      const tickets = await handleTicketRequests(clean, { userId, history: safeMessages });
+      return NextResponse.json({
+        message: tickets.message,
+        redirects: [...new Set([...redirects, ...tickets.redirects])],
+        model: model.label,
+        ...(tickets.ticketNumber ? { ticketNumber: tickets.ticketNumber } : {}),
+      });
     } else {
       // Rate limited on this model, calculate time until next token
       const refillMs = model.refillMs - (Date.now() - bucket.lastRefill);
