@@ -9,6 +9,8 @@ wrong SQL. Covered so far:
 - `get_quiz_attempt_counts_by_quiz`: column names and who may call it
 - RLS: players read only their own rows; anon reads no quiz data; players can't write
   attempt, payment or quiz tables directly
+- Schema `public`: anon, authenticated and service_role keep USAGE but can't create tables,
+  views or functions in it
 
 ## Running locally
 
@@ -46,7 +48,8 @@ against a Postgres service container.
 - `schema/00-supabase-shim.sql` adds what a Supabase project provides: the `anon`,
   `authenticated` and `service_role` roles, and `auth.uid()`, `auth.role()` and `auth.jwt()`
   (same definitions as Supabase). It also adds minimal `auth.users` and `auth.identities`
-  tables.
+  tables, and gives schema `public` the access list production had on 2026-10-20 (PUBLIC
+  could still create objects there until the `06-20261020120000` migration).
 - `schema/01-…` to `05-…` are the baseline: a verbatim copy of a read-only dump of the live
   schema's catalog taken on 2026-10-09. It covers tables, constraints, indexes, functions,
   views, RLS policies and grants, and contains no data. The repo's `SQL/` folder isn't

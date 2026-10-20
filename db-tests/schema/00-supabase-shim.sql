@@ -12,7 +12,14 @@ DO $x$ BEGIN CREATE ROLE anon NOLOGIN NOINHERIT; EXCEPTION WHEN duplicate_object
 DO $x$ BEGIN CREATE ROLE authenticated NOLOGIN NOINHERIT; EXCEPTION WHEN duplicate_object THEN NULL; END $x$;
 DO $x$ BEGIN CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS; EXCEPTION WHEN duplicate_object THEN NULL; END $x$;
 
-GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+-- Schema public as production has it (ACL read on 2026-10-20:
+-- {postgres=UC/postgres,=UC/postgres,authenticated=U/postgres}): owned by postgres, USAGE and
+-- CREATE for PUBLIC, and USAGE by name for authenticated only, so anon and service_role reach it
+-- through PUBLIC. Postgres 17 creates the schema without CREATE for PUBLIC, so it is put back here,
+-- and 06-20261020120000_revoke_public_create_on_public_schema.sql then removes it as in production.
+ALTER SCHEMA public OWNER TO postgres;
+GRANT USAGE, CREATE ON SCHEMA public TO PUBLIC;
+GRANT USAGE ON SCHEMA public TO authenticated;
 
 CREATE SCHEMA IF NOT EXISTS auth;
 GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
