@@ -14,3 +14,7 @@
 ## 2026-10-18 - [Static LiveQuiz column in a memo component]
 **Learning:** `LiveQuiz` re-renders every second (`useNow`) and on every frame of `useAnimatedCounter`, so the static left column (heading, copy, feature list, buttons) was reconciled dozens of times a second while the counter ran.
 **Action:** Move static blocks of high-frequency components into a `React.memo` child whose only props are the values they depend on (here `isLoggedIn`).
+
+## 2026-10-20 - [CTA static blocks in React.memo optimization]
+**Learning:** `CTA` uses `useNow(1000)` forcing it to re-render every second. As a result, its static content (such as backgrounds, headers, mapping over arrays for avatars, and security badges) are needlessly reconciled every second.
+**Action:** Move static UI elements (such as `CTAStaticBackground`, `CTAStaticHeader`, `CTAStaticAvatars`, and `CTAStaticFooter`) from high-frequency components to separate `React.memo` components, avoiding re-renders and unnecessary reconciliations.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, memo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Section, Eyebrow, Reveal, Button } from "./Primitives";
 import { useLiveSnapshot } from "@/hooks/useLiveSnapshot";
@@ -21,7 +21,7 @@ const WINNERS = [
   "Sara from Sialkot won Bluetooth Speaker",
 ];
 
-function Ticker() {
+const Ticker = memo(function Ticker() {
   const doubled = [...WINNERS, ...WINNERS];
   return (
     <div className="relative h-6 overflow-hidden">
@@ -35,7 +35,7 @@ function Ticker() {
       </div>
     </div>
   );
-}
+});
 
 function Countdown() {
   const getTarget = () => {
@@ -108,6 +108,63 @@ function PlaysLine({ quizzes }: { quizzes: LandingQuiz[] }) {
   return <>Be first in line for the next quiz</>;
 }
 
+const CTAStaticBackground = memo(function CTAStaticBackground() {
+  return (
+    <>
+      <div
+        className="pointer-events-none absolute inset-0 opacity-60"
+        style={{
+          background:
+            "radial-gradient(circle at 20% 30%, rgba(16,185,129,0.35), transparent 50%), radial-gradient(circle at 80% 70%, rgba(245,158,11,0.3), transparent 50%), radial-gradient(circle at 50% 100%, rgba(167,139,250,0.25), transparent 60%)",
+        }}
+      />
+      <div className="absolute inset-0 bg-grid opacity-30" />
+      <span className="absolute left-[6%] top-[14%] hidden text-4xl opacity-50 anim-float lg:block">⚽</span>
+      <span className="absolute right-[8%] top-[20%] hidden text-3xl opacity-50 anim-float lg:block" style={{ animationDelay: "-3s" }}>🏆</span>
+      <span className="absolute left-[10%] bottom-[18%] hidden text-3xl opacity-40 anim-float lg:block" style={{ animationDelay: "-5s" }}>⚡</span>
+      <span className="absolute right-[10%] bottom-[22%] hidden text-3xl opacity-40 anim-float lg:block" style={{ animationDelay: "-2s" }}>🎯</span>
+    </>
+  );
+});
+
+const CTAStaticHeader = memo(function CTAStaticHeader() {
+  return (
+    <>
+      <Ticker />
+      <Eyebrow tone="trophy">Limited slots open</Eyebrow>
+      <h2 className="mt-6 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-6xl">
+        Ready to test your <span className="text-gradient-trophy">sports knowledge?</span>
+      </h2>
+      <p className="mx-auto mt-5 max-w-xl text-base text-white/65 sm:text-lg">
+        Join thousands of sports fans competing for amazing prizes. Your first quiz is on us — start your journey today.
+      </p>
+    </>
+  );
+});
+
+const CTAStaticAvatars = memo(function CTAStaticAvatars() {
+  return (
+    <div className="flex -space-x-2">
+      {["from-rose-400 to-orange-500", "from-emerald-400 to-cyan-500", "from-violet-500 to-pink-500", "from-amber-400 to-orange-500", "from-blue-400 to-violet-500"].map(
+        (g, i) => (
+          <div key={i} className={`h-9 w-9 rounded-full bg-gradient-to-br ${g} ring-2 ring-ink-900 transition-transform duration-300 hover:scale-110`} />
+        )
+      )}
+    </div>
+  );
+});
+
+const CTAStaticFooter = memo(function CTAStaticFooter() {
+  return (
+    <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
+      <span>🔒 SSL Secure</span>
+      <span>✅ PCI Compliant</span>
+      <span>🛡️ 256-bit Encryption</span>
+      <span>📦 Prizes delivered nationwide</span>
+    </div>
+  );
+});
+
 export default function CTA() {
   const { user } = useAuth();
   const isLoggedIn = !!user;
@@ -120,28 +177,9 @@ export default function CTA() {
     <Section  className="relative">
       <Reveal variant="scale">
         <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-ink-800 via-ink-900 to-ink-950 p-6 sm:p-10 md:p-16 lg:p-20">
-          <div
-            className="pointer-events-none absolute inset-0 opacity-60"
-            style={{
-              background:
-                "radial-gradient(circle at 20% 30%, rgba(16,185,129,0.35), transparent 50%), radial-gradient(circle at 80% 70%, rgba(245,158,11,0.3), transparent 50%), radial-gradient(circle at 50% 100%, rgba(167,139,250,0.25), transparent 60%)",
-            }}
-          />
-          <div className="absolute inset-0 bg-grid opacity-30" />
-          <span className="absolute left-[6%] top-[14%] hidden text-4xl opacity-50 anim-float lg:block">⚽</span>
-          <span className="absolute right-[8%] top-[20%] hidden text-3xl opacity-50 anim-float lg:block" style={{ animationDelay: "-3s" }}>🏆</span>
-          <span className="absolute left-[10%] bottom-[18%] hidden text-3xl opacity-40 anim-float lg:block" style={{ animationDelay: "-5s" }}>⚡</span>
-          <span className="absolute right-[10%] bottom-[22%] hidden text-3xl opacity-40 anim-float lg:block" style={{ animationDelay: "-2s" }}>🎯</span>
-
+          <CTAStaticBackground />
           <div className="relative mx-auto max-w-3xl text-center">
-            <Ticker />
-            <Eyebrow tone="trophy">Limited slots open</Eyebrow>
-            <h2 className="mt-6 font-display text-3xl font-bold tracking-tight text-white sm:text-4xl md:text-5xl lg:text-6xl">
-              Ready to test your <span className="text-gradient-trophy">sports knowledge?</span>
-            </h2>
-            <p className="mx-auto mt-5 max-w-xl text-base text-white/65 sm:text-lg">
-              Join thousands of sports fans competing for amazing prizes. Your first quiz is on us — start your journey today.
-            </p>
+            <CTAStaticHeader />
             <div className="mt-8 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-white/55">
               {quizzes ? (
                 <NextQuiz quizzes={quizzes} now={now} />
@@ -170,13 +208,7 @@ export default function CTA() {
               </Button>
             </div>
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-6">
-              <div className="flex -space-x-2">
-                {["from-rose-400 to-orange-500", "from-emerald-400 to-cyan-500", "from-violet-500 to-pink-500", "from-amber-400 to-orange-500", "from-blue-400 to-violet-500"].map(
-                  (g, i) => (
-                    <div key={i} className={`h-9 w-9 rounded-full bg-gradient-to-br ${g} ring-2 ring-ink-900 transition-transform duration-300 hover:scale-110`} />
-                  )
-                )}
-              </div>
+              <CTAStaticAvatars />
               <p className="text-sm text-white/55">
                 {quizzes ? (
                   <PlaysLine quizzes={quizzes} />
@@ -187,12 +219,7 @@ export default function CTA() {
                 )}
               </p>
             </div>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
-              <span>🔒 SSL Secure</span>
-              <span>✅ PCI Compliant</span>
-              <span>🛡️ 256-bit Encryption</span>
-              <span>📦 Prizes delivered nationwide</span>
-            </div>
+            <CTAStaticFooter />
           </div>
         </div>
       </Reveal>
