@@ -212,6 +212,30 @@ describe('admin prize actions', () => {
     expect(await actions.createPrize({ name: 'B', type: 't', pointsRequired: 1 } as never)).toEqual({ success: false, error: 'Failed to create prize' });
   });
 
+  it('createPrize saves an image uploaded to, or picked from, this project\'s Storage', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://proj.supabase.co');
+    const PUB = 'https://proj.supabase.co/storage/v1/object/public';
+    prizeDb.create.mockResolvedValue({ id: 'new' });
+    for (const imageUrl of [`${PUB}/prize-images/prizes/a-1280.webp`, `${PUB}/site-media/uploads/b-1920.webp`]) {
+      expect(await actions.createPrize({ name: 'Earbuds', type: 'earbuds', pointsRequired: 100, imageUrl } as never)).toEqual({ success: true, data: { id: 'new' } });
+      expect(prizeDb.create).toHaveBeenLastCalledWith(expect.objectContaining({ imageUrl }));
+    }
+    // Players' avatars are not prize images
+    expect(await actions.createPrize({ name: 'Earbuds', type: 'earbuds', pointsRequired: 100, imageUrl: `${PUB}/avatars/u/a-256.webp` } as never))
+      .toEqual({ success: false, error: expect.stringContaining('Supabase Storage') });
+    vi.unstubAllEnvs();
+  });
+
+  it('wants whole points and stock, which are integer columns', async () => {
+    // A fraction used to pass validation and fail in the insert as "Failed to create prize"
+    expect(await actions.createPrize({ name: 'B', type: 'bike', pointsRequired: 1.5 } as never)).toEqual({ success: false, error: 'Points must be a whole number' });
+    expect(await actions.createPrize({ name: 'B', type: 'bike', pointsRequired: 1, stock: 2.5 } as never)).toEqual({ success: false, error: 'Stock must be a whole number' });
+    expect(prizeDb.create).not.toHaveBeenCalled();
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
+    expect(await actions.updatePrize('prize-1', { stock: 0.5 })).toEqual({ success: false, error: 'Stock must be a whole number' });
+    expect(prizeDb.update).not.toHaveBeenCalled();
+  });
+
   it('updatePrize writes only the provided fields', async () => {
     prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
     prizeDb.update.mockResolvedValue({ id: 'prize-1' });

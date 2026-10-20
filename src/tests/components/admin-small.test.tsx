@@ -1,13 +1,15 @@
 import '@/tests/helpers/ui';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { jsonResponse } from '@/tests/helpers/ui';
 
 const h = vi.hoisted(() => ({
   toast: { success: vi.fn(), error: vi.fn() },
   dynamics: [] as { loader: () => Promise<unknown>; opts: { loading: () => React.ReactNode } }[],
+  picker: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
+vi.mock('@/actions/media-actions', () => ({ getSupabaseMediaForPicker: (...a: unknown[]) => h.picker(...a) }));
 vi.mock('next/dynamic', () => ({
   default: (loader: () => Promise<unknown>, opts: { loading: () => React.ReactNode }) => {
     h.dynamics.push({ loader, opts });
@@ -23,6 +25,7 @@ import QuestionList from '@/components/admin/questions/QuestionList';
 import QuestionForm from '@/components/admin/questions/QuestionForm';
 import PrizeTable from '@/components/admin/PrizeTable';
 import PrizeForm from '@/components/admin/PrizeForm';
+import PrizeImageLibrary from '@/components/admin/PrizeImageLibrary';
 import WalletFeatureToggle from '@/components/admin/WalletFeatureToggle';
 import * as DynamicAdmin from '@/components/admin/DynamicAdminComponents';
 import type { Question } from '@/components/admin/questions/types';
@@ -33,9 +36,11 @@ const CLD = `https://res.cloudinary.com/${CLOUDINARY_CLOUD_NAME}/image/upload`;
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   h.toast.success.mockReset();
   h.toast.error.mockReset();
+  h.picker.mockReset();
 });
 
 const q = (over: Partial<Question> = {}): Question => ({
@@ -169,17 +174,37 @@ describe('PrizeTable', () => {
 });
 
 describe('PrizeForm', () => {
+  const SUPA = 'https://proj.supabase.co/storage/v1/object/public';
+  const PRIZE_IMG = `${SUPA}/prize-images/prizes/a-1280.webp`;
+  const SITE_IMG = `${SUPA}/site-media/uploads/b-1920.webp`;
+  const library = [
+    { url: PRIZE_IMG, name: 'prizes/a-1280.webp', bucket: 'prize-images', size: 1 },
+    { url: SITE_IMG, name: 'uploads/b-1920.webp', bucket: 'site-media', size: 2 },
+    // Another project's storage: the form would refuse it, so it is never offered
+    { url: 'https://other.supabase.co/storage/v1/object/public/prize-images/prizes/c-1280.webp', name: 'prizes/c-1280.webp', bucket: 'prize-images', size: 3 },
+  ];
+
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://proj.supabase.co');
+  });
+
   const setup = (p: Prize | null = null, isSubmitting = false) => {
     const props = { onSubmit: vi.fn().mockResolvedValue(undefined), onClose: vi.fn() };
     render(<PrizeForm prize={p} isSubmitting={isSubmitting} {...props} />);
     return props;
   };
   const urlInput = () => screen.getByPlaceholderText('Upload an image, or paste an image link');
+  const nameInput = () => screen.getByPlaceholderText('e.g., iPhone 15 Pro');
+  const fileInput = () => screen.getByLabelText('Upload prize image') as HTMLInputElement;
+  const chooseFile = (file: File) => fireEvent.change(fileInput(), { target: { files: [file] } });
+  const png = () => new File(['x'], 'p.png', { type: 'image/png' });
+  const preview = () => screen.queryByRole('img', { name: 'Preview' });
+  const libraryButton = () => screen.getByRole('button', { name: /Choose from library/ });
 
   it('creates a prize with defaults', async () => {
     const p = setup();
-    expect(screen.getByText('Create New Prize')).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText('e.g., iPhone 15 Pro'), { target: { value: 'Earbuds' } });
+    expect(screen.getByRole('dialog', { name: 'Create New Prize' })).toBeInTheDocument();
+    fireEvent.change(nameInput(), { target: { value: 'Earbuds' } });
     fireEvent.click(screen.getByRole('button', { name: /Published/ }));
     fireEvent.click(screen.getByRole('button', { name: /Draft/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Create Prize' }));
@@ -189,13 +214,15 @@ describe('PrizeForm', () => {
 
   it('validates fields, including the image host', async () => {
     const p = setup();
-    fireEvent.change(screen.getByPlaceholderText('e.g., iPhone 15 Pro'), { target: { value: '' } });
+    fireEvent.change(nameInput(), { target: { value: '' } });
     fireEvent.change(screen.getByPlaceholderText('100'), { target: { value: '0' } });
     fireEvent.change(screen.getAllByPlaceholderText('0')[0], { target: { value: '-1' } });
     fireEvent.change(screen.getAllByPlaceholderText('0')[1], { target: { value: '-2' } });
     fireEvent.change(screen.getByPlaceholderText('Brief description of the prize...'), { target: { value: 'x'.repeat(501) } });
     fireEvent.change(screen.getByPlaceholderText('https://example.com/model.glb'), { target: { value: 'nope' } });
     fireEvent.change(urlInput(), { target: { value: 'https://evil.example/a.png' } });
+    // A link the prize could not be saved with is neither previewed nor fetched
+    expect(preview()).toBeNull();
     fireEvent.submit(urlInput().closest('form')!);
     expect(await screen.findByText('Name is required')).toBeInTheDocument();
     expect(screen.getByText('Points must be at least 1')).toBeInTheDocument();
@@ -207,16 +234,74 @@ describe('PrizeForm', () => {
     expect(p.onSubmit).not.toHaveBeenCalled();
   });
 
+  it('wants whole points and stock, and a number in every number field', async () => {
+    const p = setup();
+    fireEvent.change(screen.getByPlaceholderText('100'), { target: { value: '1.5' } });
+    fireEvent.change(screen.getAllByPlaceholderText('0')[1], { target: { value: '2.5' } });
+    fireEvent.change(screen.getAllByPlaceholderText('0')[0], { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Prize' }));
+    // Fractions used to pass here and then fail in the insert as "Failed to create prize"
+    expect(await screen.findByText('Points must be a whole number')).toBeInTheDocument();
+    expect(screen.getByText('Stock must be a whole number')).toBeInTheDocument();
+    // An emptied number field
+    expect(screen.getByText('Enter a number')).toBeInTheDocument();
+    expect(p.onSubmit).not.toHaveBeenCalled();
+  });
+
   it('accepts a local /public image path', async () => {
     const p = setup();
-    fireEvent.change(screen.getByPlaceholderText('e.g., iPhone 15 Pro'), { target: { value: 'Watch' } });
+    fireEvent.change(nameInput(), { target: { value: 'Watch' } });
     fireEvent.change(urlInput(), { target: { value: '/prizes/watch.svg' } });
+    expect(preview()).toHaveAttribute('src', expect.stringMatching(/\/prizes\/watch\.svg$/));
     fireEvent.submit(urlInput().closest('form')!);
     await waitFor(() => expect(p.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Watch', imageUrl: '/prizes/watch.svg' })));
     expect(screen.queryByText('Invalid URL')).toBeNull();
   });
 
-  it('edits an existing prize, previews and uploads an image', async () => {
+  it('uploads an image while creating a prize and saves it with the prize', async () => {
+    let finish!: (r: Response) => void;
+    const fetchMock = vi.fn().mockReturnValue(new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal('fetch', fetchMock);
+    const p = setup();
+    fireEvent.change(nameInput(), { target: { value: 'Earbuds' } });
+    // The Upload button opens the file chooser, which lists only the types the upload accepts
+    const click = vi.spyOn(fileInput(), 'click').mockImplementation(() => {});
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+    expect(click).toHaveBeenCalled();
+    expect(fileInput()).toHaveAttribute('accept', 'image/jpeg,image/png,image/webp,image/avif,image/gif');
+
+    chooseFile(png());
+    expect(await screen.findByRole('button', { name: 'Uploading...' })).toBeDisabled();
+    // Cleared, so the same file can be chosen again
+    expect(fileInput().value).toBe('');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/upload');
+    expect((init.body as FormData).get('target')).toBe('prize');
+    await act(async () => finish(jsonResponse({ url: PRIZE_IMG })));
+
+    await waitFor(() => expect(urlInput()).toHaveValue(PRIZE_IMG));
+    expect(preview()).toHaveAttribute('src', PRIZE_IMG);
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Create Prize' }));
+    await waitFor(() => expect(p.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Earbuds', imageUrl: PRIZE_IMG })));
+  });
+
+  it('checks the file type and size before uploading', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    setup();
+    // e.g. an iPhone photo, which the upload route refuses
+    chooseFile(new File(['x'], 'p.heic', { type: 'image/heic' }));
+    expect(h.toast.error).toHaveBeenLastCalledWith('Only JPEG, PNG, WebP, AVIF or GIF images can be uploaded');
+    const big = png();
+    Object.defineProperty(big, 'size', { value: 10 * 1024 * 1024 + 1 });
+    chooseFile(big);
+    expect(h.toast.error).toHaveBeenLastCalledWith('Image must be 10 MB or smaller');
+    fireEvent.change(fileInput(), { target: { files: [] } });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('edits an existing prize, reports upload failures and stops retrying a broken preview', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ url: `${CLD}/new.png` }))
       .mockResolvedValueOnce(jsonResponse({}, 500))
       .mockResolvedValueOnce(jsonResponse({ error: 'The file could not be read as an image' }, 400))
@@ -225,39 +310,127 @@ describe('PrizeForm', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const p = setup(prize({ description: null as unknown as string, modelUrl: null }));
     expect(screen.getByText('Edit Prize')).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Preview' })).toBeInTheDocument();
-    const file = screen.getByLabelText(/Upload/) as HTMLInputElement;
-    fireEvent.change(file, { target: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } });
+    expect(preview()).toHaveAttribute('src', `${CLD}/a.png`);
+    chooseFile(png());
     await waitFor(() => expect(urlInput()).toHaveValue(`${CLD}/new.png`));
-    // Sent to the prize-images bucket
-    expect((fetchMock.mock.calls[0][1].body as FormData).get('target')).toBe('prize');
-    fireEvent.change(file, { target: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } });
+    chooseFile(png());
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Upload failed'));
     expect(console.error).toHaveBeenCalledWith('Error uploading image:', expect.any(Error));
-    fireEvent.change(file, { target: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } });
+    chooseFile(png());
     await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('The file could not be read as an image'));
     // A 200 without a usable body is still a failure
-    fireEvent.change(file, { target: { files: [new File(['x'], 'p.png', { type: 'image/png' })] } });
+    chooseFile(png());
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledTimes(3));
     expect(h.toast.error).toHaveBeenLastCalledWith('Upload failed');
-    fireEvent.change(file, { target: { files: [] } });
     expect(fetchMock).toHaveBeenCalledTimes(4);
-    fireEvent.error(screen.getByRole('img', { name: 'Preview' }));
+    // A preview that fails to load shows the placeholder and stays there (it used to reload in a loop)
+    fireEvent.error(preview()!);
+    expect(preview()).toBeNull();
+    expect(screen.getByText('🎁')).toBeInTheDocument();
+    // ...until the link changes
+    fireEvent.change(urlInput(), { target: { value: `${CLD}/other.png` } });
+    expect(preview()).toHaveAttribute('src', `${CLD}/other.png`);
     fireEvent.click(screen.getByRole('button', { name: 'Update Prize' }));
-    await waitFor(() => expect(p.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Phone', imageUrl: `${CLD}/new.png` })));
+    await waitFor(() => expect(p.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Phone', imageUrl: `${CLD}/other.png` })));
+  });
+
+  it('chooses an image from the library while creating a prize and saves it with the prize', async () => {
+    h.picker.mockResolvedValue({ success: true, images: library });
+    const p = setup();
+    fireEvent.change(nameInput(), { target: { value: 'Earbuds' } });
+    expect(libraryButton()).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(libraryButton());
+    expect(libraryButton()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Loading images…')).toBeInTheDocument();
+
+    const prizes = await screen.findByRole('region', { name: 'Prize images' });
+    expect(within(prizes).getByText('Prize images (1)')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Site images' })).toHaveTextContent('Site images (1)');
+    expect(screen.queryByRole('button', { name: 'Use prizes/c-1280.webp' })).toBeNull();
+    // Thumbnails load the smallest stored size, not the 1280px original
+    expect(within(prizes).getByRole('button').querySelector('img')!.getAttribute('srcset')).toContain('prizes/a-320.webp');
+    expect(screen.getByRole('link', { name: 'Manage images' })).toHaveAttribute('target', '_blank');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use uploads/b-1920.webp' }));
+    expect(screen.queryByRole('region', { name: 'Prize images' })).toBeNull();
+    await waitFor(() => expect(urlInput()).toHaveValue(SITE_IMG));
+    expect(preview()).toHaveAttribute('src', SITE_IMG);
+
+    // Opened again, it reloads and marks the current image
+    fireEvent.click(libraryButton());
+    expect(await screen.findByRole('button', { name: 'Use uploads/b-1920.webp' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Use prizes/a-1280.webp' })).toHaveAttribute('aria-pressed', 'false');
+    expect(h.picker).toHaveBeenCalledTimes(2);
+    fireEvent.click(libraryButton());
+    expect(screen.queryByRole('region', { name: 'Site images' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Prize' }));
+    await waitFor(() => expect(p.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Earbuds', imageUrl: SITE_IMG })));
+  });
+
+  it('an upload closes the library, and Remove clears the image', async () => {
+    h.picker.mockResolvedValue({ success: true, images: library });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ url: PRIZE_IMG })));
+    const p = setup(prize());
+    fireEvent.click(libraryButton());
+    await screen.findByRole('region', { name: 'Prize images' });
+    chooseFile(png());
+    await waitFor(() => expect(urlInput()).toHaveValue(PRIZE_IMG));
+    expect(screen.queryByRole('region', { name: 'Prize images' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(urlInput()).toHaveValue(''));
+    expect(preview()).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Update Prize' }));
+    await waitFor(() => expect(p.onSubmit).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: '' })));
   });
 
   it('closes from the backdrop, the X and Cancel, and shows saving', () => {
     const onClose = vi.fn();
     const { container } = render(<PrizeForm prize={null} isSubmitting onSubmit={vi.fn()} onClose={onClose} />);
-    const p = { onClose };
     expect(screen.getByRole('button', { name: /Saving/ })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    fireEvent.click(screen.getByText('Create New Prize').closest('.flex')!.querySelector('button')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.click(screen.getByText('Create New Prize'));
-    expect(p.onClose).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledTimes(2);
     fireEvent.click(container.firstElementChild!);
-    expect(p.onClose).toHaveBeenCalledTimes(3);
+    expect(onClose).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('PrizeImageLibrary', () => {
+  it('says when storage has no images yet', async () => {
+    h.picker.mockResolvedValue({ success: true, images: [] });
+    render(<PrizeImageLibrary selectedUrl="" onSelect={vi.fn()} />);
+    expect(await screen.findByText('No images in storage yet. Use Upload to add one.')).toBeInTheDocument();
+  });
+
+  it('lists a bucket only when it has images', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://proj.supabase.co');
+    const url = 'https://proj.supabase.co/storage/v1/object/public/site-media/uploads/b-1920.webp';
+    h.picker.mockResolvedValue({ success: true, images: [{ url, name: 'uploads/b-1920.webp', bucket: 'site-media', size: 1 }] });
+    const onSelect = vi.fn();
+    render(<PrizeImageLibrary selectedUrl="" onSelect={onSelect} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Use uploads/b-1920.webp' }));
+    expect(onSelect).toHaveBeenCalledWith(url);
+    expect(screen.queryByRole('region', { name: 'Prize images' })).toBeNull();
+  });
+
+  it('shows load failures with a retry', async () => {
+    h.picker
+      .mockResolvedValueOnce({ success: false, error: 'storage down' })
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce({ success: true, images: [] });
+    render(<PrizeImageLibrary selectedUrl="" onSelect={vi.fn()} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('storage down');
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    // A request that fails outright (e.g. offline) gets a message of its own
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load images');
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(screen.getByText('Loading images…')).toBeInTheDocument();
+    expect(await screen.findByText(/No images in storage yet/)).toBeInTheDocument();
+    expect(h.picker).toHaveBeenCalledTimes(3);
   });
 });
 

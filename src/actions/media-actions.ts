@@ -212,7 +212,10 @@ export async function transferSupabaseToCloudinary(
   }
 }
 
-/** The newest stored prize and site images, to pick one to copy into Cloudinary. */
+/**
+ * The newest stored prize and site images: the Cloudinary page picks one to copy, the prize form
+ * one to show on a prize.
+ */
 export async function getSupabaseMediaForPicker(): Promise<
   { success: true; images: PickerImage[] } | Failure
 > {
