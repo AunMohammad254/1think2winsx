@@ -1,6 +1,8 @@
 # Cloudflare page cache for the public pages
 
-**Status: proposed, waiting for the owner's approval. Nothing on Cloudflare has changed yet.**
+**Status: live since 2026-10-21 18:29 UTC (owner-approved). Every Hostinger deploy now needs `bun run cache:purge`
+(see "Every deploy" below).** Right after it was applied, `bun run cache:check` passed 17/17 and
+`bun run smoke:prod` passed 10/10.
 
 ## Why
 
