@@ -7,6 +7,9 @@ wrong SQL. Covered so far:
 - `submit_quiz_attempt`: saving, resubmits, re-attempts, closed questions, answering window,
   payment, wrong user, bad payloads, concurrent double submit
 - `get_quiz_attempt_counts_by_quiz`: column names and who may call it
+- `decrement_prize_stock`: decrements `stock`, raises P0001 when empty, no oversell under racing
+  calls, service role only
+- Removed functions stay removed (`validate_quiz_submission_time`)
 - RLS: players read only their own rows; anon reads no quiz data; players can't write
   attempt, payment or quiz tables directly
 - Support tickets: `create_support_ticket` numbers, rate limits and concurrent requests, the
