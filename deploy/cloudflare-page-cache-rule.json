@@ -1,0 +1,11 @@
+{
+  "description": "Public pages and their Next prefetches, for visitors without a session cookie: cache for the time their Cache-Control allows (deploy/CLOUDFLARE_PAGE_CACHE.md)",
+  "expression": "(http.host eq \"1think2win.com\" and http.request.uri.path in {\"/\" \"/faq\" \"/how-to-play\" \"/prizes\" \"/leaderboard\" \"/terms\" \"/privacy\" \"/disclaimer\" \"/contact\"} and not http.cookie contains \"-auth-token\" and ((http.request.uri.query eq \"\" and not any(lower(http.request.headers.names[*])[*] eq \"rsc\")) or (starts_with(http.request.uri.query, \"_rsc=\") and len(http.request.uri.query) eq 21 and len(http.request.headers[\"rsc\"]) eq 1 and http.request.headers[\"rsc\"][0] eq \"1\")))",
+  "action": "set_cache_settings",
+  "action_parameters": {
+    "cache": true,
+    "edge_ttl": { "mode": "bypass_by_default" },
+    "browser_ttl": { "mode": "respect_origin" }
+  },
+  "enabled": true
+}
