@@ -1,6 +1,9 @@
 import * as Sentry from '@sentry/nextjs';
+import { setupStaleAuthWarningFilter } from '@/lib/supabase/auth-error-filter';
 
 export async function register() {
+  setupStaleAuthWarningFilter();
+
   // Node runtime only: the scheduler needs timers and the service-role DB client
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     await import('./sentry.server.config');
@@ -14,3 +17,5 @@ export async function register() {
 
 // Errors thrown while rendering, in route handlers, server actions and the proxy go to Sentry
 export const onRequestError = Sentry.captureRequestError;
+
+

@@ -428,6 +428,41 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(screen.getByRole('button', { name: 'Lock in answer' })).toBeEnabled();
   });
 
+  it('says the time is up instead of submitting once the countdown has run out', async () => {
+    fakeClock();
+    h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
+    setup();
+    act(() => ref.current!.open('q1'));
+    await flush();
+    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(screen.getByText('2009'));
+    await tick(60_000);
+    expect(screen.getByText("Time's up")).toBeInTheDocument();
+    h.fetchWithRetry.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await flush();
+    expect(h.toast.error).toHaveBeenCalledWith('The time is up for the quiz. You cannot lock in answer.');
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+    expect(screen.queryByText('Answer locked in — waiting for results')).toBeNull();
+  });
+
+  it('says the time is up when a last-second submit is refused after the window closed', async () => {
+    fakeClock();
+    h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
+    setup();
+    act(() => ref.current!.open('q1'));
+    await flush();
+    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(screen.getByText('2009'));
+    await tick(59_000);
+    let release!: (r: Response) => void;
+    h.fetchWithRetry.mockReturnValueOnce(new Promise<Response>((r) => (release = r)));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await tick(2000);
+    await act(async () => release(jsonResponse({ error: 'Quiz not found or inactive' }, 404)));
+    expect(h.toast.error).toHaveBeenCalledWith('The time is up for the quiz. You cannot lock in answer.');
+  });
+
   it('ignores a submit while one is in flight', async () => {
     setup();
     act(() => ref.current!.open('q1'));

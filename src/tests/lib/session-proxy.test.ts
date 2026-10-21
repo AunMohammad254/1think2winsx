@@ -124,6 +124,15 @@ describe('updateSession', () => {
     expect(location(res)).toBe('http://localhost/login?redirect=%2Fprofile');
     expect(console.error).toHaveBeenCalledWith('[Auth Proxy] Error verifying session:', expect.any(Error));
   });
+
+  it('quietly clears the cookies when verification throws a stale refresh-token error', async () => {
+    vi.mocked(console.error).mockClear();
+    getClaims.mockRejectedValue(Object.assign(new Error('Invalid Refresh Token: Refresh Token Not Found'), { code: 'refresh_token_not_found' }));
+    const res = await updateSession(req('/faq', { 'sb-ref-auth-token': sessionCookie(nowS() - 10) }));
+    expect(location(res)).toBeNull();
+    expect(res.headers.getSetCookie().join(';')).toContain('sb-ref-auth-token=;');
+    expect(console.error).not.toHaveBeenCalled();
+  });
 });
 
 describe('proxy', () => {
