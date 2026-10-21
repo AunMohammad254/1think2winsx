@@ -15,6 +15,7 @@ import {
   BarChart3,
   Mail,
   LifeBuoy,
+  Ticket,
   Image as ImageIcon,
 } from 'lucide-react';
 
@@ -113,6 +114,7 @@ const navItems = [
   { href: '/admin/media', label: 'Media Management', icon: ImageIcon },
   { href: '/admin/security', label: 'Security', icon: Shield },
   { href: '/admin/support', label: 'User Support', icon: LifeBuoy },
+  { href: '/admin/tickets', label: 'Support Tickets', icon: Ticket },
 ];
 
 const quickActions = [

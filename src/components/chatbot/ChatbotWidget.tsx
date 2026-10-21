@@ -10,6 +10,8 @@ import {
   RotateCcw,
   Sparkles,
   MessageCircle,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { usePresence } from '@/hooks/usePresence';
 
@@ -24,6 +26,8 @@ interface ChatMessage {
   model?: string;
   timestamp: Date;
   failed?: boolean;
+  /** A support ticket the server created for this reply */
+  ticketNumber?: string;
 }
 
 interface GeminiMessage {
@@ -39,8 +43,9 @@ const QUICK_SUGGESTIONS = [
   { label: '🏆 What prizes can I win?', text: 'What prizes are available to win?' },
   { label: '❓ How does the quiz work?', text: 'How does the quiz competition work?' },
   { label: '📊 View Leaderboard',       text: 'I want to see the leaderboard.' },
-  { label: '💳 Payment methods?',       text: 'What payment methods are accepted?' },
+  { label: '💳 Do I need to pay?',      text: 'Do I need to pay to play a quiz?' },
   { label: '🎯 Winning chances?',       text: 'How are winners selected? What are my chances?' },
+  { label: '🎫 My support tickets',     text: 'What is the status of my support tickets?' },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -54,6 +59,7 @@ const REDIRECT_LABELS: Record<string, string> = {
   '/leaderboard':   '📊 View Leaderboard',
   '/prizes':        '🏆 See All Prizes',
   '/profile':       '👤 My Profile',
+  '/profile/wallet': '💳 My Wallet',
   '/how-to-play':   '📖 How To Play',
   '/faq':           '❓ FAQ',
   '/contact':       '📞 Contact Support',
@@ -103,6 +109,16 @@ function MessageBubble({
   onRetry?: () => void;
 }) {
   const isUser = message.role === 'user';
+  const [copied, setCopied] = useState(false);
+
+  async function copyTicketNumber(ticketNumber: string) {
+    try {
+      await navigator.clipboard.writeText(ticketNumber);
+      setCopied(true);
+    } catch {
+      // No clipboard access (e.g. an insecure context): the number is in the message text anyway
+    }
+  }
 
   return (
     <div className={`flex items-end gap-2 mb-3 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -137,6 +153,17 @@ function MessageBubble({
             </button>
           )}
         </div>
+
+        {/* Copy the new ticket's number, so the player can keep it */}
+        {message.ticketNumber && (
+          <button
+            onClick={() => copyTicketNumber(message.ticketNumber!)}
+            className="chatbot-redirect-chip flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200"
+          >
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            {copied ? 'Copied' : `Copy ${message.ticketNumber}`}
+          </button>
+        )}
 
         {/* Navigation chips */}
         {message.redirects && message.redirects.length > 0 && (
@@ -221,7 +248,7 @@ export default function ChatbotWidget() {
           id: 'welcome',
           role: 'assistant',
           content:
-            "👋 Hey! I'm the 1Think2Win support assistant.\n\nI can help you with registration, quiz rules, prizes, payments, and navigate you around the platform. What can I help you with today? 🏏",
+            "👋 Hey! I'm the 1Think2Win support assistant.\n\nI can help you with registration, quiz rules and prizes, and navigate you around the platform. If something's wrong, I can send it to our support team as a ticket. What can I help you with today? 🏏",
           redirects: [],
           timestamp: new Date(),
         },
@@ -296,6 +323,7 @@ export default function ChatbotWidget() {
         redirects: data.redirects ?? [],
         model: data.model,
         timestamp: new Date(),
+        ticketNumber: data.ticketNumber,
       };
 
       setMessages((prev) => [...prev, aiMsg]);

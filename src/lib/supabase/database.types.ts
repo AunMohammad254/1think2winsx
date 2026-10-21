@@ -736,6 +736,42 @@ export interface Database {
                     createdAt?: string
                 }
             }
+            // supabase/migrations/20261021120000_support_tickets.sql; rows are created by create_support_ticket()
+            SupportTicket: {
+                Row: {
+                    id: string
+                    ticketNumber: string
+                    userId: string
+                    subject: string
+                    message: string
+                    status: 'open' | 'in_progress' | 'resolved' | 'closed'
+                    adminReply: string | null
+                    repliedAt: string | null
+                    repliedBy: string | null
+                    createdAt: string
+                    updatedAt: string
+                }
+                Insert: {
+                    id?: string
+                    ticketNumber: string
+                    userId: string
+                    subject: string
+                    message: string
+                    status?: 'open' | 'in_progress' | 'resolved' | 'closed'
+                    adminReply?: string | null
+                    repliedAt?: string | null
+                    repliedBy?: string | null
+                    createdAt?: string
+                    updatedAt?: string
+                }
+                Update: {
+                    status?: 'open' | 'in_progress' | 'resolved' | 'closed'
+                    adminReply?: string | null
+                    repliedAt?: string | null
+                    repliedBy?: string | null
+                    updatedAt?: string
+                }
+            }
         }
         Views: {
             [_ in never]: never
@@ -774,3 +810,4 @@ export type StreamSession = Tables<'StreamSession'>
 export type StreamMetrics = Tables<'StreamMetrics'>
 export type WalletTransaction = Tables<'WalletTransaction'>
 export type AdminSession = Tables<'AdminSession'>
+export type SupportTicket = Tables<'SupportTicket'>
