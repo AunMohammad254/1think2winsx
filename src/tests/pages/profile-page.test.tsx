@@ -107,6 +107,21 @@ describe('profile page', () => {
     expect(screen.getByText('Unknown')).toBeInTheDocument();
   });
 
+  it('shows repeated claims of one prize as a single card with a count', () => {
+    // Before the one-claim rule a player could claim the same prize again and again: 4 identical cards
+    const earbuds = (id: string, status: string) => ({ ...prize(id, status), name: 'Ronin Wireless Earbuds' });
+    h.profileState = { profile: { ...fullProfile, prizes: [
+      earbuds('c1', 'approved'), earbuds('c2', 'Approved'), earbuds('c3', 'approved'), earbuds('c4', 'approved'), earbuds('c5', 'pending'),
+    ] }, loading: false, error: null };
+    render(<ProfilePage />);
+    expect(screen.getAllByRole('heading', { name: 'Ronin Wireless Earbuds' })).toHaveLength(2);
+    expect(screen.getByLabelText('4 claims')).toHaveTextContent('×4');
+    expect(screen.queryByLabelText('1 claims')).toBeNull();
+    expect(screen.getByLabelText('5 prizes')).toBeInTheDocument();
+    // Two cards fit, so there is no "View all N prizes" link
+    expect(screen.queryByRole('link', { name: /View all \d+ prizes/ })).toBeNull();
+  });
+
   it('shows a gift icon for a prize with no picture, or whose picture fails to load', () => {
     h.profileState = { profile: { ...fullProfile, prizes: [{ ...prize('n1'), image: undefined }, prize('e1')] }, loading: false, error: null };
     render(<ProfilePage />);
