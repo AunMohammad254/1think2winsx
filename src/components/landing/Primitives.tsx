@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, CSSProperties, ReactNode, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { linkPrefetch } from "@/lib/link-prefetch";
 
 /* ============================
    HOOKS
@@ -302,7 +303,7 @@ export function Button({ children, variant = "primary", size = "md", className, 
   if (href) {
     if (href.startsWith("/")) {
       return (
-        <Link href={href} className={cn(base, sizes[size], variants[variant], className)}>
+        <Link href={href} prefetch={linkPrefetch(href)} className={cn(base, sizes[size], variants[variant], className)}>
           {content}
         </Link>
       );

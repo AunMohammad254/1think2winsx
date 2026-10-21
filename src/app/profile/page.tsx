@@ -477,6 +477,7 @@ export default function ProfilePage() {
                   <p className="text-slate-400 text-sm mb-4">Play quizzes to win rewards!</p>
                   <Link
                     href="/quizzes"
+                    prefetch={false}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-700 to-teal-700 text-white text-sm font-semibold rounded-xl hover:from-emerald-800 hover:to-teal-800 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                   >
                     Start Playing
@@ -486,6 +487,8 @@ export default function ProfilePage() {
               {prizeCards.length > 4 && (
                 <Link
                   href="/prizes"
+                  // No prefetch on signed-in pages: Cloudflare can't cache it (src/lib/link-prefetch.ts)
+                  prefetch={false}
                   className="block mt-4 text-center text-sm text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:underline"
                 >
                   View all {profile.prizes.length} prizes →
@@ -595,6 +598,7 @@ export default function ProfilePage() {
                   <p className="text-slate-400 text-sm mb-4">Start your quiz journey today!</p>
                   <Link
                     href="/quizzes"
+                    prefetch={false}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-700 to-teal-700 text-white text-sm font-semibold rounded-xl hover:from-emerald-800 hover:to-teal-800 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
                   >
                     Browse Quizzes
@@ -604,6 +608,7 @@ export default function ProfilePage() {
               {profile.quizHistory && profile.quizHistory.length > 6 && (
                 <Link
                   href="/quizzes"
+                  prefetch={false}
                   className="block mt-4 text-center text-sm text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:underline"
                 >
                   View all history →

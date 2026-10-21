@@ -169,7 +169,7 @@ describe('quiz cards and modals', () => {
     rerender(<QuizCardSkeleton />);
   });
 
-  it('QuizCard labels the push status and prefetches the quiz on hover', () => {
+  it('QuizCard labels the push status and opens the quiz without prefetching its page', () => {
     const base = { id: 'q1', title: 'Cricket', duration: 5, questionCount: 10 };
     const label = (props: Partial<Parameters<typeof QuizCard>[0]>) => {
       const { container, unmount } = render(<QuizCard {...base} status="paused" {...props} />);
@@ -188,8 +188,9 @@ describe('quiz cards and modals', () => {
     const onStart = vi.fn();
     render(<QuizCard {...base} status="new" pushStatus="upcoming" startsAt="2026-10-20T15:00:00Z" onStartClick={onStart} />);
     expect(screen.getByText(/Starts/)).toBeInTheDocument();
+    // The card opens the live-quiz modal, never /quiz/<id>: a hover prefetch was a wasted origin request
     fireEvent.pointerEnter(screen.getByText('Cricket').parentElement!);
-    expect(router.prefetch).toHaveBeenCalledWith('/quiz/q1');
+    expect(router.prefetch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('Cricket'));
     expect(onStart).toHaveBeenCalledWith('q1');
   });

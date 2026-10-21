@@ -77,6 +77,7 @@ export default function QuizError({
                     )}
                     <Link
                         href="/quizzes"
+                        prefetch={false}
                         className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium text-gray-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5" />

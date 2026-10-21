@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Menu, LogIn, Sparkles, Home, FileText, HelpCircle, Trophy, BarChart3, User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLinkPrefetch } from '@/hooks/useLinkPrefetch';
 import Logo from './navbar/Logo';
 import UserProfileDropdown from './navbar/UserProfileDropdown';
 import MobileNav from './navbar/MobileNav';
@@ -23,6 +24,7 @@ const staggerDelay = (index: number) => ({ animationDelay: `${0.2 + index * 0.1}
 
 export default function Navbar() {
   const { user, isLoading, signOut } = useAuth();
+  const prefetchFor = useLinkPrefetch();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -54,7 +56,7 @@ export default function Navbar() {
         <div className="container mx-auto px-4 lg:px-6">
           <div className="flex items-center justify-between h-16 md:h-18">
             {/* Logo */}
-            <Logo />
+            <Logo prefetch={prefetchFor('/')} />
 
             {/* Desktop Navigation */}
             <nav className="hidden lg:flex items-center gap-0.5 xl:gap-1">
@@ -64,6 +66,7 @@ export default function Navbar() {
                   <div key={item.href} className="nav-item-enter" style={staggerDelay(index)}>
                     <Link
                       href={item.href}
+                      prefetch={prefetchFor(item.href)}
                       className="group relative flex items-center gap-1.5 px-2.5 xl:px-3.5 py-2 rounded-lg text-white/70 hover:text-white transition-colors duration-200"
                     >
                       <Icon className="w-4 h-4 opacity-70 group-hover:opacity-100 transition-opacity" />
@@ -97,6 +100,7 @@ export default function Navbar() {
                   {/* Sign In Button */}
                   <Link
                     href="/login"
+                    prefetch={false}
                     className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg text-white/80 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-200 text-sm font-medium"
                   >
                     <LogIn className="w-4 h-4" />
@@ -106,6 +110,7 @@ export default function Navbar() {
                   {/* Get Started Button */}
                   <Link
                     href="/register"
+                    prefetch={false}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white border border-white/20 transition-all duration-200 text-sm font-medium shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30"
                   >
                     <Sparkles className="w-4 h-4" />

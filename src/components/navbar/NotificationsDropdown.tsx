@@ -245,6 +245,8 @@ export default function NotificationsDropdown() {
                             {notif.link ? (
                               <Link
                                 href={resolveNotificationHref(notif.link)}
+                                // Only signed-in users see this: Cloudflare can't cache their prefetches (src/lib/link-prefetch.ts)
+                                prefetch={false}
                                 onClick={() => handleNotificationClick(notif)}
                                 className="text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:underline"
                               >

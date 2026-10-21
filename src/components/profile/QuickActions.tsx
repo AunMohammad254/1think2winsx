@@ -145,6 +145,7 @@ export default function QuickActions({ actions = defaultActions, onChangePasswor
                         <Link
                             key={action.id}
                             href={action.href}
+                            prefetch={false}
                             aria-label={action.label}
                             className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
                         >

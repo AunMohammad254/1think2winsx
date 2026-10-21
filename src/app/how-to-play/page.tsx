@@ -186,7 +186,7 @@ export default function HowToPlayPage() {
               </span>
             </motion.button>
 
-            <Link href="/quizzes">
+            <Link href="/quizzes" prefetch={false}>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -501,7 +501,7 @@ export default function HowToPlayPage() {
             transition={{ delay: 0.2 }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Link href="/quizzes">
+            <Link href="/quizzes" prefetch={false}>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -513,7 +513,7 @@ export default function HowToPlayPage() {
               </motion.button>
             </Link>
 
-            <Link href="/register">
+            <Link href="/register" prefetch={false}>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}

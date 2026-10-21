@@ -5,6 +5,7 @@ import { memo, useState } from 'react';
 import { toast } from 'sonner';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { Reveal } from '@/components/landing/Primitives';
+import { useLinkPrefetch } from '@/hooks/useLinkPrefetch';
 
 const quickLinks = [
   { href: '/', label: 'Home' },
@@ -22,6 +23,7 @@ const supportLinks = [
 ];
 
 const Footer = memo(function Footer() {
+  const prefetchFor = useLinkPrefetch();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -101,6 +103,7 @@ const Footer = memo(function Footer() {
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    prefetch={prefetchFor(item.href)}
                     className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 transition-all duration-200 hover:bg-white/[0.04] hover:text-white"
                   >
                     <span className="text-[10px] text-white/20 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-blue-400">▸</span>
@@ -121,6 +124,7 @@ const Footer = memo(function Footer() {
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    prefetch={prefetchFor(item.href)}
                     className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 transition-all duration-200 hover:bg-white/[0.04] hover:text-white"
                   >
                     <span className="text-[10px] text-white/20 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-blue-400">▸</span>

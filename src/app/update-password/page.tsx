@@ -263,6 +263,7 @@ export default function UpdatePasswordPage() {
                                 <div className="mt-6 text-center">
                                     <Link
                                         href="/login"
+                                        prefetch={false}
                                         className="inline-flex items-center text-slate-400 hover:text-white transition-colors"
                                     >
                                         <ArrowLeft className="w-4 h-4 mr-2" />

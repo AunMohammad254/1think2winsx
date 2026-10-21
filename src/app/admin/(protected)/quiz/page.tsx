@@ -762,6 +762,7 @@ export default function AdminQuizManagementPage() {
                                                         </button>
                                                         <Link
                                                             href={`/quizzes?openQuiz=${quiz.id}`}
+                                                            prefetch={false}
                                                             className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/10 transition-colors"
                                                         >
                                                             <Eye className="w-4 h-4" />
