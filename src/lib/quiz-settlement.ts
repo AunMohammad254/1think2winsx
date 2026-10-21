@@ -6,6 +6,7 @@
  */
 import { getAdminDb, notificationDb, fetchAllByKeyset } from '@/lib/supabase/db';
 import { answeringClosesAt, quizStage, type QuizStage } from '@/lib/quiz-stage';
+import { invalidateQuizCatalog } from '@/lib/quiz-catalog';
 
 export type TieRule = 'random' | 'earliest';
 export interface Reward { rank: number; points?: number; prizeId?: string }
@@ -184,6 +185,7 @@ export async function getSettlementDetail(quizId: string, nowMs: number): Promis
   if (!quizRes.data) return null;
 
   const rows = (questionsRes.data || []) as Array<{ id: string; text: string; options: unknown; correctOption: number | null; hasCorrectAnswer: boolean }>;
+  const isNormalQuiz = (quizRes.data as QuizRow).quizType === 'normal';
   const settlement = settlementRes.data as { settledAt: string; settledBy: string; tieRule: string; seed: string } | null;
 
   let winners: SettledWinner[] = [];
@@ -223,7 +225,9 @@ export async function getSettlementDetail(quizId: string, nowMs: number): Promis
       id: q.id,
       text: q.text,
       options: parseOptions(q.options),
-      correctOption: q.hasCorrectAnswer ? q.correctOption : null,
+      // The saved result, or a normal quiz's answer key typed when it was made, which pre-fills the
+      // result form (only saving the result closes the question). A prediction has no key before it.
+      correctOption: q.hasCorrectAnswer || isNormalQuiz ? q.correctOption : null,
     })),
     settlement: settlement ? { ...settlement, winners } : null,
   };
@@ -259,6 +263,8 @@ export async function saveQuizResult(quizId: string, answers: Record<string, num
   }
   const { data, error } = await db.rpc('finalize_quiz_scores', { p_quiz_id: quizId });
   if (error || !(data as { success?: boolean } | null)?.success) throw error || new Error('finalize_quiz_scores failed');
+  // The closed questions leave the players' catalogue now, not when its cache next expires
+  invalidateQuizCatalog();
   return { ok: true };
 }
 

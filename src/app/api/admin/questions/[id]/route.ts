@@ -262,9 +262,10 @@ export async function PATCH(
     if (updateData.text) finalUpdateData.text = updateData.text;
     if (updateData.options) finalUpdateData.options = JSON.stringify(updateData.options);
     if (updateData.status) finalUpdateData.status = updateData.status;
+    // The answer key only. Marking the question answered (hasCorrectAnswer) closes it to players, and
+    // the result is saved, with the answers scored, in Settle Quizzes
     if (updateData.correctOption !== undefined) {
       finalUpdateData.correctOption = updateData.correctOption;
-      finalUpdateData.hasCorrectAnswer = true;
     }
 
     // Update question

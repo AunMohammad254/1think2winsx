@@ -38,7 +38,8 @@ vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { general: 'general', admin
 vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: (...a: unknown[]) => recordSecurityEvent(...a) }));
 vi.mock('@/lib/security-logger', () => ({ securityLogger: { logPerformanceMetric: vi.fn() } }));
 vi.mock('@/lib/payment-middleware', () => ({ requirePaymentAccess: (...a: unknown[]) => requirePaymentAccess(...a) }));
-vi.mock('@/lib/quiz-catalog', () => ({
+vi.mock('@/lib/quiz-catalog', async (importOriginal) => ({
+  QUIZ_ENDED_MESSAGE: (await importOriginal<typeof import('@/lib/quiz-catalog')>()).QUIZ_ENDED_MESSAGE,
   getActiveQuizCatalog: (...a: unknown[]) => getActiveQuizCatalog(...a),
   getCatalogQuiz: (...a: unknown[]) => getCatalogQuiz(...a),
 }));
@@ -69,8 +70,12 @@ const catalogQuiz = (over: Record<string, unknown> = {}) => ({
     { id: 'q1', text: 'Who wins the toss?', options: '["A","B"]' },
     { id: 'q2', text: 'Top scorer?', options: '["C","D"]' },
   ],
+  closedQuestionCount: 0,
+  ended: false,
   ...over,
 });
+// Every question has its result: the catalogue lists a pushed one as time-up, with nothing to answer
+const endedQuiz = () => catalogQuiz({ status: 'paused', questions: [], closedQuestionCount: 2, ended: true });
 
 beforeEach(() => {
   db = createSupabaseMock();
@@ -328,6 +333,13 @@ describe('GET /api/live/quizzes/[id]', () => {
     expect(upcoming.status).toBe(409);
     expect(upcoming.headers.get('Cache-Control')).toBe('no-store');
     expect(await upcoming.json()).toEqual({ error: "This quiz hasn't started yet.", upcoming: true, startsAt });
+
+    // Results in: no questions to lock in (the stream's quiz panel shows this text)
+    getCatalogQuiz.mockResolvedValue(endedQuiz());
+    const ended = await openShared();
+    expect(ended.status).toBe(409);
+    expect(ended.headers.get('Cache-Control')).toBe('no-store');
+    expect(await ended.json()).toEqual({ error: 'This quiz has ended: its results are already in.', ended: true });
   });
 
   it('answers an uncached 503 when the catalogue cannot be loaded', async () => {
@@ -481,6 +493,20 @@ describe('GET /api/quizzes/[id]', () => {
     const res = await open();
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ completed: true, totalQuestions: 2, attempt: { id: 'att-1', score: 80 } });
+  });
+
+  it('says a quiz whose results are in has ended, instead of offering closed questions to lock in', async () => {
+    getCatalogQuiz.mockResolvedValue(endedQuiz());
+    let res = await open();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'This quiz has ended: its results are already in.', ended: true });
+
+    // A player who answered it still goes to their results, counting the closed questions
+    findAttempt.mockResolvedValue({ id: 'att-1', isCompleted: true, score: 80, points: 8, completedAt: 'then' });
+    findQuestionAttempts.mockResolvedValue([{ questionId: 'q1' }, { questionId: 'q2' }]);
+    res = await open();
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ completed: true, totalQuestions: 2 });
   });
 
   it("does not reveal an upcoming quiz's questions", async () => {

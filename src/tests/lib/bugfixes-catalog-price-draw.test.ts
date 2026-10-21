@@ -75,6 +75,35 @@ describe('quiz catalogue attempt counts', () => {
     expect(catalog.find((q) => q.id === 'q2')?.totalAttempts).toBe(0); // quiz with no attempts
   });
 
+  it('offers only questions without a saved result, and treats a quiz whose questions all have one as over', async () => {
+    const live = { ...quiz, status: 'active', pushedAt: new Date().toISOString() };
+    tables.Quiz = { data: [
+      { ...live, id: 'partly' },
+      // Settled but never pushed, like "To win Sasung": it was listed forever, offering a closed question
+      { ...live, id: 'settled', pushedAt: null },
+      { ...live, id: 'pushed-done' },
+      { ...live, id: 'empty' },
+    ], error: null };
+    tables.Question = { data: [
+      { id: 'a', quizId: 'partly', text: 'Toss?', options: '["A","B"]', hasCorrectAnswer: true },
+      { id: 'b', quizId: 'partly', text: 'Next ball?', options: '["Four","Six"]', hasCorrectAnswer: false },
+      { id: 'c', quizId: 'settled', text: 'Winner?', options: '["X","Y"]', hasCorrectAnswer: true },
+      { id: 'd', quizId: 'pushed-done', text: 'Wicket?', options: '["Yes","No"]', hasCorrectAnswer: true },
+    ], error: null };
+    rpc.mockResolvedValue({ data: [], error: null });
+
+    const { getActiveQuizCatalog } = await import('@/lib/quiz-catalog');
+    const catalog = await getActiveQuizCatalog();
+    const byId = Object.fromEntries(catalog.map((q) => [q.id, q]));
+
+    expect(byId.partly).toMatchObject({ status: 'active', ended: false, closedQuestionCount: 1, questions: [{ id: 'b', text: 'Next ball?', options: ['Four', 'Six'] }] });
+    expect(byId.settled).toBeUndefined();
+    // Pushed: listed as time-up until its window passes, with nothing to answer
+    expect(byId['pushed-done']).toMatchObject({ status: 'paused', ended: true, closedQuestionCount: 1, questions: [] });
+    // A quiz that has no questions yet is not "over"
+    expect(byId.empty).toMatchObject({ status: 'active', ended: false, closedQuestionCount: 0, questions: [] });
+  });
+
   it('still serves the catalogue (and logs) when only the count query fails', async () => {
     tables.Quiz = { data: [quiz], error: null };
     tables.Question = { data: [], error: null };

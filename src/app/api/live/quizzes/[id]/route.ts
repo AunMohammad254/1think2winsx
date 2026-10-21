@@ -1,6 +1,6 @@
 /* v8 ignore next -- an import line has no logic; Vitest's rewrite of it reports a phantom branch */
 import { NextResponse } from 'next/server';
-import { getCatalogQuiz } from '@/lib/quiz-catalog';
+import { getCatalogQuiz, QUIZ_ENDED_MESSAGE } from '@/lib/quiz-catalog';
 import { computeQuizEndsAt } from '@/lib/quiz-clock';
 import { isWalletEnabled } from '@/lib/wallet/service';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -37,6 +37,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         { error: "This quiz hasn't started yet.", upcoming: true, startsAt: quiz.startsAt },
         { status: 409, headers: NO_STORE }
       );
+    }
+    // Results already in: nothing is left to answer (players who answered get theirs from the personal route)
+    if (quiz.ended) {
+      return NextResponse.json({ error: QUIZ_ENDED_MESSAGE, ended: true }, { status: 409, headers: NO_STORE });
     }
 
     const questions = quiz.questions.map((question) => ({ id: question.id, text: question.text, options: question.options }));

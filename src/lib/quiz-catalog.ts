@@ -29,11 +29,19 @@ export interface CatalogQuiz {
   announcedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** The questions players can still answer: active, and without a saved result. */
   questions: CatalogQuestion[];
+  /** Active questions whose result is saved: closed, so submit_quiz_attempt refuses answers to them. */
+  closedQuestionCount: number;
+  /** Every active question has its result (saved or settled): nothing is left to answer. */
+  ended: boolean;
   totalAttempts: number;
   /** Name of the linked lucky-draw prize, for public listings such as the landing page. */
   prizeName: string | null;
 }
+
+/** What the quiz routes tell a player who opens a quiz whose results are already in. */
+export const QUIZ_ENDED_MESSAGE = 'This quiz has ended: its results are already in.';
 
 const TTL_MS = 15_000;
 // After the TTL the previous catalogue keeps being served (and refreshed in the background) for up to
@@ -105,7 +113,7 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
 
   const [questionsRes, countsRes, prizesRes] = await Promise.all([
     db.from('Question')
-      .select('id, quizId, text, options, createdAt')
+      .select('id, quizId, text, options, hasCorrectAnswer, createdAt')
       .in('quizId', ids)
       .eq('status', 'active')
       .order('createdAt', { ascending: true }),
@@ -119,7 +127,14 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
   if (questionsRes.error) throw questionsRes.error;
 
   const byQuiz = new Map<string, CatalogQuestion[]>();
+  const closedByQuiz = new Map<string, number>();
   for (const q of questionsRes.data || []) {
+    // A question with a saved result is closed: offering it made "Lock in" fail with "Invalid or
+    // closed question IDs in submission"
+    if (q.hasCorrectAnswer) {
+      closedByQuiz.set(q.quizId, (closedByQuiz.get(q.quizId) || 0) + 1);
+      continue;
+    }
     const list = byQuiz.get(q.quizId) || [];
     list.push({ id: q.id, text: q.text, options: parseOptions(q.options) });
     byQuiz.set(q.quizId, list);
@@ -149,17 +164,29 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     }
   }
 
-  return quizzes.map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts' | 'prizeName'> & { prizeId?: string | null }) => ({
-    ...q,
-    // Players only ever see "upcoming" before a quiz starts, whichever status the admin used
-    status: q.status === 'scheduled' ? 'upcoming' : q.status,
-    announcedAt: q.announcedAt ?? null,
-    description: q.description || '',
-    isBumperPrize: q.isBumperPrize || (!!q.prizeId && bumperPrizes.has(q.prizeId)),
-    questions: byQuiz.get(q.id) || [],
-    totalAttempts: counts.get(q.id) || 0,
-    prizeName: (q.prizeId && prizeNames.get(q.prizeId)) || null,
-  }));
+  type QuizRow = Omit<CatalogQuiz, 'questions' | 'closedQuestionCount' | 'ended' | 'totalAttempts' | 'prizeName'> & { prizeId?: string | null };
+  return quizzes.flatMap((q: QuizRow): CatalogQuiz[] => {
+    const questions = byQuiz.get(q.id) || [];
+    const closedQuestionCount = closedByQuiz.get(q.id) || 0;
+    // Saving the result (or settling) doesn't change the quiz's status, so an active quiz can be over.
+    // Never pushed, it has no window that would ever drop it from the list, so it leaves now; pushed,
+    // it shows as time-up (paused) until its window has passed.
+    const ended = q.status === 'active' && questions.length === 0 && closedQuestionCount > 0;
+    if (ended && !q.pushedAt) return [];
+    return [{
+      ...q,
+      // Players only ever see "upcoming" before a quiz starts, whichever status the admin used
+      status: ended ? 'paused' : q.status === 'scheduled' ? 'upcoming' : q.status,
+      announcedAt: q.announcedAt ?? null,
+      description: q.description || '',
+      isBumperPrize: q.isBumperPrize || (!!q.prizeId && bumperPrizes.has(q.prizeId)),
+      questions,
+      closedQuestionCount,
+      ended,
+      totalAttempts: counts.get(q.id) || 0,
+      prizeName: (q.prizeId && prizeNames.get(q.prizeId)) || null,
+    }];
+  });
 }
 
 function refresh(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }> {

@@ -47,14 +47,15 @@ describe('every admin quiz action', () => {
 });
 
 describe('createQuiz', () => {
-  it('saves the quiz and questions, taking the answer key from the ticked option', async () => {
+  it('saves the quiz and questions, taking the answer key from the ticked option and leaving them open', async () => {
     const res = await actions.createQuiz(quizInput({ startsAt: '2026-11-01T18:00:00Z', prizeId: 'p1' }) as never);
     expect(res).toEqual({ success: true, data: { id: 'quiz-1' }, message: 'Quiz created successfully!' });
     expect(quizDb.create).toHaveBeenCalledWith({
       title: 'Cricket night', description: null, duration: 10, timeUpDuration: 60, passingScore: 60, status: 'draft',
       startsAt: '2026-11-01T18:00:00.000Z', prizeId: 'p1', isBumperPrize: false, quizType: 'normal',
     });
-    expect(questionDb.create).toHaveBeenCalledWith({ quizId: 'quiz-1', text: 'Who wins?', options: '["A","B"]', correctOption: 1, hasCorrectAnswer: true, status: 'active' });
+    // hasCorrectAnswer would close the question: submit_quiz_attempt refused every answer to a normal quiz
+    expect(questionDb.create).toHaveBeenCalledWith({ quizId: 'quiz-1', text: 'Who wins?', options: '["A","B"]', correctOption: 1, hasCorrectAnswer: false, status: 'active' });
     expect(createBroadcast).not.toHaveBeenCalled();
     expect(clearQuizListCache).toHaveBeenCalled();
   });
@@ -106,9 +107,19 @@ describe('updateQuiz', () => {
     const res = await actions.updateQuiz({ id: 'quiz-1', ...quizInput({ questions: [question({ id: 'keep' }), question({ options: [{ text: 'C', isCorrect: true }, { text: 'D' }], correctOption: 0 })] }) } as never);
     expect(res).toEqual({ success: true, message: 'Quiz updated successfully!' });
     expect(questionDb.delete).toHaveBeenCalledWith('drop');
-    expect(questionDb.update).toHaveBeenCalledWith('keep', expect.objectContaining({ correctOption: 1, hasCorrectAnswer: true }));
-    expect(questionDb.create).toHaveBeenCalledWith(expect.objectContaining({ quizId: 'quiz-1', options: '["C","D"]', correctOption: 0 }));
+    expect(questionDb.update).toHaveBeenCalledWith('keep', expect.objectContaining({ correctOption: 1, hasCorrectAnswer: false }));
+    expect(questionDb.create).toHaveBeenCalledWith(expect.objectContaining({ quizId: 'quiz-1', options: '["C","D"]', correctOption: 0, hasCorrectAnswer: false }));
     expect(revalidatePath).toHaveBeenCalledWith('/quiz/quiz-1');
+  });
+
+  it("keeps a question's saved result: editing the quiz used to erase it and reopen the question", async () => {
+    questionDb.findByQuizId.mockResolvedValue([{ id: 'done', hasCorrectAnswer: true }, { id: 'open', hasCorrectAnswer: false }]);
+    await actions.updateQuiz({ id: 'quiz-1', ...quizInput({ quizType: 'predictable', questions: [
+      question({ id: 'done', text: 'Toss winner?', correctOption: null }),
+      question({ id: 'open', correctOption: null }),
+    ] }) } as never);
+    expect(questionDb.update).toHaveBeenCalledWith('done', { text: 'Toss winner?', options: '["A","B"]', status: 'active' });
+    expect(questionDb.update).toHaveBeenCalledWith('open', expect.objectContaining({ correctOption: null, hasCorrectAnswer: false }));
   });
 
   it('stores prediction questions without a key and needs an id', async () => {

@@ -98,7 +98,8 @@ export async function POST(request: NextRequest) {
         text,
         options: JSON.stringify(options),
         correctOption: correctOption !== null ? correctOption : null,
-        hasCorrectAnswer: correctOption !== undefined && correctOption !== null,
+        // Open until Settle Quizzes saves the result: a question with one refuses answers
+        hasCorrectAnswer: false,
         status: 'active',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
