@@ -108,13 +108,71 @@ function PlaysLine({ quizzes }: { quizzes: LandingQuiz[] }) {
   return <>Be first in line for the next quiz</>;
 }
 
-export default function CTA() {
-  const { user } = useAuth();
-  const isLoggedIn = !!user;
+// ⚡ Bolt Performance Optimization:
+// Extracted `useNow` and `useLiveSnapshot` into a separate `CTADynamicData` child component.
+// Why: `useNow` triggers a re-render every 1 second (1000ms interval). Placing it at the `CTA` root
+// caused the entire static, visually complex section to needlessly reconcile every second.
+// Impact: Significantly reduces React rendering work on the main thread, resulting in smoother scrolling and animations.
+function CTADynamicData({ isLoggedIn }: { isLoggedIn: boolean }) {
   // Real schedule once the cached snapshot arrives; until then (or if it fails) the static copy stays
   const { snapshot } = useLiveSnapshot();
   const now = useNow(1000, snapshot !== null);
   const quizzes = useMemo(() => (snapshot ? toLandingQuizzes(snapshot, now) : null), [snapshot, now]);
+
+  return (
+    <>
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-white/55">
+        {quizzes ? (
+          <NextQuiz quizzes={quizzes} now={now} />
+        ) : (
+          <>
+            <span>Next tournament starts in</span>
+            <Countdown />
+          </>
+        )}
+      </div>
+      <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <Button
+          href={isLoggedIn ? "/quizzes" : "/register"}
+          size="lg"
+          variant="primary"
+          icon={
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+              <path d="M13.4 5.6 12 7l4 4H4v2h12l-4 4 1.4 1.4L20 12l-6.6-6.4Z" />
+            </svg>
+          }
+        >
+          {isLoggedIn ? "🚀 Play Now" : "🚀 Register Now"}
+        </Button>
+        <Button href={isLoggedIn ? "/quizzes" : "/register"} size="lg" variant="secondary">
+          Try free demo
+        </Button>
+      </div>
+      <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-6">
+        <div className="flex -space-x-2">
+          {["from-rose-400 to-orange-500", "from-emerald-400 to-cyan-500", "from-violet-500 to-pink-500", "from-amber-400 to-orange-500", "from-blue-400 to-violet-500"].map(
+            (g, i) => (
+              <div key={i} className={`h-9 w-9 rounded-full bg-gradient-to-br ${g} ring-2 ring-ink-900 transition-transform duration-300 hover:scale-110`} />
+            )
+          )}
+        </div>
+        <p className="text-sm text-white/55">
+          {quizzes ? (
+            <PlaysLine quizzes={quizzes} />
+          ) : (
+            <>
+              <span className="font-semibold text-white">2,184 players</span> joined this week
+            </>
+          )}
+        </p>
+      </div>
+    </>
+  );
+}
+
+export default function CTA() {
+  const { user } = useAuth();
+  const isLoggedIn = !!user;
 
   return (
     <Section  className="relative">
@@ -142,51 +200,7 @@ export default function CTA() {
             <p className="mx-auto mt-5 max-w-xl text-base text-white/65 sm:text-lg">
               Join thousands of sports fans competing for amazing prizes. Your first quiz is on us — start your journey today.
             </p>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-white/55">
-              {quizzes ? (
-                <NextQuiz quizzes={quizzes} now={now} />
-              ) : (
-                <>
-                  <span>Next tournament starts in</span>
-                  <Countdown />
-                </>
-              )}
-            </div>
-            <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Button
-                href={isLoggedIn ? "/quizzes" : "/register"}
-                size="lg"
-                variant="primary"
-                icon={
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                    <path d="M13.4 5.6 12 7l4 4H4v2h12l-4 4 1.4 1.4L20 12l-6.6-6.4Z" />
-                  </svg>
-                }
-              >
-                {isLoggedIn ? "🚀 Play Now" : "🚀 Register Now"}
-              </Button>
-              <Button href={isLoggedIn ? "/quizzes" : "/register"} size="lg" variant="secondary">
-                Try free demo
-              </Button>
-            </div>
-            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-6">
-              <div className="flex -space-x-2">
-                {["from-rose-400 to-orange-500", "from-emerald-400 to-cyan-500", "from-violet-500 to-pink-500", "from-amber-400 to-orange-500", "from-blue-400 to-violet-500"].map(
-                  (g, i) => (
-                    <div key={i} className={`h-9 w-9 rounded-full bg-gradient-to-br ${g} ring-2 ring-ink-900 transition-transform duration-300 hover:scale-110`} />
-                  )
-                )}
-              </div>
-              <p className="text-sm text-white/55">
-                {quizzes ? (
-                  <PlaysLine quizzes={quizzes} />
-                ) : (
-                  <>
-                    <span className="font-semibold text-white">2,184 players</span> joined this week
-                  </>
-                )}
-              </p>
-            </div>
+            <CTADynamicData isLoggedIn={isLoggedIn} />
             <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/60">
               <span>🔒 SSL Secure</span>
               <span>✅ PCI Compliant</span>

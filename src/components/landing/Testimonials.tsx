@@ -62,8 +62,12 @@ const ReviewCard = memo(function ReviewCard({ r, index }: { r: (typeof REVIEWS)[
   );
 });
 
-export default function Testimonials() {
-  const items = [...REVIEWS, ...REVIEWS];
+// ⚡ Bolt Performance Optimization:
+// Extracted `spotlightIndex` state and its `setInterval` into a separate `FeaturedReview` component.
+// Why: Prevents the large outer `Testimonials` component (with its static grid and marquee) from
+// re-rendering every 4 seconds.
+// Impact: Eliminates periodic deep reconciliation of static child components during the spotlight loop.
+function FeaturedReview() {
   const [spotlightIndex, setSpotlightIndex] = useState(0);
 
   useEffect(() => {
@@ -74,6 +78,35 @@ export default function Testimonials() {
   }, []);
 
   const spotlight = REVIEWS[spotlightIndex];
+
+  return (
+    <div className="mx-auto mt-14 max-w-md">
+      <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-linear-to-br from-emerald-500/8 to-amber-400/5 p-6 transition-all duration-700">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+          </span>
+          Featured review
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-linear-to-br ${spotlight.avatar} text-sm font-bold text-white`}>
+            {spotlight.name.split(" ").map((n) => n[0]).join("")}
+          </div>
+          <div>
+            <p className="font-semibold text-white">{spotlight.name}</p>
+            <p className="text-xs text-white/60">{spotlight.role}</p>
+          </div>
+          <div className="ml-auto"><Stars count={spotlight.rating} /></div>
+        </div>
+        <p className="mt-3 text-sm leading-relaxed text-white/75">"{spotlight.quote}"</p>
+      </div>
+    </div>
+  );
+}
+
+export default function Testimonials() {
+  const items = [...REVIEWS, ...REVIEWS];
 
   return (
     <Section  className="relative overflow-hidden">
@@ -119,28 +152,7 @@ export default function Testimonials() {
         </div>
       </Reveal>
       <Reveal delay={450}>
-        <div className="mx-auto mt-14 max-w-md">
-          <div className="overflow-hidden rounded-2xl border border-emerald-500/20 bg-linear-to-br from-emerald-500/8 to-amber-400/5 p-6 transition-all duration-700">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              Featured review
-            </div>
-            <div className="mt-4 flex items-center gap-3">
-              <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-linear-to-br ${spotlight.avatar} text-sm font-bold text-white`}>
-                {spotlight.name.split(" ").map((n) => n[0]).join("")}
-              </div>
-              <div>
-                <p className="font-semibold text-white">{spotlight.name}</p>
-                <p className="text-xs text-white/60">{spotlight.role}</p>
-              </div>
-              <div className="ml-auto"><Stars count={spotlight.rating} /></div>
-            </div>
-            <p className="mt-3 text-sm leading-relaxed text-white/75">"{spotlight.quote}"</p>
-          </div>
-        </div>
+        <FeaturedReview />
       </Reveal>
     </Section>
   );
