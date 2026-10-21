@@ -5,7 +5,7 @@ import { X, Loader2, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
-import { localWindowEnd } from '@/lib/quiz-clock';
+import { isWindowClosed, localWindowEnd } from '@/lib/quiz-clock';
 import { describeStart, formatClock } from '@/lib/live-countdown';
 import { isStreamFullscreen } from '@/lib/stream-fullscreen';
 import { isNotificationSoundOn, playChime } from '@/lib/notification-sound';
@@ -70,6 +70,9 @@ type Banner = 'live' | 'upcoming' | null;
 
 /** How long a banner shows before it shrinks to its pill. */
 const BANNER_MS = 8000;
+
+/** Toast for a "Lock in" after the countdown reads "Time's up". */
+const TIME_UP_MESSAGE = 'The time is up for the quiz. You cannot lock in answer.';
 
 const parseMs = (iso: string | null | undefined) => {
     const ms = iso ? Date.parse(iso) : NaN;
@@ -294,6 +297,12 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     // every question is answered and while a submit is in flight
     const submit = useCallback(async () => {
         const loaded = quiz!;
+        // The countdown reads "Time's up": say so instead of sending a submit the server refuses
+        const timeUp = () => isWindowClosed(live?.endsAtMs ?? null, Date.now());
+        if (timeUp()) {
+            toast.error(TIME_UP_MESSAGE);
+            return;
+        }
         setSubmitting(true);
         try {
             const csrfToken = await getCSRFToken();
@@ -309,7 +318,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             }, { retries: 4, retryOn: [502, 503, 504] });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                toast.error(data.error || 'Failed to submit');
+                // Locked in on the last second and refused: the window closed while it was on its way
+                toast.error(timeUp() ? TIME_UP_MESSAGE : data.error || 'Failed to submit');
                 return;
             }
             setLocked(true);
@@ -320,7 +330,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         } finally {
             setSubmitting(false);
         }
-    }, [quiz, answers, onAnswered]);
+    }, [quiz, answers, live, onAnswered]);
 
     // Countdowns. `liveLeft` null: the live quiz has no answering window (or there is none).
     const liveLeft = live?.endsAtMs != null ? live.endsAtMs - now : null;

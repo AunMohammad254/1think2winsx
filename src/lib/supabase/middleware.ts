@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { isStaleAuthTokenError } from './auth-error-filter'
 
 // Routes that require a signed-in user.
 const PROTECTED_PREFIXES = ['/profile', '/quiz', '/quizzes']
@@ -98,13 +99,17 @@ export async function updateSession(request: NextRequest) {
         const { data, error } = await supabase.auth.getClaims()
         if (!error && data?.claims?.sub) {
             userId = data.claims.sub
-        } else if (error && (error.name === 'AuthApiError' || /refresh token/i.test(error.message))) {
+        } else if (error && (error.name === 'AuthApiError' || isStaleAuthTokenError(error))) {
             // Stale/revoked session: clear it so the user can sign in again.
             // (Transient network errors must NOT log everyone out.)
             clearAuthCookies(request, supabaseResponse)
         }
     } catch (error) {
-        console.error('[Auth Proxy] Error verifying session:', error)
+        if (isStaleAuthTokenError(error)) {
+            clearAuthCookies(request, supabaseResponse)
+        } else {
+            console.error('[Auth Proxy] Error verifying session:', error)
+        }
     }
 
     if (isProtected && !userId) return redirectToLogin(request)
@@ -131,5 +136,9 @@ function redirectToLogin(request: NextRequest) {
 function clearAuthCookies(request: NextRequest, response: NextResponse) {
     request.cookies.getAll()
         .filter(c => c.name.startsWith('sb-'))
-        .forEach(c => response.cookies.delete(c.name))
+        .forEach(c => {
+            request.cookies.delete(c.name)
+            response.cookies.delete(c.name)
+        })
 }
+
