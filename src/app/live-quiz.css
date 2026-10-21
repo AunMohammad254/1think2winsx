@@ -32,45 +32,77 @@
 .live-quiz-theme .qstatus.answered .qdot{ background:var(--a1); }
 .live-quiz-theme .qstatus.missed{ background:rgba(240,87,93,.13); color:var(--danger); }
 .live-quiz-theme .qstatus.missed .qdot{ background:var(--danger); }
-.live-quiz-theme .qstatus.upcoming{ background:rgba(255,193,7,.14); color:var(--accent); }
-.live-quiz-theme .qstatus.upcoming .qdot{ background:var(--accent); }
+.live-quiz-theme .qstatus.upcoming{ background:rgba(245,166,35,.14); color:var(--warn); }
+.live-quiz-theme .qstatus.upcoming .qdot{ background:var(--warn); }
 .live-quiz-theme .qstatus.time-up{ background:rgba(128,128,128,.14); color:#9ca3af; }
 .live-quiz-theme .qstatus.time-up .qdot{ background:#9ca3af; }
 
-/* Live Stream Section Overlay */
+/* Live Stream Section. The section is what goes fullscreen (data-stream-fullscreen), so the banners,
+   pills and the quiz below come along. */
 .live-quiz-theme .stream-section{ position:relative; border-radius:12px; overflow:hidden; border:1px solid var(--border); background: var(--bg); }
-.live-quiz-theme .stream-row{ display:flex; width:100%; transition:height .38s cubic-bezier(.4,0,.2,1); }
-@media (min-width: 769px) { .live-quiz-theme .stream-row{ height:auto; min-height: 260px; } }
-@media (max-width: 768px) { .live-quiz-theme .stream-row{ height:auto; flex-direction:column; } }
+/* Wraps so the pills (.lq-dock) get their own line under the video and the split quiz */
+.live-quiz-theme .stream-row{ display:flex; flex-wrap:wrap; width:100%; }
+@media (max-width: 768px) { .live-quiz-theme .stream-row{ flex-direction:column; flex-wrap:nowrap; } }
 
 .live-quiz-theme .player{
   position:relative; overflow:hidden; flex:1 1 100%; min-width:0; min-height:0;
-  display:flex; align-items:center; justify-content:center;
-  transition:flex-basis .38s cubic-bezier(.4,0,.2,1);
+  display:flex; flex-direction:column; justify-content:center;
 }
-.live-quiz-theme .badge-live{ position:absolute; top:12px; left:12px; background:rgba(220,38,38,.85); color:#fff; font-size:10px; font-weight:800; letter-spacing:.05em; padding:4px 8px; border-radius:6px; display:flex; align-items:center; gap:5px; backdrop-filter:blur(4px); z-index:20;}
-.live-quiz-theme .badge-live .rec{ width:6px; height:6px; background:#fff; border-radius:50%; animation:pulse 1.5s infinite; }
-.live-quiz-theme .viewers{ position:absolute; top:12px; left:75px; background:rgba(0,0,0,.6); color:#fff; font-size:11px; font-weight:600; padding:4px 8px; border-radius:6px; display:flex; align-items:center; gap:5px; backdrop-filter:blur(4px); z-index:20;}
-.live-quiz-theme .stream-section.split .player{ flex:1 1 60%; }
-@media (max-width: 768px) { .live-quiz-theme .stream-section.split .player{ flex:0 0 auto; height: 200px; } }
+.live-quiz-theme .stream-row:has(> .split-slot) > .player{ flex-basis:60%; }
+/* The section already has the border and corners */
+.live-quiz-theme .stream-section .stream-bar{ border:none; border-radius:0; border-bottom:1px solid var(--border); }
+.live-quiz-theme .stream-section .stream-video{ border-radius:0; }
 
-/* Toast */
-.live-quiz-theme .toast{
-  position:absolute; left:10px; right:10px; top:10px; z-index:40;
-  background:linear-gradient(135deg, rgba(79,124,255,.22), rgba(236,72,153,.18)), var(--surface-2);
-  border:1px solid var(--border-strong); border-radius:13px; padding:11px 12px;
-  display:flex; align-items:center; gap:10px; cursor:pointer; box-shadow:0 14px 34px -10px rgba(0,0,0,.6);
+/* Nothing live: no empty video box; banners and the quiz show in the page instead */
+.live-quiz-theme .stream-section.no-stream{ border:none; background:none; overflow:visible; border-radius:0; }
+.live-quiz-theme .stream-section.no-stream .stream-row{ flex-direction:column; flex-wrap:nowrap; gap:10px; }
+.live-quiz-theme .stream-section.no-stream .player{ display:none; }
+
+/* Banner: what just happened, over the top of the video */
+.live-quiz-theme .lq-banner{
+  position:absolute; left:10px; right:10px; top:10px; z-index:40; max-width:460px; margin:0 auto;
+  border:1px solid var(--border-strong); border-radius:13px; padding:6px 6px 6px 8px;
+  display:flex; align-items:center; gap:6px; box-shadow:0 14px 34px -10px rgba(0,0,0,.6);
   transform:translateY(-140%); opacity:0; transition:transform .45s cubic-bezier(.2,.9,.3,1.2), opacity .3s; pointer-events: none;
 }
-.live-quiz-theme .toast.show{ transform:translateY(0); opacity:1; pointer-events: auto; }
-.live-quiz-theme .toast .ticon{ flex:none; width:32px; height:32px; border-radius:9px; background:linear-gradient(135deg,var(--a1),var(--a3));
-  display:flex; align-items:center; justify-content:center; }
-.live-quiz-theme .toast .ticon svg{width:15px;height:15px;color:#fff;}
-.live-quiz-theme .toast .ttext{flex:1; min-width:0; text-align: left;}
-.live-quiz-theme .toast .ttitle{font-size:12.5px; font-weight:700; color: #fff;}
-.live-quiz-theme .toast .tsub{font-size:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.live-quiz-theme .toast .tarrow{color:var(--text-faint); flex:none; display: flex; align-items: center;}
-.live-quiz-theme .toast .tarrow button { padding: 4px; cursor: pointer; }
+.live-quiz-theme .lq-banner.live{ background:linear-gradient(135deg, rgba(79,124,255,.22), rgba(236,72,153,.18)), var(--surface-2); }
+.live-quiz-theme .lq-banner.upcoming{ background:linear-gradient(135deg, rgba(245,166,35,.2), rgba(236,72,153,.1)), var(--surface-2); }
+.live-quiz-theme .lq-banner.show{ transform:translateY(0); opacity:1; pointer-events: auto; }
+/* Under the title bar, so its fullscreen button stays reachable */
+.live-quiz-theme .stream-section:has(.stream-bar) .lq-banner{ top:54px; }
+.live-quiz-theme .lq-banner-main{ flex:1; min-width:0; display:flex; align-items:center; gap:10px; padding:4px; text-align:left; border-radius:9px; color:inherit; }
+.live-quiz-theme button.lq-banner-main{ cursor:pointer; }
+.live-quiz-theme button.lq-banner-main:focus-visible{ outline:2px solid var(--a1); outline-offset:1px; }
+.live-quiz-theme .lq-banner .ticon{ flex:none; width:32px; height:32px; border-radius:9px; background:linear-gradient(135deg,var(--a1),var(--a3));
+  display:flex; align-items:center; justify-content:center; color:#fff; }
+.live-quiz-theme .lq-banner.upcoming .ticon{ background:linear-gradient(135deg,var(--warn),var(--a3)); }
+.live-quiz-theme .lq-banner .ticon svg{width:15px;height:15px;}
+.live-quiz-theme .lq-banner .ttext{flex:1; min-width:0; display:flex; flex-direction:column;}
+.live-quiz-theme .lq-banner .ttitle{font-size:12.5px; font-weight:700; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.live-quiz-theme .lq-banner .tsub{font-size:11px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.live-quiz-theme .lq-banner-close{ flex:none; padding:6px; border-radius:8px; color:var(--text-faint); cursor:pointer; }
+.live-quiz-theme .lq-banner-close:hover{ color:#fff; background:rgba(255,255,255,.08); }
+.live-quiz-theme .stream-section.no-stream .lq-banner{ position:relative; inset:auto; max-width:none; margin:0; transform:none; }
+
+/* Countdown ring: the part of the answering window that is left */
+.live-quiz-theme .lq-ring{ position:relative; flex:none; width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; }
+.live-quiz-theme .lq-ring.small{ width:22px; height:22px; }
+.live-quiz-theme .lq-ring svg{ position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg); }
+.live-quiz-theme .lq-ring circle{ fill:none; stroke-width:3.5; }
+.live-quiz-theme .lq-ring .track{ stroke:rgba(255,255,255,.14); }
+.live-quiz-theme .lq-ring .fill{ stroke:var(--live); stroke-linecap:round; transition:stroke-dashoffset 1s linear; }
+.live-quiz-theme .lq-ring-label{ font-size:9.5px; font-weight:800; color:#fff; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+
+/* Pills: a live quiz still open, or the next one coming, after its banner has gone */
+.live-quiz-theme .lq-dock{ order:3; flex:1 1 100%; display:flex; flex-wrap:wrap; gap:8px; padding:8px 10px; border-top:1px solid var(--border); background:var(--panel); }
+.live-quiz-theme .lq-pill{ display:inline-flex; align-items:center; gap:7px; max-width:100%; padding:4px 12px 4px 5px; border-radius:999px; border:1px solid;
+  font-size:12px; font-weight:700; color:#fff; cursor:pointer; transition:background .2s; }
+.live-quiz-theme .lq-pill-text{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
+.live-quiz-theme .lq-pill.live{ background:rgba(18,217,153,.12); border-color:rgba(18,217,153,.4); }
+.live-quiz-theme .lq-pill.live:hover{ background:rgba(18,217,153,.2); }
+.live-quiz-theme .lq-pill.upcoming{ background:rgba(245,166,35,.12); border-color:rgba(245,166,35,.4); color:#fcd38d; padding-left:10px; }
+.live-quiz-theme .lq-pill.upcoming:hover{ background:rgba(245,166,35,.2); }
+.live-quiz-theme .stream-section.no-stream .lq-dock{ border:1px solid var(--border); border-radius:12px; }
 
 /* Popup */
 .live-quiz-theme .quiz-pop{
@@ -78,6 +110,8 @@
   background:rgba(2,4,10,0); pointer-events:none; transition:background .3s; padding:16px;
 }
 .live-quiz-theme .quiz-pop.open{ background:rgba(2,4,10,.6); pointer-events:auto; }
+/* Without a stream there is no box to float over: the quiz opens over the page */
+.live-quiz-theme .stream-section.no-stream .quiz-pop{ position:fixed; z-index:70; }
 
 /* Quiz Panel */
 .live-quiz-theme .quiz-panel{
@@ -88,23 +122,35 @@
   pointer-events: none;
 }
 .live-quiz-theme .quiz-pop.open .quiz-panel{ transform:scale(1); opacity:1; pointer-events: auto; }
+.live-quiz-theme .stream-section.no-stream .quiz-pop .quiz-panel{ height:auto; max-height:85vh; }
 
 /* Split Slot */
-.live-quiz-theme .split-slot .quiz-panel{ 
-  width:auto; flex:1 1 40%; min-width:0; border-radius:0; border-top:none; border-right:none; border-bottom:none; 
+.live-quiz-theme .split-slot .quiz-panel{
+  width:auto; flex:1 1 40%; min-width:0; border-radius:0; border-top:none; border-right:none; border-bottom:none;
   transform:none; opacity:1; pointer-events: auto;
+  /* As tall as the video beside it */
+  height:auto; max-height:none; align-self:stretch;
 }
 @media (max-width: 768px) {
   .live-quiz-theme .split-slot .quiz-panel{ border-left:none; border-top:1px solid var(--border-strong); flex:1 1 auto; }
 }
 .live-quiz-theme .split-slot{ display:contents; }
+.live-quiz-theme .stream-section.no-stream .split-slot .quiz-panel{ border:1px solid var(--border-strong); border-radius:14px; }
 
 .live-quiz-theme .qp-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:11px 13px;
   border-bottom:1px solid var(--border); flex:none; }
 .live-quiz-theme .qp-head .qp-title{ display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700; min-width:0; color: #fff; }
 .live-quiz-theme .qp-head .qp-title span.tt{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .live-quiz-theme .qp-head .qp-title .livedot{width:7px;height:7px;border-radius:50%;background:var(--live); flex:none; animation: pulse 1.6s infinite;}
-.live-quiz-theme .qp-actions{ display:flex; gap:6px; flex:none; }
+.live-quiz-theme .qp-actions{ display:flex; align-items:center; gap:6px; flex:none; }
+.live-quiz-theme .qp-timer{ font-size:11px; font-weight:700; color:var(--live); font-variant-numeric:tabular-nums; margin-right:2px; }
+.live-quiz-theme .qp-timer.over{ color:var(--danger); }
+.live-quiz-theme .qp-progress{ height:3px; background:var(--border); flex:none; }
+.live-quiz-theme .qp-progress span{ display:block; height:100%; background:var(--live); transition:width 1s linear; }
+.live-quiz-theme .qp-next{ display:flex; align-items:center; gap:8px; padding:8px 13px; flex:none; font-size:11.5px; color:#fcd38d;
+  background:rgba(245,166,35,.1); border-bottom:1px solid var(--border); }
+.live-quiz-theme .qp-next-text{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.live-quiz-theme .qp-next button{ flex:none; font-weight:700; color:#fff; padding:4px 10px; border-radius:8px; background:linear-gradient(135deg,var(--a1),var(--a2)); cursor:pointer; }
 .live-quiz-theme .icon-btn{ width:27px; height:27px; border-radius:8px; border:1px solid var(--border-strong); background:var(--surface);
   color:var(--text-dim); display:flex; align-items:center; justify-content:center; cursor:pointer; }
 .live-quiz-theme .icon-btn:hover{ color:var(--text); background:var(--surface-2); }
@@ -128,3 +174,24 @@
 .live-quiz-theme .qp-submit:disabled{ background:var(--surface-2); color:var(--text-faint); cursor:default; }
 
 .live-quiz-theme .dockhint{ font-size:10.5px; color:var(--text-faint); padding:8px 13px; border-top:1px solid var(--border); flex:none; }
+
+/* Fullscreen (native or immersive, see src/lib/stream-fullscreen.ts): the video takes the screen.
+   Landscape puts the quiz beside it, portrait under it like a bottom sheet. */
+.live-quiz-theme .stream-section[data-stream-fullscreen]{ border:none; border-radius:0; display:flex; flex-direction:column; }
+.live-quiz-theme .stream-section[data-stream-fullscreen] .stream-row{ flex:1 1 auto; min-height:0; height:100%; flex-direction:row; flex-wrap:nowrap; }
+.live-quiz-theme .stream-section[data-stream-fullscreen] .player{ flex:1 1 auto; height:100%; }
+.live-quiz-theme .stream-section[data-stream-fullscreen] .player > div{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+.live-quiz-theme .stream-section[data-stream-fullscreen] .split-slot .quiz-panel{ flex:0 0 min(380px, 42%); height:100%; max-height:none; }
+.live-quiz-theme .stream-section[data-stream-fullscreen] .lq-dock{
+  position:absolute; top:max(12px, env(safe-area-inset-top)); left:max(12px, env(safe-area-inset-left)); right:64px; z-index:30;
+  padding:0; border:none; background:none; pointer-events:none;
+}
+.live-quiz-theme .stream-section[data-stream-fullscreen] .lq-pill{ pointer-events:auto; background-color:rgba(3,7,17,.72); }
+/* Under the pills and the exit button, so neither covers it */
+.live-quiz-theme .stream-section[data-stream-fullscreen] .lq-banner{ top:calc(max(12px, env(safe-area-inset-top)) + 44px); }
+@media (orientation: portrait) {
+  .live-quiz-theme .stream-section[data-stream-fullscreen] .stream-row{ flex-direction:column; }
+  .live-quiz-theme .stream-section[data-stream-fullscreen] .stream-row:has(> .split-slot) > .player{ flex:0 0 auto; height:auto; }
+  .live-quiz-theme .stream-section[data-stream-fullscreen] .stream-row:has(> .split-slot) .stream-video{ height:auto; aspect-ratio:16 / 9; }
+  .live-quiz-theme .stream-section[data-stream-fullscreen] .split-slot .quiz-panel{ flex:1 1 auto; min-height:0; height:auto; border-left:none; border-top:1px solid var(--border-strong); }
+}

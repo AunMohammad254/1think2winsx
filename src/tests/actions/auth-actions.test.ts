@@ -10,7 +10,9 @@ const sendPasswordSetupEmail = vi.fn();
 const checkLimit = vi.fn();
 const userUpdate = vi.fn();
 
-vi.mock('next/headers', () => ({ cookies: async () => cookieStore, headers: async () => new Headers({ 'x-forwarded-for': '1.2.3.4' }) }));
+// The request's headers; a test sets `origin` to say where the visitor's browser is
+const requestHeaders: Record<string, string> = {};
+vi.mock('next/headers', () => ({ cookies: async () => cookieStore, headers: async () => new Headers({ 'x-forwarded-for': '1.2.3.4', ...requestHeaders }) }));
 vi.mock('next/navigation', () => ({ redirect: (...a: unknown[]) => redirect(...a) }));
 vi.mock('@supabase/ssr', () => ({
   createServerClient: (_u: string, _k: string, opts: { cookies: typeof ssr }) => {
@@ -33,6 +35,7 @@ beforeEach(() => {
   sb = createSupabaseMock({ user: newUser });
   ssr = undefined;
   for (const fn of [cookieStore.set, redirect, sendPasswordSetupEmail, checkLimit, userUpdate]) fn.mockReset();
+  delete requestHeaders.origin;
   checkLimit.mockResolvedValue({ success: true });
   userUpdate.mockResolvedValue({});
   vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://site.example.test/');
@@ -171,6 +174,12 @@ describe('registerAction', () => {
     await actions.registerAction(form);
     expect(mockArg(sb.auth.signUp).options.emailRedirectTo).toBe('http://localhost:3000/auth/callback?next=/quizzes');
   });
+
+  it('links the confirmation email back to the address the person signed up on', async () => {
+    requestHeaders.origin = 'http://192.168.1.100:3000';
+    await actions.registerAction(form);
+    expect(mockArg(sb.auth.signUp).options.emailRedirectTo).toBe('http://192.168.1.100:3000/auth/callback?next=/quizzes');
+  });
 });
 
 describe('signOutAction', () => {
@@ -190,6 +199,22 @@ describe('getGoogleOAuthUrl', () => {
     });
     await actions.getGoogleOAuthUrl();
     expect(mockArg(sb.auth.signInWithOAuth, 1).options.redirectTo).toMatch(/next=\/quizzes$/);
+  });
+
+  it("comes back to the visitor's own address, where the sign-in cookie is, and to the site URL without a usable one", async () => {
+    // A phone on the dev server over the network used to be sent back to localhost
+    requestHeaders.origin = 'http://192.168.1.100:3000';
+    await actions.getGoogleOAuthUrl();
+    expect(mockArg(sb.auth.signInWithOAuth).options.redirectTo).toBe('http://192.168.1.100:3000/auth/callback?next=/quizzes');
+    requestHeaders.origin = 'https://1think2win.com';
+    await actions.getGoogleOAuthUrl();
+    expect(mockArg(sb.auth.signInWithOAuth, 1).options.redirectTo).toBe('https://1think2win.com/auth/callback?next=/quizzes');
+    // Privacy-sensitive contexts send "null"; anything that isn't a bare origin is ignored too
+    for (const [i, origin] of ['null', 'https://evil.test/path', 'javascript:alert(1)'].entries()) {
+      requestHeaders.origin = origin;
+      await actions.getGoogleOAuthUrl();
+      expect(mockArg(sb.auth.signInWithOAuth, i + 2).options.redirectTo).toBe('https://site.example.test/auth/callback?next=/quizzes');
+    }
   });
 
   it('returns null on errors', async () => {

@@ -2,7 +2,7 @@ import '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { jsonResponse } from '@/tests/helpers/ui';
-import { UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
+import { NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
 
 type Poll = { task: () => Promise<boolean>; opts: Record<string, unknown> };
 const h = vi.hoisted(() => ({
@@ -14,7 +14,11 @@ const h = vi.hoisted(() => ({
   liveFetch: vi.fn(),
   // Keyed by interval: the slow personal poll and the 5 s live check
   polls: {} as Record<number, Poll>,
-  push: { notify: vi.fn(), open: vi.fn() },
+  push: { notify: vi.fn(), announce: vi.fn(), open: vi.fn() },
+  // Latest props the page gave LazyStreamPlayer
+  streamProps: null as null | { onAvailabilityChange?: (available: boolean) => void },
+  // false: LiveQuizPush's lazy chunk has not loaded yet
+  pushMounted: true,
   // Latest props the page gave LiveQuizPush
   liveProps: null as null | { canUseSharedCopy?: (quizId: string) => boolean },
   loader: null as null | (() => Promise<unknown>),
@@ -31,7 +35,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('sonner', () => ({ toast: h.toast }));
 vi.mock('@/lib/fetch-retry', () => ({ fetchWithRetry: (...a: unknown[]) => h.fetchWithRetry(...a) }));
 vi.mock('@/hooks/useJitteredPolling', () => ({ useJitteredPolling: (task: () => Promise<boolean>, opts: Record<string, unknown>) => { h.polls[opts.intervalMs as number] = { task, opts }; } }));
-vi.mock('@/components/LazyStreamPlayer', () => ({ default: () => null }));
+vi.mock('@/components/LazyStreamPlayer', () => ({ default: (props: { onAvailabilityChange?: (available: boolean) => void }) => { h.streamProps = props; return null; } }));
 vi.mock('@/actions/wallet-deduction-actions', () => ({
   getWalletBalanceForDeduction: () => h.wallet.getWalletBalanceForDeduction(),
   deductWalletForQuizAccess: (...a: unknown[]) => h.wallet.deductWalletForQuizAccess(...a),
@@ -42,10 +46,14 @@ vi.mock('next/dynamic', async () => {
   return {
     default: (loader: () => Promise<unknown>) => {
       h.loader = loader;
-      return React.forwardRef(function LiveQuizPushStub(props: { onAnswered?: () => void; canUseSharedCopy?: (quizId: string) => boolean }, ref) {
+      const LiveQuizPushStub = React.forwardRef(function LiveQuizPushStub(props: { onAnswered?: () => void; canUseSharedCopy?: (quizId: string) => boolean }, ref) {
         React.useImperativeHandle(ref, () => h.push);
         h.liveProps = props;
         return React.createElement('button', { onClick: props.onAnswered }, 'answered live quiz');
+      });
+      // Like next/dynamic, renders nothing until the chunk has loaded
+      return React.forwardRef(function DynamicStub(props: object, ref) {
+        return h.pushMounted ? React.createElement(LiveQuizPushStub, { ...props, ref }) : null;
       });
     },
   };
@@ -79,7 +87,9 @@ beforeEach(() => {
   h.params = new URLSearchParams();
   h.suspend = false;
   h.polls = {};
-  for (const f of [h.router.push, h.router.replace, h.push.notify, h.push.open, ...Object.values(h.toast), ...Object.values(h.wallet)]) f.mockReset();
+  h.pushMounted = true;
+  for (const f of [h.router.push, h.router.replace, h.push.notify, h.push.announce, h.push.open, ...Object.values(h.toast), ...Object.values(h.wallet)]) f.mockReset();
+  Element.prototype.scrollIntoView = vi.fn();
   h.fetchWithRetry.mockReset().mockImplementation(async () => ok());
   h.liveFetch.mockReset().mockImplementation(async () => snapshot('v0', []));
   vi.stubGlobal('fetch', (...a: unknown[]) => h.liveFetch(...a));
@@ -319,6 +329,45 @@ describe('quizzes page: live updates', () => {
     expect(h.push.open).toHaveBeenCalledTimes(1);
   });
 
+  it('shows the countdown of a quiz linked from an "upcoming" notice on the stream, or opens it once it is live', async () => {
+    const { rerender } = render(<QuizzesPage />);
+    await loaded();
+    h.params = new URLSearchParams('upcoming=d&tab=live');
+    rerender(<QuizzesPage />);
+    expect(h.push.announce).toHaveBeenCalledWith('d', 'Quiz d', '2026-10-16T12:00:00Z');
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+    expect(h.router.replace).toHaveBeenLastCalledWith('/quizzes?tab=live', { scroll: false });
+
+    // Live by now: straight into the quiz
+    h.params = new URLSearchParams('upcoming=a');
+    rerender(<QuizzesPage />);
+    expect(h.push.open).toHaveBeenCalledWith('a');
+    expect(h.router.replace).toHaveBeenLastCalledWith('/quizzes', { scroll: false });
+
+    // An upcoming quiz without a start time, and one that isn't listed (not announced, or cancelled)
+    h.params = new URLSearchParams('upcoming=e');
+    rerender(<QuizzesPage />);
+    expect(h.push.announce).toHaveBeenLastCalledWith('e', 'Quiz e', null);
+    h.params = new URLSearchParams('upcoming=gone');
+    rerender(<QuizzesPage />);
+    expect(h.toast.info).toHaveBeenCalledWith("That quiz hasn't started yet. It shows up here when it goes live.");
+  });
+
+  it('resolves an "upcoming" link that arrives before the list and the live quiz component', async () => {
+    h.pushMounted = false;
+    h.params = new URLSearchParams('upcoming=d');
+    const { rerender } = render(<QuizzesPage />);
+    await loaded();
+    expect(h.push.announce).not.toHaveBeenCalled();
+    h.pushMounted = true;
+    rerender(<QuizzesPage />);
+    expect(h.push.announce).toHaveBeenCalledTimes(1);
+    expect(h.push.announce).toHaveBeenCalledWith('d', 'Quiz d', '2026-10-16T12:00:00Z');
+    // Resolved once: later list changes don't announce it again
+    await act(async () => { await h.polls[300_000].task(); });
+    expect(h.push.announce).toHaveBeenCalledTimes(1);
+  });
+
   it('patches the list in place from the live snapshot, and pops up a newly pushed quiz once', async () => {
     render(<QuizzesPage />);
     await loaded();
@@ -333,7 +382,8 @@ describe('quizzes page: live updates', () => {
     expect(result).toBe(true);
     expect(h.liveFetch).toHaveBeenCalledWith('/api/live', { credentials: 'omit' });
     expect(h.push.notify).toHaveBeenCalledTimes(1);
-    expect(h.push.notify).toHaveBeenCalledWith('a', 'Cricket Classics LIVE');
+    // With its answering window (pushedAt + duration), for the countdown
+    expect(h.push.notify).toHaveBeenCalledWith('a', 'Cricket Classics LIVE', '2026-10-16T10:10:00.000Z', 10);
     expect(screen.getByText('Cricket Classics LIVE')).toBeInTheDocument();
     expect(screen.getByText('Brand new quiz')).toBeInTheDocument();
     expect(screen.queryByText('Quiz b')).toBeNull();
@@ -346,6 +396,45 @@ describe('quizzes page: live updates', () => {
     expect(screen.queryByText('Brand new quiz')).toBeNull();
     // Public changes never cost a personal request
     expect(h.fetchWithRetry.mock.calls.length).toBe(personalCalls);
+  });
+
+  it('pops up a newly announced upcoming quiz once, and has the bell count every new notice at once', async () => {
+    const notices: Event[] = [];
+    const onNotice = (e: Event) => notices.push(e);
+    window.addEventListener(NEW_NOTICE_EVENT, onNotice);
+    const announcedAt = '2026-10-16T09:30:00.000Z';
+    // Already announced when the page loaded: not news
+    h.fetchWithRetry.mockImplementation(async () => ok({ quizzes: [...list, quiz('old', { status: 'upcoming', startsAt: '2026-10-16T13:00:00.000Z', announcedAt })] }));
+    render(<QuizzesPage />);
+    await loaded();
+    h.liveFetch.mockImplementation(async () => snapshot('v1', [
+      liveQuiz('a', { title: 'Cricket Classics', pushedAt: '2026-10-16T10:00:00.000Z' }),
+      liveQuiz('old', { status: 'upcoming', startsAt: '2026-10-16T13:00:00.000Z', announcedAt }),
+      liveQuiz('toss', { title: 'Toss prediction', status: 'upcoming', startsAt: '2026-10-16T11:00:00.000Z', announcedAt }),
+    ]));
+    await act(async () => { await livePoll().task(); });
+    expect(h.push.announce).toHaveBeenCalledTimes(1);
+    expect(h.push.announce).toHaveBeenCalledWith('toss', 'Toss prediction', '2026-10-16T11:00:00.000Z');
+    // One push and one announcement: the server stored a notification for each
+    expect(notices).toHaveLength(2);
+
+    // Announced again (forced, or the 10-minute warning): it pops up again
+    h.liveFetch.mockImplementation(async () => snapshot('v2', [
+      liveQuiz('a', { title: 'Cricket Classics', pushedAt: '2026-10-16T10:00:00.000Z' }),
+      liveQuiz('toss', { title: 'Toss prediction', status: 'upcoming', startsAt: '2026-10-16T11:00:00.000Z', announcedAt: '2026-10-16T10:50:00.000Z' }),
+    ]));
+    await act(async () => { await livePoll().task(); });
+    expect(h.push.announce).toHaveBeenCalledTimes(2);
+    expect(notices).toHaveLength(3);
+    window.removeEventListener(NEW_NOTICE_EVENT, onNotice);
+  });
+
+  it('drops the empty video box when nothing is live', async () => {
+    const { container } = render(<QuizzesPage />);
+    await loaded();
+    expect(container.querySelector('.stream-section')).not.toHaveClass('no-stream');
+    act(() => h.streamProps!.onAvailabilityChange!(false));
+    expect(container.querySelector('.stream-section')).toHaveClass('no-stream');
   });
 
   it('waits for the first personal load, and backs off when the live check fails', async () => {

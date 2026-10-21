@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { X, Loader2, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
+import { localWindowEnd } from '@/lib/quiz-clock';
+import { describeStart, formatClock } from '@/lib/live-countdown';
+import { isStreamFullscreen } from '@/lib/stream-fullscreen';
+import { isNotificationSoundOn, playChime } from '@/lib/notification-sound';
 
 interface PushedQuestion {
     id: string;
@@ -18,13 +22,34 @@ interface PushedQuizData {
     questions: PushedQuestion[];
 }
 
+/** A quiz pushed live. `endsAtMs`: device time its answering window closes; `windowMs`: its length. */
+interface LiveEntry {
+    id: string;
+    title: string;
+    endsAtMs: number | null;
+    windowMs: number | null;
+}
+
+/** An announced quiz that hasn't started. `startsAtMs` null: no start time was set. */
+interface UpcomingEntry {
+    id: string;
+    title: string;
+    startsAtMs: number | null;
+}
+
 export interface LiveQuizPushHandle {
-    /** Called by the parent when Realtime reports a quiz was pushed - shows the toast. */
-    notify: (quizId: string, quizTitle: string) => void;
+    /**
+     * The page's live check saw a quiz pushed live: banner with a countdown, then a pill under the
+     * stream until the window closes or the viewer answers. `endsAt`: when its answering window
+     * closes; `durationMinutes`: that window's length (for the countdown ring).
+     */
+    notify: (quizId: string, quizTitle: string, endsAt?: string | null, durationMinutes?: number) => void;
+    /** The page's live check saw an upcoming quiz announced: banner, then a pill counting down to `startsAt`. */
+    announce: (quizId: string, quizTitle: string, startsAt: string | null) => void;
     /**
      * Called when the viewer opens this quiz from somewhere other than the
-     * toast (the bell dropdown, a notification deep link) - skips the toast
-     * and goes straight to the popup. Safe to call even if this quiz is
+     * banner (a quiz card, the bell, a notification deep link) - skips the
+     * banner and goes straight to the quiz. Safe to call even if this quiz is
      * already open: reuses in-progress answers instead of resetting them.
      */
     open: (quizId: string) => void;
@@ -40,30 +65,99 @@ interface LiveQuizPushProps {
     canUseSharedCopy?: (quizId: string) => boolean;
 }
 
-type View = 'hidden' | 'toast' | 'popup' | 'split';
+type Panel = 'hidden' | 'popup' | 'split';
+type Banner = 'live' | 'upcoming' | null;
+
+/** How long a banner shows before it shrinks to its pill. */
+const BANNER_MS = 8000;
+
+const parseMs = (iso: string | null | undefined) => {
+    const ms = iso ? Date.parse(iso) : NaN;
+    return Number.isFinite(ms) ? ms : null;
+};
+
+/** Phones, and the stream in fullscreen, put the quiz beside or under the video instead of over it. */
+const preferredPanel = (): Panel => (isStreamFullscreen() || window.innerWidth < 768 ? 'split' : 'popup');
+
+/** The bell's sound setting covers the stream's pop-ups too. */
+function alertViewer() {
+    if (!isNotificationSoundOn()) return;
+    playChime();
+    navigator.vibrate?.([90, 50, 90]);
+}
+
+/** Countdown ring: the part of the answering window that is left. */
+function Ring({ fraction, label }: { fraction: number; label?: string }) {
+    const circumference = 2 * Math.PI * 15;
+    return (
+        <span className={`lq-ring ${label ? '' : 'small'}`} aria-hidden="true">
+            <svg viewBox="0 0 36 36">
+                <circle className="track" cx="18" cy="18" r="15" />
+                <circle className="fill" cx="18" cy="18" r="15" strokeDasharray={circumference} strokeDashoffset={circumference * (1 - fraction)} />
+            </svg>
+            {label && <span className="lq-ring-label">{label}</span>}
+        </span>
+    );
+}
 
 /**
  * Self-contained live-push quiz experience, scoped entirely to the
  * live-stream section (rendered as a sibling of the stream player, inside
- * the same `position:relative` wrapper). Nothing here touches the regular
- * quiz-taking flow (QuizAttemptModal) used elsewhere in the app - that
- * component intentionally resets on close and blocks closing mid-attempt,
- * which is right for a payment-gated attempt but wrong for "glance at a
- * live quiz during the stream, come back to it". This component keeps its
- * own answers/lock state for exactly that reason, and is never unmounted
- * by its parent between open/close - only hidden - so closing (including
- * from split view) can never lose what the viewer already answered.
+ * the same `position:relative` wrapper, which is also what goes fullscreen).
+ * Nothing here touches the regular quiz-taking flow (QuizAttemptModal) used
+ * elsewhere in the app - that component intentionally resets on close and
+ * blocks closing mid-attempt, which is right for a payment-gated attempt but
+ * wrong for "glance at a live quiz during the stream, come back to it". This
+ * component keeps its own answers/lock state for exactly that reason, and is
+ * never unmounted by its parent between open/close - only hidden - so closing
+ * (including from split view) can never lose what the viewer already answered.
+ * For the same reason a quiz pushed while the viewer is mid-answer waits as
+ * "next" instead of replacing the one they are answering.
  */
 const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function LiveQuizPush({ onAnswered, canUseSharedCopy }, ref) {
-    const [view, setView] = useState<View>('hidden');
-    const [pending, setPending] = useState<{ id: string; title: string } | null>(null);
+    const [panel, setPanel] = useState<Panel>('hidden');
+    const [banner, setBanner] = useState<Banner>(null);
+    const [bannerShown, setBannerShown] = useState(false);
+    const [live, setLive] = useState<LiveEntry | null>(null);
+    const [next, setNext] = useState<LiveEntry | null>(null);
+    const [upcoming, setUpcoming] = useState<UpcomingEntry | null>(null);
     const [quiz, setQuiz] = useState<PushedQuizData | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [answers, setAnswers] = useState<Record<string, number>>({});
     const [locked, setLocked] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const [toastAnim, setToastAnim] = useState(false);
-    const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [now, setNow] = useState(() => Date.now());
+    const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => clearTimeout(bannerTimerRef.current!), []);
+
+    // Latest state for the handle, which the page calls from its live check. A layout effect, so it is
+    // current as soon as a render commits (a push right after "Lock in" must see the lock)
+    const stateRef = useRef({ panel, banner, live, next, quiz, locked, answers });
+    useLayoutEffect(() => {
+        stateRef.current = { panel, banner, live, next, quiz, locked, answers };
+    }, [panel, banner, live, next, quiz, locked, answers]);
+
+    // One tick a second while something counts down
+    const counting = live?.endsAtMs != null || upcoming !== null;
+    useEffect(() => {
+        if (!counting) return;
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [counting]);
+
+    const showBanner = useCallback((kind: 'live' | 'upcoming') => {
+        setBanner(kind);
+        setBannerShown(false);
+        // Slide in on the next frame (CSS transition)
+        requestAnimationFrame(() => setBannerShown(true));
+        clearTimeout(bannerTimerRef.current!);
+        bannerTimerRef.current = setTimeout(() => setBanner(null), BANNER_MS);
+    }, []);
+
+    const hideBanner = useCallback(() => {
+        clearTimeout(bannerTimerRef.current!);
+        setBanner(null);
+    }, []);
 
     // Fetches quiz content by id. Never touches `answers`/`locked` - safe to
     // call again for a quiz that's already loaded (e.g. reopening from the
@@ -90,69 +184,103 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                 setLoadError(data.error || 'This quiz is no longer available');
                 return;
             }
-            const data = await res.json();
-            setQuiz({ id: data.quiz.id, title: data.quiz.title, questions: data.quiz.questions });
-            setPending({ id: data.quiz.id, title: data.quiz.title });
+            const { quiz: loaded } = await res.json();
+            setQuiz({ id: loaded.id, title: loaded.title, questions: loaded.questions });
+            // The server's answering window, corrected for this device's clock when the personal route
+            // sends its own time (the cached copy can't)
+            setLive({
+                id: loaded.id,
+                title: loaded.title,
+                endsAtMs: localWindowEnd(loaded.endsAt, loaded.serverNow, Date.now()),
+                windowMs: loaded.duration * 60_000,
+            });
+            setNow(Date.now());
             setLoadError(null);
         } catch (err) {
             setLoadError(err instanceof Error ? err.message : 'Failed to load quiz');
         }
     }, [canUseSharedCopy]);
 
-    // Exposed to the parent via a ref-like callback prop pattern (see below).
-    const notify = useCallback((quizId: string, quizTitle: string) => {
-        // A new push replaces whatever was showing before (previous answers,
-        // if any, were already submitted server-side - only one quiz can be
-        // "live" at a time on the stream).
-        setPending({ id: quizId, title: quizTitle });
+    // Starts `entry` from scratch (a new push, or the queued one)
+    const startFresh = useCallback((entry: LiveEntry) => {
+        setLive(entry);
         setQuiz(null);
         setAnswers({});
         setLocked(false);
         setLoadError(null);
-        setToastAnim(false);
-        setView('toast');
-        
-        // Trigger CSS transition
-        requestAnimationFrame(() => setToastAnim(true));
-        
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-        toastTimerRef.current = setTimeout(() => {
-            setView((v) => (v === 'toast' ? 'hidden' : v));
-        }, 8000);
     }, []);
 
-    // Bell / notification-link entry point: go straight to the popup. Only
+    const notify = useCallback((quizId: string, quizTitle: string, endsAt: string | null = null, durationMinutes = 0) => {
+        const entry: LiveEntry = { id: quizId, title: quizTitle, endsAtMs: parseMs(endsAt), windowMs: durationMinutes * 60_000 || null };
+        setNow(Date.now());
+        // The announcement for this quiz is over: it is live now
+        setUpcoming((u) => (u?.id === quizId ? null : u));
+        alertViewer();
+        const s = stateRef.current;
+        if (s.panel !== 'hidden' && !s.locked && Object.keys(s.answers).length > 0) {
+            // Mid-answer: never wipe what the viewer picked. Pushed again, the same quiz just gets its
+            // new window; another one waits as "next" in the panel.
+            if (s.live!.id === quizId) setLive(entry);
+            else setNext(entry);
+            return;
+        }
+        // A new push replaces whatever was showing before (previous answers,
+        // if any, were already submitted server-side - only one quiz can be
+        // "live" at a time on the stream).
+        startFresh(entry);
+        setNext(null);
+        setPanel('hidden');
+        showBanner('live');
+    }, [showBanner, startFresh]);
+
+    const announce = useCallback((quizId: string, quizTitle: string, startsAt: string | null) => {
+        setNow(Date.now());
+        setUpcoming({ id: quizId, title: quizTitle, startsAtMs: parseMs(startsAt) });
+        alertViewer();
+        // A live quiz comes first: its banner or open quiz stays, and the announcement waits as a pill
+        const s = stateRef.current;
+        if (s.panel === 'hidden' && s.banner !== 'live') showBanner('upcoming');
+    }, [showBanner]);
+
+    // Card, bell or deep-link entry point: go straight to the quiz. Only
     // reset answers/lock state if this is a DIFFERENT quiz than whatever was
     // already showing - reopening the same one preserves progress.
     const open = useCallback((quizId: string) => {
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-        setPending((prev) => {
-            if (!prev || prev.id !== quizId) {
-                setQuiz(null);
-                setAnswers({});
-                setLocked(false);
-                setLoadError(null);
-                return { id: quizId, title: 'Live quiz' };
-            }
-            return prev;
-        });
-        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-        setView(isMobile ? 'split' : 'popup');
+        hideBanner();
+        if (stateRef.current.live?.id !== quizId) startFresh({ id: quizId, title: 'Live quiz', endsAtMs: null, windowMs: null });
+        setPanel(preferredPanel());
         loadQuiz(quizId);
-    }, [loadQuiz]);
+    }, [hideBanner, startFresh, loadQuiz]);
 
-    useImperativeHandle(ref, () => ({ notify, open }), [notify, open]);
+    useImperativeHandle(ref, () => ({ notify, announce, open }), [notify, announce, open]);
 
-    // Only the toast calls this, and notify() shows the toast after starting its timer and
-    // clearing any loaded quiz, so there is always a pending quiz to fetch
-    const openPanel = useCallback((mode: 'popup' | 'split') => {
-        setView(mode);
-        clearTimeout(toastTimerRef.current!);
-        loadQuiz(pending!.id);
-    }, [pending, loadQuiz]);
+    // From the live banner or pill. Both show only for a pushed quiz, so there is always one to open;
+    // a quiz already loaded is not fetched again.
+    const openPanel = useCallback(() => {
+        const s = stateRef.current;
+        hideBanner();
+        setPanel(preferredPanel());
+        if (!s.quiz) loadQuiz(s.live!.id);
+    }, [hideBanner, loadQuiz]);
 
-    const close = useCallback(() => setView('hidden'), []);
-    const toggleSplit = useCallback(() => setView((v) => (v === 'split' ? 'popup' : 'split')), []);
+    const playNext = useCallback(() => {
+        const queued = stateRef.current.next!;
+        setNext(null);
+        startFresh(queued);
+        loadQuiz(queued.id);
+    }, [startFresh, loadQuiz]);
+
+    // Closing with a quiz waiting brings that one up
+    const close = useCallback(() => {
+        setPanel('hidden');
+        const queued = stateRef.current.next;
+        if (!queued) return;
+        setNext(null);
+        startFresh(queued);
+        showBanner('live');
+    }, [startFresh, showBanner]);
+
+    const toggleSplit = useCallback(() => setPanel((v) => (v === 'split' ? 'popup' : 'split')), []);
 
     const pick = (questionId: string, optionIndex: number) => {
         if (locked) return;
@@ -194,46 +322,91 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         }
     }, [quiz, answers, onAnswered]);
 
-    if (view === 'hidden' || !pending) return null;
+    // Countdowns. `liveLeft` null: the live quiz has no answering window (or there is none).
+    const liveLeft = live?.endsAtMs != null ? live.endsAtMs - now : null;
+    const liveFraction = liveLeft !== null && live!.windowMs ? Math.min(1, Math.max(0, liveLeft / live!.windowMs)) : 1;
+    const upcomingOn = upcoming !== null && (upcoming.startsAtMs === null || upcoming.startsAtMs > now);
+
+    // Pills under the stream (over it, in fullscreen) for what the banners announced
+    const livePill = panel === 'hidden' && banner !== 'live' && !locked && liveLeft !== null && liveLeft > 0;
+    const upcomingPill = panel === 'hidden' && banner !== 'upcoming' && upcomingOn;
+
+    if (!banner && panel === 'hidden' && !livePill && !upcomingPill) return null;
 
     return (
         <>
-            {view === 'toast' && (
-                <div className={`toast ${toastAnim ? 'show' : ''}`} onClick={() => {
-                    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-                    openPanel(isMobile ? 'split' : 'popup');
-                }}>
-                    <div className="ticon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
-                    </div>
-                    <div className="ttext">
-                        <div className="ttitle">New quiz just dropped</div>
-                        <div className="tsub">{pending.title} · tap to play</div>
-                    </div>
-                    <div className="tarrow">
-                        <button onClick={(e) => { e.stopPropagation(); close(); }} aria-label="Close notification">
-                           <X className="w-4 h-4" />
-                        </button>
-                    </div>
+            {banner === 'live' && (
+                <div className={`lq-banner live ${bannerShown ? 'show' : ''}`} role="status">
+                    <button className="lq-banner-main" onClick={openPanel}>
+                        {liveLeft !== null ? (
+                            <Ring fraction={liveFraction} label={formatClock(liveLeft)} />
+                        ) : (
+                            <span className="ticon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+                            </span>
+                        )}
+                        <span className="ttext">
+                            <span className="ttitle">New quiz just dropped</span>
+                            <span className="tsub">{live!.title} · tap to play</span>
+                        </span>
+                    </button>
+                    <button className="lq-banner-close" onClick={hideBanner} aria-label="Close notification">
+                        <X className="w-4 h-4" />
+                    </button>
                 </div>
             )}
 
-            {(view === 'popup' || view === 'split') && (
-                <div 
-                    className={view === 'popup' ? 'quiz-pop open' : 'split-slot'}
-                    onClick={view === 'popup' ? (e) => { if (e.target === e.currentTarget) close(); } : undefined}
+            {banner === 'upcoming' && (
+                <div className={`lq-banner upcoming ${bannerShown ? 'show' : ''}`} role="status">
+                    <div className="lq-banner-main">
+                        <span className="ticon" aria-hidden="true"><CalendarClock className="w-4 h-4" /></span>
+                        <span className="ttext">
+                            <span className="ttitle">Upcoming quiz: {upcoming!.title}</span>
+                            <span className="tsub">Starts {describeStart(upcoming!.startsAtMs, now)} · stay on the stream</span>
+                        </span>
+                    </div>
+                    <button className="lq-banner-close" onClick={hideBanner} aria-label="Close notification">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
+
+            {(livePill || upcomingPill) && (
+                <div className="lq-dock">
+                    {livePill && (
+                        <button className="lq-pill live" onClick={openPanel} aria-label={`Play live quiz ${live!.title}, ${formatClock(liveLeft!)} left`}>
+                            <Ring fraction={liveFraction} />
+                            <span className="lq-pill-text">Live quiz · {formatClock(liveLeft!)}</span>
+                        </button>
+                    )}
+                    {upcomingPill && (
+                        <button className="lq-pill upcoming" onClick={() => showBanner('upcoming')} aria-label={`Upcoming quiz ${upcoming!.title}, starts ${describeStart(upcoming!.startsAtMs, now)}`}>
+                            <CalendarClock className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span className="lq-pill-text">Next quiz {describeStart(upcoming!.startsAtMs, now)}</span>
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {panel !== 'hidden' && (
+                <div
+                    className={panel === 'popup' ? 'quiz-pop open' : 'split-slot'}
+                    onClick={panel === 'popup' ? (e) => { if (e.target === e.currentTarget) close(); } : undefined}
                 >
-                    <div className="quiz-panel">
+                    <div className="quiz-panel" role="region" aria-label={live!.title}>
                         <div className="qp-head">
                             <div className="qp-title">
                                 <span className="livedot"></span>
-                                <span className="tt">{pending.title}</span>
+                                <span className="tt">{live!.title}</span>
                             </div>
                             <div className="qp-actions">
-                                <button 
-                                    className={`icon-btn ${view === 'split' ? 'active' : ''}`}
+                                {liveLeft !== null && (
+                                    <span className={`qp-timer ${liveLeft > 0 ? '' : 'over'}`}>{liveLeft > 0 ? `${formatClock(liveLeft)} left` : "Time's up"}</span>
+                                )}
+                                <button
+                                    className={`icon-btn ${panel === 'split' ? 'active' : ''}`}
                                     onClick={toggleSplit}
-                                    title={view === 'split' ? 'Back to popup' : 'Split view'}
+                                    title={panel === 'split' ? 'Back to popup' : 'Split view'}
                                 >
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
                                 </button>
@@ -242,6 +415,16 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                 </button>
                             </div>
                         </div>
+                        {liveLeft !== null && (
+                            <div className="qp-progress" aria-hidden="true"><span style={{ width: `${liveFraction * 100}%` }} /></div>
+                        )}
+
+                        {next && (
+                            <div className="qp-next">
+                                <span className="qp-next-text">Next quiz ready: <strong>{next.title}</strong></span>
+                                <button onClick={playNext}>Play it now</button>
+                            </div>
+                        )}
 
                         <div className="qp-body">
                             {loadError && <p className="text-sm text-red-300">{loadError}</p>}
@@ -281,9 +464,9 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                     ))}
 
                                     {!locked && (
-                                        <button 
-                                            className="qp-submit" 
-                                            onClick={submit} 
+                                        <button
+                                            className="qp-submit"
+                                            onClick={submit}
                                             disabled={!allAnswered || submitting}
                                         >
                                             {submitting ? 'Submitting...' : (allAnswered ? 'Lock in answer' : `Answer all ${quiz.questions.length} questions`)}
@@ -294,7 +477,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                         </div>
 
                         <div className="dockhint">
-                            {view === 'split' ? 'Split view: the stream keeps playing beside the quiz.' : 'Popup mode: the quiz floats above the stream.'}
+                            {panel === 'split' ? 'Split view: the stream keeps playing beside the quiz.' : 'Popup mode: the quiz floats above the stream.'}
                         </div>
                     </div>
                 </div>

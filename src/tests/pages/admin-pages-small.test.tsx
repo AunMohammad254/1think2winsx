@@ -37,6 +37,7 @@ vi.mock('@/components/admin/DynamicAdminComponents', () => ({
   DynamicWalletTransactionsManager: () => <div>wallet manager</div>,
 }));
 vi.mock('@/components/admin/WalletFeatureToggle', () => ({ default: () => <div>wallet toggle</div> }));
+vi.mock('@/components/admin/SupportTicketsManager', () => ({ default: () => <div>tickets manager</div> }));
 vi.mock('next/dynamic', () => ({
   default: (loader: () => Promise<unknown>, opts?: { loading?: () => React.ReactNode }) => {
     h.dynamics.push({ loader, opts });
@@ -57,6 +58,7 @@ import AdminDashboardPage from '@/app/admin/(protected)/dashboard/page';
 import AdminClaimsPage from '@/app/admin/(protected)/claims/page';
 import AdminStreamingPage from '@/app/admin/(protected)/streaming/page';
 import AdminWalletPage from '@/app/admin/(protected)/wallet/page';
+import AdminTicketsPage from '@/app/admin/(protected)/tickets/page';
 import LuckyWinnerPage from '@/app/admin/(protected)/lucky-winner/page';
 import { redirect } from 'next/navigation';
 import QuizEvaluationPage from '@/app/admin/(protected)/quiz-evaluation/page';
@@ -94,6 +96,7 @@ describe('admin dashboard', () => {
     expect(h.activity).toHaveBeenCalledWith(8);
     expect(screen.getAllByRole('link', { name: /Settle Quizzes/ }).length).toBeGreaterThan(1);
     expect(screen.queryByRole('link', { name: /Lucky Winner/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /Support Tickets/ })).toHaveAttribute('href', '/admin/tickets');
   });
 
   it.each([
@@ -119,6 +122,7 @@ describe('admin section pages', () => {
     [AdminClaimsPage, 'Prize Claims', 'claims manager'],
     [AdminStreamingPage, 'Live Streaming', 'stream manager'],
     [AdminWalletPage, 'Wallet Management', 'wallet manager'],
+    [AdminTicketsPage, 'Support Tickets', 'tickets manager'],
   ])('%o checks the session and renders its manager', async (Page, title, manager) => {
     render(await (Page as () => Promise<React.ReactElement>)());
     expect(h.requireAdminSession).toHaveBeenCalled();

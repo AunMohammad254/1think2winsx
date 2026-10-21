@@ -131,7 +131,6 @@ export default function LazyStreamPlayer({
       {shouldLoad ? (
         <Suspense fallback={<div className="yt-responsive-player"><StreamPlayerSkeleton /></div>}>
           <StreamPlayer
-            className="yt-responsive-player"
             onError={handleStreamError}
             fullscreenTargetId={fullscreenTargetId}
           />

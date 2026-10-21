@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Bell, Volume2, VolumeX, Video, Hourglass, Zap, Info, Check, CheckCheck, Trash2, X } from 'lucide-react';
+import { Bell, Volume2, VolumeX, Video, Hourglass, CalendarClock, Zap, Info, Check, CheckCheck, Trash2, X } from 'lucide-react';
 import { useNotifications, Notification } from '@/hooks/useNotifications';
 import { usePresence } from '@/hooks/usePresence';
 
@@ -17,6 +17,12 @@ const notificationTypeConfig: Record<string, { icon: any; iconColor: string; bgC
     icon: Hourglass,
     iconColor: 'text-blue-400',
     bgColor: 'bg-blue-500/10 border-blue-500/20',
+  },
+  // "Upcoming quiz" announcements and the 10-minute warning
+  quiz_starts_soon: {
+    icon: CalendarClock,
+    iconColor: 'text-orange-400',
+    bgColor: 'bg-orange-500/10 border-orange-500/20',
   },
   streak_reminder: {
     icon: Zap,
@@ -51,10 +57,10 @@ export default function NotificationsDropdown() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // The navbar only fetches the unread count on page load; the list is loaded the first
-  // time the bell is opened (a no-op afterwards).
+  // time the bell is opened, and again when something new arrived (even while it is open).
   useEffect(() => {
-    if (isOpen) loadNotifications();
-  }, [isOpen, loadNotifications]);
+    if (isOpen && !listLoaded) loadNotifications();
+  }, [isOpen, listLoaded, loadNotifications]);
 
   // Close dropdown on click outside
   useEffect(() => {

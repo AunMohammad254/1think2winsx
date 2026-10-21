@@ -11,6 +11,8 @@ wrong SQL. Covered so far:
   attempt, payment or quiz tables directly
 - Schema `public`: anon, authenticated and service_role keep USAGE but can't create tables,
   views or functions in it
+- Support tickets: `create_support_ticket` numbers, rate limits and concurrent requests, the
+  `SupportTicket` constraints, and that only the service role can reach the table or functions
 
 ## Running locally
 

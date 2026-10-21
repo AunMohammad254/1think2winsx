@@ -89,11 +89,15 @@ const fetchCachedAnalytics = unstable_cache(
         });
         typedData.scoreDistribution = Object.entries(dist).map(([range, count]) => ({ range, count }));
 
-        // 3. Notification Efficacy (limited to recent 1000 to save memory)
-        const { data: notifications } = await adminDb.from('Notification').select('read').eq('type', 'quiz_results').limit(1000);
-        const notifs = notifications || [];
-        const totalSent = notifs.length;
-        const totalRead = notifs.filter(n => n.read).length;
+        // 3. Notification Efficacy: of every notification players received, the share they opened.
+        // Counted in the database (a broadcast adds one row per player, so rows add up fast). It used
+        // to count only type "quiz_results", which nothing sends, so the card always showed 0.
+        const [{ count: sentCount }, { count: readCount }] = await Promise.all([
+            adminDb.from('Notification').select('*', { count: 'exact', head: true }),
+            adminDb.from('Notification').select('*', { count: 'exact', head: true }).eq('read', true),
+        ]);
+        const totalSent = sentCount || 0;
+        const totalRead = readCount || 0;
         typedData.notificationEfficacy = {
             totalSent,
             totalRead,

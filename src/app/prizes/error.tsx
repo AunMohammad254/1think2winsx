@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import Link from 'next/link';
+import * as Sentry from '@sentry/nextjs';
 
 export default function PrizesError({
     error,
@@ -11,7 +12,8 @@ export default function PrizesError({
     reset: () => void;
 }) {
     useEffect(() => {
-        console.error('Prizes page error:', error);
+        // This page caught the error, so Sentry's global handler never sees it: report it here
+        Sentry.captureException(error, { tags: { page: 'prizes' } });
     }, [error]);
 
     return (
