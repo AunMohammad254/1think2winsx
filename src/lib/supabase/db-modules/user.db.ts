@@ -38,9 +38,10 @@ export const userDb = {
 
     async create(userData: Insertable<'User'>) {
         const supabase = getAdminDb()
+        const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('User')
-            .insert({ id: generateId(), ...userData })
+            .insert({ id: generateId(), createdAt: now, updatedAt: now, ...userData })
             .select()
             .single()
 

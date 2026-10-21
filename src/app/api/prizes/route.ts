@@ -188,23 +188,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Check for existing pending redemption
-      const { data: existingRedemption } = await supabase
-        .from('PrizeRedemption')
-        .select('id')
-        .eq('userId', userId)
-        .eq('prizeId', prizeId)
-        .eq('status', 'pending')
-        .single();
-
-      if (existingRedemption) {
-        return NextResponse.json(
-          { message: 'You already have a pending redemption request for this prize' },
-          { status: 400 }
-        );
-      }
-
-      // Use RPC function for atomic redemption (if exists), otherwise manual transaction
+      // Use RPC function for atomic redemption (if exists), otherwise manual transaction. The RPC
+      // also refuses a prize this player has already claimed (1 claim per player per prize).
       const { data: rpcResult, error: rpcError } = await supabase.rpc('redeem_prize', {
         p_user_id: userId,
         p_prize_id: prizeId,

@@ -108,6 +108,8 @@ describe('MobileNav', () => {
     fireEvent.click(screen.getByRole('link', { name: /Get Started/ }));
     expect(onClose).toHaveBeenCalledTimes(4);
     rerender(<MobileNav isOpen={false} onClose={onClose} user={null} onSignOut={vi.fn()} />);
+    // Stays mounted in its closing state while the slide-out plays
+    expect(container.querySelector('.menu-panel')).toHaveAttribute('data-state', 'closed');
     await waitFor(() => expect(screen.queryByText('Menu')).toBeNull());
     expect(document.body.style.overflow).toBe('');
     unmount();
@@ -130,8 +132,10 @@ describe('UserProfileDropdown', () => {
     render(<div><span>outside</span><UserProfileDropdown user={ali} onSignOut={onSignOut} /></div>);
     const toggle = screen.getByRole('button', { name: /Ali Raza/ });
     expect(toggle).toHaveTextContent('A');
+    expect(toggle.querySelector('.rotate-180')).toBeNull();
     fireEvent.click(toggle);
     expect(await screen.findByText('ali@example.com')).toBeInTheDocument();
+    expect(toggle.querySelector('.rotate-180')).not.toBeNull();
     fireEvent.click(screen.getByRole('link', { name: /Profile/ }));
     await waitFor(() => expect(screen.queryByText('ali@example.com')).toBeNull());
     fireEvent.click(toggle);
@@ -189,6 +193,25 @@ describe('NotificationsDropdown', () => {
     notifState({ loading: true });
     rerender(<NotificationsDropdown />);
     expect(screen.getByText('Loading notifications...')).toBeInTheDocument();
+  });
+
+  it('reloads the list when something new arrives while it is open', async () => {
+    const { rerender } = render(<NotificationsDropdown />);
+    open();
+    expect(h.notif.loadNotifications).not.toHaveBeenCalled();
+    // The stream announced a quiz: the hook marks the list stale
+    notifState({ listLoaded: false, unreadCount: 1 });
+    rerender(<NotificationsDropdown />);
+    expect(h.notif.loadNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks upcoming-quiz notices with their own icon, linking to the countdown on the stream', async () => {
+    notifState({ notifications: [{ id: 'u1', type: 'quiz_starts_soon', title: 'Upcoming Quiz!', message: 'Toss', link: '/quizzes?upcoming=t1', read: false, createdAt: ago(60_000) }], unreadCount: 1 });
+    render(<NotificationsDropdown />);
+    open();
+    const link = await screen.findByRole('link', { name: /View Details/ });
+    expect(link).toHaveAttribute('href', '/quizzes?upcoming=t1');
+    expect(document.querySelector('.bg-orange-500\\/10 .text-orange-400')).not.toBeNull();
   });
 
   it('leaves the time blank for an unparseable date', async () => {

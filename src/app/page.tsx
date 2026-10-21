@@ -27,7 +27,8 @@ export default function Home() {
       <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-50"
         style={{ background: "radial-gradient(1200px 600px at 50% -10%, rgba(16,185,129,0.12), transparent 60%), radial-gradient(1000px 500px at 90% 30%, rgba(245,158,11,0.08), transparent 60%), radial-gradient(1000px 600px at 10% 80%, rgba(167,139,250,0.08), transparent 60%)" }}
       />
-      <main>
+      {/* The root layout already provides the page's <main> landmark */}
+      <div>
         <Hero />
         <LazySection id="stats" fallback={<DarkFallback />} rootMargin="150px"><Stats /></LazySection>
         <LazySection id="marquee" fallback={<div className="h-28 w-full bg-white/[0.03] animate-pulse border-y border-white/5" />} rootMargin="150px"><Marquee /></LazySection>
@@ -37,7 +38,7 @@ export default function Home() {
         <LazySection id="leaderboard" fallback={<DarkFallback />} rootMargin="150px"><Leaderboard /></LazySection>
         <LazySection id="reviews" fallback={<DarkFallback />} rootMargin="150px"><Testimonials /></LazySection>
         <LazySection id="cta" fallback={<DarkFallback />} rootMargin="150px"><CTA /></LazySection>
-      </main>
+      </div>
     </div>
   );
 }

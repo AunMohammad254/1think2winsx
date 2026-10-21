@@ -3,7 +3,7 @@ import { Geist, Poppins } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import Navbar from "@/components/Navbar";
-import { Toaster } from "sonner";
+import AppToaster from "@/components/AppToaster";
 import { WebVitals } from "@/components/analytics/WebVitals";
 import { Suspense } from "react";
 import dynamic from "next/dynamic";
@@ -73,7 +73,7 @@ export default function RootLayout({
           <Suspense fallback={null}>
             <WebVitals />
           </Suspense>
-          <Toaster position="top-right" richColors closeButton />
+          <AppToaster />
           <div className="min-h-screen flex flex-col">
             <Navbar />
             <main className="flex-grow">{children}</main>

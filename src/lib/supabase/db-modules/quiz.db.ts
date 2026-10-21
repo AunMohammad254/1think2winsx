@@ -286,9 +286,10 @@ export const quizAttemptDb = {
 
     async create(attemptData: Insertable<'QuizAttempt'>) {
         const supabase = getAdminDb()
+        const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('QuizAttempt')
-            .insert({ id: generateId(), ...attemptData })
+            .insert({ id: generateId(), createdAt: now, updatedAt: now, ...attemptData })
             .select()
             .single()
 

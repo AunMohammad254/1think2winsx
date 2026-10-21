@@ -25,10 +25,14 @@ export interface CatalogQuiz {
   isBumperPrize: boolean;
   startsAt: string | null;
   pushedAt: string | null;
+  /** When players were last told this upcoming quiz is coming (it pops up on the stream). */
+  announcedAt: string | null;
   createdAt: string;
   updatedAt: string;
   questions: CatalogQuestion[];
   totalAttempts: number;
+  /** Name of the linked lucky-draw prize, for public listings such as the landing page. */
+  prizeName: string | null;
 }
 
 const TTL_MS = 15_000;
@@ -67,16 +71,22 @@ async function load(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }
 
 async function loadCatalog(): Promise<CatalogQuiz[]> {
   const db = getAdminDb();
+  // `*` rather than a column list: "announcedAt" comes from a migration that may not be applied yet
+  // (db-tests/schema/06-20261019200000_quiz_announced_at.sql), and naming a missing column would
+  // fail the whole read. The routes pick the fields they send, so other columns stay on the server.
   const { data: rawQuizzes, error } = await db
     .from('Quiz')
-    .select('id, title, description, duration, timeUpDuration, passingScore, status, accessPrice, quizType, isBumperPrize, startsAt, pushedAt, createdAt, updatedAt')
-    .in('status', ['active', 'upcoming', 'paused'])
+    .select('*')
+    .in('status', ['active', 'upcoming', 'paused', 'scheduled'])
     .order('createdAt', { ascending: false });
   if (error) throw error;
 
-  // Include upcoming. Include active/paused only within their (duration + timeUpDuration) window from pushedAt
+  // Include upcoming, and scheduled quizzes once players were told about them (listed as upcoming:
+  // the quiz routes refuse their questions until the scheduler makes them active). Include
+  // active/paused only within their (duration + timeUpDuration) window from pushedAt
   const now = Date.now();
   const quizzes = (rawQuizzes || []).filter((q: any) => {
+    if (q.status === 'scheduled') return !!q.announcedAt;
     if (q.status === 'upcoming') return true;
     // Never-pushed quizzes: active ones stay listed as before; paused ones were hidden
     // by an admin and must not reappear
@@ -91,8 +101,9 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
 
   const ids = quizzes.map((q: { id: string }) => q.id);
   if (ids.length === 0) return [];
+  const prizeIds = [...new Set(quizzes.map((q: { prizeId?: string | null }) => q.prizeId).filter(Boolean))] as string[];
 
-  const [questionsRes, countsRes] = await Promise.all([
+  const [questionsRes, countsRes, prizesRes] = await Promise.all([
     db.from('Question')
       .select('id, quizId, text, options, createdAt')
       .in('quizId', ids)
@@ -102,6 +113,8 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     // 1,000 by PostgREST, and filtered by RLS to the caller's own attempts, so the
     // "total attempts" figure was wrong for everyone).
     db.rpc('get_quiz_attempt_counts_by_quiz', { quiz_ids: ids }),
+    // Prize names for public listings; most quizzes have no prize, and then there is no query at all
+    prizeIds.length > 0 ? db.from('Prize').select('id, name, category').in('id', prizeIds) : { data: [], error: null },
   ]);
   if (questionsRes.error) throw questionsRes.error;
 
@@ -123,11 +136,29 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     }
   }
 
-  return quizzes.map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts'>) => ({
+  const prizeNames = new Map<string, string>();
+  const bumperPrizes = new Set<string>();
+  if (prizesRes.error) {
+    // Cosmetic too: listings then show the quiz without its prize's name
+    console.error('[QuizCatalog] Prize names failed:', prizesRes.error);
+  } else {
+    for (const row of (prizesRes.data || []) as Array<{ id: string; name: string; category?: string }>) {
+      // A bumper prize is a secret until it is won: public listings say "Bumper prize", never its name
+      if (row.category === 'bumper') bumperPrizes.add(row.id);
+      else prizeNames.set(row.id, row.name);
+    }
+  }
+
+  return quizzes.map((q: Omit<CatalogQuiz, 'questions' | 'totalAttempts' | 'prizeName'> & { prizeId?: string | null }) => ({
     ...q,
+    // Players only ever see "upcoming" before a quiz starts, whichever status the admin used
+    status: q.status === 'scheduled' ? 'upcoming' : q.status,
+    announcedAt: q.announcedAt ?? null,
     description: q.description || '',
+    isBumperPrize: q.isBumperPrize || (!!q.prizeId && bumperPrizes.has(q.prizeId)),
     questions: byQuiz.get(q.id) || [],
     totalAttempts: counts.get(q.id) || 0,
+    prizeName: (q.prizeId && prizeNames.get(q.prizeId)) || null,
   }));
 }
 

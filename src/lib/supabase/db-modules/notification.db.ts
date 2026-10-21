@@ -158,9 +158,13 @@ export const notificationDb = {
         if (error) throw error
     },
 
+    // Every caller is server code that has already checked admin or cron access (lucky draw, wallet
+    // reviews, admin messages, scheduled jobs). The request's own client cannot be used: the admin
+    // panel signs in with its own session, not as a Supabase admin, so the Notification insert policy
+    // (`is_admin()`) refused every one of these notifications.
     async create(userId: string, data: { title: string; message: string; type: string; link?: string }) {
-        const supabase = await getDb()
-        const { data: record, error } = await supabase
+        const adminDb = getAdminDb()
+        const { data: record, error } = await adminDb
             .from('Notification')
             .insert({
                 id: generateId(),
@@ -179,7 +183,6 @@ export const notificationDb = {
         if (error) throw error
 
         // Dispatch web push notification in the background
-        const adminDb = getAdminDb()
         const { data: subs } = await adminDb
             .from('PushSubscription')
             .select('*')

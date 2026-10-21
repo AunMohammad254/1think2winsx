@@ -1,0 +1,36 @@
+name: 🚦 Production smoke check
+
+# Manual only (Actions → Production smoke check → Run workflow), after a Hostinger deploy.
+# About ten sequential requests with no sign-in and no secrets; see load-test/README.md.
+# Deliberately not on push or a schedule.
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Site to check (an origin, e.g. https://staging.example.com)'
+        required: false
+        default: 'https://1think2win.com'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: 🚦 Smoke check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.x'
+
+      # The script only uses Bun built-ins, so no install. The input goes through env, not the shell line
+      - name: Run smoke check
+        env:
+          SMOKE_BASE_URL: ${{ inputs.base_url }}
+        run: bun load-test/smoke.ts

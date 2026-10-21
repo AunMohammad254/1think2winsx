@@ -1,6 +1,8 @@
-import '@/tests/helpers/ui';
+import { jsonResponse } from '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { loadLiveSnapshot, resetLiveSnapshot } from '@/hooks/useLiveSnapshot';
+import type { LiveQuiz as LiveQuizData, LiveSnapshot } from '@/lib/live-catalog';
 
 const auth = vi.hoisted(() => ({ value: { user: null as { id: string } | null, isLoading: false } }));
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => auth.value }));
@@ -52,17 +54,41 @@ const storeScrollLeft = (el: HTMLElement) => {
   Object.defineProperty(el, 'scrollLeft', { configurable: true, get: () => v, set: (n: number) => { v = n; } });
 };
 
+// The live quiz snapshot (GET /api/live): pending unless a test answers it, so sections show their
+// static copy as they do while it loads
+let fetchMock: ReturnType<typeof vi.fn>;
+const liveQuiz = (id: string, over: Partial<LiveQuizData> = {}): LiveQuizData => ({
+  id, title: `Quiz ${id}`, description: '', duration: 10, passingScore: 70, status: 'active', questionCount: 10,
+  totalAttempts: 0, pushedAt: null, startsAt: null, announcedAt: null, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
+  prizeName: null, isBumperPrize: false, accessPrice: 0, ...over,
+});
+/** Answers the snapshot before rendering, the way it arrives from Cloudflare's cache. */
+const primeLive = async (quizzes: LiveQuizData[], walletEnabled = false) => {
+  const snapshot: LiveSnapshot = { version: 'v1', quizzes, walletEnabled };
+  fetchMock.mockImplementation(async () => jsonResponse(snapshot));
+  await loadLiveSnapshot();
+  // Later refreshes stay pending, so the clock alone drives what the test sees
+  fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+};
+// 12:00 UTC is 5:00 PM in Karachi
+const NOW = new Date('2026-10-18T12:00:00.000Z');
+const minutesFromNow = (m: number) => new Date(NOW.getTime() + m * 60_000).toISOString();
+
 beforeEach(() => {
   observers = [];
   window.IntersectionObserver = FakeIO as unknown as typeof IntersectionObserver;
   media();
   auth.value = { user: null, isLoading: false };
+  resetLiveSnapshot();
+  fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+  vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => {
   vi.useRealTimers();
   window.IntersectionObserver = realIO;
   window.matchMedia = realMatchMedia;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 // ---- Primitives: hooks -----------------------------------------------------------------------
@@ -307,7 +333,8 @@ describe('ScrollProgress', () => {
 describe('static landing sections', () => {
   it('Marquee repeats the partner list in two tracks', () => {
     render(<Marquee />);
-    expect(screen.getAllByText('Wisden')).toHaveLength(6);
+    expect(screen.getAllByText('Squash')).toHaveLength(6);
+    expect(screen.getByText('Quizzes on every sport Pakistan loves')).toBeInTheDocument();
   });
 
   it('HowItWorks lists the four steps', () => {
@@ -327,8 +354,22 @@ describe('static landing sections', () => {
   it('Hero renders the typed title, call to action and demo card', () => {
     render(<Hero />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Test your Sports IQ');
-    expect(screen.getByText('David Miller')).toBeInTheDocument();
+    expect(screen.getByText('Imad Wasim')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Scroll down' })).toHaveAttribute('href', '#stats');
+  });
+});
+
+describe('landing copy', () => {
+  it('is written for Pakistani fans, with no India-specific leftovers', () => {
+    const { container } = render(
+      <>
+        <Hero /><Stats /><Marquee /><HowItWorks /><LiveQuiz /><Prizes /><Leaderboard /><Testimonials /><CTA />
+      </>
+    );
+    expect(container.textContent).not.toMatch(/\b(IPL|India|Indian|IST|UPI|BCCI|Hotstar)\b/);
+    // The weekly board is a rolling 7-day window (compute_leaderboard), not a Sunday reset
+    expect(container.textContent).toContain('Weekly board counts the last 7 days');
+    expect(container.textContent).toContain('Karachi Kings — PSL Ultimate Trivia');
   });
 });
 
@@ -443,6 +484,8 @@ describe('Stats', () => {
     // "from-rose-400 to-amber-400" starts at rose (it used to match "amber" first)
     expect([...container.querySelectorAll('#ring-grad-3 stop')].map((s) => s.getAttribute('stop-color'))).toEqual(['#fb7185', '#fbbf24']);
     const strip = container.querySelector('.snap-x') as HTMLElement;
+    expect(strip).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('region', { name: 'Platform stats' })).toBe(strip);
     storeScrollLeft(strip);
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
     fireEvent.mouseDown(strip, { clientX: 100 });
@@ -473,6 +516,74 @@ describe('CTA', () => {
     auth.value = { user: { id: 'u' }, isLoading: false };
     rerender(<CTA />);
     expect(screen.getByRole('link', { name: /Play Now/ })).toHaveAttribute('href', '/quizzes');
+    // Static copy while the real schedule loads
+    expect(screen.getByText('Next tournament starts in')).toBeInTheDocument();
+    expect(screen.getByText('2,184 players')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/live', { credentials: 'omit' });
+  });
+
+  it('keeps the static copy when the schedule cannot be loaded', async () => {
+    fetchMock.mockImplementation(async () => new Response('down', { status: 503 }));
+    await loadLiveSnapshot();
+    render(<CTA />);
+    expect(screen.getByText('Next tournament starts in')).toBeInTheDocument();
+    expect(screen.getByText('2,184 players')).toBeInTheDocument();
+  });
+
+  it('counts down to the next real quiz, with its start in Pakistan time, and shows real plays', async () => {
+    frames();
+    vi.setSystemTime(NOW);
+    await primeLive([
+      liveQuiz('open', { totalAttempts: 1200 }),
+      liveQuiz('next', { status: 'upcoming', startsAt: new Date(NOW.getTime() + (2 * 3600 + 14 * 60 + 5) * 1000).toISOString(), totalAttempts: 84 }),
+      liveQuiz('later', { status: 'upcoming', startsAt: minutesFromNow(24 * 60) }),
+    ]);
+    render(<CTA />);
+    expect(screen.getByText('Next quiz starts in')).toBeInTheDocument();
+    expect(screen.getByText('02h 14m 05s')).toBeInTheDocument();
+    expect(screen.getByText('· Today, 7:14 PM PKT')).toBeInTheDocument();
+    advance(1000);
+    expect(screen.getByText('02h 14m 04s')).toBeInTheDocument();
+    expect(screen.getByText('1,284 plays').parentElement).toHaveTextContent('1,284 plays so far on the current quizzes');
+    expect(screen.queryByText('Next tournament starts in')).not.toBeInTheDocument();
+    expect(screen.queryByText('2,184 players')).not.toBeInTheDocument();
+
+    // Once it has started, the countdown moves on to the next one
+    vi.setSystemTime(NOW.getTime() + (2 * 3600 + 14 * 60 + 6) * 1000);
+    advance(1000);
+    expect(screen.getByText('· Tomorrow, 5:00 PM PKT')).toBeInTheDocument();
+  });
+
+  it('says a quiz is open when nothing is scheduled but one can be played', async () => {
+    frames();
+    vi.setSystemTime(NOW);
+    await primeLive([liveQuiz('live', { pushedAt: minutesFromNow(-1), totalAttempts: 1 })]);
+    render(<CTA />);
+    expect(screen.getByText(/A quiz is open right now/)).toBeInTheDocument();
+    expect(screen.getByText('1 play').parentElement).toHaveTextContent('1 play so far on the current quiz');
+  });
+
+  it('says the next quiz starts soon when one is scheduled without a time still ahead', async () => {
+    frames();
+    vi.setSystemTime(NOW);
+    await primeLive([liveQuiz('due', { status: 'upcoming', startsAt: minutesFromNow(-1) }), liveQuiz('untimed', { status: 'upcoming' })]);
+    render(<CTA />);
+    expect(screen.getByText('The next quiz starts soon')).toBeInTheDocument();
+    expect(screen.getByText('2 quizzes').parentElement).toHaveTextContent('2 quizzes open or coming up — be the first to play');
+  });
+
+  it('has an honest empty state when nothing is scheduled', async () => {
+    await primeLive([liveQuiz('soon', { status: 'upcoming' })]);
+    const { unmount } = render(<CTA />);
+    expect(screen.getByText('1 quiz').parentElement).toHaveTextContent('1 quiz open or coming up');
+    unmount();
+
+    resetLiveSnapshot();
+    await primeLive([]);
+    render(<CTA />);
+    expect(screen.getByText(/No quiz is scheduled right now/)).toBeInTheDocument();
+    expect(screen.getByText('Be first in line for the next quiz')).toBeInTheDocument();
+    expect(screen.queryByText(/players/)).not.toBeInTheDocument();
   });
 });
 
@@ -481,9 +592,9 @@ describe('Testimonials', () => {
     frames();
     render(<Testimonials />);
     const featured = () => screen.getByText('Featured review').parentElement!.textContent;
-    expect(featured()).toContain('Aarav Mehta');
+    expect(featured()).toContain('Hamza Siddiqui');
     advance(4000);
-    expect(featured()).toContain('Priya Iyer');
+    expect(featured()).toContain('Areeba Khan');
 
     const card = screen.getAllByRole('article')[0];
     vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
@@ -534,6 +645,16 @@ describe('LiveQuiz', () => {
     expect(active()).toBe(1);
   });
 
+  it('does not auto-advance when the user prefers reduced motion', () => {
+    frames();
+    media([REDUCED]);
+    render(<LiveQuiz />);
+    const active = () => screen.getAllByRole('button').findIndex((b) => b.className.includes('w-8'));
+    advance(15000);
+    expect(active()).toBe(0);
+    expect(screen.getByRole('button', { name: 'Show quiz 1' })).toHaveAttribute('aria-current', 'true');
+  });
+
   it('switches by dots, drag and swipe', () => {
     auth.value = { user: { id: 'u' }, isLoading: false };
     const { container } = render(<LiveQuiz />);
@@ -563,5 +684,123 @@ describe('LiveQuiz', () => {
     fireEvent.touchStart(track, { touches: [{ clientX: 100 }] });
     fireEvent.touchEnd(track, { changedTouches: [{ clientX: 120 }] });
     expect(active()).toBe(1);
+  });
+
+  const titles = () => screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+
+  it('shows the real quizzes: prize, entry, and countdowns with times in Pakistan time', async () => {
+    frames();
+    vi.setSystemTime(NOW);
+    await primeLive([
+      liveQuiz('up', { status: 'upcoming', title: 'PSL Final Predictor', startsAt: minutesFromNow(90), prizeName: 'Ronin Earbuds', accessPrice: 2 }),
+      liveQuiz('live', { title: 'Hockey Night', pushedAt: minutesFromNow(-5), duration: 10, isBumperPrize: true, totalAttempts: 1284, questionCount: 1 }),
+      liveQuiz('open', { title: 'Squash Basics', duration: 5 }),
+      liveQuiz('closed', { title: 'Yesterday', pushedAt: minutesFromNow(-600) }),
+    ], true);
+    render(<LiveQuiz />);
+
+    expect(titles()).toEqual(['Hockey Night', 'Squash Basics', 'PSL Final Predictor']);
+    expect(screen.queryByText('Karachi Kings — PSL Ultimate Trivia')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Show quiz/ })).toHaveLength(3);
+
+    // Live: closes in 5 minutes, bumper prize, real plays
+    expect(screen.getByText('Live')).toBeInTheDocument();
+    expect(screen.getByText('05m 00s')).toBeInTheDocument();
+    expect(screen.getByText('Closes · Today, 5:05 PM PKT')).toBeInTheDocument();
+    expect(screen.getByText('🎁 Bumper prize')).toBeInTheDocument();
+    expect(screen.getByText('Bumper prize')).toBeInTheDocument();
+    expect(screen.getByText('1 question · 1,284 played')).toBeInTheDocument();
+    // Always open
+    expect(screen.getByText('Open')).toBeInTheDocument();
+    expect(screen.getByText('Open now')).toBeInTheDocument();
+    expect(screen.getByText('Open any time')).toBeInTheDocument();
+    expect(screen.getByText('⚡ Quiz')).toBeInTheDocument();
+    expect(screen.getByText('5 min')).toBeInTheDocument();
+    // Upcoming: the linked prize and the day-pass price
+    expect(screen.getByText('Upcoming')).toBeInTheDocument();
+    expect(screen.getByText('01h 30m')).toBeInTheDocument();
+    expect(screen.getByText('Starts · Today, 6:30 PM PKT')).toBeInTheDocument();
+    expect(screen.getByText('🏆 Prize quiz')).toBeInTheDocument();
+    expect(screen.getByText('Ronin Earbuds')).toBeInTheDocument();
+    expect(screen.getByText('2 PKR')).toBeInTheDocument();
+    expect(screen.getAllByText('Free')).toHaveLength(2);
+    expect(screen.getAllByText('10 questions')).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: /Join/ })[0]).toHaveAttribute('href', '/register');
+
+    advance(60_000);
+    expect(screen.getByText('04m 00s')).toBeInTheDocument();
+    expect(screen.getByText('01h 29m')).toBeInTheDocument();
+
+    // The live quiz's window closes: its card goes
+    advance(4 * 60_000);
+    expect(titles()).toEqual(['Squash Basics', 'PSL Final Predictor']);
+
+    // Past its start but not live yet (the server activates it on its next read)
+    vi.setSystemTime(new Date(minutesFromNow(91)));
+    advance(1000);
+    expect(screen.getByText('Any moment')).toBeInTheDocument();
+  });
+
+  it('says "Soon" for a quiz scheduled without a time, and does not rotate a single card', async () => {
+    frames();
+    await primeLive([liveQuiz('untimed', { status: 'upcoming', title: 'Mystery Quiz' })]);
+    render(<LiveQuiz />);
+    intersect();
+    advance(6000);
+    expect(titles()).toEqual(['Mystery Quiz']);
+    expect(screen.getByText('Soon')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show quiz/ })).not.toBeInTheDocument();
+  });
+
+  it('rotates real cards while visible, and sends players to the quizzes page', async () => {
+    frames();
+    vi.setSystemTime(NOW);
+    auth.value = { user: { id: 'u' }, isLoading: false };
+    await primeLive([liveQuiz('a'), liveQuiz('b')]);
+    render(<LiveQuiz />);
+    expect(screen.getAllByRole('link', { name: /Join/ }).map((a) => a.getAttribute('href'))).toEqual(['/quizzes', '/quizzes']);
+    const active = () => screen.getAllByRole('button', { name: /Show quiz/ }).findIndex((b) => b.className.includes('w-8'));
+    intersect();
+    advance(5000);
+    expect(active()).toBe(1);
+    advance(5000);
+    expect(active()).toBe(0);
+  });
+
+  it('shows an empty state when nothing is live or scheduled', async () => {
+    await primeLive([liveQuiz('paused', { status: 'paused', pushedAt: minutesFromNow(-1) })]);
+    const { rerender } = render(<LiveQuiz />);
+    expect(screen.getByText('No quiz is live right now')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show quiz/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign up free' })).toHaveAttribute('href', '/register');
+    auth.value = { user: { id: 'u' }, isLoading: false };
+    rerender(<LiveQuiz />);
+    expect(screen.getByRole('link', { name: 'See quizzes' })).toHaveAttribute('href', '/quizzes');
+  });
+
+  it('keeps the demo cards when the quiz list cannot be loaded', async () => {
+    fetchMock.mockImplementation(async () => { throw new TypeError('offline'); });
+    await loadLiveSnapshot();
+    render(<LiveQuiz />);
+    expect(screen.getByText('Karachi Kings — PSL Ultimate Trivia')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Show quiz/ })).toHaveLength(3);
+  });
+
+  it('keeps the selection inside the list when real quizzes replace the demo', async () => {
+    let answer: (r: Response) => void = () => {};
+    fetchMock.mockImplementation(() => new Promise<Response>((resolve) => { answer = resolve; }));
+    render(<LiveQuiz />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show quiz 3' }));
+    await act(async () => {
+      answer(jsonResponse({ version: 'v1', walletEnabled: false, quizzes: [liveQuiz('a', { title: 'Only One' }), liveQuiz('b', { title: 'Second' })] }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(titles()).toEqual(['Only One', 'Second']);
+    expect(screen.getByRole('button', { name: 'Show quiz 2' })).toHaveAttribute('aria-current', 'true');
+
+    const track = document.querySelector('.snap-x') as HTMLElement;
+    fireEvent.touchStart(track, { touches: [{ clientX: 200 }] });
+    fireEvent.touchEnd(track, { changedTouches: [{ clientX: 100 }] });
+    expect(screen.getByRole('button', { name: 'Show quiz 1' })).toHaveAttribute('aria-current', 'true');
   });
 });

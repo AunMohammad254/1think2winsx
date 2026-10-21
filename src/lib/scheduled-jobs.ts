@@ -3,10 +3,12 @@ import { clearQuizListCache } from '@/lib/quiz-cache';
 import {
   activateDueQuizzes,
   broadcastQuizLive,
+  markQuizAnnounced,
   TEN_MINUTE_WARNING_TITLE,
   upcomingQuizLink,
 } from '@/lib/quiz-scheduler';
 import logger from '@/lib/logger';
+import { runMediaCleanupIfDue } from '@/lib/media/deletion-queue';
 
 /**
  * All time-based background work, in one place so it can be driven by either:
@@ -25,6 +27,8 @@ export interface ScheduledJobsResult {
   processedQuizzes: string[];
   processedNotifications: string[];
   processedStaleDeposits: string[];
+  /** MediaDeletion ids whose replaced prize image was deleted from storage */
+  processedMediaDeletions: string[];
 }
 
 export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
@@ -47,6 +51,7 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
   }
 
   // 2. 10-minute warning for quizzes about to start
+  let announcedAny = false;
   const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   const { data: warningQuizzes } = await adminDb
     .from('Quiz')
@@ -75,6 +80,9 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
           link: upcomingQuizLink(quiz.id),
         });
         logger.log(`[Jobs] Broadcasted 10-minute warning for quiz ${quiz.id}`);
+        // Pops it up on the stream too, also for a quiz the admin never announced
+        await markQuizAnnounced(quiz.id);
+        announcedAny = true;
       }
     } catch (warningErr) {
       console.error(`[Jobs] Failed to process warning notification for quiz ${quiz.id}:`, warningErr);
@@ -191,11 +199,20 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
     }
   }
 
-  if (processedQuizIds.length > 0) clearQuizListCache();
+  // 6. Delete replaced prize images whose retention period is over (checked every 15 minutes)
+  let processedMediaIds: string[] = [];
+  try {
+    processedMediaIds = (await runMediaCleanupIfDue())?.deleted ?? [];
+  } catch (mediaErr) {
+    console.error('[Jobs] Failed to process media deletions:', mediaErr);
+  }
+
+  if (processedQuizIds.length > 0 || announcedAny) clearQuizListCache();
 
   return {
     processedQuizzes: processedQuizIds,
     processedNotifications: processedNotifIds,
     processedStaleDeposits: processedStaleIds,
+    processedMediaDeletions: processedMediaIds,
   };
 }

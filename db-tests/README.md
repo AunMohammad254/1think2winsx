@@ -12,6 +12,8 @@ wrong SQL. Covered so far:
 - Removed functions stay removed (`validate_quiz_submission_time`)
 - RLS: players read only their own rows; anon reads no quiz data; players can't write
   attempt, payment or quiz tables directly
+- Support tickets: `create_support_ticket` numbers, rate limits and concurrent requests, the
+  `SupportTicket` constraints, and that only the service role can reach the table or functions
 
 ## Running locally
 

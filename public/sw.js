@@ -1,4 +1,5 @@
-const CACHE_NAME = '1think2wins-cache-v2';
+// v3: the activate step below deletes v2, which could hold page data and dev chunks from older code
+const CACHE_NAME = '1think2wins-cache-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',
@@ -31,6 +32,20 @@ self.addEventListener('activate', function (event) {
 });
 
 self.addEventListener('fetch', function (event) {
+  const url = new URL(event.request.url);
+
+  // Development: Next.js serves changed code under the same chunk URLs, so any cache here runs
+  // old JavaScript against new HTML (hydration errors). Leave every request to the network.
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    return;
+  }
+
+  // React Server Component payloads (client-side navigation) must come from the network: a cached
+  // one can belong to an older deploy and no longer match the HTML or the JavaScript.
+  if (event.request.headers.get('RSC') === '1' || url.searchParams.has('_rsc')) {
+    return;
+  }
+
   const isQuizApi = event.request.url.includes('/api/quizzes/') && event.request.url.match(/\/api\/quizzes\/[a-zA-Z0-9_-]+$/);
 
   // Only cache GET requests and skip chrome-extension/api/admin requests
@@ -88,19 +103,25 @@ self.addEventListener('fetch', function (event) {
     return;
   }
 
+  // Cache-first only for files whose URL changes whenever their content does: Next.js build output
+  // (content-hashed) and the icons. Everything else goes to the network, so nothing can go stale.
+  const isImmutable = url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/Favicon/');
+  if (!isImmutable) {
+    return;
+  }
+
   event.respondWith(
     caches.open(CACHE_NAME).then(function (cache) {
       return cache.match(event.request).then(function (cachedResponse) {
-        const fetchPromise = fetch(event.request).then(function (networkResponse) {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        return fetch(event.request).then(function (networkResponse) {
           if (networkResponse && networkResponse.status === 200) {
             cache.put(event.request, networkResponse.clone());
           }
           return networkResponse;
-        }).catch(function (err) {
-          console.log('[Service Worker] Fetch failed, serving cache if available:', err);
         });
-        
-        return cachedResponse || fetchPromise;
       });
     })
   );

@@ -7,10 +7,12 @@ const createBroadcast = vi.fn();
 const createNotification = vi.fn();
 const invalidateQuizCatalog = vi.fn();
 const loggerLog = vi.fn();
+const runMediaCleanupIfDue = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, notificationDb: { createBroadcast: (...a: unknown[]) => createBroadcast(...a), create: (...a: unknown[]) => createNotification(...a) } }));
 vi.mock('@/lib/quiz-catalog', () => ({ invalidateQuizCatalog: (...a: unknown[]) => invalidateQuizCatalog(...a) }));
 vi.mock('@/lib/logger', () => ({ default: { log: (...a: unknown[]) => loggerLog(...a) } }));
+vi.mock('@/lib/media/deletion-queue', () => ({ runMediaCleanupIfDue: (...a: unknown[]) => runMediaCleanupIfDue(...a) }));
 
 const scheduler = await import('@/lib/quiz-scheduler');
 const { runScheduledJobs } = await import('@/lib/scheduled-jobs');
@@ -22,7 +24,8 @@ const isClaim = (call: QueryCall) => hasOp(call, 'update');
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [createBroadcast, createNotification, invalidateQuizCatalog, loggerLog]) fn.mockReset();
+  for (const fn of [createBroadcast, createNotification, invalidateQuizCatalog, loggerLog, runMediaCleanupIfDue]) fn.mockReset();
+  runMediaCleanupIfDue.mockResolvedValue(null);
   createBroadcast.mockResolvedValue(undefined);
   createNotification.mockResolvedValue({});
   cache.quizListCache.clear();
@@ -74,7 +77,7 @@ describe('runScheduledJobs', () => {
 
   it('does nothing on a quiet tick', async () => {
     world();
-    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [] });
+    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [], processedMediaDeletions: [] });
     expect(invalidateQuizCatalog).not.toHaveBeenCalled();
   });
 
@@ -113,6 +116,26 @@ describe('runScheduledJobs', () => {
     expect(createBroadcast).toHaveBeenCalledWith({ title: scheduler.TEN_MINUTE_WARNING_TITLE, message: 'Get ready! "Challenge" starts in 10 minutes. Don\'t miss out!', type: 'quiz_starts_soon', link: '/quizzes?upcoming=soon' });
     expect(eqValue(adminDb.callsTo('Notification')[0], 'title')).toBe(scheduler.TEN_MINUTE_WARNING_TITLE);
     expect(console.error).toHaveBeenCalledWith('[Jobs] Failed to process warning notification for quiz boom:', expect.any(Error));
+    // The warned quiz pops up on the stream too, so the cached snapshot is dropped
+    const marks = adminDb.callsTo('Quiz', 'update');
+    expect(marks.map((call) => eqValue(call, 'id'))).toEqual(['soon']);
+    expect(argOf(marks[0], 'update')).toMatchObject({ announcedAt: expect.any(String) });
+    expect(invalidateQuizCatalog).toHaveBeenCalled();
+  });
+
+  it('markQuizAnnounced lists an upcoming quiz on the stream, and only logs when it cannot (migration not applied)', async () => {
+    adminDb.setTable('Quiz', { data: null });
+    await scheduler.markQuizAnnounced('q1');
+    const [mark] = adminDb.callsTo('Quiz', 'update');
+    expect(eqValue(mark, 'id')).toBe('q1');
+    const { announcedAt, updatedAt } = argOf(mark, 'update') as { announcedAt: string; updatedAt: string };
+    expect(announcedAt).toBe(updatedAt);
+    expect(Date.parse(announcedAt)).toBeGreaterThan(Date.now() - 5_000);
+    expect(console.error).not.toHaveBeenCalledWith('[QuizScheduler] Could not mark quiz q1 as announced:', expect.anything());
+
+    adminDb.setTable('Quiz', { error: { message: 'column "announcedAt" does not exist' } });
+    await expect(scheduler.markQuizAnnounced('q1')).resolves.toBeUndefined();
+    expect(console.error).toHaveBeenCalledWith('[QuizScheduler] Could not mark quiz q1 as announced:', { message: 'column "announcedAt" does not exist' });
   });
 
   it('pauses active quizzes whose answering window is over', async () => {
@@ -151,7 +174,7 @@ describe('runScheduledJobs', () => {
 
   it('treats missing rows as nothing to do', async () => {
     world({ Quiz: { data: null }, WalletTransaction: { data: null } });
-    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [] });
+    expect(await runScheduledJobs()).toEqual({ processedQuizzes: [], processedNotifications: [], processedStaleDeposits: [], processedMediaDeletions: [] });
   });
 
   it('broadcasts a scheduled notification that has no link', async () => {
@@ -225,6 +248,17 @@ describe('runScheduledJobs', () => {
     expect(eqValue(reject, 'status')).toBe('pending');
     expect(createNotification).toHaveBeenCalledWith('u1', expect.objectContaining({ title: 'Deposit Expired', message: expect.stringContaining('500 PKR') }));
     expect(console.error).toHaveBeenCalledWith('[Jobs] Failed to send expiration notification for tx notify-fails:', expect.any(Error));
+  });
+
+  it('deletes replaced prize images when the cleanup is due, and survives its failure', async () => {
+    world();
+    runMediaCleanupIfDue.mockResolvedValueOnce({ deleted: ['d1', 'd2'], kept: ['k'], failed: [] });
+    expect((await runScheduledJobs()).processedMediaDeletions).toEqual(['d1', 'd2']);
+    runMediaCleanupIfDue.mockRejectedValueOnce(new Error('MediaDeletion missing'));
+    const res = await runScheduledJobs();
+    expect(res.processedMediaDeletions).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith('[Jobs] Failed to process media deletions:', expect.any(Error));
+    expect(runMediaCleanupIfDue).toHaveBeenCalledTimes(2);
   });
 
   it('skips deposit expiry when the pending read fails', async () => {

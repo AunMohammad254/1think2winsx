@@ -177,7 +177,7 @@ export default function PrizesPage() {
     fetchPrizes();
   }, [fetchPrizes]);
 
-  // Handle redemption
+  // Handle redemption (a claimed prize's card has its button disabled, and redeem_prize refuses it anyway)
   const handleRedeem = (prize: Prize) => {
     if (!user) {
       toast.error('Please log in to redeem prizes');
@@ -209,6 +209,7 @@ export default function PrizesPage() {
       if (result.success) {
         toast.success('🎉 Prize redeemed successfully! We will contact you soon.');
         setSelectedPrize(null);
+        setPrizes(prev => prev.map(p => p.id === selectedPrize.id ? { ...p, isClaimed: true } : p));
         refreshProfile?.();
         fetchPrizes(); // Refresh to get latest stock
       } else {
@@ -313,6 +314,7 @@ export default function PrizesPage() {
                     <PrizeCard
                       key={prize.id}
                       prize={prize}
+                      isClaimed={prize.isClaimed}
                       userPoints={userPoints}
                       onRedeem={handleRedeem}
                       isRedeeming={redeemingId === prize.id}

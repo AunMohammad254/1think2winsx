@@ -14,8 +14,8 @@ import {
   Bell,
   BarChart3,
   Mail,
-  Sparkles,
   LifeBuoy,
+  Ticket,
   Image as ImageIcon,
 } from 'lucide-react';
 
@@ -103,8 +103,7 @@ const navItems = [
   { href: '/admin/dashboard', label: 'Overview', icon: LayoutDashboard, active: true },
   { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/admin/quiz', label: 'Quiz Management', icon: FileText },
-  { href: '/admin/quiz-evaluation', label: 'Quiz Evaluation', icon: CheckSquare },
-  { href: '/admin/lucky-winner', label: 'Lucky Winner Draw', icon: Sparkles },
+  { href: '/admin/quiz-evaluation', label: 'Settle Quizzes', icon: CheckSquare },
   { href: '/admin/prizes', label: 'Prizes', icon: Gift },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet },
   { href: '/admin/claims', label: 'Prize Claims', icon: Trophy },
@@ -115,13 +114,13 @@ const navItems = [
   { href: '/admin/media', label: 'Media Management', icon: ImageIcon },
   { href: '/admin/security', label: 'Security', icon: Shield },
   { href: '/admin/support', label: 'User Support', icon: LifeBuoy },
+  { href: '/admin/tickets', label: 'Support Tickets', icon: Ticket },
 ];
 
 const quickActions = [
   { href: '/admin/analytics', label: 'View Analytics', icon: BarChart3, color: 'indigo' },
   { href: '/admin/quiz', label: 'Manage Quizzes', icon: FileText, color: 'blue' },
-  { href: '/admin/quiz-evaluation', label: 'Quiz Evaluation', icon: CheckSquare, color: 'purple' },
-  { href: '/admin/lucky-winner', label: 'Lucky Winner Draw', icon: Sparkles, color: 'yellow' },
+  { href: '/admin/quiz-evaluation', label: 'Settle Quizzes', icon: CheckSquare, color: 'purple' },
   { href: '/admin/prizes', label: 'Manage Prizes', icon: Trophy, color: 'green' },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet, color: 'emerald' },
   { href: '/admin/claims', label: 'Prize Claims', icon: Gift, color: 'amber' },

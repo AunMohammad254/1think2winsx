@@ -1,6 +1,41 @@
+// Hostinger's build server reports 64 CPUs but limits how many threads an account may start. By
+// default `next build` runs one worker per CPU (63), and each loads the Rust compiler with a thread
+// pool per CPU; on 2026-10-19 that ran out ("OS can't spawn worker thread", build 01a15397).
+// Four build workers (experimental.cpus below), each with a small Rust pool, stay far below the limit.
+// Set here so the build workers inherit it; an explicit value from the environment still wins.
+process.env.TOKIO_WORKER_THREADS ??= '4';
+
+const fs = require('fs');
+const path = require('path');
+const { withSentryConfig } = require('@sentry/nextjs/config');
+
 const withBundleAnalyzer = require('@next/bundle-analyzer')({
   enabled: process.env.ANALYZE === 'true',
 });
+
+/**
+ * The Sentry release (which build an error came from): SENTRY_RELEASE if set, otherwise the commit
+ * scripts/build-hostinger.ps1 stamps into `.sentry-release` (the Hostinger zip has no .git). Undefined
+ * locally, where Sentry's plugin reads the commit from git itself.
+ */
+function sentryRelease() {
+  if (process.env.SENTRY_RELEASE) return process.env.SENTRY_RELEASE;
+  try {
+    return fs.readFileSync(path.join(__dirname, '.sentry-release'), 'utf8').trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** remotePatterns entry for this project's public Supabase Storage files (none if the URL is unset). */
+function supabaseStoragePatterns() {
+  try {
+    const { hostname } = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '');
+    return [{ protocol: 'https', hostname, port: '', pathname: '/storage/v1/object/public/**' }];
+  } catch {
+    return [];
+  }
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -15,6 +50,10 @@ const nextConfig = {
   logging: {
     serverFunctions: false,
   },
+  // `next dev` only: lets a phone on the same home network open the dev server by its LAN address
+  // (http://192.168.x.y:3000) with hot reload working. Each `*` matches one part of the address,
+  // so it keeps working when the router hands this machine a new one. Ignored by `next build`.
+  allowedDevOrigins: ['192.168.*.*'],
 
   // Compression
   compress: true,
@@ -23,6 +62,8 @@ const nextConfig = {
   experimental: {
     // optimizeCss needs the `critters` package (not installed) and broke builds before
     optimizePackageImports: ['framer-motion'],
+    // Build workers; see TOKIO_WORKER_THREADS at the top
+    cpus: 4,
   },
   serverExternalPackages: ['pdf-parse'],
 
@@ -132,6 +173,9 @@ const nextConfig = {
         port: '',
         pathname: `/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 'dszrz6s6u'}/**`,
       },
+      // Supabase Storage media buckets. Images there are stored pre-sized and use the loader in
+      // src/lib/media/config.ts; this entry only covers an <Image> rendered without it.
+      ...supabaseStoragePatterns(),
     ],
     unoptimized: false,
     // Image formats and sizes
@@ -141,4 +185,22 @@ const nextConfig = {
   }
 };
 
-module.exports = withBundleAnalyzer(nextConfig);
+// Sentry (src/instrumentation*.ts, src/sentry.*.config.ts). Still a plain object, as Hostinger needs.
+module.exports = withSentryConfig(withBundleAnalyzer(nextConfig), {
+  org: process.env.SENTRY_ORG || '1think2win',
+  project: process.env.SENTRY_PROJECT,
+  // Readable stack traces: with SENTRY_AUTH_TOKEN set (hPanel, secret) the build uploads source maps to
+  // Sentry and then deletes them. Without it none are made at all, so the site never serves them.
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+  widenClientFileUpload: true,
+  release: { name: sentryRelease() },
+  // Browsers send events to this site (POST /monitoring), which forwards them: ad blockers don't drop
+  // them and the CSP needs no Sentry host. src/proxy.ts skips this path.
+  tunnelRoute: '/monitoring',
+  silent: !process.env.CI,
+  telemetry: false,
+  webpack: {
+    treeshake: { removeDebugLogging: true },
+  },
+});

@@ -5,12 +5,7 @@ import { Trophy } from 'lucide-react';
 
 const router = vi.hoisted(() => ({ prefetch: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
-vi.mock('next-cloudinary', () => ({
-  // eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
-  CldImage: ({ alt, onError }: { alt: string; onError: () => void }) => <img alt={alt} onError={onError} />,
-}));
 
-import { FloatingElement } from '@/components/hero/FloatingElement';
 import { SportsBall } from '@/components/hero/SportsBall';
 import StatsGrid from '@/components/profile/StatsGrid';
 import BalanceCard from '@/components/profile/BalanceCard';
@@ -37,14 +32,7 @@ import RecentActivityFeed, { RecentActivityFeedSkeleton } from '@/components/adm
 import type { Prize } from '@/types/prize';
 
 describe('hero decorations', () => {
-  it('FloatingElement places its child by percentage', () => {
-    render(<FloatingElement x={10} y={20}>⚽</FloatingElement>);
-    expect(screen.getByText('⚽').style.left).toBe('10%');
-    render(<FloatingElement>🏏</FloatingElement>);
-    expect(screen.getByText('🏏').style.top).toBe('0%');
-  });
-
-  it.each(['cricket', 'basketball', 'tennis', 'football', undefined] as const)('SportsBall draws a %s ball', (type) => {
+  it.each(['cricket', 'basketball', 'tennis', 'football', 'hockey', 'squash', undefined] as const)('SportsBall draws a %s ball', (type) => {
     const { container } = render(<SportsBall type={type} className={type ? 'w-full' : ''} />);
     const outer = container.firstElementChild as HTMLElement;
     expect(outer.className).toContain(type ? 'w-full' : 'w-48');
@@ -102,7 +90,7 @@ describe('profile pieces', () => {
 });
 
 const prize = (over: Partial<Prize> = {}): Prize => ({
-  id: 'p1', name: 'Smart Watch', description: 'A watch', imageUrl: 'watch.png', modelUrl: null, type: 'physical', pointsRequired: 1000,
+  id: 'p1', name: 'Smart Watch', description: 'A watch', imageUrl: 'https://res.cloudinary.com/dszrz6s6u/image/upload/v1/prizes/watch.png', modelUrl: null, type: 'physical', pointsRequired: 1000,
   isActive: true, category: 'electronics', stock: 10, status: 'published', value: 15000, createdAt: new Date(), updatedAt: new Date(), ...over,
 });
 
@@ -132,7 +120,7 @@ describe('prizes', () => {
     const onRedeem = vi.fn();
     render(<PrizeCard prize={prize()} userPoints={1500} onRedeem={onRedeem} variant="featured" />);
     expect(screen.getByText('Electronics')).toBeInTheDocument();
-    expect(screen.getByText('PKR 15,000')).toBeInTheDocument();
+    expect(screen.queryByText(/PKR/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Redeem Now/ }));
     expect(onRedeem).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
   });
@@ -150,10 +138,23 @@ describe('prizes', () => {
     fireEvent.click(screen.getByRole('button', { name: /Redeem Now/ }));
   });
 
+  it('PrizeCard displays Claimed instead of Redeem and disables re-claiming while showing remaining stock', () => {
+    const onRedeem = vi.fn();
+    render(<PrizeCard prize={prize({ stock: 4 })} userPoints={5000} onRedeem={onRedeem} isClaimed />);
+    expect(screen.getByText('Only 4 left!')).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /claimed/i });
+    expect(btn).toBeInTheDocument();
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onRedeem).not.toHaveBeenCalled();
+  });
+
   it('PrizeCard falls back to a gift icon when the image is missing or fails', () => {
     const { rerender } = render(<PrizeCard prize={prize({ imageUrl: null })} />);
     expect(screen.queryByRole('img')).toBeNull();
     rerender(<PrizeCard prize={prize()} />);
+    // Cloudinary images are resized by Cloudinary's CDN through the shared loader
+    expect(screen.getByRole('img', { name: 'Smart Watch' }).getAttribute('src')).toContain('/t_1Think2win/w_3840,c_limit,q_auto,f_auto/');
     fireEvent.error(screen.getByRole('img', { name: 'Smart Watch' }));
     expect(screen.queryByRole('img')).toBeNull();
   });
@@ -273,12 +274,12 @@ describe('how-to-play sections', () => {
   it('StepCard and the prize cards render each tier', () => {
     render(<StepCard step={2} title="Pay" description="Pay 2 PKR" icon={Trophy} />);
     expect(screen.getByText('2')).toBeInTheDocument();
-    render(<HowToPlayPrizeCard name="Bike" description="CD 70" icon={Trophy} tier="grand" value="PKR 150,000" />);
+    render(<HowToPlayPrizeCard name="Bike" description="CD 70" icon={Trophy} tier="grand" />);
     expect(screen.getByText('🏆 GRAND PRIZE')).toBeInTheDocument();
     render(<HowToPlayPrizeCard name="Phone" description="Android" icon={Trophy} tier="major" />);
     render(<HowToPlayPrizeCard name="Buds" description="Earbuds" icon={Trophy} tier="standard" delay={0.2} />);
     expect(screen.getAllByText('🏆 GRAND PRIZE')).toHaveLength(1);
-    expect(screen.getByText('PKR 150,000')).toBeInTheDocument();
+    expect(screen.queryByText(/PKR 150,000/)).toBeNull();
   });
 
   it('WinningTips lists three tips', () => {

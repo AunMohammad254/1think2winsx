@@ -6,7 +6,8 @@
 // ============================================
 
 // Actual prize category values (for prize data and forms)
-export type PrizeCategoryValue = 'electronics' | 'vehicles' | 'accessories' | 'general';
+// 'bumper' is admin-only: secret prizes awarded when settling a quiz, never listed for players
+export type PrizeCategoryValue = 'electronics' | 'vehicles' | 'accessories' | 'general' | 'bumper';
 
 // Prize categories for filtering (includes 'all' option)
 export type PrizeCategory = 'all' | PrizeCategoryValue;
@@ -37,6 +38,7 @@ export interface Prize {
     stock: number;
     status: PrizeStatus;
     value: number;
+    isClaimed?: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -126,6 +128,7 @@ export interface PrizesResponse {
     data?: Prize[];
     error?: string;
     message?: string;
+    claimedPrizeIds?: string[];
 }
 
 // Optimistic update state

@@ -91,7 +91,7 @@ export default function Stats() {
     <Section  className="!py-16 sm:!py-20">
       <Reveal>
         <p className="text-center text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
-          Trusted by sports fans across the globe
+          Trusted by sports fans across Pakistan
         </p>
       </Reveal>
       <div
@@ -100,6 +100,10 @@ export default function Stats() {
       >
         <div
           ref={scrollRef}
+          // Scrolls sideways on phones, so keyboard users must be able to focus it (axe scrollable-region-focusable)
+          tabIndex={0}
+          role="region"
+          aria-label="Platform stats"
           onMouseDown={onMouseDown}
           onMouseUp={onMouseUp}
           onMouseMove={onMouseMove}

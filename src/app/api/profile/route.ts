@@ -169,7 +169,7 @@ export async function GET() {
       .from('Winning')
       .select(`
         id, claimed, createdAt,
-        Prize:prizeId (id, name, type),
+        Prize:prizeId (id, name, type, imageUrl),
         Quiz:quizId (id, title)
       `)
       .eq('userId', userId)
@@ -193,7 +193,7 @@ export async function GET() {
       .from('PrizeRedemption')
       .select(`
         id, pointsUsed, status, requestedAt,
-        Prize:prizeId (id, name, type)
+        Prize:prizeId (id, name, type, imageUrl)
       `)
       .eq('userId', userId)
       .in('status', ['pending', 'approved', 'fulfilled'])

@@ -102,6 +102,27 @@ describe('PrizeRedemption sub-components', () => {
             fireEvent.click(screen.getByRole('button', { name: /redeem/i }));
             expect(mockOnRedeem).toHaveBeenCalledWith('prize-1', 'Gaming Headset', 1000);
         });
+
+        it('shows a claimed prize as Claimed, with no redeem button', () => {
+            render(
+                <PrizeCard prize={mockPrize} userPoints={2000} isRedeeming={false} isClaimed onPreview={mockOnPreview} onRedeem={mockOnRedeem} />
+            );
+            expect(screen.getByRole('button', { name: 'Prize Gaming Headset already claimed' })).toBeDisabled();
+            expect(screen.getAllByText('Claimed')).toHaveLength(2);
+            expect(screen.queryByRole('button', { name: 'Redeem' })).toBeNull();
+        });
+
+        it('shows the stock left, and the type picture when the prize has none', () => {
+            const { rerender } = render(
+                <PrizeCard prize={{ ...mockPrize, imageUrl: '', stock: 3 }} userPoints={0} isRedeeming={false} onPreview={mockOnPreview} onRedeem={mockOnRedeem} />
+            );
+            expect(screen.getByText('Only 3 left!')).toBeInTheDocument();
+            expect(screen.getByRole('img', { name: 'Gaming Headset' })).toHaveAttribute('src', '/prizes/electronics.svg');
+            rerender(<PrizeCard prize={{ ...mockPrize, stock: 40 }} userPoints={0} isRedeeming={false} onPreview={mockOnPreview} onRedeem={mockOnRedeem} />);
+            expect(screen.getByText('Stock: 40')).toBeInTheDocument();
+            rerender(<PrizeCard prize={{ ...mockPrize, stock: 0 }} userPoints={0} isRedeeming={false} onPreview={mockOnPreview} onRedeem={mockOnRedeem} />);
+            expect(screen.queryByText(/left!|Stock:/)).toBeNull();
+        });
     });
 
     describe('HistoryCard', () => {

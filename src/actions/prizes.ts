@@ -5,20 +5,20 @@ import { adminActionGuard } from '@/lib/admin-guard';
 import { prizeDb, getDb, getAdminDb } from '@/lib/supabase/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT, cloudinaryPublicIdFromUrl } from '@/lib/cloudinary';
-import { deleteCloudinaryImageByUrl } from '@/lib/cloudinary-server';
+import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT } from '@/lib/cloudinary';
+import { schedulePrizeImageDeletion, type MediaDeletionReason } from '@/lib/media/deletion-queue';
 
 /**
- * Delete a prize's old Cloudinary image, unless something else still needs it:
- * another prize using the same image (any transformation), or a site asset in "assets/".
+ * Queue a prize's old image for deletion after the retention period (AppSettings
+ * prize_image_retention_days, default 30 days). The scheduler keeps it if a prize uses it
+ * again by then. Never fails the prize change itself.
  */
-async function deletePrizeImageIfUnused(url: string, prizeId: string): Promise<void> {
-    const publicId = cloudinaryPublicIdFromUrl(url);
-    if (!publicId || publicId.startsWith('assets/')) return;
-    const { data, error } = await getAdminDb().from('Prize').select('id, imageUrl').neq('id', prizeId);
-    if (error) throw error; // can't prove it's unused, so keep it
-    const stillUsed = (data || []).some((p: { imageUrl: string | null }) => cloudinaryPublicIdFromUrl(p.imageUrl) === publicId);
-    if (!stillUsed) await deleteCloudinaryImageByUrl(url);
+async function queueOldPrizeImage(url: string, reason: MediaDeletionReason, prizeId: string): Promise<void> {
+    try {
+        await schedulePrizeImageDeletion(url, reason, prizeId);
+    } catch (error) {
+        console.error('Failed to queue old prize image for deletion:', error);
+    }
 }
 import type {
     Prize,
@@ -35,9 +35,11 @@ const prizeFields = {
     imageUrl: z.string().refine(isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT).optional().or(z.literal('')),
     modelUrl: z.string().url('Invalid model URL').optional().or(z.literal('')),
     type: z.string().min(1, 'Type is required'),
-    pointsRequired: z.number().min(1, 'Points must be at least 1'),
-    category: z.enum(['electronics', 'vehicles', 'accessories', 'general']),
-    stock: z.number().min(0, 'Stock cannot be negative'),
+    // Integer columns: a fraction would only fail later, in the insert, as "Failed to create prize"
+    pointsRequired: z.number().int('Points must be a whole number').min(1, 'Points must be at least 1'),
+    // 'bumper': admin-only prizes given when settling a quiz (hidden from players by RLS)
+    category: z.enum(['electronics', 'vehicles', 'accessories', 'general', 'bumper']),
+    stock: z.number().int('Stock must be a whole number').min(0, 'Stock cannot be negative'),
     status: z.enum(['draft', 'published']),
     value: z.number().min(0, 'Value cannot be negative'),
 };
@@ -107,7 +109,45 @@ export async function getPublicPrizes(
 
         if (error) throw error;
 
-        return { success: true, data: prizes as Prize[] };
+        // Determine if current user has already claimed any prize
+        const claimedPrizeIds = new Set<string>();
+        try {
+            const { data: claims } = await supabase.auth.getClaims();
+            const userId = claims?.claims?.sub;
+            if (userId) {
+                const { data: userRedemptions } = await supabase
+                    .from('PrizeRedemption')
+                    .select('prizeId')
+                    .eq('userId', userId)
+                    .in('status', ['pending', 'approved', 'fulfilled']);
+
+                if (userRedemptions) {
+                    for (const r of (userRedemptions as { prizeId?: string }[])) {
+                        if (r.prizeId) claimedPrizeIds.add(r.prizeId);
+                    }
+                }
+
+                const { data: userWinnings } = await supabase
+                    .from('Winning')
+                    .select('prizeId')
+                    .eq('userId', userId);
+
+                if (userWinnings) {
+                    for (const w of (userWinnings as { prizeId?: string }[])) {
+                        if (w.prizeId) claimedPrizeIds.add(w.prizeId);
+                    }
+                }
+            }
+        } catch {
+            // Unauthenticated or auth check unavailable; proceed with empty claims set
+        }
+
+        const prizesWithClaims = ((prizes || []) as Prize[]).map((prize) => ({
+            ...prize,
+            isClaimed: claimedPrizeIds.has(prize.id),
+        }));
+
+        return { success: true, data: prizesWithClaims };
     } catch (error) {
         console.error('Error fetching public prizes:', error);
         return { success: false, error: 'Failed to fetch prizes' };
@@ -147,17 +187,6 @@ export async function redeemPrize(
         }
 
         const { prizeId, fullName, whatsappNumber, address } = validation.data;
-
-        const { data: existingRedemption } = await supabase
-            .from('PrizeRedemption')
-            .select('id')
-            .eq('userId', userId)
-            .eq('prizeId', prizeId)
-            .eq('status', 'pending')
-            .maybeSingle();
-        if (existingRedemption) {
-            return { success: false, error: 'You already have a pending redemption for this prize' };
-        }
 
         const prize = await prizeDb.findById(prizeId);
         if (!prize || !prize.isActive || prize.status !== 'published') {
@@ -349,7 +378,7 @@ export async function updatePrize(
     if (denied) return denied as any;
     try {
         // Check if prize exists
-        const existing = await prizeDb.findById(id);
+        const existing = await prizeDb.findByIdAdmin(id);
         if (!existing) {
             return { success: false, error: 'Prize not found' };
         }
@@ -377,14 +406,13 @@ export async function updatePrize(
 
         const prize = await prizeDb.update(id, updateData);
 
-        // If the image URL changed, delete the old image from Cloudinary
+        // If the image changed, the old one is deleted later (after the retention period)
         if (
-            existing.imageUrl && 
-            updateData.imageUrl !== undefined && 
+            existing.imageUrl &&
+            updateData.imageUrl !== undefined &&
             existing.imageUrl !== updateData.imageUrl
         ) {
-            // Non-blocking delete
-            deletePrizeImageIfUnused(existing.imageUrl, id).catch(console.error);
+            await queueOldPrizeImage(existing.imageUrl, 'prize_image_replaced', id);
         }
 
         revalidatePath('/prizes');
@@ -422,15 +450,14 @@ export async function deletePrize(
         }
 
         // Fetch prize to get the image URL before deletion
-        const prize = await prizeDb.findById(id);
+        const prize = await prizeDb.findByIdAdmin(id);
 
         // Use prizeDb.delete which uses admin client to bypass RLS
         await prizeDb.delete(id);
 
-        // Clean up Cloudinary image if it exists
+        // Its image is deleted later (after the retention period), unless another prize uses it
         if (prize?.imageUrl) {
-            // Non-blocking delete
-            deletePrizeImageIfUnused(prize.imageUrl, id).catch(console.error);
+            await queueOldPrizeImage(prize.imageUrl, 'prize_deleted', id);
         }
 
         revalidatePath('/prizes');
@@ -452,7 +479,7 @@ export async function togglePrizeStatus(
     const denied = await adminActionGuard();
     if (denied) return denied as any;
     try {
-        const prize = await prizeDb.findById(id);
+        const prize = await prizeDb.findByIdAdmin(id);
         if (!prize) {
             return { success: false, error: 'Prize not found' };
         }
@@ -480,7 +507,7 @@ export async function togglePrizeActive(
     const denied = await adminActionGuard();
     if (denied) return denied as any;
     try {
-        const prize = await prizeDb.findById(id);
+        const prize = await prizeDb.findByIdAdmin(id);
         if (!prize) {
             return { success: false, error: 'Prize not found' };
         }

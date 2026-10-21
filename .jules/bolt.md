@@ -10,3 +10,7 @@
 ## 2026-10-16 - [LiveQuiz Card React.memo optimization]
 **Learning:** `LiveQuiz` uses `useAnimatedCounter` and `setInterval` which forces the entire component to re-render very frequently. Extracted `QuizCarouselCard` inside `LiveQuiz` wasn't memoized and received props that caused unnecessary re-renders. A prop value `livePlayers` was passed to all cards unconditionally instead of only to the `active` card, which defeated the purpose of `React.memo`.
 **Action:** Extract list items into a `React.memo` component AND ensure that props passed to it are selectively assigned so that inactive components don't receive changing values (e.g. `livePlayers={i === active ? livePlayers : q.players}`).
+
+## 2026-10-18 - [Static LiveQuiz column in a memo component]
+**Learning:** `LiveQuiz` re-renders every second (`useNow`) and on every frame of `useAnimatedCounter`, so the static left column (heading, copy, feature list, buttons) was reconciled dozens of times a second while the counter ran.
+**Action:** Move static blocks of high-frequency components into a `React.memo` child whose only props are the values they depend on (here `isLoggedIn`).

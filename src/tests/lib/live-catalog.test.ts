@@ -4,8 +4,8 @@ import { computePushStatus, mergeLiveQuizzes, type LiveQuiz, type PushStatus } f
 
 const live = (id: string, over: Partial<LiveQuiz> = {}): LiveQuiz => ({
   id, title: `Quiz ${id}`, description: '', duration: 10, passingScore: 70, status: 'active', questionCount: 5,
-  totalAttempts: 0, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null, createdAt: '2026-10-01T00:00:00.000Z',
-  updatedAt: '2026-10-01T00:00:00.000Z', ...over,
+  totalAttempts: 0, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null, announcedAt: null, createdAt: '2026-10-01T00:00:00.000Z',
+  updatedAt: '2026-10-01T00:00:00.000Z', prizeName: null, isBumperPrize: false, accessPrice: 0, ...over,
 });
 type Item = ReturnType<typeof live> & {
   hasAccess: boolean; isCompleted?: boolean; hasNewQuestions?: boolean; newQuestionsCount?: number; score?: number;

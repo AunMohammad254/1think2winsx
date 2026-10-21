@@ -76,7 +76,7 @@ const Footer = memo(function Footer() {
                   🏏
                 </span>
                 <div>
-                  <h3 className="font-display text-lg font-bold text-white">1Think 2Win</h3>
+                  <p className="font-display text-lg font-bold text-white">1Think 2Win</p>
                   <p className="text-xs text-blue-400/80">Think Smart, Win Big</p>
                 </div>
               </div>
@@ -84,7 +84,7 @@ const Footer = memo(function Footer() {
                 Test your sports knowledge and win amazing prizes in our innovative quiz competition.
                 Join thousands of smart thinkers in this exciting journey of knowledge and rewards!
               </p>
-              <div className="mt-5 flex items-center gap-2 text-xs text-white/40">
+              <div className="mt-5 flex items-center gap-2 text-xs text-white/60">
                 <span className="flex h-2 w-2 rounded-full bg-blue-400" />
                 <span>Trusted by <span className="font-semibold text-white/70">10,000+</span> players</span>
               </div>
@@ -93,9 +93,9 @@ const Footer = memo(function Footer() {
 
           {/* Quick Links */}
           <Reveal delay={100} className="sm:col-span-1 md:col-span-1.5 lg:col-span-2">
-            <h4 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
+            <h2 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
               <span>⚡</span> Quick Links
-            </h4>
+            </h2>
             <ul className="space-y-1.5">
               {quickLinks.map((item) => (
                 <li key={item.href}>
@@ -113,9 +113,9 @@ const Footer = memo(function Footer() {
 
           {/* Support */}
           <Reveal delay={200} className="sm:col-span-1 md:col-span-1.5 lg:col-span-2">
-            <h4 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
+            <h2 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
               <span>🛟</span> Support
-            </h4>
+            </h2>
             <ul className="space-y-1.5">
               {supportLinks.map((item) => (
                 <li key={item.href}>
@@ -133,9 +133,9 @@ const Footer = memo(function Footer() {
 
           {/* Contact */}
           <Reveal delay={300} className="sm:col-span-2 md:col-span-3 lg:col-span-4">
-            <h4 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
+            <h2 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
               <span>📞</span> Contact
-            </h4>
+            </h2>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
               <div className="space-y-4">
                 <a
@@ -144,20 +144,20 @@ const Footer = memo(function Footer() {
                 >
                   <span className="mt-0.5 text-lg">✉️</span>
                   <div>
-                    <p className="text-xs text-white/40">Email</p>
+                    <p className="text-xs text-white/60">Email</p>
                     <p className="text-sm font-medium text-white transition-colors group-hover:text-blue-400">support@1think2win.com</p>
                   </div>
                 </a>
                 <div className="flex items-start gap-3 rounded-lg p-2">
                   <span className="mt-0.5 text-lg">📱</span>
                   <div>
-                    <p className="text-xs text-white/40">Phone</p>
+                    <p className="text-xs text-white/60">Phone</p>
                     <p className="text-sm font-medium text-white">+92 XXX XXXXXXX</p>
                   </div>
                 </div>
               </div>
               <div className="mt-4 border-t border-white/10 pt-4">
-                <p className="mb-3 text-xs text-white/40">Follow Us</p>
+                <p className="mb-3 text-xs text-white/60">Follow Us</p>
                 <div className="flex gap-2.5">
                   {[
                     { name: 'Facebook', href: '#', icon: <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3V2Z" /> },
@@ -187,10 +187,10 @@ const Footer = memo(function Footer() {
             <div className="pointer-events-none absolute -right-20 -top-20 h-40 w-40 rounded-full bg-blue-500/20 blur-[80px]" />
             <div className="pointer-events-none absolute -bottom-20 -left-20 h-40 w-40 rounded-full bg-purple-500/20 blur-[80px]" />
             <div className="relative mx-auto max-w-lg text-center">
-              <h3 className="flex items-center justify-center gap-2 font-display text-xl font-bold text-white">
+              <h2 className="flex items-center justify-center gap-2 font-display text-xl font-bold text-white">
                 <span>🔔</span>
                 <span>Stay Updated</span>
-              </h3>
+              </h2>
               <p className="mt-2 text-sm text-white/55">
                 Get the latest quiz updates, sports news, and exclusive prizes delivered to your inbox!
               </p>
@@ -232,8 +232,8 @@ const Footer = memo(function Footer() {
                   <p className="text-sm text-white/55">
                     &copy; 2025 <span className="font-semibold text-white">1Think 2Win</span>. All rights reserved.
                   </p>
-                  <p className="mt-1 flex items-center justify-center gap-1 text-xs text-white/35 md:justify-start">
-                    Crafted for sports enthusiasts worldwide
+                  <p className="mt-1 flex items-center justify-center gap-1 text-xs text-white/60 md:justify-start">
+                    Crafted for sports fans across Pakistan
                   </p>
                 </div>
                 <div className="flex items-center gap-4">
@@ -244,7 +244,7 @@ const Footer = memo(function Footer() {
                     </span>
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-300">Live</span>
                   </div>
-                  <span className="text-xs text-white/35">Made with passion</span>
+                  <span className="text-xs text-white/60">Made with passion</span>
                 </div>
               </div>
             </div>

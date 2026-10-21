@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
+import { loaderFor } from '@/lib/cloudinary';
 import {
     User,
     Phone,
@@ -12,6 +13,8 @@ import {
     Package,
     MessageSquare,
     Loader2,
+    RotateCcw,
+    RefreshCw,
     X,
 } from 'lucide-react';
 import { statusConfig, formatDate, type Claim } from './types';
@@ -20,7 +23,13 @@ interface ClaimDetailsModalProps {
     claim: Claim;
     updating: string | null;
     onClose: () => void;
-    onUpdateStatus: (claimId: string, status: string, notes?: string) => void;
+    onUpdateStatus: (
+        claimId: string,
+        status: string,
+        notes?: string,
+        action?: 'update' | 'reissue',
+        reissueMode?: 'redelivery' | 'reclaim'
+    ) => void;
 }
 
 /**
@@ -33,6 +42,7 @@ export function ClaimDetailsModal({
     onUpdateStatus,
 }: ClaimDetailsModalProps) {
     const [actionNotes, setActionNotes] = useState('');
+    const [reissueNotes, setReissueNotes] = useState('');
     const config = statusConfig[claim.status];
     const StatusIcon = config.icon;
 
@@ -61,6 +71,7 @@ export function ClaimDetailsModal({
                     <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
                         <Image
                             src={claim.prize.imageUrl}
+                            loader={loaderFor(claim.prize.imageUrl)}
                             alt={claim.prize.name}
                             width={80}
                             height={80}
@@ -155,9 +166,16 @@ export function ClaimDetailsModal({
                     {/* Existing Notes */}
                     {claim.notes && (
                         <div className="p-4 bg-white/5 rounded-xl">
-                            <div className="flex items-center gap-2 mb-2">
-                                <MessageSquare className="w-4 h-4 text-gray-400" />
-                                <span className="text-gray-300 text-sm font-medium">Admin Notes</span>
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                    <MessageSquare className="w-4 h-4 text-gray-400" />
+                                    <span className="text-gray-300 text-sm font-medium">Admin Notes</span>
+                                </div>
+                                {claim.notes.includes('[REISSUED') && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                        <RotateCcw className="w-3 h-3" /> Reissued
+                                    </span>
+                                )}
                             </div>
                             <p className="text-white text-sm">{claim.notes}</p>
                         </div>
@@ -208,6 +226,55 @@ export function ClaimDetailsModal({
                                 {updating === claim.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
                                 Mark as Fulfilled / Delivered
                             </button>
+                        </div>
+                    )}
+
+                    {/* Reissue Item Section (approved or fulfilled claims, when the player has a problem).
+                        Not for rejected claims: their points were refunded, and the player can simply claim again. */}
+                    {(claim.status === 'fulfilled' || claim.status === 'approved') && (
+                        <div className="space-y-4 pt-4 border-t border-white/10">
+                            <div className="flex items-center justify-between">
+                                <h5 className="text-white font-medium flex items-center gap-2">
+                                    <RotateCcw className="w-4 h-4 text-amber-400" />
+                                    Reissue Item (Issue Resolution)
+                                </h5>
+                                <span className="text-xs text-amber-300/80 bg-amber-500/10 px-2 py-1 rounded-md border border-amber-500/20">
+                                    Admin Controls
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-400">
+                                If the player encountered issues (e.g. delivery failure, lost package, or defective item), you can reissue the prize for re-delivery or reset it so they can claim again.
+                            </p>
+
+                            <div>
+                                <label className="text-xs text-gray-400 mb-1.5 block">Reissue Reason / Notes</label>
+                                <textarea
+                                    value={reissueNotes}
+                                    onChange={(e) => setReissueNotes(e.target.value)}
+                                    placeholder="Enter reason for reissue (e.g., Courier returned package, replacement requested)..."
+                                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 resize-none text-sm"
+                                    rows={2}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button
+                                    onClick={() => onUpdateStatus(claim.id, 'pending', reissueNotes, 'reissue', 'redelivery')}
+                                    disabled={updating === claim.id}
+                                    className="px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium text-sm shadow-sm"
+                                >
+                                    {updating === claim.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                                    Reissue for Re-Delivery
+                                </button>
+                                <button
+                                    onClick={() => onUpdateStatus(claim.id, 'rejected', reissueNotes, 'reissue', 'reclaim')}
+                                    disabled={updating === claim.id}
+                                    className="px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium text-sm shadow-sm"
+                                >
+                                    {updating === claim.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                                    Reissue & Allow Re-Claim
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>

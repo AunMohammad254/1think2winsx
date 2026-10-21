@@ -107,6 +107,15 @@ describe('profile page', () => {
     expect(screen.getByText('Unknown')).toBeInTheDocument();
   });
 
+  it('shows a gift icon for a prize with no picture, or whose picture fails to load', () => {
+    h.profileState = { profile: { ...fullProfile, prizes: [{ ...prize('n1'), image: undefined }, prize('e1')] }, loading: false, error: null };
+    render(<ProfilePage />);
+    expect(screen.queryByAltText('Prize n1')).toBeNull();
+    fireEvent.error(screen.getByAltText('Prize e1'));
+    expect(screen.queryByAltText('Prize e1')).toBeNull();
+    expect(screen.getByText('Prize e1')).toBeInTheDocument();
+  });
+
   it('shows empty prize and history sections, and hides the wallet when it is off', async () => {
     fetchMock.mockImplementation(async () => jsonResponse({ walletEnabled: false }));
     h.profileState = { profile: { ...fullProfile, prizes: [], quizHistory: undefined, points: 0, walletBalance: null, quizzesTaken: 0, correctAnswers: 0, winCount: 0 }, loading: false, error: null };

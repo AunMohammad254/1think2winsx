@@ -35,13 +35,21 @@ export interface LiveQuiz {
   totalAttempts: number;
   pushedAt: string | null;
   startsAt: string | null;
+  /** Upcoming quizzes: when players were last told it is coming (a new value pops it up on the stream). */
+  announcedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** What the landing page's cards show: the linked prize, the bumper flag and the day-pass price. */
+  prizeName: string | null;
+  isBumperPrize: boolean;
+  accessPrice: number;
 }
 
 export interface LiveSnapshot {
   version: string;
   quizzes: LiveQuiz[];
+  /** Off means every quiz is free, whatever its `accessPrice` says. */
+  walletEnabled: boolean;
 }
 
 // Same shape the personal list sends (Dates serialised as ISO strings), so merged and fetched
@@ -61,8 +69,12 @@ export function toLiveQuiz(quiz: CatalogQuiz): LiveQuiz {
     totalAttempts: quiz.totalAttempts,
     pushedAt: iso(quiz.pushedAt),
     startsAt: quiz.status === 'upcoming' ? iso(quiz.startsAt) : null,
+    announcedAt: quiz.status === 'upcoming' ? iso(quiz.announcedAt) : null,
     createdAt: iso(quiz.createdAt) as string,
     updatedAt: iso(quiz.updatedAt) as string,
+    prizeName: quiz.prizeName ?? null,
+    isBumperPrize: !!quiz.isBumperPrize,
+    accessPrice: Number(quiz.accessPrice) || 0,
   };
 }
 
@@ -105,3 +117,10 @@ export function mergeLiveQuizzes<T extends LiveListItem>(
  * the navbar bell does not make a request of its own while the page keeps it current.
  */
 export const UNREAD_COUNT_EVENT = 'quizzes:unread-count';
+
+/**
+ * Window event the quiz page fires when the live snapshot shows a quiz pushed live or announced. The
+ * server stored a notification for every player at the same moment, so the bell counts it at once
+ * instead of waiting for its next poll.
+ */
+export const NEW_NOTICE_EVENT = 'quizzes:new-notice';

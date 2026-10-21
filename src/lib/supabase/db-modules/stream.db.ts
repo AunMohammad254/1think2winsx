@@ -43,9 +43,10 @@ export const streamConfigDb = {
 
     async create(configData: Insertable<'StreamConfiguration'>) {
         const supabase = await getDb()
+        const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('StreamConfiguration')
-            .insert({ id: generateId(), ...configData })
+            .insert({ id: generateId(), createdAt: now, updatedAt: now, ...configData })
             .select()
             .single()
 

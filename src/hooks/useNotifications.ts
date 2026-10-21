@@ -5,23 +5,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { toast } from 'sonner';
 import { useJitteredPolling } from '@/hooks/useJitteredPolling';
-import { UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
+import { NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
+import { playChime, SOUND_SETTING_KEY } from '@/lib/notification-sound';
+
+export { playChime };
 
 // The badge's safety-net poll, and how recent a count from the quiz page must be to skip it
 const UNREAD_POLL_MS = 5 * 60_000;
 const RECENT_COUNT_MS = 4 * 60_000;
-
-// Module-level AudioContext singleton — browsers cap concurrent AudioContext
-// instances (typically at 6). Reusing one instance prevents resource exhaustion.
-let _audioCtx: AudioContext | null = null;
-function getAudioContext(): AudioContext | null {
-  if (!_audioCtx || _audioCtx.state === 'closed') {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return null;
-    _audioCtx = new AudioContextClass();
-  }
-  return _audioCtx;
-}
 
 export interface Notification {
   id: string;
@@ -33,45 +24,6 @@ export interface Notification {
   link: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-// Function to play a premium chime sound synthesized on the fly via Web Audio API.
-// Reuses the module-level AudioContext singleton to avoid browser resource limits.
-export function playChime() {
-  try {
-    const audioCtx = getAudioContext();
-    if (!audioCtx) return;
-
-    // Resume context if it was suspended by browser autoplay policy
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-      return;
-    }
-
-    const playTone = (freq: number, start: number, duration: number) => {
-      const osc = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, start);
-
-      gainNode.gain.setValueAtTime(0.12, start);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, start + duration);
-
-      osc.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-
-      osc.start(start);
-      osc.stop(start + duration);
-    };
-
-    const now = audioCtx.currentTime;
-    // Premium soft double chime: C5 followed shortly by E5
-    playTone(523.25, now, 0.15);        // C5
-    playTone(659.25, now + 0.08, 0.25); // E5
-  } catch (err) {
-    console.error('AudioContext chime failed', err);
-  }
 }
 
 // Helper to convert base64 VAPID public key to Uint8Array
@@ -126,7 +78,7 @@ export function useNotifications() {
   // Load sound setting from localStorage
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('notifications_sound_enabled');
+      const saved = localStorage.getItem(SOUND_SETTING_KEY);
       if (saved !== null) {
         setSoundEnabled(saved === 'true');
       }
@@ -139,7 +91,7 @@ export function useNotifications() {
   const toggleSound = useCallback((value: boolean) => {
     setSoundEnabled(value);
     try {
-      localStorage.setItem('notifications_sound_enabled', String(value));
+      localStorage.setItem(SOUND_SETTING_KEY, String(value));
     } catch (e) {
       console.warn('Could not save sound setting', e);
     }
@@ -458,6 +410,21 @@ export function useNotifications() {
     window.addEventListener(UNREAD_COUNT_EVENT, onCount);
     return () => window.removeEventListener(UNREAD_COUNT_EVENT, onCount);
   }, [userId, applyUnreadCount]);
+
+  // The stream just showed a quiz pushed live or announced. The server stored that notification for
+  // every player, so count it now instead of at the next poll, and reload the list on the next open.
+  // No toast or chime: the stream's pop-up already announced it. The next real count replaces this.
+  useEffect(() => {
+    if (!userId) return;
+    const onNotice = () => {
+      unreadCountRef.current += 1;
+      setUnreadCount(unreadCountRef.current);
+      listLoadedRef.current = false;
+      setListLoaded(false);
+    };
+    window.addEventListener(NEW_NOTICE_EVENT, onNotice);
+    return () => window.removeEventListener(NEW_NOTICE_EVENT, onNotice);
+  }, [userId]);
 
   return {
     notifications,

@@ -29,16 +29,18 @@ const lastBody = () => JSON.parse(fetchMock.mock.calls.at(-1)![1].body);
 
 describe('ChatbotWidget', () => {
   it('greets, answers a quick question and offers navigation chips', async () => {
-    render(<ChatbotWidget />);
+    const { container } = render(<ChatbotWidget />);
     await open();
     fireEvent.click(screen.getByRole('button', { name: '📊 View Leaderboard' }));
+    // The suggestions collapse (closing state) before they unmount
+    expect(container.querySelector('.chatbot-suggestions')).toHaveAttribute('data-state', 'closed');
     expect(await screen.findByText('Here you go')).toBeInTheDocument();
     expect(screen.getByText('gemini-2.0')).toBeInTheDocument();
     expect(lastBody().messages).toEqual([
       { role: 'model', parts: [{ text: expect.stringContaining('support assistant') }] },
       { role: 'user', parts: [{ text: 'I want to see the leaderboard.' }] },
     ]);
-    expect(screen.queryByText('Quick questions')).toBeNull();
+    await waitFor(() => expect(screen.queryByText('Quick questions')).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: /→ Go to \/somewhere/ }));
     expect(router.push).toHaveBeenCalledWith('/somewhere');
     await waitFor(() => expect(screen.queryByText('Here you go')).toBeNull());
@@ -64,11 +66,29 @@ describe('ChatbotWidget', () => {
     expect(lastBody().messages.at(-1)).toEqual({ role: 'user', parts: [{ text: 'second' }] });
   });
 
+  it('offers to copy the number of a ticket the server created', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ message: '🎫 Your ticket number is TKT-7KQ2XM.', redirects: [], ticketNumber: 'TKT-7KQ2XM' }));
+    const writeText = vi.fn().mockRejectedValueOnce(new Error('denied')).mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    render(<ChatbotWidget />);
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: '🎫 My support tickets' }));
+    expect(lastBody().messages.at(-1)).toEqual({ role: 'user', parts: [{ text: 'What is the status of my support tickets?' }] });
+    const copy = await screen.findByRole('button', { name: 'Copy TKT-7KQ2XM' });
+    // No clipboard access: nothing changes, the number is still in the message
+    fireEvent.click(copy);
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: 'Copy TKT-7KQ2XM' })).toBeInTheDocument();
+    fireEvent.click(copy);
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(writeText).toHaveBeenLastCalledWith('TKT-7KQ2XM');
+  });
+
   it('shows a rate-limit notice without a retry button', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ rateLimited: true, error: 'Slow down a little' }, 429));
     render(<ChatbotWidget />);
     await open();
-    fireEvent.click(screen.getByRole('button', { name: '💳 Payment methods?' }));
+    fireEvent.click(screen.getByRole('button', { name: '💳 Do I need to pay?' }));
     expect(await screen.findByText('Slow down a little')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
   });
@@ -132,6 +152,9 @@ describe('ChatbotWidget', () => {
     await waitFor(() => expect(screen.queryByText('Here you go')).toBeNull());
     expect(await screen.findByText('Quick questions')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close chat' }));
+    // The panel slides out (closing state) while the trigger pops straight back in
+    expect(document.getElementById('chatbot-panel')).toHaveAttribute('data-state', 'closed');
+    expect(document.getElementById('chatbot-trigger-btn')).toHaveAttribute('data-state', 'open');
     await waitFor(() => expect(document.getElementById('chatbot-panel')).toBeNull());
     fireEvent.click(await screen.findByRole('button', { name: 'Open AI support chat' }));
     await screen.findByRole('button', { name: 'Close chat' });

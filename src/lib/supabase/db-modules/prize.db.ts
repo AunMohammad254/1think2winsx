@@ -40,11 +40,29 @@ export const prizeDb = {
         return data
     },
 
-    async create(prizeData: Insertable<'Prize'>) {
+    /**
+     * Admin-only lookup that bypasses RLS. `findById` reads as the caller, and players (or an
+     * admin signed in only to the admin panel) cannot see draft, inactive or bumper prizes.
+     */
+    async findByIdAdmin(id: string) {
         const supabase = getAdminDb()
         const { data, error } = await supabase
             .from('Prize')
-            .insert({ id: generateId(), ...prizeData } as any)
+            .select('*')
+            .eq('id', id)
+            .maybeSingle()
+
+        if (error && error.code !== 'PGRST116') throw error
+        return data
+    },
+
+    async create(prizeData: Insertable<'Prize'>) {
+        const supabase = getAdminDb()
+        // "updatedAt" is NOT NULL with no default (Prisma used to fill it in): without it every insert failed
+        const now = new Date().toISOString()
+        const { data, error } = await supabase
+            .from('Prize')
+            .insert({ id: generateId(), createdAt: now, updatedAt: now, ...prizeData } as any)
             .select()
             .single()
 
@@ -180,9 +198,10 @@ export const prizeRedemptionDb = {
 
     async create(redemptionData: Insertable<'PrizeRedemption'>) {
         const supabase = getAdminDb()
+        const now = new Date().toISOString()
         const { data, error } = await supabase
             .from('PrizeRedemption')
-            .insert({ id: generateId(), ...redemptionData })
+            .insert({ id: generateId(), createdAt: now, updatedAt: now, ...redemptionData })
             .select()
             .single()
 

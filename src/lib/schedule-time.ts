@@ -88,9 +88,15 @@ export function toUtcIso(input: string | null | undefined): string | null {
 const ZONE_LABELS: Record<string, string> = {
   'Asia/Karachi': 'PKT',
   'Asia/Dubai': 'GST',
-  'Asia/Kolkata': 'IST',
   'Asia/Riyadh': 'AST',
 };
+
+function zoneLabel(date: Date, timeZone: string): string {
+  return ZONE_LABELS[timeZone]
+    ?? new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
+      .formatToParts(date)
+      .find((p) => p.type === 'timeZoneName')!.value; // always present when timeZoneName is requested
+}
 
 /** Formats an instant for notification text, e.g. "Dec 1, 2026, 4:30 PM PKT". */
 export function formatBusinessTime(instant: string | Date): string {
@@ -100,9 +106,34 @@ export function formatBusinessTime(instant: string | Date): string {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true, timeZone,
   });
-  const label = ZONE_LABELS[timeZone]
-    ?? new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
-      .formatToParts(date)
-      .find((p) => p.type === 'timeZoneName')!.value; // always present when timeZoneName is requested
-  return `${text} ${label}`;
+  return `${text} ${zoneLabel(date, timeZone)}`;
+}
+
+/** Calendar day of an instant in `timeZone`, as "YYYY-MM-DD". */
+function dayInZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const part = (type: string) => parts.find((p) => p.type === type)!.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+/**
+ * Formats a start time for listings, relative to `now` and in the business timezone:
+ * "Today, 6:30 PM PKT", "Tomorrow, 9:00 AM PKT" or "Tue, Oct 20, 6:30 PM PKT".
+ * "Today" is the business timezone's today, not the device's.
+ */
+export function formatBusinessStart(instant: string | Date, now: Date = new Date()): string {
+  const date = typeof instant === 'string' ? new Date(instant) : instant;
+  const timeZone = getBusinessTimeZone();
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone });
+  const today = dayInZone(now, timeZone);
+  const [year, month, day] = today.split('-').map(Number);
+  // The next calendar day, counted on the calendar (now + 24 h is off by one around a DST change)
+  const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+  const target = dayInZone(date, timeZone);
+  const dayText = target === today
+    ? 'Today'
+    : target === tomorrow
+      ? 'Tomorrow'
+      : date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone });
+  return `${dayText}, ${time} ${zoneLabel(date, timeZone)}`;
 }

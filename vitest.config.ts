@@ -8,7 +8,8 @@ export default defineConfig({
         environment: 'jsdom',
         globals: true,
         setupFiles: ['./vitest.setup.ts'],
-        include: ['src/**/*.{test,spec}.{ts,tsx}'],
+        // load-test/ tooling tests run here too, but stay outside the coverage gate below
+        include: ['src/**/*.{test,spec}.{ts,tsx}', 'load-test/**/*.test.ts'],
         exclude: ['node_modules', '.next', 'dist'],
         // @ts-expect-error - Vitest types mismatch in Next.js build
         environmentMatchGlobs: [

@@ -6,28 +6,27 @@ let db: SupabaseMock;
 let adminDb: SupabaseMock;
 const adminActionGuard = vi.fn();
 const revalidatePath = vi.fn();
-const deleteCloudinaryImageByUrl = vi.fn();
-const prizeDb = { findById: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() };
+const schedulePrizeImageDeletion = vi.fn();
+const prizeDb = { findById: vi.fn(), findByIdAdmin: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() };
 
 vi.mock('@/lib/supabase/db', () => ({ getDb: async () => db.client, getAdminDb: () => adminDb.client, prizeDb }));
 vi.mock('@/lib/admin-guard', () => ({ adminActionGuard: (...a: unknown[]) => adminActionGuard(...a) }));
 vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => revalidatePath(...a) }));
-vi.mock('@/lib/cloudinary-server', () => ({ deleteCloudinaryImageByUrl: (...a: unknown[]) => deleteCloudinaryImageByUrl(...a) }));
+vi.mock('@/lib/media/deletion-queue', () => ({ schedulePrizeImageDeletion: (...a: unknown[]) => schedulePrizeImageDeletion(...a) }));
 
 const actions = await import('@/actions/prizes');
 
 const CLOUD = 'https://res.cloudinary.com/dszrz6s6u/image/upload';
 const DENIED = { success: false, error: 'Unauthorized: admin session required' };
 const form = { prizeId: 'prize-1', fullName: 'Ali Khan', whatsappNumber: '03001234567', address: 'House 1, Street 2, Lahore' };
-const prize = (over: Record<string, unknown> = {}) => ({ id: 'prize-1', name: 'Phone', imageUrl: `${CLOUD}/v1/prizes/phone.jpg`, isActive: true, status: 'published', ...over });
-const flush = () => new Promise((r) => setTimeout(r, 0));
+const prize = (over: Record<string, unknown> = {}) => ({ id: 'prize-1', name: 'Phone', imageUrl: `${CLOUD}/v1/prizes/phone.jpg`, isActive: true, status: 'published', isClaimed: false, ...over });
 
 beforeEach(() => {
   db = createSupabaseMock({ user: { id: 'user-1', email: 'p@example.test' } });
   adminDb = createSupabaseMock();
-  for (const fn of [adminActionGuard, revalidatePath, deleteCloudinaryImageByUrl, ...Object.values(prizeDb)]) fn.mockReset();
+  for (const fn of [adminActionGuard, revalidatePath, schedulePrizeImageDeletion, ...Object.values(prizeDb)]) fn.mockReset();
   adminActionGuard.mockResolvedValue(null);
-  deleteCloudinaryImageByUrl.mockResolvedValue(true);
+  schedulePrizeImageDeletion.mockResolvedValue(true);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -60,6 +59,34 @@ describe('getPublicPrizes', () => {
     db.setTable('Prize', { error: { message: 'x' } });
     expect(await actions.getPublicPrizes()).toEqual({ success: false, error: 'Failed to fetch prizes' });
   });
+
+  it("marks prizes the signed-in player already claimed or won", async () => {
+    db.setTable('Prize', { data: [prize(), prize({ id: 'prize-2' }), prize({ id: 'prize-3' })] });
+    db.setTable('PrizeRedemption', { data: [{ prizeId: 'prize-1' }, {}] });
+    db.setTable('Winning', { data: [{ prizeId: 'prize-3' }, { prizeId: null }] });
+    const res = await actions.getPublicPrizes();
+    expect(res.data?.map((p) => [p.id, p.isClaimed])).toEqual([['prize-1', true], ['prize-2', false], ['prize-3', true]]);
+    const redemptions = db.callsTo('PrizeRedemption')[0];
+    expect(eqValue(redemptions, 'userId')).toBe('user-1');
+    expect(redemptions.ops.find((o) => o.op === 'in')?.args).toEqual(['status', ['pending', 'approved', 'fulfilled']]);
+    expect(eqValue(db.callsTo('Winning')[0], 'userId')).toBe('user-1');
+
+    // Nothing found, or no rows at all
+    db.setTable('PrizeRedemption', { data: null });
+    db.setTable('Winning', { data: null });
+    expect((await actions.getPublicPrizes()).success).toBe(true);
+    db.setTable('Prize', { data: null });
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [] });
+  });
+
+  it('lists prizes for guests, and when the session check fails, with nothing claimed', async () => {
+    db.setTable('Prize', { data: [prize()] });
+    db.setUser(null);
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [prize()] });
+    expect(db.callsTo('PrizeRedemption')).toHaveLength(0);
+    db.auth.getClaims.mockRejectedValueOnce(new Error('auth down'));
+    expect(await actions.getPublicPrizes()).toEqual({ success: true, data: [prize()] });
+  });
 });
 
 describe('redeemPrize', () => {
@@ -84,11 +111,14 @@ describe('redeemPrize', () => {
     expect(await actions.redeemPrize('', form)).toEqual({ success: false, error: 'You must be logged in to redeem prizes' });
   });
 
-  it('refuses a duplicate pending request and unavailable prizes', async () => {
-    db.setTable('PrizeRedemption', { data: { id: 'pending' } });
-    expect((await actions.redeemPrize('', form)).error).toBe('You already have a pending redemption for this prize');
+  it('refuses duplicate claims and unavailable prizes', async () => {
+    // redeem_prize refuses a prize the player has already claimed (checked under a lock in the database)
+    const already = 'You have already claimed this prize. Each prize can only be claimed once per account.';
+    prizeDb.findById.mockResolvedValueOnce(prize());
+    db.setRpc('redeem_prize', { data: { success: false, code: 'already_claimed', error: already } });
+    expect(await actions.redeemPrize('', form)).toEqual({ success: false, error: already });
+    db.rpcCalls.length = 0;
 
-    db.setTable('PrizeRedemption', { data: null });
     for (const p of [null, prize({ isActive: false }), prize({ status: 'draft' })]) {
       prizeDb.findById.mockResolvedValueOnce(p);
       expect((await actions.redeemPrize('', form)).error).toBe('This prize is no longer available');
@@ -121,7 +151,7 @@ describe('admin prize actions', () => {
     expect(await actions.deletePrize('p')).toEqual(DENIED);
     expect(await actions.togglePrizeStatus('p')).toEqual(DENIED);
     expect(await actions.togglePrizeActive('p')).toEqual(DENIED);
-    expect(prizeDb.findById).not.toHaveBeenCalled();
+    expect(prizeDb.findByIdAdmin).not.toHaveBeenCalled();
     expect(adminDb.calls).toHaveLength(0);
   });
 
@@ -173,7 +203,7 @@ describe('admin prize actions', () => {
     expect(revalidatePath).toHaveBeenCalledWith('/admin/prizes');
 
     expect(await actions.createPrize({ name: 'Bike', type: 'bike', pointsRequired: 1, imageUrl: 'https://evil.example/a.png' } as never))
-      .toEqual({ success: false, error: expect.stringContaining('Cloudinary') });
+      .toEqual({ success: false, error: expect.stringContaining('Supabase Storage') });
     expect(await actions.createPrize({ name: 'Watch', type: 'watch', pointsRequired: 1, imageUrl: '/prizes/watch.svg' } as never)).toEqual({ success: true, data: { id: 'new' } });
     expect(prizeDb.create).toHaveBeenLastCalledWith(expect.objectContaining({ imageUrl: '/prizes/watch.svg' }));
     expect(await actions.createPrize({ name: '', type: 'bike', pointsRequired: 1 } as never)).toEqual({ success: false, error: 'Name is required' });
@@ -182,63 +212,86 @@ describe('admin prize actions', () => {
     expect(await actions.createPrize({ name: 'B', type: 't', pointsRequired: 1 } as never)).toEqual({ success: false, error: 'Failed to create prize' });
   });
 
+  it('createPrize saves an image uploaded to, or picked from, this project\'s Storage', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://proj.supabase.co');
+    const PUB = 'https://proj.supabase.co/storage/v1/object/public';
+    prizeDb.create.mockResolvedValue({ id: 'new' });
+    for (const imageUrl of [`${PUB}/prize-images/prizes/a-1280.webp`, `${PUB}/site-media/uploads/b-1920.webp`]) {
+      expect(await actions.createPrize({ name: 'Earbuds', type: 'earbuds', pointsRequired: 100, imageUrl } as never)).toEqual({ success: true, data: { id: 'new' } });
+      expect(prizeDb.create).toHaveBeenLastCalledWith(expect.objectContaining({ imageUrl }));
+    }
+    // Players' avatars are not prize images
+    expect(await actions.createPrize({ name: 'Earbuds', type: 'earbuds', pointsRequired: 100, imageUrl: `${PUB}/avatars/u/a-256.webp` } as never))
+      .toEqual({ success: false, error: expect.stringContaining('Supabase Storage') });
+    vi.unstubAllEnvs();
+  });
+
+  it('wants whole points and stock, which are integer columns', async () => {
+    // A fraction used to pass validation and fail in the insert as "Failed to create prize"
+    expect(await actions.createPrize({ name: 'B', type: 'bike', pointsRequired: 1.5 } as never)).toEqual({ success: false, error: 'Points must be a whole number' });
+    expect(await actions.createPrize({ name: 'B', type: 'bike', pointsRequired: 1, stock: 2.5 } as never)).toEqual({ success: false, error: 'Stock must be a whole number' });
+    expect(prizeDb.create).not.toHaveBeenCalled();
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
+    expect(await actions.updatePrize('prize-1', { stock: 0.5 })).toEqual({ success: false, error: 'Stock must be a whole number' });
+    expect(prizeDb.update).not.toHaveBeenCalled();
+  });
+
   it('updatePrize writes only the provided fields', async () => {
-    prizeDb.findById.mockResolvedValue(prize({ imageUrl: null }));
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
     prizeDb.update.mockResolvedValue({ id: 'prize-1' });
     await actions.updatePrize('prize-1', { name: 'New', description: '', imageUrl: '', modelUrl: '', type: 't', pointsRequired: 5, category: 'vehicles', stock: 0, status: 'draft', value: 9 });
     expect(prizeDb.update).toHaveBeenCalledWith('prize-1', {
       name: 'New', description: null, imageUrl: null, modelUrl: null, type: 't', pointsRequired: 5, category: 'vehicles', stock: 0, status: 'draft', value: 9,
     });
-    expect(deleteCloudinaryImageByUrl).not.toHaveBeenCalled();
+    expect(schedulePrizeImageDeletion).not.toHaveBeenCalled();
+  });
+
+  it('saves bumper prizes, the admin-only category the prize form offers', async () => {
+    prizeDb.create.mockResolvedValue({ id: 'new' });
+    expect(await actions.createPrize({ name: 'Mystery bike', type: 'bike', pointsRequired: 1, category: 'bumper' } as never))
+      .toEqual({ success: true, data: { id: 'new' } });
+    expect(prizeDb.create).toHaveBeenCalledWith(expect.objectContaining({ category: 'bumper' }));
+
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
+    prizeDb.update.mockResolvedValue({ id: 'prize-1' });
+    expect((await actions.updatePrize('prize-1', { category: 'bumper' })).success).toBe(true);
+    expect(prizeDb.update).toHaveBeenLastCalledWith('prize-1', { category: 'bumper' });
   });
 
   it('leaves the fields a partial update omits untouched, instead of resetting them to the create defaults', async () => {
-    prizeDb.findById.mockResolvedValue(prize({ imageUrl: null }));
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ imageUrl: null }));
     prizeDb.update.mockResolvedValue({});
     await actions.updatePrize('prize-1', { name: 'Renamed' });
     expect(prizeDb.update).toHaveBeenLastCalledWith('prize-1', { name: 'Renamed' });
   });
 
-  it('updatePrize deletes the replaced Cloudinary image only when no other prize uses it', async () => {
-    prizeDb.findById.mockResolvedValue(prize());
+  it('updatePrize queues the replaced image for delayed deletion instead of deleting it', async () => {
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
     prizeDb.update.mockResolvedValue({});
-    adminDb.setTable('Prize', { data: [{ id: 'other', imageUrl: `${CLOUD}/t_1Think2win/v9/prizes/other.jpg` }] });
-    await actions.updatePrize('prize-1', { imageUrl: `${CLOUD}/v2/prizes/new.jpg` });
-    await flush();
-    expect(deleteCloudinaryImageByUrl).toHaveBeenCalledWith(prize().imageUrl);
-    expect(eqValue(adminDb.callsTo('Prize')[0], 'id')).toBeUndefined();
-    expect(adminDb.callsTo('Prize')[0].ops.find((o) => o.op === 'neq')?.args).toEqual(['id', 'prize-1']);
+    expect(await actions.updatePrize('prize-1', { imageUrl: `${CLOUD}/v2/prizes/new.jpg` })).toEqual({ success: true, data: {} });
+    expect(schedulePrizeImageDeletion).toHaveBeenCalledWith(prize().imageUrl, 'prize_image_replaced', 'prize-1');
+    // Saved first, queued after
+    expect(prizeDb.update.mock.invocationCallOrder[0]).toBeLessThan(schedulePrizeImageDeletion.mock.invocationCallOrder[0]);
 
-    deleteCloudinaryImageByUrl.mockClear();
-    adminDb.setTable('Prize', { data: [{ id: 'other', imageUrl: `${CLOUD}/w_200/v3/prizes/phone.png` }] });
-    await actions.updatePrize('prize-1', { imageUrl: `${CLOUD}/v2/prizes/new.jpg` });
-    await flush();
-    expect(deleteCloudinaryImageByUrl).not.toHaveBeenCalled();
-
-    // No other prizes at all
-    adminDb.setTable('Prize', { data: null });
-    await actions.updatePrize('prize-1', { imageUrl: `${CLOUD}/v2/prizes/new.jpg` });
-    await flush();
-    expect(deleteCloudinaryImageByUrl).toHaveBeenCalledWith(prize().imageUrl);
+    // Same image, or no image field in the update: nothing to queue
+    schedulePrizeImageDeletion.mockClear();
+    await actions.updatePrize('prize-1', { imageUrl: prize().imageUrl });
+    await actions.updatePrize('prize-1', { name: 'Renamed' });
+    expect(schedulePrizeImageDeletion).not.toHaveBeenCalled();
   });
 
-  it('keeps shared site assets, foreign images, and images it cannot check', async () => {
-    prizeDb.update.mockResolvedValue({});
-    for (const imageUrl of [`${CLOUD}/v1/assets/logo.png`, 'https://lh3.googleusercontent.com/a.png']) {
-      prizeDb.findById.mockResolvedValue(prize({ imageUrl }));
-      await actions.updatePrize('prize-1', { imageUrl: '' });
-    }
-    prizeDb.findById.mockResolvedValue(prize());
-    adminDb.setTable('Prize', { error: { message: 'cannot read' } });
-    await actions.updatePrize('prize-1', { imageUrl: '' });
-    await flush();
-    expect(deleteCloudinaryImageByUrl).not.toHaveBeenCalled();
+  it('a queueing failure never fails the prize update', async () => {
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
+    prizeDb.update.mockResolvedValue({ id: 'prize-1' });
+    schedulePrizeImageDeletion.mockRejectedValue(new Error('MediaDeletion missing'));
+    expect(await actions.updatePrize('prize-1', { imageUrl: '' })).toEqual({ success: true, data: { id: 'prize-1' } });
+    expect(console.error).toHaveBeenCalledWith('Failed to queue old prize image for deletion:', expect.any(Error));
   });
 
   it('updatePrize handles a missing prize, bad input and failures', async () => {
-    prizeDb.findById.mockResolvedValue(null);
+    prizeDb.findByIdAdmin.mockResolvedValue(null);
     expect(await actions.updatePrize('x', {})).toEqual({ success: false, error: 'Prize not found' });
-    prizeDb.findById.mockResolvedValue(prize());
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
     expect(await actions.updatePrize('x', { pointsRequired: 0 })).toEqual({ success: false, error: 'Points must be at least 1' });
     prizeDb.update.mockRejectedValue(new Error('x'));
     expect(await actions.updatePrize('x', { name: 'n' })).toEqual({ success: false, error: 'Failed to update prize' });
@@ -250,31 +303,31 @@ describe('admin prize actions', () => {
     expect(prizeDb.delete).not.toHaveBeenCalled();
 
     db.setTable('PrizeRedemption', { count: 0 });
-    prizeDb.findById.mockResolvedValue(prize());
-    adminDb.setTable('Prize', { data: [] });
+    prizeDb.findByIdAdmin.mockResolvedValue(prize());
     expect(await actions.deletePrize('prize-1')).toEqual({ success: true });
-    await flush();
     expect(prizeDb.delete).toHaveBeenCalledWith('prize-1');
-    expect(deleteCloudinaryImageByUrl).toHaveBeenCalledTimes(1);
+    expect(schedulePrizeImageDeletion).toHaveBeenCalledWith(prize().imageUrl, 'prize_deleted', 'prize-1');
+    schedulePrizeImageDeletion.mockClear();
 
-    prizeDb.findById.mockResolvedValue(null);
+    prizeDb.findByIdAdmin.mockResolvedValue(null);
     expect(await actions.deletePrize('prize-2')).toEqual({ success: true });
+    expect(schedulePrizeImageDeletion).not.toHaveBeenCalled();
     prizeDb.delete.mockRejectedValue(new Error('x'));
     expect(await actions.deletePrize('prize-3')).toEqual({ success: false, error: 'Failed to delete prize' });
   });
 
   it('toggles status and active state', async () => {
     prizeDb.update.mockImplementation(async (_id, data) => data);
-    prizeDb.findById.mockResolvedValue(prize({ status: 'published', isActive: true }));
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ status: 'published', isActive: true }));
     expect((await actions.togglePrizeStatus('prize-1')).data).toEqual({ status: 'draft' });
     expect((await actions.togglePrizeActive('prize-1')).data).toEqual({ isActive: false });
-    prizeDb.findById.mockResolvedValue(prize({ status: 'draft' }));
+    prizeDb.findByIdAdmin.mockResolvedValue(prize({ status: 'draft' }));
     expect((await actions.togglePrizeStatus('prize-1')).data).toEqual({ status: 'published' });
 
-    prizeDb.findById.mockResolvedValue(null);
+    prizeDb.findByIdAdmin.mockResolvedValue(null);
     expect(await actions.togglePrizeStatus('x')).toEqual({ success: false, error: 'Prize not found' });
     expect(await actions.togglePrizeActive('x')).toEqual({ success: false, error: 'Prize not found' });
-    prizeDb.findById.mockRejectedValue(new Error('x'));
+    prizeDb.findByIdAdmin.mockRejectedValue(new Error('x'));
     expect(await actions.togglePrizeStatus('x')).toEqual({ success: false, error: 'Failed to toggle prize status' });
     expect(await actions.togglePrizeActive('x')).toEqual({ success: false, error: 'Failed to toggle prize active state' });
   });

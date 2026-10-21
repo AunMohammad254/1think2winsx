@@ -35,8 +35,6 @@ vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: (...a: unknow
 vi.mock('@/lib/security-logger', () => ({ securityLogger: logger }));
 
 const claims = await import('@/app/api/admin/claims/route');
-const board = await import('@/app/api/admin/lucky-winner/[quizId]/route');
-const draw = await import('@/app/api/admin/lucky-winner/[quizId]/draw/route');
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
@@ -200,125 +198,76 @@ describe('PUT /api/admin/claims', () => {
     requireAuth.mockRejectedValueOnce(new z.ZodError([]));
     expect((await put({ claimId: 'c1', status: 'approved' })).status).toBe(400);
   });
-});
 
-const attempts = (scores: number[]) => scores.map((score, i) => ({ id: `a${i}`, userId: `u${i}`, score, completedAt: `2026-10-0${i + 1}`, user: { name: `P${i}`, email: `p${i}@x` } }));
-const ctx = { params: Promise.resolve({ quizId: 'quiz-1' }) };
+  it('reissues through reissue_claim, which moves the points and stock in the database', async () => {
+    // 1. Send it again
+    adminDb.setRpc('reissue_claim', { data: { success: true, status: 'pending', previousStatus: 'fulfilled', pointsRefunded: 0 } });
+    const redeliveryRes = await put({
+      claimId: 'c1',
+      status: 'pending',
+      action: 'reissue',
+      reissueMode: 'redelivery',
+      notes: 'Customer reported missing package',
+    });
+    expect(redeliveryRes.status).toBe(200);
+    expect(await redeliveryRes.json()).toEqual({
+      message: 'Claim reissued for re-delivery successfully',
+      claim: { id: 'c1', status: 'pending' },
+    });
+    expect(adminDb.rpcCalls[0]).toEqual({
+      fn: 'reissue_claim',
+      args: { p_claim_id: 'c1', p_mode: 'redelivery', p_notes: 'Customer reported missing package', p_admin_email: 'player@example.test' },
+    });
 
-describe('GET /api/admin/lucky-winner/[quizId]', () => {
-  const get = () => board.GET(makeRequest('/api/admin/lucky-winner/quiz-1'), ctx);
+    // 2. Refund instead, so the player may claim again (no status needed: reissue_claim sets it)
+    adminDb.setRpc('reissue_claim', { data: { success: true, status: 'rejected', previousStatus: 'approved', pointsRefunded: 250 } });
+    const reclaimRes = await put({ claimId: 'c2', action: 'reissue', reissueMode: 'reclaim' });
+    expect(reclaimRes.status).toBe(200);
+    expect(await reclaimRes.json()).toEqual({
+      message: 'Claim reissued. Points refunded and player may now re-claim this reward.',
+      claim: { id: 'c2', status: 'rejected' },
+    });
+    expect(adminDb.rpcCalls[1].args).toMatchObject({ p_claim_id: 'c2', p_mode: 'reclaim', p_notes: null });
+    expect(logger.logSecurityEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      details: { action: 'REISSUE_CLAIM_ALLOW_RECLAIM', claimId: 'c2', previousStatus: 'approved', pointsRefunded: 250 },
+    }));
+    expect(adminDb.callsTo('User')).toHaveLength(0);
+    expect(adminDb.callsTo('Prize')).toHaveLength(0);
 
-  it('returns the leaderboard, the tied top scorers and the prize', async () => {
-    adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T', prizeId: 'p1' } });
-    adminDb.setTable('Prize', { data: { id: 'p1', name: 'Watch' } });
-    adminDb.setTable('QuizAttempt', { data: attempts([90, 90, 50]) });
-    winnerDb.findByQuizId.mockResolvedValue({ id: 'w' });
-
-    const body = await (await get()).json();
-
-    expect(body).toMatchObject({ prize: { id: 'p1', name: 'Watch' }, totalAttempts: 3, maxScore: 90, tiedCount: 2, winnerAlreadyDrawn: true, existingWinner: { id: 'w' } });
-    const q = adminDb.callsTo('QuizAttempt')[0];
-    expect(q.ops.find((o) => o.op === 'not')?.args).toEqual(['completedAt', 'is', null]);
+    // An admin session without an email leaves "processed by" to the database
+    requireAuth.mockResolvedValueOnce(authOk('admin-1', ''));
+    await put({ claimId: 'c3', action: 'reissue', reissueMode: 'redelivery' });
+    expect(adminDb.rpcCalls[2].args).toMatchObject({ p_claim_id: 'c3', p_admin_email: null });
   });
 
-  it('uses a synthetic bumper prize, and handles no attempts', async () => {
-    adminDb.setTable('Quiz', { data: { id: 'quiz-1', isBumperPrize: true } });
-    adminDb.setTable('QuizAttempt', { data: null });
-    const body = await (await get()).json();
-    expect(body).toMatchObject({ prize: { id: 'bumper', name: 'Bumper Prize' }, totalAttempts: 0, maxScore: 0, tiedCount: 0, existingWinner: null, winnerAlreadyDrawn: false });
+  it("passes on reissue_claim's refusals, and reports database errors", async () => {
+    adminDb.setRpc('reissue_claim', { data: { success: false, code: 'invalid_status', error: 'Only approved or fulfilled claims can be reissued (this one is rejected)' } });
+    const refused = await put({ claimId: 'c1', status: 'pending', action: 'reissue', reissueMode: 'redelivery' });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ message: 'Only approved or fulfilled claims can be reissued (this one is rejected)' });
+
+    adminDb.setRpc('reissue_claim', { data: { success: false, code: 'not_found', error: 'Claim not found' } });
+    expect((await put({ claimId: 'nope', action: 'reissue', reissueMode: 'reclaim' })).status).toBe(404);
+
+    adminDb.setRpc('reissue_claim', { data: null });
+    const empty = await put({ claimId: 'c1', action: 'reissue', reissueMode: 'reclaim' });
+    expect(empty.status).toBe(409);
+    expect(await empty.json()).toEqual({ message: 'Failed to reissue claim' });
+
+    adminDb.setRpc('reissue_claim', { error: { message: 'function reissue_claim does not exist' } });
+    expect((await put({ claimId: 'c1', action: 'reissue', reissueMode: 'reclaim' })).status).toBe(500);
   });
 
-  it('refuses quizzes without a prize, unknown quizzes, non-admins, and reports errors', async () => {
-    adminDb.setTable('Quiz', { data: { id: 'quiz-1' } });
-    expect((await get()).status).toBe(422);
-    adminDb.setTable('Quiz', { data: null });
-    expect((await get()).status).toBe(404);
-    adminDb.setTable('Quiz', { data: { id: 'quiz-1', prizeId: 'p' } });
-    adminDb.setTable('QuizAttempt', { error: { message: 'x' } });
-    expect((await get()).status).toBe(500);
-    validateAdminSession.mockResolvedValueOnce({ valid: false });
-    expect((await get()).status).toBe(401);
-    expect((await board.GET(makeRequest('/x'), { params: Promise.resolve({ quizId: '' }) })).status).toBe(400);
-  });
-});
-
-describe('POST /api/admin/lucky-winner/[quizId]/draw', () => {
-  const run = (body?: unknown) => draw.POST(body === undefined ? new NextRequest('http://localhost/x', { method: 'POST' }) : makeRequest('/x', { body }), ctx);
-  beforeEach(() => adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'Cricket', prizeId: 'p1' } }));
-
-  it('picks the single top scorer without a draw and notifies them', async () => {
-    adminDb.setTable('QuizAttempt', { data: attempts([90, 50]) });
-    const body = await (await run()).json();
-    expect(body.message).toBe('Single winner selected — no draw needed.');
-    expect(body.winners).toEqual([expect.objectContaining({ userId: 'u0', name: 'P0', selectionMethod: 'auto_single_winner' })]);
-    expect(winnerDb.create).toHaveBeenCalledWith(expect.objectContaining({ quizId: 'quiz-1', userId: 'u0', prizeId: 'p1', selectedBy: 'boss@example.test', seed: expect.stringMatching(/^[0-9a-f]{64}$/) }));
-    expect(createNotification).toHaveBeenCalledWith('u0', expect.objectContaining({ title: '🏆 Congratulations! You Won a Prize!' }));
-    expect(winnerDb.markNotificationSent).toHaveBeenCalledWith('w-u0');
-  });
-
-  it('draws one winner from tied top scorers and gives the others consolation points', async () => {
-    adminDb.setTable('QuizAttempt', { data: attempts([90, 90, 90, 10]) });
-    adminDb.setRpc('increment_user_points', (args) => (args.p_user_id === 'u2' ? { error: { message: 'x' } } : { data: 5 }));
-    const body = await (await run({ numberOfWinners: 1, consolationPoints: 5 })).json();
-    expect(body.draw).toMatchObject({ totalAttempts: 4, maxScore: 90, tiedCount: 3, winnerCount: 1 });
-    expect(body.winners[0].selectionMethod).toBe('random_draw');
-    expect(['u0', 'u1', 'u2']).toContain(body.winners[0].userId);
-    const consoled = adminDb.rpcCalls.map((c) => c.args.p_user_id);
-    expect(consoled).toHaveLength(2);
-    expect(consoled).not.toContain(body.winners[0].userId);
-    expect(body.consolation.losersAwarded).toBe(consoled.includes('u2') ? 1 : 2);
-
-    adminDb.setRpc('increment_user_points', { error: { message: 'down' } });
-    expect((await (await run({ consolationPoints: 5 })).json()).consolation).toEqual({ points: 5, losersAwarded: 0 });
-  });
-
-  it('cannot record more than one winner per quiz: the unique index fails the second insert', async () => {
-    adminDb.setTable('QuizAttempt', { data: attempts([90, 90]) });
-    winnerDb.create.mockResolvedValueOnce({ id: 'w1', userId: 'u0' }).mockRejectedValueOnce({ code: '23505', message: 'duplicate key value violates unique constraint "QuizWinner_quizId_unique"' });
-    const res = await run({ numberOfWinners: 2 });
-    expect(res.status).toBe(500);
-    expect(winnerDb.create).toHaveBeenCalledTimes(2);
-    expect(createNotification).not.toHaveBeenCalled();
-  });
-
-  it('records a bumper-prize winner without a prize id, and survives notification failures', async () => {
-    adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T', isBumperPrize: true } });
-    adminDb.setTable('QuizAttempt', { data: [{ id: 'a', userId: 'u', score: 1, completedAt: 'c', user: null }] });
-    validateAdminSession.mockResolvedValue({ valid: true });
-    createNotification.mockRejectedValue(new Error('push'));
-    const body = await (await run({ consolationPoints: -5, numberOfWinners: 0 })).json();
-    expect(winnerDb.create.mock.calls[0][0]).not.toHaveProperty('prizeId');
-    expect(winnerDb.create.mock.calls[0][0].selectedBy).toBe('admin');
-    expect(body.winners[0].name).toBe('Unknown');
-    expect(body.consolation).toEqual({ points: 0, losersAwarded: 0 });
-  });
-
-  it('refuses a second draw with the existing winner', async () => {
-    winnerDb.existsForQuiz.mockResolvedValue(true);
-    winnerDb.findByQuizId.mockResolvedValue({ id: 'w-old' });
-    const res = await run();
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: 'WINNER_ALREADY_DRAWN', existingWinner: { id: 'w-old' } });
-  });
-
-  it('refuses without attempts, a prize, a quiz or an admin, and reports errors', async () => {
-    adminDb.setTable('QuizAttempt', { data: null });
-    expect((await run()).status).toBe(422);
-    adminDb.setTable('QuizAttempt', { error: { message: 'x' } });
-    expect((await run()).status).toBe(500);
-    adminDb.setTable('Quiz', { data: { id: 'quiz-1' } });
-    expect((await run()).status).toBe(422);
-    adminDb.setTable('Quiz', { data: null });
-    expect((await run()).status).toBe(404);
-    validateAdminSession.mockResolvedValueOnce({ valid: false });
-    expect((await run()).status).toBe(401);
-    expect((await draw.POST(makeRequest('/x', { method: 'POST' }), { params: Promise.resolve({ quizId: '' }) })).status).toBe(400);
-  });
-
-  it('covers every index of a large tie (the shuffle keeps re-seeding)', async () => {
-    adminDb.setTable('QuizAttempt', { data: attempts(Array(60).fill(7)) });
-    const body = await (await run({ numberOfWinners: 1 })).json();
-    expect(body.draw.tiedCount).toBe(60);
-    expect(body.winners).toHaveLength(1);
+  it('needs a mode for a reissue and a status for an update', async () => {
+    for (const body of [
+      { claimId: 'c1', status: 'rejected', action: 'reissue' },
+      { claimId: 'c1', action: 'reissue', reissueMode: 'refund' },
+      { claimId: 'c1', notes: 'no status' },
+      { claimId: 'c1', action: 'update' },
+    ]) {
+      expect((await put(body)).status, JSON.stringify(body)).toBe(400);
+    }
+    expect(adminDb.rpcCalls).toHaveLength(0);
   });
 });
+

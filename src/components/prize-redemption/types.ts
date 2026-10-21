@@ -12,10 +12,13 @@ export interface Prize {
     modelUrl: string;
     type: string;
     pointsRequired: number;
+    stock?: number;
+    isClaimed?: boolean;
 }
 
 export interface RedemptionHistory {
     id: string;
+    prizeId?: string;
     pointsUsed: number;
     status: string;
     requestedAt: string;

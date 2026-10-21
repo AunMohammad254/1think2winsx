@@ -37,7 +37,26 @@ describe('GET /api/admin/wallet-transactions', () => {
     adminDb.setRpc('get_admin_wallet_transactions', { data: { success: true, transactions: [{ id: 'tx' }], pagination: { page: 2 } } });
     const body = await (await list('?status=pending&page=2&limit=10')).json();
     expect(adminDb.rpcCalls[0]).toEqual({ fn: 'get_admin_wallet_transactions', args: { p_status: 'pending', p_page: 2, p_limit: 10 } });
-    expect(body).toEqual({ success: true, transactions: [{ id: 'tx' }], pagination: { page: 2 } });
+    expect(body).toEqual({ success: true, transactions: [{ id: 'tx', proofImage: null }], pagination: { page: 2 } });
+  });
+
+  it('turns private receipt references into signed links, only for the transaction owner\'s own receipt', async () => {
+    const createSignedUrls = vi.fn(async (paths: string[]) => ({
+      data: paths.map((p) => ({ path: p, signedUrl: `https://signed.example/${p}?token=t`, error: null })),
+      error: null,
+    }));
+    Object.assign(adminDb.storage, { createSignedUrls });
+    adminDb.setRpc('get_admin_wallet_transactions', { data: { success: true, transactions: [
+      { id: 'a', userId: 'user-1', proofImage: 'receipts/user-1/r.png' },
+      { id: 'b', userId: 'user-2', proofImage: 'receipts/user-1/r.png' }, // points at someone else's receipt
+      { id: 'c', userId: 'user-3', proofImage: 'https://old.example/r.png' },
+    ] } });
+    const body = await (await list()).json();
+    expect(adminDb.client.storage.from).toHaveBeenCalledWith('receipts');
+    expect(createSignedUrls).toHaveBeenCalledWith(['user-1/r.png'], 3600);
+    expect(body.transactions.map((t: { proofImage: string | null }) => t.proofImage)).toEqual([
+      'https://signed.example/user-1/r.png?token=t', null, 'https://old.example/r.png',
+    ]);
   });
 
   it('defaults to every status, page 1 and 50 rows, tolerating a missing list', async () => {

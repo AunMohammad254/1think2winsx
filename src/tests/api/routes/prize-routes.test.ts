@@ -270,11 +270,12 @@ describe('POST /api/prizes', () => {
       expect(res.status).toBe(201);
     });
 
-    it('refuses a second pending request for the same prize', async () => {
-      db.setTable('PrizeRedemption', { data: { id: 'pending-1' } });
+    it("passes on redeem_prize's refusal of a prize the player already claimed", async () => {
+      const already = 'You have already claimed this prize. Each prize can only be claimed once per account.';
+      db.setRpc('redeem_prize', { data: { success: false, code: 'already_claimed', error: already } });
       const res = await post({ action: 'redeem', prizeId: 'prize-1' });
       expect(res.status).toBe(400);
-      expect(db.rpcCalls).toHaveLength(0);
+      expect(await res.json()).toEqual({ message: already });
     });
 
     it('checks the player, prize and balance first', async () => {
@@ -298,7 +299,7 @@ describe('POST /api/prizes', () => {
 
     it('falls back to a NON-atomic deduct-then-insert when the RPC error mentions "function"', async () => {
       db.setRpc('redeem_prize', { error: { message: 'function redeem_prize(text, text) does not exist' } });
-      db.setTable('PrizeRedemption', [{ data: null }, { data: { id: 'gen-id', Prize: [{ name: 'Smart Watch' }] } }]);
+      db.setTable('PrizeRedemption', { data: { id: 'gen-id', Prize: [{ name: 'Smart Watch' }] } });
 
       const res = await post({ action: 'redeem', prizeId: 'prize-1' });
 
@@ -311,10 +312,10 @@ describe('POST /api/prizes', () => {
 
     it('also takes the fallback for Postgres error 42883 and fails if the insert fails', async () => {
       db.setRpc('redeem_prize', { error: { code: '42883', message: 'undefined' } });
-      db.setTable('PrizeRedemption', [{ data: null }, { data: { id: 'x', Prize: { name: 'Watch' } } }]);
+      db.setTable('PrizeRedemption', { data: { id: 'x', Prize: { name: 'Watch' } } });
       expect((await post({ action: 'redeem', prizeId: 'prize-1' })).status).toBe(201);
 
-      db.setTable('PrizeRedemption', [{ data: null }, { error: { message: 'insert failed' } }]);
+      db.setTable('PrizeRedemption', { error: { message: 'insert failed' } });
       expect((await post({ action: 'redeem', prizeId: 'prize-1' })).status).toBe(500);
     });
 

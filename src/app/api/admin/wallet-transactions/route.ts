@@ -4,6 +4,7 @@ import { getAdminDb, notificationDb } from '@/lib/supabase/db';
 import { TransactionStatus, PaymentMethod } from '@/types/wallet';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { isWalletEnabled } from '@/lib/wallet/service';
+import { withSignedReceipts } from '@/lib/wallet/receipts';
 
 /**
  * GET /api/admin/wallet-transactions
@@ -45,7 +46,8 @@ export async function GET(request: NextRequest) {
             if (!error && data?.success) {
                 return NextResponse.json({
                     success: true,
-                    transactions: data.transactions || [],
+                    // Receipts are private: swap each stored reference for a short-lived signed link
+                    transactions: await withSignedReceipts(supabase, data.transactions || []),
                     pagination: data.pagination
                 });
             }
@@ -90,7 +92,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
-            transactions: formattedTransactions,
+            transactions: await withSignedReceipts(supabase, formattedTransactions),
         });
     } catch (error) {
         console.error('Error fetching wallet transactions:', error);

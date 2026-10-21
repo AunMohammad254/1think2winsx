@@ -14,6 +14,7 @@ import PrizeTable from '@/components/admin/PrizeTable';
 import PrizeForm from '@/components/admin/PrizeForm';
 import type { Prize, PrizeFormData, PrizeCategory, PrizeStatus } from '@/types/prize';
 import Link from 'next/link';
+import { ChevronLeft } from 'lucide-react';
 
 export default function AdminPrizesPage() {
     const [prizes, setPrizes] = useState<Prize[]>([]);
@@ -146,11 +147,13 @@ export default function AdminPrizesPage() {
                             <Link
                                 href="/admin/dashboard"
                                 className="text-gray-400 hover:text-white transition-colors"
+                                title="Back to Dashboard"
+                                aria-label="Back to Dashboard"
                             >
-                                ← Back to Dashboard
+                                <ChevronLeft className="w-5 h-5" />
                             </Link>
+                            <h1 className="text-2xl md:text-3xl font-bold text-white">Prize Management</h1>
                         </div>
-                        <h1 className="text-2xl md:text-3xl font-bold text-white">Prize Management</h1>
                         <p className="text-gray-400 mt-1">Create, edit, and manage prizes for redemption</p>
                     </div>
                     <button
@@ -212,6 +215,7 @@ export default function AdminPrizesPage() {
                         <option value="vehicles">Vehicles</option>
                         <option value="accessories">Accessories</option>
                         <option value="general">General</option>
+                        <option value="bumper">Bumper (secret)</option>
                     </select>
 
                     {/* Status Filter */}

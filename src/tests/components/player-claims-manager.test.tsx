@@ -170,6 +170,27 @@ describe('PlayerClaimsManager', () => {
     expect(screen.queryByText('Claim Details')).toBeNull();
   });
 
+  it('reissues a delivered claim for re-delivery or a re-claim, sending the mode and the reason', async () => {
+    render(<PlayerClaimsManager />);
+    await screen.findByText('Watch');
+    const reissue = async (button: RegExp) => {
+      fireEvent.click(screen.getByRole('button', { name: 'Reissue' }));
+      fireEvent.change(screen.getByPlaceholderText(/Enter reason for reissue/), { target: { value: 'Courier lost it' } });
+      fireEvent.click(screen.getByRole('button', { name: button }));
+      await waitFor(() => expect(screen.queryByText('Claim Details')).toBeNull());
+      return JSON.parse(fetchMock.mock.calls.filter(([, i]) => i?.method === 'PUT').at(-1)![1].body);
+    };
+
+    fetchMock.mockImplementationOnce(async () => jsonResponse({ message: 'Claim reissued for re-delivery successfully' }));
+    expect(await reissue(/Reissue for Re-Delivery/)).toEqual({ claimId: 'c3', action: 'reissue', reissueMode: 'redelivery', notes: 'Courier lost it' });
+    expect(h.toast.success).toHaveBeenLastCalledWith('Claim reissued for re-delivery successfully');
+
+    // A reply without a message (or JSON) still confirms it
+    fetchMock.mockImplementationOnce(async () => new Response('', { status: 200 }));
+    expect(await reissue(/Reissue & Allow Re-Claim/)).toEqual({ claimId: 'c3', action: 'reissue', reissueMode: 'reclaim', notes: 'Courier lost it' });
+    expect(h.toast.success).toHaveBeenLastCalledWith('Claim reissued');
+  });
+
   it('shows the status totals from the API, not counts of the loaded, filtered page', async () => {
     const statusCounts = { pending: 12, approved: 34, fulfilled: 56, rejected: 78 };
     fetchMock.mockImplementation(async () => jsonResponse({ claims: [claims[0]], pagination: { page: 1, limit: 20, total: 12, totalPages: 1 }, statusCounts }));

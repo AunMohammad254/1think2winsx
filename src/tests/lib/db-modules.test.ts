@@ -74,6 +74,7 @@ const simple: [string, () => Promise<unknown>, unknown][] = [
   ['questionAttemptDb.createMany', () => questionAttemptDb.createMany([{ userId: 'u', questionId: 'x', quizId: 'q', selectedOption: 1, isCorrect: true, attemptedAt: new Date(0) }]), ROW],
   ['prizeDb.findMany', () => prizeDb.findMany(), ROW],
   ['prizeDb.findById', () => prizeDb.findById('p'), ROW],
+  ['prizeDb.findByIdAdmin', () => prizeDb.findByIdAdmin('p'), ROW],
   ['prizeDb.create', () => prizeDb.create({} as never), ROW],
   ['prizeDb.update', () => prizeDb.update('p', {} as never), ROW],
   ['prizeDb.delete', () => prizeDb.delete('p'), undefined],
@@ -126,7 +127,7 @@ describe('db modules: every simple operation', () => {
     await expect(call()).rejects.toEqual({ code: '500', message: 'db down' });
   });
 
-  it.each(simple.filter(([n]) => /find|getLeaderboard|getUserNotifications/.test(n) && !/ById$|ByQuizId$|Default$|Active$|ByEmail$|ByPhone$|WithQuestions$|UserAndQuiz$|existsForQuiz/.test(n)))(
+  it.each(simple.filter(([n]) => /find|getLeaderboard|getUserNotifications/.test(n) && !/ById$|ByIdAdmin$|ByQuizId$|Default$|Active$|ByEmail$|ByPhone$|WithQuestions$|UserAndQuiz$|existsForQuiz/.test(n)))(
     '%s returns [] when there are no rows',
     async (_name, call) => {
       both({ data: null });
@@ -134,7 +135,7 @@ describe('db modules: every simple operation', () => {
     },
   );
 
-  it.each(simple.filter(([n]) => /\.find\w*(ById|ByQuizId|Default|Active|ByEmail|ByPhone|WithQuestions)$/.test(n) && n !== 'questionDb.findByQuizId'))(
+  it.each(simple.filter(([n]) => /\.find\w*(ById|ByIdAdmin|ByQuizId|Default|Active|ByEmail|ByPhone|WithQuestions)$/.test(n) && n !== 'questionDb.findByQuizId'))(
     '%s treats PGRST116 as "not found"',
     async (_name, call) => {
       both({ data: null, error: { code: 'PGRST116' } });
@@ -142,6 +143,33 @@ describe('db modules: every simple operation', () => {
       expect(await call()).toBeNull();
     },
   );
+});
+
+describe('creating rows in tables that came from Prisma', () => {
+  // These tables have a NOT NULL "updatedAt" with no default (Prisma used to fill it in), so an insert
+  // without one is refused. Creating a prize failed this way in production on 2026-10-19.
+  it.each([
+    ['prizeDb.create', () => prizeDb.create({ name: 'Bike' } as never)],
+    ['prizeRedemptionDb.create', () => prizeRedemptionDb.create({} as never)],
+    ['quizAttemptDb.create', () => quizAttemptDb.create({} as never)],
+    ['userDb.create', () => userDb.create({} as never)],
+    ['streamConfigDb.create', () => streamConfigDb.create({} as never)],
+    ['quizDb.create', () => quizDb.create({ title: 't' } as never)],
+    ['questionDb.create', () => questionDb.create({ text: 't' } as never)],
+  ])('%s sends updatedAt', async (_name, call) => {
+    both({ data: ROW });
+    await call();
+    const row = argOf(lastCall(), 'insert') as Record<string, unknown>;
+    expect(Date.parse(row.updatedAt as string)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('gives a new prize matching created and updated times, and keeps what the caller sent', async () => {
+    both({ data: ROW });
+    await prizeDb.create({ name: 'Bike', pointsRequired: 500 } as never);
+    const row = argOf(lastCall(), 'insert') as Record<string, unknown>;
+    expect(row).toMatchObject({ id: 'id-1', name: 'Bike', pointsRequired: 500 });
+    expect(row.createdAt).toBe(row.updatedAt);
+  });
 });
 
 describe('quiz.db specifics', () => {
@@ -317,13 +345,13 @@ describe('notification.db push delivery', () => {
   const sub = (id: string) => ({ id, userId: 'u', endpoint: `https://push.example/${id}`, p256dh: 'p', auth: 'a', createdAt: 'c' });
 
   it('create stores the notification and pushes to every device of the player', async () => {
-    db.setTable('Notification', { data: { id: 'n1' } });
+    adminDb.setTable('Notification', { data: { id: 'n1' } });
     adminDb.setTable('PushSubscription', { data: [sub('s1'), sub('s2')] });
 
     expect(await notificationDb.create('u', { title: 'Hi', message: 'There', type: 'wallet', link: '/w' })).toEqual({ id: 'n1' });
     await flush();
 
-    expect(argOf(db.callsTo('Notification')[0], 'insert')).toMatchObject({ userId: 'u', title: 'Hi', message: 'There', link: '/w', read: false });
+    expect(argOf(adminDb.callsTo('Notification')[0], 'insert')).toMatchObject({ userId: 'u', title: 'Hi', message: 'There', link: '/w', read: false });
     expect(sendNotification).toHaveBeenCalledTimes(2);
     const [target, payload, opts] = sendNotification.mock.calls[0];
     expect(target).toEqual({ endpoint: 'https://push.example/s1', keys: { p256dh: 'p', auth: 'a' } });
@@ -332,11 +360,11 @@ describe('notification.db push delivery', () => {
   });
 
   it('create defaults the link and skips push without subscriptions', async () => {
-    db.setTable('Notification', { data: { id: 'n1' } });
+    adminDb.setTable('Notification', { data: { id: 'n1' } });
     adminDb.setTable('PushSubscription', { data: [sub('s1')] });
     await notificationDb.create('u', { title: 't', message: 'm', type: 'x' });
     await flush();
-    expect(argOf(db.callsTo('Notification')[0], 'insert')).toMatchObject({ link: null });
+    expect(argOf(adminDb.callsTo('Notification')[0], 'insert')).toMatchObject({ link: null });
     expect(JSON.parse(sendNotification.mock.calls[0][1]).url).toBe('/notifications');
 
     sendNotification.mockClear();
@@ -349,7 +377,7 @@ describe('notification.db push delivery', () => {
   });
 
   it('deletes subscriptions the push service says are gone, and logs other failures', async () => {
-    db.setTable('Notification', { data: { id: 'n1' } });
+    adminDb.setTable('Notification', { data: { id: 'n1' } });
     adminDb.setTable('PushSubscription', (call) => (call.ops.some((o) => o.op === 'delete') ? { error: null } : { data: [sub('gone'), sub('missing'), sub('flaky')] }));
     sendNotification.mockImplementation(async (target: { endpoint: string }) => {
       if (target.endpoint.endsWith('gone')) throw { statusCode: 410 };
@@ -367,7 +395,7 @@ describe('notification.db push delivery', () => {
   });
 
   it('logs when removing a dead subscription fails', async () => {
-    db.setTable('Notification', { data: { id: 'n1' } });
+    adminDb.setTable('Notification', { data: { id: 'n1' } });
     adminDb.setTable('PushSubscription', { data: [sub('gone')] });
     sendNotification.mockRejectedValue({ statusCode: 410 });
     adminDb.setTable('PushSubscription', (call) => {
@@ -380,8 +408,8 @@ describe('notification.db push delivery', () => {
   });
 
   it('create throws when the insert fails', async () => {
-    db.setTable('Notification', { error: { message: 'rls' } });
-    await expect(notificationDb.create('u', { title: 't', message: 'm', type: 'x' })).rejects.toEqual({ message: 'rls' });
+    adminDb.setTable('Notification', { error: { message: 'insert failed' } });
+    await expect(notificationDb.create('u', { title: 't', message: 'm', type: 'x' })).rejects.toEqual({ message: 'insert failed' });
   });
 
   it('createBroadcast inserts for every user in chunks of 500 and pushes in batches of 50', async () => {

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { ChevronLeft } from 'lucide-react';
 
 interface SecurityEvent {
   id: string;
@@ -134,7 +136,17 @@ export default function SecurityPage() {
         <div className="mb-6 sm:mb-8">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Security Dashboard</h1>
+              <div className="flex items-center gap-3 mb-1">
+                <Link
+                  href="/admin/dashboard"
+                  className="text-gray-500 hover:text-gray-900 transition-colors"
+                  title="Back to Dashboard"
+                  aria-label="Back to Dashboard"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Link>
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Security Dashboard</h1>
+              </div>
               <p className="mt-1 sm:mt-2 text-sm sm:text-base text-gray-600">Monitor security events and system health</p>
             </div>
             <div className="flex-shrink-0">

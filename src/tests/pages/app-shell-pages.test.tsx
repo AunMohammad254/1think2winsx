@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 const h = vi.hoisted(() => ({
   redirect: vi.fn(),
   validateAdminSession: vi.fn(),
+  captureException: vi.fn(),
   dynamics: [] as { loader: () => Promise<unknown>; opts?: { loading?: () => React.ReactNode } }[],
 }));
 vi.mock('next/navigation', () => ({
@@ -22,6 +23,7 @@ vi.mock('next/dynamic', () => ({
 }));
 // The real stylesheet goes through the Tailwind PostCSS plugin, which the test runner cannot load.
 vi.mock('@/app/globals.css', () => ({}));
+vi.mock('@sentry/nextjs', () => ({ captureException: (...a: unknown[]) => h.captureException(...a) }));
 vi.mock('next/font/google', () => ({
   Geist: () => ({ variable: 'font-geist' }),
   Poppins: () => ({ variable: 'font-poppins' }),
@@ -122,11 +124,24 @@ describe('loading skeletons', () => {
 });
 
 describe('error boundaries', () => {
-  it('prizes: logs the error, retries, and shows the digest', () => {
+  it('reports each caught error to Sentry, tagged with its page (the global handler never sees it)', () => {
+    h.captureException.mockReset();
+    const error = new Error('boom');
+    render(<PrizesError error={error} reset={vi.fn()} />);
+    render(<QuizzesError error={error} reset={vi.fn()} />);
+    render(<QuizError error={error} reset={vi.fn()} />);
+    expect(h.captureException.mock.calls).toEqual([
+      [error, { tags: { page: 'prizes' } }],
+      [error, { tags: { page: 'quizzes' } }],
+      [error, { tags: { page: 'quiz' } }],
+    ]);
+  });
+
+  it('prizes: reports the error, retries, and shows the digest', () => {
     const reset = vi.fn();
     const error = Object.assign(new Error('boom'), { digest: 'abc123' });
     const { rerender } = render(<PrizesError error={error} reset={reset} />);
-    expect(console.error).toHaveBeenCalledWith('Prizes page error:', error);
+    expect(h.captureException).toHaveBeenCalledWith(error, { tags: { page: 'prizes' } });
     fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
     expect(reset).toHaveBeenCalled();
     expect(screen.getByText('Error ID: abc123')).toBeInTheDocument();

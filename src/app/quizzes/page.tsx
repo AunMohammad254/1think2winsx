@@ -19,7 +19,8 @@ const LiveQuizPush = dynamic(() => import('@/components/quiz/LiveQuizPush'), {
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import { useJitteredPolling } from '@/hooks/useJitteredPolling';
-import { mergeLiveQuizzes, UNREAD_COUNT_EVENT, type LiveSnapshot } from '@/lib/live-catalog';
+import { mergeLiveQuizzes, NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT, type LiveSnapshot } from '@/lib/live-catalog';
+import { computeQuizEndsAt } from '@/lib/quiz-clock';
 import PaymentModal from '@/components/quiz/PaymentModal';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
 import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
@@ -44,6 +45,7 @@ interface Quiz {
   attemptCount?: number;
   totalAttempts?: number;
   pushedAt?: string | null;
+  announcedAt?: string | null;
   pushStatus?: 'unanswered' | 'answered' | 'upcoming' | 'time-up' | null;
 }
 
@@ -97,13 +99,36 @@ function QuizzesPageInner() {
   // A deep link that arrived before LiveQuizPush mounted (page skeleton, or its lazy chunk
   // still loading); opened as soon as the component attaches its handle
   const pendingOpenQuizRef = useRef<string | null>(null);
+  // A link from an "upcoming quiz" notification (/quizzes?upcoming=<id>), resolved once both the
+  // list and LiveQuizPush are there (see resolveUpcomingLink below)
+  const pendingUpcomingRef = useRef<string | null>(null);
+  const streamSectionRef = useRef<HTMLDivElement>(null);
+  // Shows the linked quiz's countdown on the stream, or opens it if it went live since
+  const resolveUpcomingLink = useCallback(() => {
+    const quizId = pendingUpcomingRef.current;
+    const handle = liveQuizPushRef.current;
+    if (!quizId || !handle || !personalLoadedRef.current) return;
+    pendingUpcomingRef.current = null;
+    const quiz = quizzesRef.current.find(q => q.id === quizId);
+    if (!quiz) {
+      toast.info("That quiz hasn't started yet. It shows up here when it goes live.");
+    } else if (quiz.status === 'upcoming') {
+      handle.announce(quiz.id, quiz.title, quiz.startsAt ?? null);
+      streamSectionRef.current!.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      handle.open(quiz.id);
+    }
+  }, []);
   const attachLiveQuizPush = useCallback((handle: LiveQuizPushHandle | null) => {
     liveQuizPushRef.current = handle;
     if (handle && pendingOpenQuizRef.current) {
       handle.open(pendingOpenQuizRef.current);
       pendingOpenQuizRef.current = null;
     }
-  }, []);
+    resolveUpcomingLink();
+  }, [resolveUpcomingLink]);
+  // false once LazyStreamPlayer finds nothing live: the section then drops its empty video box
+  const [streamAvailable, setStreamAvailable] = useState<boolean | null>(null);
   // Opening a quiz can use the copy Cloudflare caches for everyone instead of one signed-in request
   // per player, but only while quizzes are free (the server knows nothing of this player there) and
   // for a quiz they have not answered: that copy has every question, a re-attempt only the new ones.
@@ -116,6 +141,8 @@ function QuizzesPageInner() {
   // Last pushedAt we've already reacted to, per quiz - so re-fetches or
   // unrelated edits to an already-pushed quiz don't re-fire the toast.
   const seenPushedAtRef = useRef<Map<string, string | null>>(new Map());
+  // The same for announcements of upcoming quizzes
+  const seenAnnouncedAtRef = useRef<Map<string, string | null>>(new Map());
 
   // Resolves true on success (incl. 304) and false on failure, so the poller can back off.
   // `background` fetches (the poll) don't retry on their own: the poller already backs off, and
@@ -147,7 +174,10 @@ function QuizzesPageInner() {
       const fetchedQuizzes: Quiz[] = data.quizzes || [];
       quizzesRef.current = fetchedQuizzes;
       setQuizzes(fetchedQuizzes);
-      for (const q of fetchedQuizzes) seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
+      for (const q of fetchedQuizzes) {
+        seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
+        seenAnnouncedAtRef.current.set(q.id, q.announcedAt ?? null);
+      }
       hasAccessRef.current = data.hasAccess || false;
       personalLoadedRef.current = true;
       setHasAccess(data.hasAccess || false);
@@ -229,13 +259,23 @@ function QuizzesPageInner() {
       const snapshot: LiveSnapshot = await response.json();
       if (snapshot.version === liveVersionRef.current) return true;
       liveVersionRef.current = snapshot.version;
-      // Admin "push to live": a pushedAt we have not reacted to yet shows the live popup
+      // Admin "push to live" (or a scheduled quiz going live): a pushedAt we have not reacted to yet
+      // shows the live banner. A new announcedAt on an upcoming quiz shows the upcoming one.
+      let notices = 0;
       for (const q of snapshot.quizzes) {
         if (q.pushedAt && seenPushedAtRef.current.get(q.id) !== q.pushedAt) {
           seenPushedAtRef.current.set(q.id, q.pushedAt);
-          liveQuizPushRef.current?.notify(q.id, q.title);
+          liveQuizPushRef.current?.notify(q.id, q.title, computeQuizEndsAt(q.pushedAt, q.duration), q.duration);
+          notices++;
+        }
+        if (q.announcedAt && seenAnnouncedAtRef.current.get(q.id) !== q.announcedAt) {
+          seenAnnouncedAtRef.current.set(q.id, q.announcedAt);
+          liveQuizPushRef.current?.announce(q.id, q.title, q.startsAt);
+          notices++;
         }
       }
+      // The server stored a notification for each of these: the bell counts them now, not at its next poll
+      for (let i = 0; i < notices; i++) window.dispatchEvent(new Event(NEW_NOTICE_EVENT));
       const merged = mergeLiveQuizzes(quizzesRef.current, snapshot.quizzes, hasAccessRef.current);
       quizzesRef.current = merged.list;
       setQuizzes(merged.list);
@@ -253,17 +293,31 @@ function QuizzesPageInner() {
   // not a one-time window.location read) so clicking a bell notification
   // while ALREADY on /quizzes also opens it, not just on first load. Strips
   // the param afterward so a refresh or back-navigation doesn't reopen it.
+  // An "upcoming quiz" notification links with ?upcoming=<id> the same way.
   useEffect(() => {
     if (isLoading || !userId) return;
     const openQuiz = searchParams.get('openQuiz');
-    if (!openQuiz) return;
-    if (liveQuizPushRef.current) liveQuizPushRef.current.open(openQuiz);
-    else pendingOpenQuizRef.current = openQuiz;
+    const upcoming = searchParams.get('upcoming');
+    if (!openQuiz && !upcoming) return;
+    if (openQuiz) {
+      if (liveQuizPushRef.current) liveQuizPushRef.current.open(openQuiz);
+      else pendingOpenQuizRef.current = openQuiz;
+    }
+    if (upcoming) {
+      pendingUpcomingRef.current = upcoming;
+      resolveUpcomingLink();
+    }
     const rest = new URLSearchParams(searchParams.toString());
     rest.delete('openQuiz');
+    rest.delete('upcoming');
     const query = rest.toString();
     router.replace(query ? `/quizzes?${query}` : '/quizzes', { scroll: false });
-  }, [isLoading, userId, router, searchParams]);
+  }, [isLoading, userId, router, searchParams, resolveUpcomingLink]);
+
+  // An upcoming-quiz link that arrived before the first list: resolved once the list is in
+  useEffect(() => {
+    resolveUpcomingLink();
+  }, [quizzes, resolveUpcomingLink]);
 
   // Throwback behavior removed as requested.
 
@@ -487,25 +541,17 @@ function QuizzesPageInner() {
           </div>
         )}
 
-        {/* Live Stream Section — everything push/toast/split-related is scoped
+        {/* Live Stream Section — everything push/banner/split-related is scoped
             to this one relative+overflow-hidden box; it never affects the
-            quiz grid below or any other part of the page. */}
-        <div className="mb-8 live-quiz-theme" id="live-stream-section">
-          <div id="live-stream-fullscreen-target" className="stream-section h-full w-full">
-            <div className="stream-row w-full flex-1">
-              <div className="player flex-1">
-                <div className="absolute inset-0 z-10 pointer-events-none">
-                  <div className="badge-live"><span className="rec"></span>LIVE</div>
-                  <div className="viewers">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
-                    <span className="num">2,481</span>
-                  </div>
-                </div>
-                <div className="w-full relative z-0">
-                  <Suspense fallback={<div className="aspect-video w-full bg-gray-800 rounded-xl animate-pulse" />}>
-                    <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" />
-                  </Suspense>
-                </div>
+            quiz grid below or any other part of the page. The box itself is
+            what goes fullscreen, so the quiz pop-ups come along. */}
+        <div className="mb-8 live-quiz-theme scroll-mt-24" id="live-stream-section" ref={streamSectionRef}>
+          <div id="live-stream-fullscreen-target" className={`stream-section${streamAvailable === false ? ' no-stream' : ''}`}>
+            <div className="stream-row">
+              <div className="player">
+                <Suspense fallback={<div className="aspect-video w-full bg-gray-800 animate-pulse" />}>
+                  <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" onAvailabilityChange={setStreamAvailable} />
+                </Suspense>
               </div>
               <LiveQuizPush ref={attachLiveQuizPush} onAnswered={() => fetchQuizzesData(true)} canUseSharedCopy={canUseSharedCopy} />
             </div>

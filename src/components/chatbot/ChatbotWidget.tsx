@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
   Send,
@@ -11,7 +10,10 @@ import {
   RotateCcw,
   Sparkles,
   MessageCircle,
+  Copy,
+  Check,
 } from 'lucide-react';
+import { usePresence } from '@/hooks/usePresence';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -24,6 +26,8 @@ interface ChatMessage {
   model?: string;
   timestamp: Date;
   failed?: boolean;
+  /** A support ticket the server created for this reply */
+  ticketNumber?: string;
 }
 
 interface GeminiMessage {
@@ -39,8 +43,9 @@ const QUICK_SUGGESTIONS = [
   { label: '🏆 What prizes can I win?', text: 'What prizes are available to win?' },
   { label: '❓ How does the quiz work?', text: 'How does the quiz competition work?' },
   { label: '📊 View Leaderboard',       text: 'I want to see the leaderboard.' },
-  { label: '💳 Payment methods?',       text: 'What payment methods are accepted?' },
+  { label: '💳 Do I need to pay?',      text: 'Do I need to pay to play a quiz?' },
   { label: '🎯 Winning chances?',       text: 'How are winners selected? What are my chances?' },
+  { label: '🎫 My support tickets',     text: 'What is the status of my support tickets?' },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -54,6 +59,7 @@ const REDIRECT_LABELS: Record<string, string> = {
   '/leaderboard':   '📊 View Leaderboard',
   '/prizes':        '🏆 See All Prizes',
   '/profile':       '👤 My Profile',
+  '/profile/wallet': '💳 My Wallet',
   '/how-to-play':   '📖 How To Play',
   '/faq':           '❓ FAQ',
   '/contact':       '📞 Contact Support',
@@ -103,6 +109,16 @@ function MessageBubble({
   onRetry?: () => void;
 }) {
   const isUser = message.role === 'user';
+  const [copied, setCopied] = useState(false);
+
+  async function copyTicketNumber(ticketNumber: string) {
+    try {
+      await navigator.clipboard.writeText(ticketNumber);
+      setCopied(true);
+    } catch {
+      // No clipboard access (e.g. an insecure context): the number is in the message text anyway
+    }
+  }
 
   return (
     <div className={`flex items-end gap-2 mb-3 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -137,6 +153,17 @@ function MessageBubble({
             </button>
           )}
         </div>
+
+        {/* Copy the new ticket's number, so the player can keep it */}
+        {message.ticketNumber && (
+          <button
+            onClick={() => copyTicketNumber(message.ticketNumber!)}
+            className="chatbot-redirect-chip flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200"
+          >
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+            {copied ? 'Copied' : `Copy ${message.ticketNumber}`}
+          </button>
+        )}
 
         {/* Navigation chips */}
         {message.redirects && message.redirects.length > 0 && (
@@ -182,6 +209,11 @@ export default function ChatbotWidget() {
   const [isLoading, setIsLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [hasUnread, setHasUnread] = useState(false);
+  const suggestionsShown = showSuggestions && messages.length <= 1;
+  // Each stays mounted while its exit animation plays (durations match the <style> below)
+  const triggerMounted = usePresence(!isOpen, 200);
+  const panelMounted = usePresence(isOpen, 300);
+  const suggestionsMounted = usePresence(suggestionsShown, 300);
   // The reply arrives after an await, so read whether the panel is open now, not when the message was sent
   const isOpenRef = useRef(isOpen);
   useEffect(() => {
@@ -216,7 +248,7 @@ export default function ChatbotWidget() {
           id: 'welcome',
           role: 'assistant',
           content:
-            "👋 Hey! I'm the 1Think2Win support assistant.\n\nI can help you with registration, quiz rules, prizes, payments, and navigate you around the platform. What can I help you with today? 🏏",
+            "👋 Hey! I'm the 1Think2Win support assistant.\n\nI can help you with registration, quiz rules and prizes, and navigate you around the platform. If something's wrong, I can send it to our support team as a ticket. What can I help you with today? 🏏",
           redirects: [],
           timestamp: new Date(),
         },
@@ -291,6 +323,7 @@ export default function ChatbotWidget() {
         redirects: data.redirects ?? [],
         model: data.model,
         timestamp: new Date(),
+        ticketNumber: data.ticketNumber,
       };
 
       setMessages((prev) => [...prev, aiMsg]);
@@ -347,6 +380,34 @@ export default function ChatbotWidget() {
         @keyframes chatPulseRing {
           0%   { transform: scale(1);    opacity: 0.6; }
           100% { transform: scale(1.6);  opacity: 0; }
+        }
+        /* Enter/exit motion; a closing element keeps data-state="closed" until usePresence unmounts it */
+        @keyframes chatPopIn      { from { opacity: 0; transform: scale(0); } }
+        @keyframes chatPopOut     { to   { opacity: 0; transform: scale(0); } }
+        @keyframes chatFadeIn     { from { opacity: 0; } }
+        @keyframes chatFadeOut    { to   { opacity: 0; } }
+        @keyframes chatSlideUp    { from { opacity: 0; transform: translateY(100%); } }
+        @keyframes chatSlideDown  { to   { opacity: 0; transform: translateY(100%); } }
+        @keyframes chatExpand     { from { grid-template-rows: 0fr; opacity: 0; } }
+        @keyframes chatCollapse   { to   { grid-template-rows: 0fr; opacity: 0; } }
+        .chatbot-trigger[data-state="open"]       { animation: chatPopIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .chatbot-trigger[data-state="closed"]     { animation: chatPopOut 0.2s ease-in forwards; }
+        .chatbot-backdrop[data-state="open"]      { animation: chatFadeIn 0.2s ease-out; }
+        .chatbot-backdrop[data-state="closed"]    { animation: chatFadeOut 0.2s ease-out forwards; }
+        .chatbot-slide[data-state="open"]         { animation: chatSlideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+        .chatbot-slide[data-state="closed"]       { animation: chatSlideDown 0.3s ease-in forwards; }
+        .chatbot-suggestions[data-state="open"]   { animation: chatExpand 0.3s ease-out; }
+        .chatbot-suggestions[data-state="closed"] { animation: chatCollapse 0.3s ease-out forwards; }
+        .chatbot-trigger[data-state="closed"],
+        .chatbot-backdrop[data-state="closed"],
+        .chatbot-slide[data-state="closed"],
+        .chatbot-suggestions[data-state="closed"] { pointer-events: none; }
+        @media (prefers-reduced-motion: reduce) {
+          .chatbot-trigger, .chatbot-backdrop, .chatbot-slide, .chatbot-suggestions { animation: none !important; }
+          .chatbot-trigger[data-state="closed"],
+          .chatbot-backdrop[data-state="closed"],
+          .chatbot-slide[data-state="closed"] { visibility: hidden; }
+          .chatbot-suggestions[data-state="closed"] { display: none; }
         }
         .chatbot-bubble-user {
           background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
@@ -407,140 +468,124 @@ export default function ChatbotWidget() {
 
       {/* ─── Floating trigger button ─── */}
       <div className="fixed bottom-5 right-4 sm:bottom-6 sm:right-6 z-[9999]">
-        <AnimatePresence>
-          {!isOpen && (
-            <motion.button
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0, opacity: 0 }}
-              whileHover={{ scale: 1.08 }}
-              whileTap={{ scale: 0.93 }}
-              onClick={() => setIsOpen(true)}
-              id="chatbot-trigger-btn"
-              aria-label="Open AI support chat"
-              className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-2xl shadow-blue-500/30 flex items-center justify-center bg-gradient-to-br from-blue-600 via-blue-700 to-purple-700 border border-white/20"
-            >
-              {/* Pulse ring */}
-              <span
-                className="absolute inset-0 rounded-full bg-blue-500/40"
-                style={{ animation: 'chatPulseRing 2s ease-out infinite' }}
-              />
-              <MessageCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white relative z-10" />
+        {triggerMounted && (
+          <button
+            data-state={isOpen ? 'closed' : 'open'}
+            onClick={() => setIsOpen(true)}
+            id="chatbot-trigger-btn"
+            aria-label="Open AI support chat"
+            className="chatbot-trigger relative w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-2xl shadow-blue-500/30 flex items-center justify-center bg-gradient-to-br from-blue-600 via-blue-700 to-purple-700 border border-white/20 transition-transform duration-200 motion-safe:hover:scale-[1.08] motion-safe:active:scale-[0.93]"
+          >
+            {/* Pulse ring */}
+            <span
+              className="absolute inset-0 rounded-full bg-blue-500/40"
+              style={{ animation: 'chatPulseRing 2s ease-out infinite' }}
+            />
+            <MessageCircle className="w-5 h-5 sm:w-6 sm:h-6 text-white relative z-10" />
 
-              {/* Unread badge */}
-              {hasUnread && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-[#0a0f23] text-[9px] text-white flex items-center justify-center font-bold z-20">
-                  !
-                </span>
-              )}
-            </motion.button>
-          )}
-        </AnimatePresence>
+            {/* Unread badge */}
+            {hasUnread && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-[#0a0f23] text-[9px] text-white flex items-center justify-center font-bold z-20">
+                !
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* ─── Backdrop (mobile only) ─── */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[9998] bg-black/50 sm:hidden"
-            onClick={() => setIsOpen(false)}
-          />
-        )}
-      </AnimatePresence>
+      {panelMounted && (
+        <div
+          data-state={isOpen ? 'open' : 'closed'}
+          className="chatbot-backdrop fixed inset-0 z-[9998] bg-black/50 sm:hidden"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
 
       {/* ─── Chat panel ─── */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            /* Mobile: slide up from bottom full-width sheet */
-            /* sm+: spring-pop floating card bottom-right    */
-            initial={{ opacity: 0, y: '100%' }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 320 }}
-            className={
-              'fixed z-[9999] flex flex-col overflow-hidden shadow-2xl shadow-black/60 chatbot-panel chatbot-sheet-mobile ' +
-              /* Mobile: anchor full-width to bottom, rounded top corners only */
-              'inset-x-0 bottom-0 rounded-t-2xl rounded-b-none ' +
-              /* sm+: floating card, restore all rounded corners + right positioning */
-              'sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[400px] sm:rounded-2xl sm:rounded-b-2xl'
-            }
-            style={{
-              maxHeight: 'min(600px, 85dvh)',
-              /* On mobile fill 80% of viewport height */
-              height: 'clamp(420px, 80dvh, 600px)',
-            }}
-            id="chatbot-panel"
-          >
-            {/* Drag handle pill — mobile only */}
-            <div className="sm:hidden flex justify-center pt-2.5 pb-1 flex-shrink-0">
-              <div className="w-10 h-1 rounded-full bg-white/20" />
-            </div>
+      {panelMounted && (
+        <div
+          /* Mobile: slide up from bottom full-width sheet */
+          /* sm+: the same slide-up for the floating card bottom-right */
+          data-state={isOpen ? 'open' : 'closed'}
+          className={
+            'chatbot-slide fixed z-[9999] flex flex-col overflow-hidden shadow-2xl shadow-black/60 chatbot-panel chatbot-sheet-mobile ' +
+            /* Mobile: anchor full-width to bottom, rounded top corners only */
+            'inset-x-0 bottom-0 rounded-t-2xl rounded-b-none ' +
+            /* sm+: floating card, restore all rounded corners + right positioning */
+            'sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[400px] sm:rounded-2xl sm:rounded-b-2xl'
+          }
+          style={{
+            maxHeight: 'min(600px, 85dvh)',
+            /* On mobile fill 80% of viewport height */
+            height: 'clamp(420px, 80dvh, 600px)',
+          }}
+          id="chatbot-panel"
+        >
+          {/* Drag handle pill — mobile only */}
+          <div className="sm:hidden flex justify-center pt-2.5 pb-1 flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-white/20" />
+          </div>
 
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-gradient-to-r from-blue-900/40 to-purple-900/40 flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg">
-                  <Bot className="w-4.5 h-4.5 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white leading-tight">1Think2Win AI</p>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                    <span className="text-[10px] text-green-400/80">Online · Powered by Gemini</span>
-                  </div>
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-gradient-to-r from-blue-900/40 to-purple-900/40 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg">
+                <Bot className="w-4.5 h-4.5 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white leading-tight">1Think2Win AI</p>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                  <span className="text-[10px] text-green-400/80">Online · Powered by Gemini</span>
                 </div>
               </div>
+            </div>
 
-              <div className="flex items-center gap-1.5">
-                {messages.length > 1 && (
-                  <button
-                    onClick={handleClearChat}
-                    title="Clear chat"
-                    className="p-1.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/10 transition-all duration-200"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
-                )}
+            <div className="flex items-center gap-1.5">
+              {messages.length > 1 && (
                 <button
-                  onClick={() => setIsOpen(false)}
-                  aria-label="Close chat"
-                  id="chatbot-close-btn"
+                  onClick={handleClearChat}
+                  title="Clear chat"
                   className="p-1.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/10 transition-all duration-200"
                 >
-                  <X className="w-4 h-4" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                 </button>
-              </div>
+              )}
+              <button
+                onClick={() => setIsOpen(false)}
+                aria-label="Close chat"
+                id="chatbot-close-btn"
+                className="p-1.5 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/10 transition-all duration-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
+          </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 chatbot-scrollbar">
-              {messages.map((msg, i) => (
-                <MessageBubble
-                  key={msg.id}
-                  message={msg}
-                  onRedirect={handleRedirect}
-                  onRetry={msg.failed && i === messages.length - 1 ? handleRetry : undefined}
-                />
-              ))}
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 chatbot-scrollbar">
+            {messages.map((msg, i) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                onRedirect={handleRedirect}
+                onRetry={msg.failed && i === messages.length - 1 ? handleRetry : undefined}
+              />
+            ))}
 
-              {isLoading && <TypingIndicator />}
-              <div ref={messagesEndRef} />
-            </div>
+            {isLoading && <TypingIndicator />}
+            <div ref={messagesEndRef} />
+          </div>
 
-            {/* Quick suggestions */}
-            <AnimatePresence>
-              {showSuggestions && messages.length <= 1 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="px-4 pb-2 border-t border-white/5 flex-shrink-0"
-                >
+          {/* Quick suggestions: the 1fr <-> 0fr grid row expands and collapses them to their own height */}
+          {suggestionsMounted && (
+            <div
+              data-state={suggestionsShown ? 'open' : 'closed'}
+              className="chatbot-suggestions grid grid-rows-[1fr] flex-shrink-0"
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="px-4 pb-2 border-t border-white/5">
                   <p className="text-[10px] text-white/30 uppercase tracking-wider pt-2 pb-1.5 flex items-center gap-1">
                     <Sparkles className="w-3 h-3" />
                     Quick questions
@@ -557,41 +602,41 @@ export default function ChatbotWidget() {
                       </button>
                     ))}
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Input area */}
-            <div className="flex items-end gap-2 p-3 border-t border-white/10 bg-black/20 flex-shrink-0">
-              <textarea
-                ref={inputRef}
-                id="chatbot-input"
-                rows={1}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask me anything… 🏏"
-                disabled={isLoading}
-                className="flex-1 px-3 py-2.5 rounded-xl text-sm chatbot-input disabled:opacity-50"
-              />
-              <button
-                onClick={() => sendMessage(input)}
-                disabled={isLoading || !input.trim()}
-                id="chatbot-send-btn"
-                aria-label="Send message"
-                className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg transition-all duration-200 hover:from-blue-500 hover:to-purple-500 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-              >
-                <Send className="w-4 h-4 text-white" />
-              </button>
+                </div>
+              </div>
             </div>
+          )}
 
-            {/* Footer disclaimer */}
-            <div className="text-center text-[9px] text-white/15 pb-2 flex-shrink-0">
-              AI can make mistakes · Always verify important information
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          {/* Input area */}
+          <div className="flex items-end gap-2 p-3 border-t border-white/10 bg-black/20 flex-shrink-0">
+            <textarea
+              ref={inputRef}
+              id="chatbot-input"
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask me anything… 🏏"
+              disabled={isLoading}
+              className="flex-1 px-3 py-2.5 rounded-xl text-sm chatbot-input disabled:opacity-50"
+            />
+            <button
+              onClick={() => sendMessage(input)}
+              disabled={isLoading || !input.trim()}
+              id="chatbot-send-btn"
+              aria-label="Send message"
+              className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-lg transition-all duration-200 hover:from-blue-500 hover:to-purple-500 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+            >
+              <Send className="w-4 h-4 text-white" />
+            </button>
+          </div>
+
+          {/* Footer disclaimer */}
+          <div className="text-center text-[9px] text-white/15 pb-2 flex-shrink-0">
+            AI can make mistakes · Always verify important information
+          </div>
+        </div>
+      )}
     </>
   );
 }
