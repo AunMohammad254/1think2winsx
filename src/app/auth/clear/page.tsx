@@ -157,6 +157,7 @@ export default function ClearAuthPage() {
                                     </div>
                                     <Link
                                         href="/login"
+                                        prefetch={false}
                                         className="inline-flex items-center justify-center w-full py-3 px-6 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold rounded-xl hover:from-purple-700 hover:to-blue-700 transition-all duration-200"
                                     >
                                         <LogIn className="w-4 h-4 mr-2" />

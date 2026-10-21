@@ -295,6 +295,7 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                     </Link>
                     <Link
                         href="/auth/clear"
+                        prefetch={false}
                         className="text-sm text-slate-500 hover:text-slate-400 transition-colors"
                     >
                         Having login issues? Clear session →

@@ -108,6 +108,7 @@ export default function ForgotPasswordForm({ linkExpired = false }: { linkExpire
                                 <p className="text-slate-300 mb-6">{message}</p>
                                 <Link
                                     href="/login"
+                                    prefetch={false}
                                     className="inline-flex items-center text-purple-400 hover:text-purple-300 transition-colors"
                                 >
                                     <ArrowLeft className="w-4 h-4 mr-2" />
@@ -171,6 +172,7 @@ export default function ForgotPasswordForm({ linkExpired = false }: { linkExpire
                                 <div className="mt-6 text-center">
                                     <Link
                                         href="/login"
+                                        prefetch={false}
                                         className="inline-flex items-center text-slate-400 hover:text-white transition-colors"
                                     >
                                         <ArrowLeft className="w-4 h-4 mr-2" />

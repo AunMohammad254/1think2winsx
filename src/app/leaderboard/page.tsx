@@ -248,6 +248,7 @@ function EmptyState() {
         </p>
         <Link
           href="/quizzes"
+          prefetch={false}
           className="inline-flex items-center px-6 py-3 bg-linear-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl text-sm transition-all duration-300 shadow-lg hover:scale-105"
         >
           Explore Quizzes <ArrowUpRight className="w-4.5 h-4.5 ml-1" />
@@ -289,6 +290,7 @@ function CallToAction() {
           <motion.div whileHover={hasHover ? { scale: 1.04 } : undefined} whileTap={{ scale: 0.98 }} className="shrink-0 w-full md:w-auto">
             <Link
               href="/quizzes"
+              prefetch={false}
               className="w-full md:w-auto inline-flex items-center justify-center px-6 py-3.5 bg-linear-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl text-sm transition-all duration-300 shadow-lg shadow-emerald-500/20"
             >
               Play Now <ArrowUpRight className="w-4.5 h-4.5 ml-1" />
@@ -484,6 +486,7 @@ export default function LeaderboardPage() {
                       </div>
                       <Link
                         href="/quizzes"
+                        prefetch={false}
                         className="px-5 py-3 bg-linear-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black rounded-xl text-sm transition-all duration-300 shadow-lg flex items-center gap-1.5 shrink-0 hover:scale-105"
                       >
                         Start Quiz <ArrowUpRight className="w-4 h-4" />
@@ -539,6 +542,7 @@ export default function LeaderboardPage() {
                   </p>
                   <Link
                     href="/quizzes"
+                    prefetch={false}
                     className="inline-flex items-center px-6 py-3 bg-linear-to-r from-cyan-500 to-blue-600 text-white rounded-xl transition-all duration-300 shadow-lg touch-manipulation gap-2 hover:scale-105"
                   >
                     🚀 Start playing now

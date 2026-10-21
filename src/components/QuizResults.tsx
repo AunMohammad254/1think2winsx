@@ -198,18 +198,22 @@ export default function QuizResults({ success, message, totalQuestions, submitte
             <>
               <Link
                 href="/quizzes"
+                prefetch={false}
                 className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-lg font-semibold rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-lg shadow-green-500/25"
               >
                 🎯 Take More Quizzes
               </Link>
               <Link
                 href="/profile"
+                prefetch={false}
                 className="w-full py-4 px-6 glass-card-blue glass-border-blue text-white font-semibold rounded-xl hover:bg-blue-500/20 transition-all duration-200"
               >
                 👤 View My Points & Prizes
               </Link>
               <Link
                 href="/"
+                // Players are signed in: Cloudflare can't cache their prefetches (src/lib/link-prefetch.ts)
+                prefetch={false}
                 className="w-full py-3 px-6 text-gray-400 hover:text-white transition-colors"
               >
                 Back to Lobby

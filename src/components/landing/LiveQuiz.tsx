@@ -4,6 +4,7 @@ import { memo, useState, useEffect, useRef, useCallback, useMemo, type ReactNode
 import { useAuth } from "@/contexts/AuthContext";
 import { Section, Eyebrow, Reveal, Button, useScrollReveal, useAnimatedCounter } from "./Primitives";
 import Link from "next/link";
+import { linkPrefetch } from "@/lib/link-prefetch";
 import { useLiveSnapshot } from "@/hooks/useLiveSnapshot";
 import { useNow } from "@/hooks/useNow";
 import { toLandingQuizzes, formatCountdown, type LandingQuiz } from "@/lib/landing-live";
@@ -81,6 +82,7 @@ function CardShell({ accent, badge, pill, title, when, tag, detail, href, childr
             </div>
             <Link
               href={href}
+              prefetch={linkPrefetch(href)}
               className={`group/btn flex items-center gap-1.5 rounded-full bg-linear-to-r ${accent} px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition-transform hover:scale-105`}
             >
               Join
@@ -168,6 +170,7 @@ function EmptyCard({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className="mt-6 flex justify-end border-t border-white/10 pt-5">
           <Link
             href={isLoggedIn ? "/quizzes" : "/register"}
+            prefetch={false}
             className="rounded-full bg-linear-to-r from-emerald-400 to-cyan-400 px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition-transform hover:scale-105"
           >
             {isLoggedIn ? "See quizzes" : "Sign up free"}

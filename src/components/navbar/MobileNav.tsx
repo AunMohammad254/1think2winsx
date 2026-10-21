@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { X, Home, FileText, HelpCircle, Trophy, BarChart3, User, LogIn, Sparkles } from 'lucide-react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { usePresence } from '@/hooks/usePresence';
+import { useLinkPrefetch } from '@/hooks/useLinkPrefetch';
 
 // Navigation items configuration
 const navItems = [
@@ -30,6 +31,7 @@ const itemDelay = (index: number) => ({ animationDelay: `${0.15 + index * 0.08}s
 
 export default function MobileNav({ isOpen, onClose, user, onSignOut }: MobileNavProps) {
     const mounted = usePresence(isOpen, EXIT_MS);
+    const prefetchFor = useLinkPrefetch();
 
     // Lock body scroll when menu is open
     useEffect(() => {
@@ -105,6 +107,7 @@ export default function MobileNav({ isOpen, onClose, user, onSignOut }: MobileNa
                                     <li key={item.href} className="menu-item-enter" style={itemDelay(index + 2)}>
                                         <Link
                                             href={item.href}
+                                            prefetch={prefetchFor(item.href)}
                                             onClick={onClose}
                                             className="group flex items-center gap-4 px-4 py-3.5 rounded-xl text-white/80 hover:text-white bg-white/0 hover:bg-white/5 border border-transparent hover:border-white/10 transition-all duration-200"
                                         >
@@ -139,6 +142,7 @@ export default function MobileNav({ isOpen, onClose, user, onSignOut }: MobileNa
                             <div className="space-y-3">
                                 <Link
                                     href="/login"
+                                    prefetch={false}
                                     onClick={onClose}
                                     className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-colors font-medium"
                                 >
@@ -147,6 +151,7 @@ export default function MobileNav({ isOpen, onClose, user, onSignOut }: MobileNa
                                 </Link>
                                 <Link
                                     href="/register"
+                                    prefetch={false}
                                     onClick={onClose}
                                     className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white border border-white/20 transition-colors font-medium shadow-lg shadow-purple-500/20"
                                 >

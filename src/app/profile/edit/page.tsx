@@ -124,7 +124,8 @@ export default function EditProfilePage() {
       <div className="w-full max-w-md relative z-10">
         {/* Logo and Header */}
         <div className="text-center mb-8">
-          <Link href="/" className="inline-block group touch-manipulation">
+          {/* No prefetch on signed-in pages: Cloudflare can't cache it (src/lib/link-prefetch.ts) */}
+          <Link href="/" prefetch={false} className="inline-block group touch-manipulation">
             <div className="relative">
               <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-transparent mb-2 md:group-hover:scale-105 md:transition-transform md:duration-300">
                 1think2win
@@ -135,6 +136,7 @@ export default function EditProfilePage() {
           <p className="text-gray-300 text-lg font-medium">Edit Your Profile</p>
           <Link
             href="/profile"
+            prefetch={false}
             className="inline-flex items-center text-purple-400 md:hover:text-purple-300 md:transition-colors mt-2 text-sm touch-manipulation"
           >
             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -240,6 +242,7 @@ export default function EditProfilePage() {
 
                 <Link
                   href="/profile"
+                  prefetch={false}
                   className="flex-1 relative group overflow-hidden rounded-xl bg-white/10 border border-white/20 px-6 py-3 text-gray-200 font-semibold text-center transition-all duration-300 md:hover:bg-white/20 md:hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/50 md:backdrop-blur-sm touch-manipulation"
                 >
                   <span className="relative z-10">Cancel</span>

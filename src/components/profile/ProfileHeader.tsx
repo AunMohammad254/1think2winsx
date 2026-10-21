@@ -16,6 +16,8 @@ export default function ProfileHeader({
             <div className="flex items-center gap-3">
                 <Link
                     href={backHref}
+                    // Profile pages are signed-in only: Cloudflare can't cache their prefetches (src/lib/link-prefetch.ts)
+                    prefetch={false}
                     aria-label={`Go back to ${backHref === '/' ? 'home' : 'previous page'}`}
                     className="w-10 h-10 backdrop-blur-xl bg-white/5 border border-white/10 rounded-full flex items-center justify-center hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 transition-all duration-200"
                 >
@@ -38,6 +40,7 @@ export default function ProfileHeader({
             </div>
             <Link
                 href="/profile/edit"
+                prefetch={false}
                 title="Edit Profile"
                 aria-label="Edit profile"
                 className="w-10 h-10 backdrop-blur-xl bg-white/5 border border-white/10 rounded-full flex items-center justify-center hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70 transition-all duration-200"

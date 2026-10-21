@@ -195,6 +195,7 @@ export default function ForgotEmailPage() {
                                 <div className="space-y-3">
                                     <Link
                                         href="/login"
+                                        prefetch={false}
                                         className="block w-full py-3 px-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl font-medium hover:from-purple-700 hover:to-blue-700 transition-all text-center"
                                     >
                                         Go to Login
@@ -268,6 +269,7 @@ export default function ForgotEmailPage() {
                                     <div className="text-center space-y-3">
                                         <Link
                                             href="/login"
+                                            prefetch={false}
                                             className="inline-flex items-center text-slate-400 hover:text-white transition-colors"
                                         >
                                             <ArrowLeft className="w-4 h-4 mr-2" />

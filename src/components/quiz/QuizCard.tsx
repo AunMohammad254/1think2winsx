@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { memo } from 'react';
 
 interface QuizCardProps {
@@ -34,18 +33,13 @@ export default memo(function QuizCard({
     pushStatus,
     startsAt,
 }: QuizCardProps) {
-    const router = useRouter();
-
+    // No router.prefetch of /quiz/<id> on hover: the card opens the live-quiz modal and never navigates
+    // there, so each hover was a wasted, uncacheable request to the origin (src/lib/link-prefetch.ts).
     const handleClick = (e: React.MouseEvent) => {
         if (onStartClick) {
             e.preventDefault();
             onStartClick(id);
         }
-    };
-
-    const handlePointerEnter = () => {
-        // Preload the quiz route on hover/focus to eliminate network delay on click
-        router.prefetch(`/quiz/${id}`);
     };
 
     let pStatus = 'missed';
@@ -57,7 +51,7 @@ export default memo(function QuizCard({
     else if (pushStatus === 'answered' || isCompleted) { pStatus = 'answered'; label = 'Answered'; }
 
     return (
-        <div className="quiz-card" onClick={handleClick} onPointerEnter={handlePointerEnter}>
+        <div className="quiz-card" onClick={handleClick}>
             <span className={`qstatus ${pStatus}`}>
                 <span className="qdot"></span>
                 <span className="qlabel">{label}</span>

@@ -1,8 +1,8 @@
 import Link from 'next/link';
 
-export default function Logo() {
+export default function Logo({ prefetch }: { prefetch?: false }) {
   return (
-    <Link href="/" className="group flex items-center gap-3">
+    <Link href="/" prefetch={prefetch} className="group flex items-center gap-3">
       <div className="logo-mark-enter relative">
         {/* Logo Icon Container */}
         <div className="relative w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-0.5 shadow-lg shadow-purple-500/25 group-hover:shadow-purple-500/40 transition-shadow duration-300">
