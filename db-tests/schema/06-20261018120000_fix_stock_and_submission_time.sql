@@ -1,5 +1,5 @@
--- Migration fix_stock_and_submission_time (2026-10-18). Not yet applied to the Supabase project:
--- apply this same SQL there. Two functions failed on every call because they named columns that
+-- Migration fix_stock_and_submission_time (2026-10-18). Applied to production (Mumbai,
+-- eclivawqhdovsndlngfo) on 2026-10-21 as 20261021113229. Two functions failed on every call because they named columns that
 -- don't exist. Tests: db-tests/decrement-prize-stock.test.ts, db-tests/removed-functions.test.ts.
 
 -- decrement_prize_stock: the column is Prize.stock, not "stockQuantity". Same signature, so

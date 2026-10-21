@@ -1,7 +1,11 @@
 # Supabase region move (Tokyo → Mumbai): plan
 
-Date: 2026-10-20 · Status: **plan, rehearsed locally on 2026-10-20** (see [Rehearsal results](#rehearsal-results-local-2026-10-20)).
-Nothing has been changed on Supabase, Hostinger, Cloudflare or Google. The tested tools are in `deploy/supabase-move/`.
+Date: 2026-10-20 · Status: **done on 2026-10-21.** Production runs on the Mumbai project `eclivawqhdovsndlngfo`
+(`ap-south-1`); the Tokyo project was deleted after the switch. The steps actually run differ from this plan: the new
+project was built in a Free-plan organization first (no second paid project at any time), checked, switched to, and
+then transferred into the Pro organization, all at no extra cost. Server→database latency went from 155–168 ms to
+about 40 ms. The run log is in the private copy. The tools used are in `deploy/supabase-move/` (`settings.mjs` and
+`storage-copy.mjs` were added for that run). The plan below is kept as written.
 
 > **Public copy.** This repository is public, so load limits and one security note are left out. The full copy is
 > in `deploy/private/` on the owner's PC (git-ignored).

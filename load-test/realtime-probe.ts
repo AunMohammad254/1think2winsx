@@ -21,7 +21,8 @@
  */
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
 
-const PRODUCTION_REF = 'snhgaklxawthpihjiagh';
+// The live site's project (Mumbai since 2026-10-21) and the deleted Tokyo one, in case an old .env still names it
+const PRODUCTION_REFS = ['eclivawqhdovsndlngfo', 'snhgaklxawthpihjiagh'];
 const url = process.env.PROBE_SUPABASE_URL ?? '';
 const anonKey = process.env.PROBE_ANON_KEY ?? '';
 const email = process.env.PROBE_EMAIL ?? '';
@@ -42,7 +43,7 @@ if (!url || !anonKey || !email || !password) {
   console.error('Set PROBE_SUPABASE_URL, PROBE_ANON_KEY, PROBE_EMAIL and PROBE_PASSWORD.');
   process.exit(1);
 }
-if (url.includes(PRODUCTION_REF)) {
+if (PRODUCTION_REFS.some((ref) => url.includes(ref))) {
   console.error('Refusing to run against the PRODUCTION project. Use the staging project.');
   process.exit(1);
 }

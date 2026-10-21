@@ -22,7 +22,7 @@ If you get stuck, open a Claude session in this project and say:
 | Live site | `0f046f3` (`hostinger-deploy.zip`, SHA256 `CE24218BDEDAD4F78360F054EE24C1669E2D28A3F7DC4D4CBADB6C5451460CFF`): stream viewer, **prize-creation fix**, **Sentry** code. Sentry stays off until step 5 plus a redeploy |
 | Pull request | [#35](https://github.com/AunMohammad254/1think2winsx/pull/35), merged as `f3b975b` (same code as the live site) |
 | Server | Asia (India), Mumbai, since 2026-10-20. Cloudflare points at it since 03:53 UTC (steps 1–3 done). Its IP is in hPanel → Plan details |
-| Database | Supabase, Tokyo (unchanged). Server→database calls measured about the same as from Paris (step 8); the real gain needs the Supabase move (`deploy/SUPABASE_REGION_MOVE.md`) |
+| Database | Supabase, Tokyo (unchanged). Server→database calls measured about the same as from Paris (step 8); the real gain needs the Supabase move (`deploy/SUPABASE_REGION_MOVE.md`). **Done 2026-10-21: the database is now in Mumbai too** |
 
 ---
 
@@ -157,7 +157,7 @@ Hostinger warns that anything which allowed your old IP has to be updated by han
 | Live updates cached | passed: `MISS` then `HIT` |
 | `ftp` record | passed: resolves to the new server |
 | Security policy | as expected for `6041c5a`: contains `static.cloudflareinsights.com`. `worker-src 'self' blob:` arrives with the step 6 build |
-| Speed | `components.database.latency` 155–168 ms (one 400 ms outlier), about the same as Paris (164 ms): the database is still in Tokyo |
+| Speed | `components.database.latency` 155–168 ms (one 400 ms outlier), about the same as Paris (164 ms): the database is still in Tokyo. **After the Supabase move (2026-10-21): 21–52 ms, median about 40 ms** |
 | Not checked yet | sign-in, prize creation, live quiz push, Sentry: they need you, or the step 6 build |
 | Unrelated to the move | `/sitemap.xml` and `/robots.txt` return 404 on both the old and the new server |
 

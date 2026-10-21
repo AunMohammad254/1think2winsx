@@ -68,7 +68,7 @@ time; if you can't find one, write "not found" and move on.
   size: 60 connections.) Write down the size name.
 - **Max rows**: Project Settings → API → *Max rows*. Write the number.
 - **Signing keys**: Authentication → JWT Signing Keys (or Settings). Is the current key **ES256 / ECC
-  (P-256)**? Write yes/no. (Quick proof: open `https://snhgaklxawthpihjiagh.supabase.co/auth/v1/.well-known/jwks.json`
+  (P-256)**? Write yes/no. (Quick proof: open `https://eclivawqhdovsndlngfo.supabase.co/auth/v1/.well-known/jwks.json`
   in a browser — it should list a key with `"alg":"ES256"`.)
 - **Auth rate limits**: Authentication → Rate Limits. Write down the sign-in/sign-up/token-refresh numbers.
 - **Realtime**: Project Settings → Realtime (or Realtime → Settings). Write *Max concurrent connections*
@@ -100,7 +100,7 @@ time; if you can't find one, write "not found" and move on.
 
 ### 3.1 Create the project
 Supabase dashboard → **New project** (same organization), name `1think2win-staging`, **same region as
-production** (Northeast Asia / Tokyo), a strong database password (save it in your password manager).
+production** (South Asia / Mumbai, `ap-south-1`, since 2026-10-21), a strong database password (save it in your password manager).
 Wait until it is "Healthy". Keep **Compute at Micro** — it matches production today, so results
 describe the *current* setup.
 
@@ -128,7 +128,7 @@ mkdir load-test\.data -ErrorAction SilentlyContinue
 
 # 1) dump PRODUCTION structure (read-only operation; no data, no users)
 $env:PGPASSWORD = "<PRODUCTION DB PASSWORD>"
-pg_dump "postgresql://postgres.snhgaklxawthpihjiagh@<production pooler host>:5432/postgres" `
+pg_dump "postgresql://postgres.eclivawqhdovsndlngfo@<production pooler host>:5432/postgres" `
   --schema-only --schema=public --schema=private_hardened --no-owner `
   -f load-test\.data\staging-schema.sql
 
