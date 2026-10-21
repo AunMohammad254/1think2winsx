@@ -134,6 +134,9 @@ load-test/.data/
 # Hostinger env import file (contains secrets)
 .env.hostinger-import
 
+# Cloudflare cache-purge token for `bun run cache:purge` (kept out of .env, which goes to Hostinger)
+.env.cloudflare
+
 # Unredacted copies of the deploy runbooks (server addresses, limits): never publish
 deploy/private/
 

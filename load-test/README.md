@@ -60,6 +60,22 @@ check can be run from GitHub: **Actions → Production smoke check → Run workf
 | everything 403 | Hostinger's abuse protection tripped site-wide: wait a few minutes, do not rerun in a loop |
 | answer key exposed | roll back the deploy now |
 
+## After a deploy: purge the page cache
+
+Once the Cloudflare page-cache rule is on ([`deploy/CLOUDFLARE_PAGE_CACHE.md`](../deploy/CLOUDFLARE_PAGE_CACHE.md)),
+Cloudflare keeps the public pages for a year. **After every Hostinger deploy, before the smoke check:**
+
+```bash
+bun run cache:purge
+```
+
+It purges everything on the zone, then runs `bun run cache:check`: 27 requests, one at a time. Each cached page
+and a `/faq` prefetch must come from the cache as the build the origin runs now. The same prefetch URL without
+its RSC header, a request with a session cookie, `/quizzes`, `/login`, `/auth` and `/api/health` must not come
+from the cache. It refuses to purge while Cloudflare already serves the origin's build: the deploy has not gone
+live yet, and purging then would refill the cache with the old pages (`--force` overrides). It needs
+`CLOUDFLARE_ZONE_ID` and `CLOUDFLARE_API_TOKEN` in the git-ignored `.env.cloudflare` (setup in the runbook).
+
 ## Prerequisites
 
 - [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) (`winget install k6` / `brew install k6`) — a local tool, not a service

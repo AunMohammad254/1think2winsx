@@ -26,6 +26,8 @@
     "test:all": "bun run test:ci && bun run test:e2e",
     "cleanup:orphaned": "bun scripts/cleanup-orphaned-records.ts",
     "smoke:prod": "bun load-test/smoke.ts --base https://1think2win.com",
+    "cache:check": "bun load-test/page-cache.ts --base https://1think2win.com",
+    "cache:purge": "bun --env-file=.env.cloudflare load-test/page-cache.ts --base https://1think2win.com --purge",
     "graphify:update": "GEMINI_API_KEY=$Graphify_GEMINI_API_KEY GEMINI_MODEL='gemini-3.5-flash-lite' graphify update ."
   },
   "ignoredBuiltDependencies": [

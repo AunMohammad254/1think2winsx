@@ -15,7 +15,7 @@ export const MISSING_QUIZ_ID = 'smoke-check-missing';
 
 // The second of two requests seconds apart must come from Cloudflare's cache. EXPIRED, REVALIDATED and
 // UPDATING are still cached copies; BYPASS, DYNAMIC, MISS or no header mean the Cache Rule did not apply
-const CACHED_STATUSES = ['HIT', 'EXPIRED', 'REVALIDATED', 'UPDATING'];
+export const CACHED_STATUSES = ['HIT', 'EXPIRED', 'REVALIDATED', 'UPDATING'];
 // Cloudflare's WAF block page; a 403 without it comes from somewhere else (e.g. Hostinger)
 const CLOUDFLARE_BLOCK_PAGE = /you have been blocked|Attention Required! \| Cloudflare/i;
 // Cloudflare tells crawlers apart by user agent; this one says what is knocking in the logs
@@ -42,7 +42,7 @@ export interface CheckResult {
   problems: string[];
 }
 
-interface Probe {
+export interface Probe {
   status: number;
   headers: Headers;
   body: string;
@@ -55,7 +55,7 @@ export const USAGE = `Usage: bun load-test/smoke.ts [--base URL] [--www URL | --
                 https://www.<host>/ for an apex host like example.com, skipped otherwise
   --skip-www    skip the www redirect check (or SMOKE_WWW_URL=skip)`;
 
-function parseOrigin(raw: string, flag: string): string {
+export function parseOrigin(raw: string, flag: string): string {
   let url: URL;
   try {
     url = new URL(raw);
@@ -99,12 +99,13 @@ export function parseSmokeArgs(argv: string[], env: Record<string, string | unde
   return { baseUrl, wwwUrl, pauseMs: 300, timeoutMs: 15_000 };
 }
 
-async function probe(fetcher: Fetcher, url: string, timeoutMs: number): Promise<Probe | Error> {
+/** One GET; `headers` are added to the defaults (lowercase names). A failed request comes back as an Error. */
+export async function probe(fetcher: Fetcher, url: string, timeoutMs: number, headers: Record<string, string> = {}): Promise<Probe | Error> {
   try {
     const res = await fetcher(url, {
       // A redirect is never expected except from www, and following one would hide where it went
       redirect: 'manual',
-      headers: { 'user-agent': USER_AGENT, accept: '*/*' },
+      headers: { 'user-agent': USER_AGENT, accept: '*/*', ...headers },
       signal: AbortSignal.timeout(timeoutMs),
     });
     return { status: res.status, headers: res.headers, body: await res.text() };
@@ -121,26 +122,26 @@ function json(body: string): any {
   }
 }
 
-const normaliseCacheControl = (value: string | null) =>
+export const normaliseCacheControl = (value: string | null) =>
   (value ?? '').split(',').map((part) => part.trim().toLowerCase()).filter(Boolean).join(', ');
 
-function expectStatus(res: Probe, expected: number, problems: string[]) {
+export function expectStatus(res: Probe, expected: number, problems: string[]) {
   if (res.status !== expected) problems.push(`expected status ${expected}, got ${res.status}`);
 }
 
-function expectCacheControl(res: Probe, expected: string, problems: string[]) {
+export function expectCacheControl(res: Probe, expected: string, problems: string[]) {
   const actual = res.headers.get('cache-control');
   if (normaliseCacheControl(actual) !== expected) problems.push(`Cache-Control is "${actual ?? '(missing)'}", expected "${expected}"`);
 }
 
-function expectCached(res: Probe, problems: string[]) {
+export function expectCached(res: Probe, problems: string[]) {
   const status = res.headers.get('cf-cache-status');
   if (!status || !CACHED_STATUSES.includes(status.toUpperCase())) {
     problems.push(`cf-cache-status is ${status ?? '(missing)'}, expected ${CACHED_STATUSES.join('/')} on a repeat request`);
   }
 }
 
-const cacheStatus = (res: Probe) => `cf-cache-status=${res.headers.get('cf-cache-status') ?? '(missing)'}`;
+export const cacheStatus = (res: Probe) => `cf-cache-status=${res.headers.get('cf-cache-status') ?? '(missing)'}`;
 
 /** The first key anywhere in a JSON value that matches `pattern`. */
 function findKey(value: unknown, pattern: RegExp): string | null {
@@ -154,7 +155,7 @@ function findKey(value: unknown, pattern: RegExp): string | null {
 }
 
 /** Run `verify` on a response; a failed request (timeout, DNS, TLS) is a failed check. */
-function check(name: string, res: Probe | Error, verify: (res: Probe, problems: string[]) => string): CheckResult {
+export function check(name: string, res: Probe | Error, verify: (res: Probe, problems: string[]) => string): CheckResult {
   if (res instanceof Error) {
     return { name, outcome: 'fail', status: null, detail: '', problems: [`request failed: ${res.message}`] };
   }
