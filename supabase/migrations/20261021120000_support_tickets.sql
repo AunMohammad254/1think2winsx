@@ -1,9 +1,11 @@
 -- =============================================================================
 -- Support tickets raised through the AI chatbot
 --
--- NOT YET APPLIED to any live database (Tokyo or Mumbai). It must run before the code that uses it
--- is deployed: until then the chatbot can't create or look up tickets (it tells the player it
--- couldn't, and the rest of the chat works) and /admin/tickets shows a load error.
+-- Applied to the Mumbai project (eclivawqhdovsndlngfo) on 2026-10-21 as migration 20261021033658
+-- support_tickets, for testing. NOT applied to Tokyo (production). It must run on the live project
+-- before the code that uses it is deployed: until then the chatbot can't create or look up tickets
+-- (it tells the player it couldn't, and the rest of the chat works) and /admin/tickets shows a load
+-- error.
 --
 -- A signed-in player who has a problem the bot can't solve asks it to send the problem to the
 -- admins. The server (service role, after its auth() check) calls create_support_ticket(), which
