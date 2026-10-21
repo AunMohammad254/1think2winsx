@@ -166,9 +166,11 @@ describe('POST /api/admin/newsletter/send', () => {
   const good = { subject: ' News ', content: '  Big quiz tonight! ', senderEmail: ' news@example.test ' };
 
   it('sends to every subscriber and logs the dispatch', async () => {
+    vi.stubEnv('BREVO_SENDER_EMAIL', 'noreply@example.test');
     newsletterDb.getSubscribers.mockResolvedValue(['a@x', 'b@x']);
     sendNewsletterEmail.mockResolvedValue({ success: true, sentCount: 2 });
-    expect(await (await post(good)).json()).toEqual({ success: true, message: 'Successfully sent newsletter to 2 subscribed user(s)!', sentCount: 2, failedCount: 0 });
+    // "Accepted": Brevo can still drop an email after taking the request
+    expect(await (await post(good)).json()).toEqual({ success: true, message: 'Brevo accepted the newsletter for all 2 subscriber(s).', sentCount: 2, failedCount: 0 });
     expect(sendNewsletterEmail).toHaveBeenCalledWith({ senderEmail: 'news@example.test', subject: 'News', content: 'Big quiz tonight!', recipients: ['a@x', 'b@x'] });
     expect(logSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({ details: expect.objectContaining({ action: 'newsletter_dispatched', subscriberCount: 2, failedCount: 0 }) }));
   });
@@ -177,8 +179,48 @@ describe('POST /api/admin/newsletter/send', () => {
     vi.stubEnv('BREVO_SENDER_EMAIL', 'default@example.test');
     newsletterDb.getSubscribers.mockResolvedValue(['a@x', 'b@x', 'c@x']);
     sendNewsletterEmail.mockResolvedValue({ success: true, sentCount: 2, failedCount: 1 });
-    expect((await (await post({ ...good, senderEmail: '' })).json()).message).toBe('Sent to 2 of 3 subscriber(s); 1 failed.');
+    expect((await (await post({ ...good, senderEmail: '' })).json()).message).toBe('Brevo accepted 2 of 3 email(s); 1 failed.');
     expect(sendNewsletterEmail.mock.calls[0][0].senderEmail).toBe('default@example.test');
+  });
+
+  it("refuses a sender outside the domain verified in Brevo, which accepted such emails and then dropped them", async () => {
+    vi.stubEnv('BREVO_SENDER_EMAIL', 'noreply@1think2win.example');
+    newsletterDb.getSubscribers.mockResolvedValue(['a@x']);
+    sendNewsletterEmail.mockResolvedValue({ success: true, sentCount: 1 });
+
+    const res = await post({ ...good, senderEmail: 'owner@gmail.com' });
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toBe('Newsletters can only be sent from an @1think2win.example address, the domain verified in Brevo. Leave the sender blank to use noreply@1think2win.example.');
+    expect(sendNewsletterEmail).not.toHaveBeenCalled();
+    expect(newsletterDb.getSubscribers).not.toHaveBeenCalled();
+
+    // Any address on the verified domain is fine, whatever its case
+    expect((await post({ ...good, senderEmail: 'News@1Think2Win.example' })).status).toBe(200);
+    expect(sendNewsletterEmail.mock.calls[0][0].senderEmail).toBe('News@1Think2Win.example');
+  });
+
+  it('sends a test to one address only, never to the subscribers', async () => {
+    vi.stubEnv('BREVO_SENDER_EMAIL', 'noreply@example.test');
+    sendNewsletterEmail.mockResolvedValue({ success: true, sentCount: 1 });
+
+    const body = await (await post({ ...good, testEmail: ' me@example.org ' })).json();
+
+    expect(body).toEqual({
+      success: true, test: true, sentCount: 1, failedCount: 0,
+      message: "Brevo accepted the test email to me@example.org. If it doesn't arrive, Brevo's Transactional logs show why.",
+    });
+    expect(sendNewsletterEmail).toHaveBeenCalledWith({ senderEmail: 'news@example.test', subject: '[TEST] News', content: 'Big quiz tonight!', recipients: ['me@example.org'] });
+    expect(newsletterDb.getSubscribers).not.toHaveBeenCalled();
+    expect(logSecurityEvent).not.toHaveBeenCalled();
+
+    expect((await (await post({ ...good, testEmail: 'nope' })).json()).message).toBe('Please enter a valid address for the test email.');
+    sendNewsletterEmail.mockResolvedValue({ success: false, error: 'Key not found' });
+    const failed = await post({ ...good, testEmail: 'me@example.org' });
+    expect(failed.status).toBe(500);
+    expect((await failed.json()).message).toBe('Key not found');
+    sendNewsletterEmail.mockResolvedValue({ success: false });
+    expect((await (await post({ ...good, testEmail: 'me@example.org' })).json()).message).toBe('Failed to send the test email.');
+    expect(newsletterDb.getSubscribers).not.toHaveBeenCalled();
   });
 
   it('answers early with no subscribers and reports dispatch failures', async () => {
