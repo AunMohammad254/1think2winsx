@@ -1,14 +1,46 @@
 'use client';
 
+import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { User, Trophy } from 'lucide-react';
-import type { RecentActivity } from '@/actions/dashboard-actions';
+import { User, Trophy, Loader2 } from 'lucide-react';
+import type { RecentActivity, RecentActivityPage } from '@/actions/dashboard-actions';
 
 interface RecentActivityFeedProps {
     activities: RecentActivity[];
+    /** Where the next, older page starts; null or absent when there is nothing older. */
+    nextCursor?: string | null;
+    /** Loads the page after `before` (the getRecentActivity server action). */
+    loadMore?: (options: { before: string }) => Promise<RecentActivityPage>;
 }
 
-export default function RecentActivityFeed({ activities }: RecentActivityFeedProps) {
+export default function RecentActivityFeed({ activities: firstPage, nextCursor = null, loadMore }: RecentActivityFeedProps) {
+    const [older, setOlder] = useState<RecentActivity[]>([]);
+    const [cursor, setCursor] = useState(nextCursor);
+    const [loading, setLoading] = useState(false);
+    const [loadError, setLoadError] = useState(false);
+    // A fresh first page from the server (a refresh) starts the list over
+    const [shownFirstPage, setShownFirstPage] = useState(firstPage);
+    if (shownFirstPage !== firstPage) {
+        setShownFirstPage(firstPage);
+        setOlder([]);
+        setCursor(nextCursor);
+    }
+    const activities = older.length > 0 ? [...firstPage, ...older] : firstPage;
+
+    const showMore = async () => {
+        setLoading(true);
+        setLoadError(false);
+        try {
+            const page = await loadMore!({ before: cursor! });
+            setOlder((shown) => [...shown, ...page.activities]);
+            setCursor(page.nextCursor);
+        } catch {
+            setLoadError(true);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     if (activities.length === 0) {
         return (
             <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl p-6">
@@ -32,9 +64,26 @@ export default function RecentActivityFeed({ activities }: RecentActivityFeedPro
 
             <div className="divide-y divide-white/5">
                 {activities.map((activity) => (
-                    <ActivityItem key={activity.id} activity={activity} />
+                    <ActivityItem key={`${activity.type}:${activity.id}`} activity={activity} />
                 ))}
             </div>
+
+            {cursor && loadMore && (
+                <div className="p-4 border-t border-white/10 text-center">
+                    {loadError && (
+                        <p className="text-sm text-red-300 mb-2" role="alert">Couldn&apos;t load more activity. Please try again.</p>
+                    )}
+                    <button
+                        type="button"
+                        onClick={showMore}
+                        disabled={loading}
+                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-gray-200 hover:bg-white/10 disabled:opacity-60"
+                    >
+                        {loading && <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />}
+                        {loading ? 'Loading…' : 'Load more'}
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

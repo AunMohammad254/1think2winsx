@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
 import { requirePaymentAccess } from '@/lib/payment-middleware';
 import { quizAttemptDb, questionAttemptDb } from '@/lib/supabase/db';
-import { getCatalogQuiz } from '@/lib/quiz-catalog';
+import { getCatalogQuiz, QUIZ_ENDED_MESSAGE } from '@/lib/quiz-catalog';
 import { computeQuizEndsAt } from '@/lib/quiz-clock';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
@@ -89,8 +89,8 @@ export const GET = withLoadShed(async function GET(
         {
           error: 'You have already completed this quiz',
           completed: true,
-          // For the results page's fallback when its own lookup fails
-          totalQuestions: activeQuestions.length,
+          // For the results page's fallback when its own lookup fails (closed questions count too)
+          totalQuestions: activeQuestions.length + quiz.closedQuestionCount,
           attempt: {
             id: completedAttempt.id,
             score: completedAttempt.score,
@@ -100,6 +100,11 @@ export const GET = withLoadShed(async function GET(
         },
         { status: 403 }
       );
+    }
+
+    // Every question already has its result: answers would be refused as closed
+    if (quiz.ended) {
+      return NextResponse.json({ error: QUIZ_ENDED_MESSAGE, ended: true }, { status: 409 });
     }
 
     // Determine which questions to show

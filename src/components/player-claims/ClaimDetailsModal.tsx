@@ -185,11 +185,12 @@ export function ClaimDetailsModal({
                     {claim.status === 'pending' && (
                         <div className="space-y-4 pt-4 border-t border-white/10">
                             <div>
-                                <label className="text-sm text-gray-400 mb-2 block">Add notes (optional)</label>
+                                <label htmlFor="claim-action-notes" className="text-sm text-gray-400 mb-2 block">Note to the player (optional)</label>
                                 <textarea
+                                    id="claim-action-notes"
                                     value={actionNotes}
                                     onChange={(e) => setActionNotes(e.target.value)}
-                                    placeholder="Add any notes about this claim..."
+                                    placeholder="Sent to the player with your decision, e.g. the delivery date or why it was rejected"
                                     className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 resize-none"
                                     rows={2}
                                 />

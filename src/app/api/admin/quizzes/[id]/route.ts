@@ -414,7 +414,7 @@ export async function PUT(
     // Get existing questions
     const { data: existingQuestions } = await supabase
       .from('Question')
-      .select('id')
+      .select('id, hasCorrectAnswer')
       .eq('quizId', quizId);
 
     // Update quiz basic info
@@ -457,22 +457,23 @@ export async function PUT(
           .in('id', questionsToDelete);
       }
 
-      // Update or create questions
+      // Update or create questions. The answer key stays open (hasCorrectAnswer false): a question with
+      // a result is closed to answers, and only Settle Quizzes saves results. A saved result is kept.
+      const resultSaved = new Set((existingQuestions || []).filter(q => q.hasCorrectAnswer).map(q => q.id));
       for (const questionData of updateData.questions) {
-        const questionUpdateData = {
+        const content = {
           text: questionData.text,
           options: JSON.stringify(questionData.options),
-          correctOption: questionData.correctAnswer,
-          hasCorrectAnswer: true,
           status: questionData.isActive !== false ? 'active' : 'paused',
           updatedAt: new Date().toISOString()
         };
+        const questionUpdateData = { ...content, correctOption: questionData.correctAnswer, hasCorrectAnswer: false };
 
         if (questionData.id && !questionData.id.startsWith('temp-')) {
           // Update existing question
           await supabase
             .from('Question')
-            .update(questionUpdateData)
+            .update(resultSaved.has(questionData.id) ? content : questionUpdateData)
             .eq('id', questionData.id);
         } else {
           // Create new question

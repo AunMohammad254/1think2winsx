@@ -21,6 +21,19 @@ type ActionResult<T = undefined> =
     | { success: true; data?: T; message?: string }
     | { success: false; error: string; code?: string };
 
+/**
+ * The correct option typed in the form: a normal quiz's answer key, or null for a prediction (nobody
+ * knows it yet). It never closes the question: submit_quiz_attempt refuses answers to any question
+ * with "hasCorrectAnswer", so that is set only when the result is saved in Settle Quizzes, which
+ * pre-fills this key. Setting it here made every normal quiz refuse every answer ("Invalid or closed
+ * question IDs in submission").
+ */
+function answerKey(quizType: string, options: Array<{ isCorrect?: boolean }>): number | null {
+    if (quizType !== 'normal') return null;
+    const index = options.findIndex(opt => opt.isCorrect);
+    return index === -1 ? null : index;
+}
+
 // ============================================
 // Admin Quiz Actions
 // ============================================
@@ -61,23 +74,14 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             quizType: quizData.quizType,
         } as any);
 
-        // Create questions for the quiz
+        // Create questions for the quiz (open: see answerKey)
         for (const question of questions) {
-            let hasCorrectAnswer = false;
-            let correctOption = null;
-
-            if (quizData.quizType === 'normal') {
-                hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
-                correctOption = question.options.findIndex(opt => opt.isCorrect);
-                if (correctOption === -1) correctOption = null;
-            }
-
             await questionDb.create({
                 quizId: quiz.id,
                 text: question.text,
                 options: JSON.stringify(question.options.map(opt => opt.text)),
-                correctOption,
-                hasCorrectAnswer,
+                correctOption: answerKey(quizData.quizType, question.options),
+                hasCorrectAnswer: false,
                 status: question.status,
             });
         }
@@ -164,36 +168,23 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             }
         }
 
-        // Upsert questions
+        // Upsert questions. A question whose result is already saved keeps it: editing the quiz used to
+        // erase a prediction's result (and reopen the question). Results change in Settle Quizzes.
+        const resultSaved = new Set(currentQuestions.filter((q: { hasCorrectAnswer?: boolean }) => q.hasCorrectAnswer).map((q: { id: string }) => q.id));
         for (const question of questions) {
-            let hasCorrectAnswer = false;
-            let correctOption = null;
-
-            if (quizData.quizType === 'normal') {
-                hasCorrectAnswer = question.options.some(opt => opt.isCorrect);
-                correctOption = question.options.findIndex(opt => opt.isCorrect);
-                if (correctOption === -1) correctOption = null;
-            }
+            const content = {
+                text: question.text,
+                options: JSON.stringify(question.options.map(opt => opt.text)),
+                status: question.status,
+            };
+            const key = { correctOption: answerKey(quizData.quizType, question.options), hasCorrectAnswer: false };
 
             if (question.id) {
                 // Update existing question
-                await questionDb.update(question.id, {
-                    text: question.text,
-                    options: JSON.stringify(question.options.map(opt => opt.text)),
-                    correctOption,
-                    hasCorrectAnswer,
-                    status: question.status,
-                });
+                await questionDb.update(question.id, resultSaved.has(question.id) ? content : { ...content, ...key });
             } else {
                 // Create new question
-                await questionDb.create({
-                    quizId: quizId!,
-                    text: question.text,
-                    options: JSON.stringify(question.options.map(opt => opt.text)),
-                    correctOption,
-                    hasCorrectAnswer,
-                    status: question.status,
-                });
+                await questionDb.create({ quizId: quizId!, ...content, ...key });
             }
         }
 

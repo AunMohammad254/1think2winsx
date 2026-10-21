@@ -146,6 +146,49 @@ describe('admin newsletter page', () => {
     await waitFor(() => expect(h.toast.success).toHaveBeenLastCalledWith('Sent to 2 subscribers'));
   });
 
+  it('sends a test to one address without asking to email the subscribers', async () => {
+    const results: Array<() => Response | Promise<Response>> = [
+      () => jsonResponse({ success: true, test: true, message: 'Brevo accepted the test email to me@x.com.' }),
+      () => jsonResponse({ success: true, test: true }),
+      () => jsonResponse({ success: false, message: 'Newsletters can only be sent from an @1think2win.com address' }, 400),
+      () => jsonResponse({}, 500),
+      () => { throw new Error('offline'); },
+      () => new Promise(() => {}) as Promise<Response>,
+    ];
+    vi.stubGlobal('fetch', (fetchMock = routes({ send: () => results.shift()!() })));
+    render(<AdminNewsletterPage />);
+    await loaded();
+    const sendTest = () => fireEvent.click(screen.getByRole('button', { name: 'Send test' }));
+
+    fill('', '');
+    sendTest();
+    expect(h.toast.error).toHaveBeenLastCalledWith('Subject and content are required.');
+    fill('Weekly update', 'Hello everyone, new quizzes!');
+    sendTest();
+    expect(h.toast.error).toHaveBeenLastCalledWith('Enter the address to send the test to.');
+    expect(fetchMock.mock.calls.some(([u]) => u.endsWith('/send'))).toBe(false);
+
+    fireEvent.change(screen.getByLabelText('Send a test first'), { target: { value: ' me@x.com ' } });
+    sendTest();
+    await waitFor(() => expect(h.toast.success).toHaveBeenLastCalledWith('Brevo accepted the test email to me@x.com.'));
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(JSON.parse(fetchMock.mock.calls.find(([u]) => u.endsWith('/send'))![1].body)).toEqual({ senderEmail: '', subject: 'Weekly update', content: 'Hello everyone, new quizzes!', testEmail: 'me@x.com' });
+    // The message stays, ready for the real dispatch
+    expect(screen.getByLabelText('Email Subject')).toHaveValue('Weekly update');
+    expect(screen.queryByText('Newsletter Dispatched')).toBeNull();
+
+    sendTest();
+    await waitFor(() => expect(h.toast.success).toHaveBeenLastCalledWith('Test email sent.'));
+    sendTest();
+    await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('Newsletters can only be sent from an @1think2win.com address'));
+    sendTest();
+    await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('Failed to send the test email'));
+    sendTest();
+    await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('An error occurred. Please try again.'));
+    sendTest();
+    expect(await screen.findByRole('button', { name: 'Sending test…' })).toBeDisabled();
+  });
+
   it('reports a network failure while sending, and shows progress', async () => {
     let fail = true;
     vi.stubGlobal('fetch', routes({ send: () => { if (fail) { fail = false; throw new Error('offline'); } return new Promise(() => {}) as Promise<Response>; } }));

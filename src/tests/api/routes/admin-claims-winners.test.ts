@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
-import { createSupabaseMock, makeRequest, authOk, argOf, hasOp, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { createSupabaseMock, makeRequest, authOk, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
 const requireAuth = vi.fn();
@@ -108,79 +108,104 @@ describe('GET /api/admin/claims', () => {
 describe('PUT /api/admin/claims', () => {
   const put = (body: unknown, headers: Record<string, string> = {}) => claims.PUT(makeRequest('/api/admin/claims', { method: 'PUT', body, headers }));
 
-  it('updates through update_claim_status', async () => {
-    adminDb.setRpc('update_claim_status', { data: { success: true, message: 'Done', points_refunded: 50 } });
-    const body = await (await put({ claimId: 'c1', status: 'rejected', notes: 'fake' }, { 'x-forwarded-for': '1.1.1.1', 'user-agent': 'UA' })).json();
-    expect(adminDb.rpcCalls[0]).toEqual({ fn: 'update_claim_status', args: { p_claim_id: 'c1', p_status: 'rejected', p_notes: 'fake' } });
-    expect(body).toEqual({ message: 'Done', claim: { id: 'c1', status: 'rejected' } });
-    expect(logger.logSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({ ip: '1.1.1.1', details: expect.objectContaining({ pointsRefunded: 50 }) }));
-    adminDb.setRpc('update_claim_status', { data: { success: true } });
-    expect((await (await put({ claimId: 'c1', status: 'fulfilled' })).json()).message).toBe('Claim fulfilled successfully');
-    expect(logger.logSecurityEvent).toHaveBeenLastCalledWith(expect.objectContaining({ ip: 'unknown', details: expect.objectContaining({ pointsRefunded: null }) }));
-  });
+  it('decides through the four-argument update_claim_status and tells the player, note included', async () => {
+    adminDb.setTable('PrizeRedemption', { data: { userId: 'u1', pointsUsed: 100, Prize: { name: 'Smartwatch' } } });
+    adminDb.setRpc('update_claim_status', { data: { success: true, status: 'approved', previousStatus: 'pending', pointsRefunded: 0 } });
 
-  it('relays an update_claim_status refusal', async () => {
-    adminDb.setRpc('update_claim_status', { data: { success: false, error: 'Already fulfilled' } });
-    expect(await (await put({ claimId: 'c1', status: 'approved' })).json()).toEqual({ message: 'Already fulfilled' });
-    adminDb.setRpc('update_claim_status', { data: { success: false } });
-    expect(await (await put({ claimId: 'c1', status: 'approved' })).json()).toEqual({ message: 'Failed to update claim' });
-  });
+    const res = await put({ claimId: 'c1', status: 'approved', notes: 'Ships on Monday' }, { 'x-forwarded-for': '1.1.1.1', 'user-agent': 'UA' });
 
-  it('falls back to approve_claim and reject_claim_with_refund', async () => {
-    adminDb.setRpc('update_claim_status', { error: { message: 'not found' } });
-    adminDb.setRpc('approve_claim', { data: { success: true } });
-    adminDb.setRpc('reject_claim_with_refund', { data: { success: true, points_refunded: 20 } });
-    expect((await (await put({ claimId: 'c1', status: 'approved' })).json()).message).toBe('Claim approved successfully');
-    expect((await (await put({ claimId: 'c1', status: 'rejected' }, { 'x-forwarded-for': '2.2.2.2' })).json()).message).toBe('Claim rejected and points refunded');
-    await put({ claimId: 'c1', status: 'rejected' });
-    expect(logger.logSecurityEvent).toHaveBeenLastCalledWith(expect.objectContaining({ ip: 'unknown', details: expect.objectContaining({ method: 'supabase_rpc_reject' }) }));
-
-    adminDb.setRpc('approve_claim', { data: { success: false, error: 'Out of stock' } });
-    expect(await (await put({ claimId: 'c1', status: 'approved' })).json()).toEqual({ message: 'Out of stock' });
-    adminDb.setRpc('approve_claim', { data: { success: false } });
-    expect(await (await put({ claimId: 'c1', status: 'approved' })).json()).toEqual({ message: 'Failed to approve claim' });
-    adminDb.setRpc('reject_claim_with_refund', { data: { success: false } });
-    expect(await (await put({ claimId: 'c1', status: 'rejected' })).json()).toEqual({ message: 'Failed to reject claim' });
-    adminDb.setRpc('reject_claim_with_refund', { data: { success: false, error: 'Locked' } });
-    expect(await (await put({ claimId: 'c1', status: 'rejected' })).json()).toEqual({ message: 'Locked' });
-  });
-
-  it('as a last resort refunds a rejection with a NON-atomic read-then-write of points', async () => {
-    adminDb.setRpc('update_claim_status', { data: null });
-    adminDb.client.rpc.mockImplementation((fn: string) => {
-      if (fn === 'update_claim_status') return { then: (ok: (v: unknown) => void) => Promise.resolve({ data: null, error: null }).then(ok) } as never;
-      throw new Error(`${fn} missing`);
+    // All four arguments named: with three, PostgREST couldn't choose between production's two overloads (HTTP 300)
+    expect(adminDb.rpcCalls).toEqual([{
+      fn: 'update_claim_status',
+      args: { p_claim_id: 'c1', p_status: 'approved', p_notes: 'Ships on Monday', p_admin_email: 'player@example.test' },
+    }]);
+    expect(await res.json()).toEqual({ message: 'Claim approved successfully', claim: { id: 'c1', status: 'approved' }, notified: true });
+    expect(createNotification).toHaveBeenCalledWith('u1', {
+      type: 'prize_claim',
+      link: '/profile',
+      title: '🎁 Prize claim approved',
+      message: "Your claim for Smartwatch was approved. We'll contact you about delivery. Note from our team: Ships on Monday",
     });
-    adminDb.setTable('PrizeRedemption', (call) => (hasOp(call, 'update') ? { data: { id: 'c1', status: 'rejected', processedAt: 'now', notes: 'old' } } : { data: { id: 'c1', userId: 'u1', status: 'pending', pointsUsed: 300, notes: 'old', User: { points: 50 } } }));
-
-    const body = await (await put({ claimId: 'c1', status: 'rejected' })).json();
-
-    expect(argOf(adminDb.callsTo('User', 'update')[0], 'update')).toMatchObject({ points: 350 });
-    expect(argOf(adminDb.callsTo('PrizeRedemption', 'update')[0], 'update')).toMatchObject({ status: 'rejected', notes: 'old' });
-    expect(body).toEqual({ message: 'Claim status updated successfully', claim: { id: 'c1', status: 'rejected', processedAt: 'now', notes: 'old' } });
-
-    // approve_claim throwing also falls through to the direct update
-    expect((await put({ claimId: 'c1', status: 'approved' })).status).toBe(200);
-    // and so does update_claim_status itself throwing
-    adminDb.client.rpc.mockImplementation(() => { throw new Error('all down'); });
-    expect((await put({ claimId: 'c1', status: 'fulfilled' })).status).toBe(200);
+    expect(logger.logSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      ip: '1.1.1.1',
+      userAgent: 'UA',
+      details: { action: 'UPDATE_CLAIM_STATUS', claimId: 'c1', previousStatus: 'pending', newStatus: 'approved', pointsRefunded: 0, playerNotified: true },
+    }));
+    // No fallback to approve_claim and friends: they check is_admin(), which a server call never passes
+    expect(adminDb.callsTo('User')).toHaveLength(0);
   });
 
-  it('last resort: no refund when not rejecting or already rejected; 404 / 500 on failures', async () => {
-    adminDb.client.rpc.mockImplementation(() => ({ then: (ok: (v: unknown) => void) => Promise.resolve({ data: null, error: { message: 'missing' } }).then(ok) }) as never);
-    adminDb.setTable('PrizeRedemption', (call) => (hasOp(call, 'update') ? { data: { id: 'c1', status: 'fulfilled' } } : { data: { id: 'c1', status: 'rejected', User: null } }));
-    await put({ claimId: 'c1', status: 'fulfilled', notes: 'sent' }, { 'x-forwarded-for': '4.4.4.4' });
-    await put({ claimId: 'c1', status: 'rejected' });
-    expect(adminDb.callsTo('User')).toHaveLength(0);
+  it('tells a rejected player their points came back, also before the migration (no previousStatus / pointsRefunded)', async () => {
+    adminDb.setTable('PrizeRedemption', { data: { userId: 'u2', pointsUsed: 250, Prize: [{ name: 'Earbuds' }] } });
+    adminDb.setRpc('update_claim_status', { data: { success: true, status: 'rejected', message: 'Claim status updated successfully' } });
 
-    adminDb.setTable('PrizeRedemption', (call) => (hasOp(call, 'update') ? { data: null } : { data: { id: 'c1', status: 'pending', userId: 'u', pointsUsed: 1, User: null } }));
-    await put({ claimId: 'c1', status: 'rejected' });
-    expect(argOf(adminDb.callsTo('User', 'update')[0], 'update')).toMatchObject({ points: 1 });
+    const body = await (await put({ claimId: 'c2', status: 'rejected' })).json();
 
-    adminDb.setTable('PrizeRedemption', { data: null, error: { message: 'rls' } });
+    expect(body).toEqual({ message: 'Claim rejected successfully', claim: { id: 'c2', status: 'rejected' }, notified: true });
+    expect(adminDb.rpcCalls[0].args).toEqual({ p_claim_id: 'c2', p_status: 'rejected', p_notes: null, p_admin_email: 'player@example.test' });
+    expect(createNotification).toHaveBeenCalledWith('u2', expect.objectContaining({
+      title: 'Prize claim rejected',
+      message: 'Your claim for Earbuds was rejected, and your 250 points were refunded.',
+    }));
+    expect(logger.logSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      ip: 'unknown',
+      details: expect.objectContaining({ previousStatus: null, pointsRefunded: null }),
+    }));
+
+    // A claim whose prize was deleted still gets a readable message; an admin without an email leaves
+    // "processed by" to the database
+    adminDb.setTable('PrizeRedemption', { data: { userId: 'u3', pointsUsed: 50, Prize: null } });
+    adminDb.setRpc('update_claim_status', { data: { success: true } });
+    requireAuth.mockResolvedValueOnce(authOk('admin-1', ''));
+    await put({ claimId: 'c3', status: 'fulfilled' });
+    expect(adminDb.rpcCalls[1].args).toMatchObject({ p_admin_email: null });
+    expect(createNotification).toHaveBeenLastCalledWith('u3', expect.objectContaining({
+      title: '📦 Prize delivered',
+      message: 'Your claim for the prize is marked as delivered.',
+    }));
+
+    // Sending a decided claim back to pending happens through Reissue; the player isn't told twice
+    adminDb.setRpc('update_claim_status', { data: { success: true } });
+    createNotification.mockClear();
+    await put({ claimId: 'c3', status: 'pending' });
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  it('relays a refusal and tells nobody', async () => {
+    adminDb.setTable('PrizeRedemption', { data: { userId: 'u1', pointsUsed: 100, Prize: { name: 'Smartwatch' } } });
+    adminDb.setRpc('update_claim_status', { data: { success: false, code: 'invalid_status', error: "This claim is approved, so it can't be marked approved" } });
+    let res = await put({ claimId: 'c1', status: 'approved' });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ message: "This claim is approved, so it can't be marked approved" });
+
+    adminDb.setRpc('update_claim_status', { data: { success: false, code: 'not_found', error: 'Claim not found' } });
     expect((await put({ claimId: 'c1', status: 'approved' })).status).toBe(404);
-    adminDb.setTable('PrizeRedemption', (call) => (hasOp(call, 'update') ? { error: { message: 'rls' } } : { data: { id: 'c1', status: 'pending' } }));
+    adminDb.setRpc('update_claim_status', { data: null });
+    res = await put({ claimId: 'c1', status: 'approved' });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ message: 'Failed to update claim' });
+    expect(createNotification).not.toHaveBeenCalled();
+    expect(logger.logSecurityEvent).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for an unknown claim, 500 when the database fails, and keeps a decision whose notification failed', async () => {
+    adminDb.setTable('PrizeRedemption', { data: null });
+    expect((await put({ claimId: 'nope', status: 'approved' })).status).toBe(404);
+    expect(adminDb.rpcCalls).toHaveLength(0);
+
+    adminDb.setTable('PrizeRedemption', { error: { message: 'db down' } });
     expect((await put({ claimId: 'c1', status: 'approved' })).status).toBe(500);
+
+    adminDb.setTable('PrizeRedemption', { data: { userId: 'u1', pointsUsed: 100, Prize: { name: 'Smartwatch' } } });
+    adminDb.setRpc('update_claim_status', { error: { message: 'could not choose the best candidate function' } });
+    expect((await put({ claimId: 'c1', status: 'approved' })).status).toBe(500);
+
+    adminDb.setRpc('update_claim_status', { data: { success: true, status: 'approved' } });
+    createNotification.mockRejectedValueOnce(new Error('push down'));
+    const res = await put({ claimId: 'c1', status: 'approved' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ notified: false });
+    expect(console.error).toHaveBeenCalledWith('[claims] Failed to notify the player:', expect.objectContaining({ message: 'push down' }));
   });
 
   it('validates, guards and reports errors', async () => {

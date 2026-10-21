@@ -266,7 +266,8 @@ export async function POST(request: NextRequest) {
         text: q.text,
         options: JSON.stringify(q.options),
         correctOption: q.correctAnswer,
-        hasCorrectAnswer: true,
+        // The answer key only: a question with a saved result is closed to answers (Settle Quizzes saves it)
+        hasCorrectAnswer: false,
         status: q.isActive ? 'active' : 'paused',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

@@ -92,8 +92,12 @@ function KPIsSkeleton() {
 }
 
 async function ActivityFeed() {
-  const activities = await getRecentActivity(8);
-  return <RecentActivityFeed activities={activities} />;
+  // The first 20 items; older ones load only when the admin asks for them ("Load more")
+  const page = await getRecentActivity().catch((error) => {
+    console.error('[dashboard] Recent activity failed to load:', error);
+    return { activities: [], nextCursor: null };
+  });
+  return <RecentActivityFeed activities={page.activities} nextCursor={page.nextCursor} loadMore={getRecentActivity} />;
 }
 
 // ============================================

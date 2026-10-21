@@ -94,7 +94,8 @@ describe('POST /api/admin/quizzes', () => {
     expect(quizInsert).toMatchObject({ id: 'gen-1', title: 'Final', duration: 30, passingScore: 70, status: 'active' });
     expect(typeof quizInsert.startsAt).toBe('string');
     const questions = argOf(adminDb.callsTo('Question')[0], 'insert') as Record<string, unknown>[];
-    expect(questions.map((q) => [q.quizId, q.options, q.correctOption, q.status])).toEqual([['gen-1', '["a","b"]', 1, 'active'], ['gen-1', '["c","d"]', 0, 'paused']]);
+    // The key is stored, but the questions stay open: a saved result closes a question to answers
+    expect(questions.map((q) => [q.quizId, q.options, q.correctOption, q.hasCorrectAnswer, q.status])).toEqual([['gen-1', '["a","b"]', 1, false, 'active'], ['gen-1', '["c","d"]', 0, false, 'paused']]);
     expect(body.quiz.stats).toMatchObject({ totalQuestions: 2, activeQuestions: 1, questionsWithAnswers: 2 });
   });
 
@@ -234,8 +235,18 @@ describe('PUT /api/admin/quizzes/[id] (full edit)', () => {
     expect(adminDb.callsTo('Question', 'delete')[0].ops.find((o) => o.op === 'in')?.args).toEqual(['id', ['drop']]);
     expect(eqValue(adminDb.callsTo('Question', 'update')[0], 'id')).toBe('keep');
     const inserts = adminDb.callsTo('Question', 'insert').map((c) => argOf(c, 'insert') as Record<string, unknown>);
-    expect(inserts.map((q) => [q.id, q.status, q.correctOption])).toEqual([['gen-1', 'paused', 1], ['gen-2', 'active', 1]]);
+    expect(inserts.map((q) => [q.id, q.status, q.correctOption, q.hasCorrectAnswer])).toEqual([['gen-1', 'paused', 1, false], ['gen-2', 'active', 1, false]]);
+    expect(argOf(adminDb.callsTo('Question', 'update')[0], 'update')).toMatchObject({ correctOption: 1, hasCorrectAnswer: false });
     expect((await res.json()).quiz.stats).toEqual({ totalQuestions: 2, totalAttempts: 2 });
+  });
+
+  it("keeps a question's saved result: the key typed here never closes or reopens a question", async () => {
+    adminDb.setTable('Question', (call) => (hasOp(call, 'update') ? { data: null } : { data: [{ id: 'done', hasCorrectAnswer: true }] }));
+    await put({ title: 'T', questions: [question({ id: 'done', text: 'Toss?', correctAnswer: 0 })] });
+    const update = argOf(adminDb.callsTo('Question', 'update')[0], 'update') as Record<string, unknown>;
+    expect(update).toMatchObject({ text: 'Toss?', options: '["a","b"]', status: 'active' });
+    expect(update).not.toHaveProperty('correctOption');
+    expect(update).not.toHaveProperty('hasCorrectAnswer');
   });
 
   it('PAUSES the quiz when the edit sends neither status nor isActive, and ignores a passing score of 0', async () => {

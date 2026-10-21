@@ -5,6 +5,7 @@ import { createSupabaseMock, eqValue, argOf, type SupabaseMock } from '@/tests/h
 let adminDb: SupabaseMock;
 const createNotification = vi.fn();
 const createBatchForUsers = vi.fn();
+const invalidateQuizCatalog = vi.fn();
 
 vi.mock('@/lib/supabase/db', async () => {
   const shared = await vi.importActual<typeof import('@/lib/supabase/db-modules/shared')>('@/lib/supabase/db-modules/shared');
@@ -17,6 +18,8 @@ vi.mock('@/lib/supabase/db', async () => {
     },
   };
 });
+
+vi.mock('@/lib/quiz-catalog', () => ({ invalidateQuizCatalog: () => invalidateQuizCatalog() }));
 
 const lib = await import('@/lib/quiz-settlement');
 
@@ -31,6 +34,7 @@ const quizRow = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   adminDb = createSupabaseMock();
   createNotification.mockReset().mockResolvedValue({ id: 'n1' });
+  invalidateQuizCatalog.mockReset();
   createBatchForUsers.mockReset().mockResolvedValue(undefined);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -143,6 +147,20 @@ describe('getSettlementDetail', () => {
     expect(adminDb.callsTo('QuizWinner')).toHaveLength(0);
   });
 
+  it("pre-fills a normal quiz's result with the answer key typed when it was made, which doesn't close the question", async () => {
+    adminDb.setTable('Quiz', { data: quizRow({ quizType: 'normal' }) });
+    adminDb.setTable('Question', { data: [
+      { id: 'b', text: 'Capital of Pakistan?', options: ['Lahore', 'Islamabad'], correctOption: 1, hasCorrectAnswer: false },
+    ] });
+    adminDb.setTable('QuizSettlement', { data: null });
+    adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { data: [] });
+
+    expect(await lib.getSettlementDetail('q1', NOW)).toMatchObject({
+      quiz: { stage: 'awaiting_result', totalQuestions: 1, questionsWithResult: 0 },
+      questions: [{ id: 'b', correctOption: 1 }],
+    });
+  });
+
   it('includes the winners of a settled quiz', async () => {
     adminDb.setTable('Quiz', { data: quizRow() });
     adminDb.setTable('Question', { data: null });
@@ -208,6 +226,8 @@ describe('saveQuizResult', () => {
       { fn: 'evaluate_question', args: { p_question_id: 'b', p_correct_option: 0 } },
       { fn: 'finalize_quiz_scores', args: { p_quiz_id: 'q1' } },
     ]);
+    // Players stop being offered the now-closed questions at once, not when the catalogue's cache expires
+    expect(invalidateQuizCatalog).toHaveBeenCalledTimes(1);
   });
 
   it('ends an open quiz only when the admin says so', async () => {

@@ -16,6 +16,9 @@ wrong SQL. Covered so far:
   views or functions in it
 - Support tickets: `create_support_ticket` numbers, rate limits and concurrent requests, the
   `SupportTicket` constraints, and that only the service role can reach the table or functions
+- Admin claim decisions: `update_claim_status` approves, rejects (refund and restock) or marks a claim
+  delivered only along the admin screen's steps, refunds once under concurrent rejects, has a single
+  overload, and only the service role can call it
 
 ## Running locally
 

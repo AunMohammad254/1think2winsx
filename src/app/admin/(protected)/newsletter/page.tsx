@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { getCSRFHeaders } from '@/lib/csrf';
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function AdminNewsletterPage() {
   // Subscribers state
   const [subscribers, setSubscribers] = useState<string[]>([]);
@@ -29,6 +31,8 @@ export default function AdminNewsletterPage() {
   const [content, setContent] = useState('');
   const [sending, setSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [sendingTest, setSendingTest] = useState(false);
 
   // Fetch subscribers list
   const fetchSubscribers = useCallback(async () => {
@@ -94,24 +98,71 @@ export default function AdminNewsletterPage() {
     }
   };
 
-  // Handle email dispatch
-  const handleSendNewsletter = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // The same checks for a test and for the real dispatch
+  const validateMessage = () => {
     if (!subject || !content) {
       toast.error('Subject and content are required.');
-      return;
+      return false;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (senderEmail.trim() && !emailRegex.test(senderEmail.trim())) {
+    if (senderEmail.trim() && !EMAIL_RE.test(senderEmail.trim())) {
       toast.error('Please enter a valid sender email.');
-      return;
+      return false;
     }
 
     if (content.trim().length < 10) {
       toast.error('Newsletter description should be at least 10 characters.');
+      return false;
+    }
+    return true;
+  };
+
+  const postNewsletter = async (extra: { testEmail?: string } = {}) => {
+    const csrfHeaders = await getCSRFHeaders();
+    const response = await fetch('/api/admin/newsletter/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...csrfHeaders
+      },
+      body: JSON.stringify({
+        senderEmail: senderEmail.trim(),
+        subject: subject.trim(),
+        content: content.trim(),
+        ...extra
+      })
+    });
+    return { ok: response.ok, data: await response.json() };
+  };
+
+  // One email to one address, to check delivery without emailing the subscribers
+  const handleSendTest = async () => {
+    if (!validateMessage()) return;
+    if (!EMAIL_RE.test(testEmail.trim())) {
+      toast.error('Enter the address to send the test to.');
       return;
     }
+
+    setSendingTest(true);
+    try {
+      const { ok, data } = await postNewsletter({ testEmail: testEmail.trim() });
+      if (ok && data.success) {
+        toast.success(data.message || 'Test email sent.');
+      } else {
+        toast.error(data.message || 'Failed to send the test email');
+      }
+    } catch (error) {
+      console.error('Newsletter test error:', error);
+      toast.error('An error occurred. Please try again.');
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
+  // Handle email dispatch
+  const handleSendNewsletter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateMessage()) return;
 
     if (subscribers.length === 0) {
       toast.error('There are no subscribers to send emails to.');
@@ -126,22 +177,8 @@ export default function AdminNewsletterPage() {
     setSendSuccess(false);
 
     try {
-      const csrfHeaders = await getCSRFHeaders();
-      const response = await fetch('/api/admin/newsletter/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...csrfHeaders
-        },
-        body: JSON.stringify({
-          senderEmail: senderEmail.trim(),
-          subject: subject.trim(),
-          content: content.trim()
-        })
-      });
-
-      const data = await response.json();
-      if (response.ok && data.success) {
+      const { ok, data } = await postNewsletter();
+      if (ok && data.success) {
         toast.success(data.message || 'Newsletter sent successfully!');
         setSubject('');
         setContent('');
@@ -239,7 +276,7 @@ export default function AdminNewsletterPage() {
                 <CheckCircle2 className="w-5 h-5 mt-0.5 shrink-0" />
                 <div>
                   <p className="font-semibold">Newsletter Dispatched</p>
-                  <p className="text-xs text-emerald-300/80">The email has been successfully queued and sent to all subscribers in the background.</p>
+                  <p className="text-xs text-emerald-300/80">Brevo accepted the newsletter for delivery. If a subscriber doesn&apos;t receive it, Brevo&apos;s Transactional logs show why.</p>
                 </div>
               </div>
             )}
@@ -257,7 +294,7 @@ export default function AdminNewsletterPage() {
                   placeholder="e.g. support@1think2win.com"
                   className="w-full px-4 py-2.5 bg-gray-950/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-colors"
                 />
-                <p className="text-[11px] text-gray-500 mt-1">Leave blank to use the verified default sender. A custom address must be verified in Brevo, or sending fails.</p>
+                <p className="text-[11px] text-gray-500 mt-1">Leave blank to use the verified default sender. Only @1think2win.com addresses can send: that domain is verified in Brevo.</p>
               </div>
 
               <div>
@@ -293,6 +330,31 @@ export default function AdminNewsletterPage() {
               <div className="flex items-center gap-3 p-3.5 bg-blue-500/5 border border-blue-500/10 rounded-xl text-blue-300/80 text-xs">
                 <AlertCircle className="w-5 h-5 text-blue-400 shrink-0" />
                 <p>Clicking dispatch will immediately send the mail to all active subscribers. Please verify the description and details before sending.</p>
+              </div>
+
+              <div className="p-3.5 bg-gray-950/30 border border-white/10 rounded-xl">
+                <label htmlFor="test-email" className="block text-sm font-medium text-gray-300 mb-1.5">
+                  Send a test first
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="email"
+                    id="test-email"
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="flex-1 min-w-0 px-4 py-2.5 bg-gray-950/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendTest}
+                    disabled={sendingTest || sending}
+                    className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-200 font-medium hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {sendingTest ? 'Sending test…' : 'Send test'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">Goes to this one address only, with [TEST] in the subject. Subscribers get nothing.</p>
               </div>
 
               <button

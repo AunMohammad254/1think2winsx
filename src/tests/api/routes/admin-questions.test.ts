@@ -46,12 +46,12 @@ const guards = async (call: () => Promise<Response>, opts: { csrf?: boolean; rat
 describe('POST /api/admin/questions', () => {
   const post = (body: unknown) => list.POST(makeRequest('/api/admin/questions', { body }));
 
-  it('creates a question with the answer key when one is given', async () => {
+  it('creates a question with the answer key when one is given, still open to answers', async () => {
     adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
-    adminDb.setTable('Question', { data: { id: 'gen-q', quizId: 'quiz-1', text: 'Toss?', options: '["A","B"]', correctOption: 1, hasCorrectAnswer: true, status: 'active' } });
+    adminDb.setTable('Question', { data: { id: 'gen-q', quizId: 'quiz-1', text: 'Toss?', options: '["A","B"]', correctOption: 1, hasCorrectAnswer: false, status: 'active' } });
     const res = await post({ quizId: 'quiz-1', text: 'Toss?', options: ['A', 'B'], correctOption: 1 });
     expect(res.status).toBe(201);
-    expect(argOf(adminDb.callsTo('Question')[0], 'insert')).toMatchObject({ id: 'gen-q', options: '["A","B"]', correctOption: 1, hasCorrectAnswer: true, status: 'active' });
+    expect(argOf(adminDb.callsTo('Question')[0], 'insert')).toMatchObject({ id: 'gen-q', options: '["A","B"]', correctOption: 1, hasCorrectAnswer: false, status: 'active' });
     expect((await res.json()).question.options).toEqual(['A', 'B']);
   });
 
@@ -183,10 +183,12 @@ describe('GET /api/admin/questions/[id]', () => {
 describe('PATCH /api/admin/questions/[id]', () => {
   const patch = (body: unknown) => one.PATCH(makeRequest('/api/admin/questions/q1', { method: 'PATCH', body }), P);
 
-  it('updates the sent fields and marks the question answered when the answer changes', async () => {
+  it('updates the sent fields; a new answer key leaves the question open (Settle Quizzes saves results)', async () => {
     adminDb.setTable('Question', (call) => (hasOp(call, 'update') ? { data: row({ text: 'New', Quiz: { id: 'quiz-1' } }) } : { data: row() }));
     const body = await (await patch({ text: 'New', options: ['A', 'B'], correctOption: 0, status: 'paused' })).json();
-    expect(argOf(adminDb.callsTo('Question', 'update')[0], 'update')).toMatchObject({ text: 'New', options: '["A","B"]', correctOption: 0, hasCorrectAnswer: true, status: 'paused' });
+    const update = argOf(adminDb.callsTo('Question', 'update')[0], 'update') as Record<string, unknown>;
+    expect(update).toMatchObject({ text: 'New', options: '["A","B"]', correctOption: 0, status: 'paused' });
+    expect(update).not.toHaveProperty('hasCorrectAnswer');
     expect(body.question).toMatchObject({ text: 'New', quiz: { id: 'quiz-1' } });
     await patch({});
     expect(Object.keys(argOf(adminDb.callsTo('Question', 'update')[1], 'update') as object)).toEqual(['updatedAt']);

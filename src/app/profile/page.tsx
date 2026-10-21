@@ -49,6 +49,21 @@ function PrizeThumbnail({ image, name }: { image?: string; name: string }) {
   );
 }
 
+/**
+ * One card per prize and status, with a count. Before the one-claim-per-prize rule (2026-10-19) a
+ * player could claim the same prize several times, and each claim showed as an identical card.
+ */
+function groupPrizes<T extends { name: string; status?: string }>(prizes: T[]): Array<T & { count: number }> {
+  const groups = new Map<string, T & { count: number }>();
+  for (const prize of prizes) {
+    const key = JSON.stringify([prize.name, (prize.status || 'pending').toLowerCase()]);
+    const group = groups.get(key);
+    if (group) group.count += 1;
+    else groups.set(key, { ...prize, count: 1 });
+  }
+  return [...groups.values()];
+}
+
 // Dynamic import for large component
 const PrizeRedemption = dynamic(
   () => import('@/components/PrizeRedemption'),
@@ -135,6 +150,8 @@ export default function ProfilePage() {
       month: 'short'
     });
   }, [profile?.createdAt]);
+
+  const prizeCards = useMemo(() => groupPrizes(profile?.prizes ?? []), [profile?.prizes]);
 
   const stats = [
     {
@@ -395,9 +412,9 @@ export default function ProfilePage() {
             </div>
 
             <div className="p-5">
-              {profile.prizes && profile.prizes.length > 0 ? (
+              {prizeCards.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4">
-                  {profile.prizes.slice(0, 4).map((prize) => {
+                  {prizeCards.slice(0, 4).map((prize) => {
                     const status = (prize.status || 'pending').toLowerCase();
                     const statusStyles =
                       status === 'pending'
@@ -432,6 +449,14 @@ export default function ProfilePage() {
                             <span className={`text-xs font-medium ${statusStyles.text}`}>
                               {statusStyles.label}
                             </span>
+                            {prize.count > 1 && (
+                              <span
+                                className="ml-auto text-[11px] font-semibold text-amber-200 bg-amber-500/15 border border-amber-400/30 rounded-full px-1.5"
+                                aria-label={`${prize.count} claims`}
+                              >
+                                ×{prize.count}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -458,7 +483,7 @@ export default function ProfilePage() {
                   </Link>
                 </div>
               )}
-              {profile.prizes && profile.prizes.length > 4 && (
+              {prizeCards.length > 4 && (
                 <Link
                   href="/prizes"
                   className="block mt-4 text-center text-sm text-emerald-300 hover:text-emerald-200 focus-visible:outline-none focus-visible:underline"
