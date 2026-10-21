@@ -200,7 +200,8 @@ and real users would get blocked. That is why the code keeps the old behaviour u
 - [ ] **Hostinger plan**: CPU cores, RAM and process limits of the Node web app; whether a custom
       start command is allowed; whether its proxy/CDN caches responses with `Cache-Control: public`.
 - [ ] **Region latency**: the Hostinger datacenter vs the Supabase region (production is
-      `ap-northeast-1`, Tokyo); every API request pays that round-trip to the database.
+      `ap-south-1`, Mumbai, since 2026-10-21, the same city as the Hostinger server; it was `ap-northeast-1`,
+      Tokyo, before); every API request pays that round-trip to the database.
 - [ ] **Visitor-IP setting** (`TRUSTED_PROXY_HOPS` / `TRUSTED_IP_HEADER`): follow
       [the section below](#setting-the-visitor-ip-trusted_proxy_hops--trusted_ip_header). Until it is
       set, IP-based rate limits (login attempts, newsletter, forgot-email, chatbot) can be dodged by

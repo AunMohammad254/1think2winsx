@@ -19,8 +19,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildSessionCookieHeader, projectRefFromUrl, type SessionLike } from './lib/session-cookie';
 
-// Project refs that must never be used as a load-test target (the live site).
-const PRODUCTION_PROJECT_REFS = ['snhgaklxawthpihjiagh'];
+// Project refs that must never be used as a load-test target (the live site): Mumbai since 2026-10-21, and the
+// deleted Tokyo project in case an old .env still names it.
+const PRODUCTION_PROJECT_REFS = ['eclivawqhdovsndlngfo', 'snhgaklxawthpihjiagh'];
 
 const DATA_DIR = path.join(__dirname, '.data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');

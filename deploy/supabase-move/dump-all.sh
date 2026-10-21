@@ -93,13 +93,15 @@ dump_data() {
 
   # truncate.sql empties exactly the tables these files fill, so the load can be repeated (trial copy in step 2.8,
   # final copy in step 3.3). It only runs where before-schema.sql left its marker, i.e. never on the old project.
+  # CASCADE: a table that exists only on the new project and references one of these (SupportTicket → "User",
+  # added there on 2026-10-21) would otherwise make Postgres refuse the whole TRUNCATE; its rows are test data.
   {
     echo "do \$\$ begin"
     echo "  if to_regnamespace('_move_target') is null then"
     echo "    raise exception 'Not the new project (no _move_target schema): refusing to empty its tables';"
     echo "  end if;"
     echo "end \$\$;"
-    printf 'TRUNCATE TABLE\n  %s;\n' "$(grep -h '^COPY ' "$out/data.sql" "$out/history_data.sql" | sed -E 's/^COPY ([^ ]+) .*/\1/' | sed ':a;N;$!ba;s/\n/,\n  /g')"
+    printf 'TRUNCATE TABLE\n  %s\nCASCADE;\n' "$(grep -h '^COPY ' "$out/data.sql" "$out/history_data.sql" | sed -E 's/^COPY ([^ ]+) .*/\1/' | sed ':a;N;$!ba;s/\n/,\n  /g')"
   } > "$out/truncate.sql"
 }
 

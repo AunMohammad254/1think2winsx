@@ -1,5 +1,5 @@
--- NOT applied to production yet: production migrations need the owner's approval
--- (deploy/REVOKE_PUBLIC_CREATE.md has the SQL to run and the check afterwards).
+-- Applied to production (Mumbai, eclivawqhdovsndlngfo) on 2026-10-21 as 20261021113231, with the owner's
+-- approval. The schema ACL afterwards: postgres=UC, PUBLIC/anon/authenticated/service_role=U.
 -- Every role could create objects in schema public, the anon API role included. The schema's ACL,
 -- read on 2026-10-20, was {postgres=UC/postgres,=UC/postgres,authenticated=U/postgres}: PUBLIC still
 -- had CREATE, the default before Postgres 15, which pg_upgrade keeps. A role that can create in

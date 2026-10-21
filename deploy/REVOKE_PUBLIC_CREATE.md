@@ -1,6 +1,8 @@
 # Stop every role from creating objects in schema `public`
 
-**Status: waiting for the owner's approval. Not applied to production.**
+**Status: applied to production on 2026-10-21** (the Mumbai project `eclivawqhdovsndlngfo`, migration
+`20261021113231 revoke_public_create_on_public_schema`), with the owner's approval. Afterwards the `public` schema
+ACL was `postgres=UC, =U, anon=U, authenticated=U, service_role=U`, and the site's API answered normally.
 
 ## Why
 
