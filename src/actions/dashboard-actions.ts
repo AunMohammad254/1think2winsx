@@ -37,6 +37,12 @@ export type RecentActivity = {
     createdAt: Date;
 };
 
+export type RecentActivityPage = {
+    activities: RecentActivity[];
+    /** Pass back as `before` for the next, older page; null when there is nothing older. */
+    nextCursor: string | null;
+};
+
 export type QuizListItem = {
     id: string;
     title: string;
@@ -146,78 +152,92 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 }
 
 /**
- * Get recent activity feed (quiz attempts and user signups)
+ * One page of the activity feed (completed quiz attempts, and sign-ups of the last 30 days), newest
+ * first. The dashboard loads the first page and asks for the next with `before: nextCursor`.
+ *
+ * Each source is read once, with its user and quiz joined in: this used to cost two more queries per
+ * attempt, and split the page in half (4 attempts + 4 sign-ups) whatever had actually happened.
  */
-export async function getRecentActivity(limit: number = 10): Promise<RecentActivity[]> {
+export async function getRecentActivity(
+    { before = null, limit = 20 }: { before?: string | null; limit?: number } = {},
+): Promise<RecentActivityPage> {
     await assertAdmin();
+    if (before !== null && Number.isNaN(Date.parse(before))) throw new Error('Invalid activity cursor');
+    const pageSize = Math.min(Math.max(Math.trunc(limit) || 1, 1), 50);
     const supabase = getAdminDb();
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Get recent quiz attempts with user and quiz info
-    const { data: recentAttempts } = await supabase
+    let attemptsQuery = supabase
         .from('QuizAttempt')
-        .select('id, userId, quizId, score, createdAt')
+        .select('id, userId, quizId, score, createdAt, User:userId (email, name), Quiz:quizId (title)')
         .eq('isCompleted', true)
         .order('createdAt', { ascending: false })
-        .limit(Math.ceil(limit / 2));
-
-    // Get user and quiz details for attempts
-    const attemptActivities: RecentActivity[] = [];
-    for (const attempt of recentAttempts || []) {
-        const { data: user } = await supabase
-            .from('User')
-            .select('id, email, name')
-            .eq('id', attempt.userId)
-            .single();
-
-        const { data: quiz } = await supabase
-            .from('Quiz')
-            .select('id, title')
-            .eq('id', attempt.quizId)
-            .single();
-
-        if (user) {
-            attemptActivities.push({
-                id: attempt.id,
-                type: 'quiz_attempt',
-                userId: user.id,
-                userEmail: user.email,
-                userName: user.name,
-                quizId: quiz?.id || null,
-                quizTitle: quiz?.title || null,
-                score: attempt.score,
-                createdAt: new Date(attempt.createdAt),
-            });
-        }
-    }
-
-    // Get recent user signups
-    const { data: recentSignups } = await supabase
+        .limit(pageSize);
+    let signupsQuery = supabase
         .from('User')
         .select('id, email, name, createdAt')
         .gte('createdAt', thirtyDaysAgo)
         .order('createdAt', { ascending: false })
-        .limit(Math.ceil(limit / 2));
+        .limit(pageSize);
+    if (before) {
+        attemptsQuery = attemptsQuery.lt('createdAt', before);
+        signupsQuery = signupsQuery.lt('createdAt', before);
+    }
+    const [attemptsRes, signupsRes] = await Promise.all([attemptsQuery, signupsQuery]);
+    if (attemptsRes.error) throw attemptsRes.error;
+    if (signupsRes.error) throw signupsRes.error;
 
-    const signupActivities: RecentActivity[] = (recentSignups || []).map((user) => ({
-        id: user.id,
-        type: 'user_signup' as const,
-        userId: user.id,
-        userEmail: user.email,
-        userName: user.name,
-        quizId: null,
-        quizTitle: null,
-        score: null,
-        createdAt: new Date(user.createdAt),
-    }));
+    type Joined<T> = T | T[] | null;
+    const one = <T,>(v: Joined<T>): T | null => (Array.isArray(v) ? v[0] ?? null : v);
+    const attempts = (attemptsRes.data || []) as Array<{
+        id: string; userId: string; quizId: string; score: number | null; createdAt: string;
+        User: Joined<{ email: string; name: string | null }>; Quiz: Joined<{ title: string }>;
+    }>;
+    const signups = (signupsRes.data || []) as Array<{ id: string; email: string; name: string | null; createdAt: string }>;
 
-    // Combine and sort by date
-    const activities = [...attemptActivities, ...signupActivities];
+    // Each item keeps its raw timestamp: the cursor must match the database's own value exactly
+    const merged = [
+        ...attempts.map((attempt) => {
+            const user = one(attempt.User);
+            const quiz = one(attempt.Quiz);
+            return {
+                at: attempt.createdAt,
+                activity: user ? {
+                    id: attempt.id,
+                    type: 'quiz_attempt' as const,
+                    userId: attempt.userId,
+                    userEmail: user.email,
+                    userName: user.name,
+                    quizId: quiz ? attempt.quizId : null,
+                    quizTitle: quiz?.title || null,
+                    score: attempt.score,
+                    createdAt: new Date(attempt.createdAt),
+                } : null,
+            };
+        }),
+        ...signups.map((user) => ({
+            at: user.createdAt,
+            activity: {
+                id: user.id,
+                type: 'user_signup' as const,
+                userId: user.id,
+                userEmail: user.email,
+                userName: user.name,
+                quizId: null,
+                quizTitle: null,
+                score: null,
+                createdAt: new Date(user.createdAt),
+            },
+        })),
+    ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
-    // Sort by date descending and limit
-    return activities
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        .slice(0, limit);
+    const page = merged.slice(0, pageSize);
+    // Older items may exist when either source filled its page
+    const hasMore = merged.length > pageSize || attempts.length === pageSize || signups.length === pageSize;
+    return {
+        activities: page.flatMap((item) => (item.activity ? [item.activity] : [])),
+        nextCursor: hasMore && page.length > 0 ? page[page.length - 1].at : null,
+    };
 }
 
 // ============================================

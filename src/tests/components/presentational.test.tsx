@@ -335,4 +335,24 @@ describe('admin dashboard cards', () => {
     expect(screen.getByText('No recent activity')).toBeInTheDocument();
     rerender(<RecentActivityFeedSkeleton />);
   });
+
+  it('RecentActivityFeed loads older activity only when asked, until there is no more', async () => {
+    const at = new Date();
+    const signup = (id: string) => ({ id, type: 'user_signup' as const, userId: id, userEmail: `${id}@x.com`, userName: null, quizId: null, quizTitle: null, score: null, createdAt: at });
+    const loadMore = vi.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ activities: [signup('older')], nextCursor: null });
+    render(<RecentActivityFeed activities={[signup('newest')]} nextCursor="2026-10-21T10:00:00" loadMore={loadMore} />);
+    expect(loadMore).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load more activity");
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByText('older')).toBeInTheDocument();
+    expect(screen.getByText('newest')).toBeInTheDocument();
+    expect(loadMore).toHaveBeenNthCalledWith(2, { before: '2026-10-21T10:00:00' });
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });

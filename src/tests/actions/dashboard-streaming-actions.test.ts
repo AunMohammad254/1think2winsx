@@ -65,27 +65,65 @@ describe('getDashboardStats', () => {
 });
 
 describe('getRecentActivity', () => {
-  it('merges recent attempts and sign-ups, newest first, up to the limit', async () => {
-    adminDb.setTable('QuizAttempt', { data: [{ id: 'a1', userId: 'u1', quizId: 'q1', score: 90, createdAt: '2026-10-05T00:00:00Z' }, { id: 'a2', userId: 'gone', quizId: 'q2', score: 10, createdAt: '2026-10-04T00:00:00Z' }] });
-    adminDb.setTable('User', (call) => {
-      if (call.ops.some((o) => o.op === 'gte')) return { data: [{ id: 'u9', email: 'new@x', name: null, createdAt: '2026-10-06T00:00:00Z' }] };
-      return { data: eqValue(call, 'id') === 'u1' ? { id: 'u1', email: 'a@x', name: 'Ali' } : null };
-    });
-    adminDb.setTable('Quiz', (call) => ({ data: eqValue(call, 'id') === 'q1' ? { id: 'q1', title: 'Cricket' } : null }));
+  const attempt = (id: string, createdAt: string, over: Record<string, unknown> = {}) =>
+    ({ id, userId: 'u1', quizId: 'q1', score: 90, createdAt, User: { email: 'a@x', name: 'Ali' }, Quiz: { title: 'Cricket' }, ...over });
+  const signup = (id: string, createdAt: string) => ({ id, email: `${id}@x`, name: null, createdAt });
 
-    const activity = await dash.getRecentActivity(4);
+  it('merges attempts and sign-ups newest first, 20 by default, with their user and quiz joined in', async () => {
+    adminDb.setTable('QuizAttempt', { data: [attempt('a1', '2026-10-05T00:00:00Z'), attempt('a2', '2026-10-04T00:00:00Z', { User: [{ email: 'b@x', name: null }], Quiz: null })] });
+    adminDb.setTable('User', { data: [signup('u9', '2026-10-06T00:00:00Z')] });
 
-    expect(activity.map((a) => [a.type, a.id])).toEqual([['user_signup', 'u9'], ['quiz_attempt', 'a1']]);
-    expect(activity[1]).toMatchObject({ userEmail: 'a@x', quizTitle: 'Cricket', score: 90 });
-    expect(argOf(adminDb.callsTo('QuizAttempt')[0], 'limit')).toBe(2);
+    const page = await dash.getRecentActivity();
+
+    expect(page.activities.map((a) => [a.type, a.id])).toEqual([['user_signup', 'u9'], ['quiz_attempt', 'a1'], ['quiz_attempt', 'a2']]);
+    expect(page.activities[1]).toMatchObject({ userId: 'u1', userEmail: 'a@x', userName: 'Ali', quizId: 'q1', quizTitle: 'Cricket', score: 90 });
+    expect(page.activities[2]).toMatchObject({ userEmail: 'b@x', quizId: null, quizTitle: null });
+    expect(page.nextCursor).toBeNull();
+    // One query per source (no per-attempt lookups), each asking for a full page
+    expect(adminDb.calls.map((c) => c.table).sort()).toEqual(['QuizAttempt', 'User']);
+    expect(argOf(adminDb.callsTo('QuizAttempt')[0], 'limit')).toBe(20);
+    expect(argOf(adminDb.callsTo('User')[0], 'limit')).toBe(20);
+    expect(adminDb.callsTo('QuizAttempt')[0].ops.some((o) => o.op === 'lt')).toBe(false);
   });
 
-  it('handles attempts whose quiz is gone and an empty feed', async () => {
-    adminDb.setTable('QuizAttempt', { data: [{ id: 'a1', userId: 'u1', quizId: 'q-gone', createdAt: '2026-10-05T00:00:00Z' }] });
-    adminDb.setTable('User', (call) => (call.ops.some((o) => o.op === 'gte') ? { data: null } : { data: { id: 'u1', email: 'a@x', name: 'A' } }));
-    expect((await dash.getRecentActivity())[0]).toMatchObject({ quizId: null, quizTitle: null });
+  it('pages: a full page gives a cursor, and the next page asks for items older than it', async () => {
+    adminDb.setTable('QuizAttempt', { data: [attempt('a1', '2026-10-05T00:00:03.123456'), attempt('a2', '2026-10-05T00:00:01')] });
+    adminDb.setTable('User', { data: [signup('u1', '2026-10-05T00:00:02')] });
+
+    const first = await dash.getRecentActivity({ limit: 2 });
+    expect(first.activities.map((a) => a.id)).toEqual(['a1', 'u1']);
+    // The database's own timestamp, so nothing between pages is lost to rounding
+    expect(first.nextCursor).toBe('2026-10-05T00:00:02');
+
+    await dash.getRecentActivity({ before: first.nextCursor!, limit: 2 });
+    expect(argOf(adminDb.callsTo('QuizAttempt')[1], 'lt')).toBe('createdAt');
+    expect(adminDb.callsTo('QuizAttempt')[1].ops.find((o) => o.op === 'lt')?.args).toEqual(['createdAt', '2026-10-05T00:00:02']);
+    expect(adminDb.callsTo('User')[1].ops.find((o) => o.op === 'lt')?.args).toEqual(['createdAt', '2026-10-05T00:00:02']);
+
+    // One source filling its page may still have older items
+    adminDb.setTable('QuizAttempt', { data: [attempt('a1', '2026-10-05T00:00:03'), attempt('a2', '2026-10-05T00:00:01')] });
+    adminDb.setTable('User', { data: [] });
+    expect((await dash.getRecentActivity({ limit: 2 })).nextCursor).toBe('2026-10-05T00:00:01');
+  });
+
+  it('skips an attempt without its player, caps the page size and refuses a bad cursor', async () => {
+    adminDb.setTable('QuizAttempt', { data: [attempt('a1', '2026-10-05T00:00:00Z', { User: null }), attempt('a2', '2026-10-04T00:00:00Z', { User: [] })] });
+    adminDb.setTable('User', { data: null });
+    expect(await dash.getRecentActivity({ limit: 500 })).toEqual({ activities: [], nextCursor: null });
+    expect(argOf(adminDb.callsTo('QuizAttempt')[0], 'limit')).toBe(50);
     adminDb.setTable('QuizAttempt', { data: null });
-    expect(await dash.getRecentActivity()).toEqual([]);
+    expect(await dash.getRecentActivity({ limit: 0 })).toEqual({ activities: [], nextCursor: null });
+    expect(argOf(adminDb.callsTo('QuizAttempt')[1], 'limit')).toBe(1);
+
+    await expect(dash.getRecentActivity({ before: 'yesterday-ish' })).rejects.toThrow('Invalid activity cursor');
+  });
+
+  it('reports a failed read instead of showing a silently shorter feed', async () => {
+    adminDb.setTable('QuizAttempt', { error: { message: 'attempts down' } });
+    await expect(dash.getRecentActivity()).rejects.toMatchObject({ message: 'attempts down' });
+    adminDb.setTable('QuizAttempt', { data: [] });
+    adminDb.setTable('User', { error: { message: 'users down' } });
+    await expect(dash.getRecentActivity()).rejects.toMatchObject({ message: 'users down' });
   });
 });
 

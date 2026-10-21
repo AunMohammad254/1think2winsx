@@ -27,7 +27,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => h.auth }));
 vi.mock('@/lib/admin-session', () => ({ requireAdminSession: () => h.requireAdminSession() }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: () => h.getUser() } }) }));
-vi.mock('@/actions/dashboard-actions', () => ({ getDashboardStats: () => h.stats(), getRecentActivity: (n: number) => h.activity(n) }));
+vi.mock('@/actions/dashboard-actions', () => ({ getDashboardStats: () => h.stats(), getRecentActivity: (...a: unknown[]) => h.activity(...a) }));
 vi.mock('@/lib/logger', () => ({ default: { log: h.log } }));
 // eslint-disable-next-line @next/next/no-img-element -- stand-in for CldImage
 vi.mock('next-cloudinary', () => ({ CldImage: ({ alt }: { alt: string }) => <img alt={alt} /> }));
@@ -75,7 +75,7 @@ beforeEach(() => {
   h.requireAdminSession.mockReset().mockResolvedValue('boss@x.com');
   h.getUser.mockReset().mockResolvedValue({ data: { user: { user_metadata: { name: 'Admin Ali' } } } });
   h.stats.mockReset().mockResolvedValue({ totalUsers: 1200, recentUsers: 40, activeQuizzes: 3, totalQuizzes: 9, completionRate: 87, completedAttempts: 500, totalRevenue: 25000 });
-  h.activity.mockReset().mockResolvedValue([]);
+  h.activity.mockReset().mockResolvedValue({ activities: [], nextCursor: null });
   fetchMock = vi.fn(async () => jsonResponse({ quizzes: [] }));
   vi.stubGlobal('fetch', fetchMock);
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -93,10 +93,21 @@ describe('admin dashboard', () => {
     expect(screen.getByText('+40 this week')).toBeInTheDocument();
     expect(screen.getByText('PKR 25,000')).toBeInTheDocument();
     expect(screen.getByText('No recent activity')).toBeInTheDocument();
-    expect(h.activity).toHaveBeenCalledWith(8);
+    // The first page only (20); older items load when the admin asks
+    expect(h.activity).toHaveBeenCalledTimes(1);
+    expect(h.activity).toHaveBeenCalledWith();
     expect(screen.getAllByRole('link', { name: /Settle Quizzes/ }).length).toBeGreaterThan(1);
     expect(screen.queryByRole('link', { name: /Lucky Winner/ })).toBeNull();
     expect(screen.getByRole('link', { name: /Support Tickets/ })).toHaveAttribute('href', '/admin/tickets');
+  });
+
+  it('still shows the dashboard when the activity feed cannot be read', async () => {
+    h.activity.mockRejectedValueOnce(new Error('db down'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(await resolveServerTree(await AdminDashboardPage()));
+    expect(screen.getByText('No recent activity')).toBeInTheDocument();
+    expect(error).toHaveBeenCalledWith('[dashboard] Recent activity failed to load:', expect.objectContaining({ message: 'db down' }));
+    error.mockRestore();
   });
 
   it.each([
