@@ -41,9 +41,9 @@ afterEach(() => {
 describe('POST /api/chatbot', () => {
   it('answers with the primary model and pulls out redirect markers', async () => {
     const res = await chat();
-    expect(await res.json()).toEqual({ message: 'Hello!  Join now', redirects: ['/quizzes', '/prizes'], model: 'Gemini 3 Flash' });
+    expect(await res.json()).toEqual({ message: 'Hello!  Join now', redirects: ['/quizzes', '/prizes'], model: 'Gemini 3.1 Flash Lite' });
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.0-flash:generateContent?key=gkey');
+    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=gkey');
     expect(init.signal).toBeInstanceOf(AbortSignal);
     const body = sentBody();
     expect(body.contents).toEqual(hello);
@@ -117,15 +117,30 @@ describe('POST /api/chatbot', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ candidates: [] })))
       .mockResolvedValueOnce(gemini('third time lucky'));
     const body = await (await chat()).json();
-    expect(body).toEqual({ message: 'third time lucky', redirects: [], model: 'Gemini 3.5 Flash Lite' });
+    expect(body).toEqual({ message: 'third time lucky', redirects: [], model: 'Gemini 3.6 Flash' });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('skips a model the API does not know (404) for an hour', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    const modelsCalled = () => fetchMock.mock.calls.map((c) => (c[0] as string).match(/models\/([^:]+)/)![1]);
+    fetchMock.mockResolvedValueOnce(new Response('{"error":{"code":404,"status":"NOT_FOUND"}}', { status: 404 })).mockImplementation(async () => gemini('ok'));
+    expect((await (await chat()).json()).model).toBe('Gemini 3.5 Flash Lite');
+    // Another message (another player, too) goes straight to the next model
+    await chat(hello, '2.2.2.2');
+    expect(modelsCalled()).toEqual(['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.5-flash-lite']);
+    // An hour later it is tried again
+    clock.mockReturnValue(now + 60 * 60_000 + 1);
+    expect((await (await chat(hello, '3.3.3.3')).json()).model).toBe('Gemini 3.1 Flash Lite');
+    clock.mockRestore();
   });
 
   it('answers 502 when every model fails', async () => {
     fetchMock.mockRejectedValue(new Error('network'));
     const res = await chat();
     expect(res.status).toBe(502);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it('rate-limits per IP and per model, with a retry hint', async () => {
@@ -134,7 +149,7 @@ describe('POST /api/chatbot', () => {
     fetchMock.mockClear();
     // the 4-rpm models are now empty for this IP, the 14-rpm ones are not
     await chat(hello, '7.7.7.7');
-    expect(fetchMock.mock.calls.map((c) => (c[0] as string).match(/models\/([^:]+)/)![1])).toEqual(['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.0-flash-lite']);
+    expect(fetchMock.mock.calls.map((c) => (c[0] as string).match(/models\/([^:]+)/)![1])).toEqual(['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-2.5-flash-lite']);
 
     for (let i = 0; i < 20; i++) await chat(hello, '7.7.7.7');
     const res = await chat(hello, '7.7.7.7');
@@ -162,10 +177,12 @@ describe('POST /api/chatbot', () => {
     const now = Date.now();
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
     fetchMock.mockRejectedValue(new Error('network'));
-    for (let i = 0; i < 4; i++) await chat(hello, '6.6.6.6');
+    // 14 requests empty every model for this IP
+    for (let i = 0; i < 14; i++) await chat(hello, '6.6.6.6');
     fetchMock.mockReset().mockImplementation(async () => gemini('back'));
+    expect((await chat(hello, '6.6.6.6')).status).toBe(429);
     clock.mockReturnValue(now + 60_000);
-    expect((await (await chat(hello, '6.6.6.6')).json()).model).toBe('Gemini 3 Flash');
+    expect((await (await chat(hello, '6.6.6.6')).json()).model).toBe('Gemini 3.1 Flash Lite');
     clock.mockRestore();
   });
 
@@ -317,7 +334,7 @@ describe('POST /api/chatbot: support tickets', () => {
     h.tickets.create.mockResolvedValue({ success: true, ticket: { ticketNumber: 'TKT-7KQ2XM' } });
     fetchMock.mockRejectedValueOnce(new Error('down')).mockImplementation(async () => gemini('[TICKET_CREATE:Deposit missing]'));
     const body = await (await chat()).json();
-    expect(body.model).toBe('Gemini 3.1 Flash Lite');
+    expect(body.model).toBe('Gemini 3.5 Flash Lite');
     expect(h.tickets.create).toHaveBeenCalledTimes(1);
   });
 });

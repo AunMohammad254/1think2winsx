@@ -20,17 +20,23 @@ let activeGeminiCalls = 0;
 // ─────────────────────────────────────────────────────────────
 // Model configuration
 // ─────────────────────────────────────────────────────────────
+// Every id must be listed by the API's ListModels for generateContent. 'gemini-3.0-flash' and
+// 'gemini-2.0-flash-lite' were not, so each message paid for a 404 before reaching a real model.
 const MODELS = [
-  { id: 'gemini-3.0-flash', label: 'Gemini 3 Flash', rpm: 4 }, // Primary
-  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', rpm: 14 },
+  { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', rpm: 14 }, // Primary
   { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', rpm: 14 },
   { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', rpm: 4 },
-  { id: 'gemini-2.5-flash', label: 'Gemini 3.5 Flash (Legacy)', rpm: 4 },
-  { id: 'gemini-2.0-flash-lite', label: 'Gemini 3.1 Flash Lite (Legacy)', rpm: 14 }
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', rpm: 4 },
+  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', rpm: 14 }
 ].map(m => ({
   ...m,
   refillMs: Math.floor((60 / m.rpm) * 1000)
 }));
+
+// A model the API doesn't know (404, e.g. one Google has retired) is skipped for an hour, so it
+// costs one failed call per hour instead of one per message
+const MODEL_GONE_SKIP_MS = 60 * 60_000;
+const modelGoneUntil = new Map<string, number>();
 
 // ─────────────────────────────────────────────────────────────
 // Token-bucket rate limiter (in-memory, per IP, per model)
@@ -235,7 +241,7 @@ async function callGemini(
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err}`);
+    throw Object.assign(new Error(`Gemini API error ${res.status}: ${err}`), { status: res.status });
   }
 
   const data = await res.json();
@@ -431,6 +437,7 @@ ${ticketPrompt(!!userId)}
   // Try models in order until one succeeds (within an overall time budget)
   for (const model of MODELS) {
     if (Date.now() >= deadline) break;
+    if ((modelGoneUntil.get(model.id) ?? 0) > Date.now()) continue;
     const bucket = ipBuckets[model.id];
 
     // Check rate limit for this model
@@ -441,6 +448,7 @@ ${ticketPrompt(!!userId)}
         text = await callGemini(model.id, safeMessages, apiKey, finalSystemPrompt);
       } catch (err) {
         console.error(`[Chatbot] Model ${model.id} failed:`, err);
+        if ((err as { status?: number }).status === 404) modelGoneUntil.set(model.id, Date.now() + MODEL_GONE_SKIP_MS);
         continue; // Fall through to the next model in the backup chain
       } finally {
         activeGeminiCalls--;
