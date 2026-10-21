@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb, prizeRedemptionDb, userDb } from '@/lib/supabase/db';
+import { getAdminDb, prizeRedemptionDb } from '@/lib/supabase/db';
+import { notifyClaimDecision } from '@/lib/claim-notifications';
 import { z } from 'zod';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -258,192 +259,44 @@ export async function PUT(request: NextRequest) {
 
     const { status } = input;
 
-    // Try using the unified update_claim_status RPC function first
-    try {
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('update_claim_status', {
-        p_claim_id: claimId,
-        p_status: status,
-        p_notes: notes || null
-      });
-
-      if (!rpcError && rpcResult?.success) {
-        await securityLogger.logSecurityEvent({
-          type: 'ADMIN_ACCESS',
-          userId: session.user.id,
-          ip: request.headers.get('x-forwarded-for') || 'unknown',
-          userAgent: request.headers.get('user-agent') || undefined,
-          endpoint: '/api/admin/claims',
-          details: {
-            action: 'UPDATE_CLAIM_STATUS',
-            method: 'supabase_rpc',
-            claimId,
-            newStatus: status,
-            pointsRefunded: rpcResult.points_refunded || null
-          },
-          severity: 'MEDIUM'
-        });
-
-        return createSecureJsonResponse({
-          message: rpcResult.message || `Claim ${status} successfully`,
-          claim: { id: claimId, status },
-        });
-      }
-
-      // If RPC returned an error
-      if (rpcResult && !rpcResult.success) {
-        console.error('RPC update_claim_status error:', rpcResult.error);
-        return NextResponse.json(
-          { message: rpcResult.error || 'Failed to update claim' },
-          { status: 400 }
-        );
-      }
-
-      // If RPC function doesn't exist, log and fall back
-      if (rpcError) {
-        console.warn('RPC update_claim_status not available, trying fallback:', rpcError.message);
-      }
-    } catch (rpcError) {
-      console.warn('RPC fallback for claim update:', rpcError);
-    }
-
-    // Fallback: Try specific RPC functions
-    if (status === 'approved') {
-      try {
-        const { data: rpcResult, error: rpcError } = await supabase.rpc('approve_claim', {
-          p_claim_id: claimId,
-          p_notes: notes || null
-        });
-
-        if (!rpcError && rpcResult?.success) {
-          await securityLogger.logSecurityEvent({
-            type: 'ADMIN_ACCESS',
-            userId: session.user.id,
-            ip: request.headers.get('x-forwarded-for') || 'unknown',
-            userAgent: request.headers.get('user-agent') || undefined,
-            endpoint: '/api/admin/claims',
-            details: {
-              action: 'UPDATE_CLAIM_STATUS',
-              method: 'supabase_rpc_approve',
-              claimId,
-              newStatus: status
-            },
-            severity: 'MEDIUM'
-          });
-
-          return createSecureJsonResponse({
-            message: 'Claim approved successfully',
-            claim: { id: claimId, status },
-          });
-        }
-
-        if (rpcResult && !rpcResult.success) {
-          return NextResponse.json(
-            { message: rpcResult.error || 'Failed to approve claim' },
-            { status: 400 }
-          );
-        }
-      } catch (err) {
-        console.warn('approve_claim RPC failed:', err);
-      }
-    }
-
-    if (status === 'rejected') {
-      try {
-        const { data: rpcResult, error: rpcError } = await supabase.rpc('reject_claim_with_refund', {
-          p_claim_id: claimId,
-          p_notes: notes || null
-        });
-
-        if (!rpcError && rpcResult?.success) {
-          await securityLogger.logSecurityEvent({
-            type: 'ADMIN_ACCESS',
-            userId: session.user.id,
-            ip: request.headers.get('x-forwarded-for') || 'unknown',
-            userAgent: request.headers.get('user-agent') || undefined,
-            endpoint: '/api/admin/claims',
-            details: {
-              action: 'UPDATE_CLAIM_STATUS',
-              method: 'supabase_rpc_reject',
-              claimId,
-              newStatus: status,
-              pointsRefunded: rpcResult.points_refunded
-            },
-            severity: 'MEDIUM'
-          });
-
-          return createSecureJsonResponse({
-            message: 'Claim rejected and points refunded',
-            claim: { id: claimId, status },
-          });
-        }
-
-        if (rpcResult && !rpcResult.success) {
-          return NextResponse.json(
-            { message: rpcResult.error || 'Failed to reject claim' },
-            { status: 400 }
-          );
-        }
-      } catch (err) {
-        console.warn('reject_claim_with_refund RPC failed:', err);
-      }
-    }
-
-    // Final fallback to direct queries (may fail due to RLS)
-    console.warn('All RPC functions failed, attempting direct database update');
-
-    // Get existing claim
-    const { data: existingClaim, error: fetchError } = await supabase
+    // Who to tell, and about which prize: update_claim_status returns only the outcome
+    const { data: claim, error: fetchError } = await supabase
       .from('PrizeRedemption')
-      .select(`
-        *,
-        User:userId (id, name, email, points),
-        Prize:prizeId (name, pointsRequired)
-      `)
+      .select('userId, pointsUsed, Prize:prizeId (name)')
       .eq('id', claimId)
-      .single();
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!claim) {
+      return NextResponse.json({ message: 'Claim not found' }, { status: 404 });
+    }
 
-    if (fetchError || !existingClaim) {
-      console.error('Failed to fetch claim:', fetchError);
+    // All four arguments named, so only the four-argument update_claim_status matches. With three,
+    // PostgREST couldn't choose between the two overloads production had and answered HTTP 300; the old
+    // fallbacks (approve_claim and friends) check is_admin(), which a server call never passes, so every
+    // decision failed with "Unauthorized". The function locks the claim and refunds a rejection itself
+    // (db-tests/schema/06-20261021180000_update_claim_status_single.sql).
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('update_claim_status', {
+      p_claim_id: claimId,
+      p_status: status,
+      p_notes: notes || null,
+      p_admin_email: session.user.email || null,
+    });
+    if (rpcError) throw rpcError;
+    if (!rpcResult?.success) {
       return NextResponse.json(
-        { message: 'Claim not found or access denied. Please ensure the SQL has been run.' },
-        { status: 404 }
+        { message: rpcResult?.error || 'Failed to update claim' },
+        { status: rpcResult?.code === 'not_found' ? 404 : 400 }
       );
     }
 
-    // Handle rejection - refund points
-    if (status === 'rejected' && existingClaim.status !== 'rejected') {
-      const userPoints = (existingClaim.User as any)?.points || 0;
-      await supabase
-        .from('User')
-        .update({
-          points: userPoints + existingClaim.pointsUsed,
-          updatedAt: new Date().toISOString()
-        })
-        .eq('id', existingClaim.userId);
-    }
+    const prize = Array.isArray(claim.Prize) ? claim.Prize[0] : claim.Prize;
+    const notified = await notifyClaimDecision(claim.userId, {
+      status,
+      prizeName: prize?.name || 'the prize',
+      pointsUsed: claim.pointsUsed,
+      note: notes,
+    });
 
-    // Update claim status
-    const { data: updatedClaim, error: updateError } = await supabase
-      .from('PrizeRedemption')
-      .update({
-        status,
-        notes: notes || existingClaim.notes,
-        processedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .eq('id', claimId)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error('Failed to update claim:', updateError);
-      return NextResponse.json(
-        { message: 'Failed to update claim. Please run the SQL fix first.' },
-        { status: 500 }
-      );
-    }
-
-    // Log admin action
     await securityLogger.logSecurityEvent({
       type: 'ADMIN_ACCESS',
       userId: session.user.id,
@@ -452,23 +305,19 @@ export async function PUT(request: NextRequest) {
       endpoint: '/api/admin/claims',
       details: {
         action: 'UPDATE_CLAIM_STATUS',
-        method: 'supabase_direct',
         claimId,
-        oldStatus: existingClaim.status,
+        previousStatus: rpcResult.previousStatus ?? null,
         newStatus: status,
-        notes: notes || ''
+        pointsRefunded: rpcResult.pointsRefunded ?? null,
+        playerNotified: notified,
       },
       severity: 'MEDIUM'
     });
 
     return createSecureJsonResponse({
-      message: 'Claim status updated successfully',
-      claim: {
-        id: updatedClaim.id,
-        status: updatedClaim.status,
-        processedAt: updatedClaim.processedAt,
-        notes: updatedClaim.notes,
-      },
+      message: `Claim ${status} successfully`,
+      claim: { id: claimId, status },
+      notified,
     });
 
   } catch (error) {

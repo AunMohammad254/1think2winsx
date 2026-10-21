@@ -145,7 +145,7 @@ describe('PlayerClaimsManager', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[0]);
     expect(screen.getByText('Claim Details')).toBeInTheDocument();
     expect(screen.getAllByText('Karachi').length).toBeGreaterThan(0);
-    fireEvent.change(screen.getByPlaceholderText('Add any notes about this claim...'), { target: { value: 'Call first' } });
+    fireEvent.change(screen.getByLabelText('Note to the player (optional)'), { target: { value: 'Call first' } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve Claim' }));
     await waitFor(() => expect(screen.queryByText('Claim Details')).toBeNull());
     expect(JSON.parse(fetchMock.mock.calls.find(([, i]) => i?.method === 'PUT')![1].body)).toEqual({ claimId: 'c1', status: 'approved', notes: 'Call first' });
