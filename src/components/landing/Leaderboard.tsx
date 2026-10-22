@@ -106,7 +106,12 @@ function PlayerRow({ player, index }: { player: Player; index: number }) {
   );
 }
 
-export default function Leaderboard() {
+// ⚡ Bolt Performance Optimization:
+// Extracted `leaders` state and its `setInterval` shuffle into a separate `LeaderboardDynamicList` component.
+// Why: `setInterval` triggers a state update every 8 seconds, forcing the entire `Leaderboard` section
+// (including the complex `SectionHeading`, `Reveal`, and static table headers) to needlessly re-render.
+// Impact: Isolates the high-frequency state update to just the list itself, saving main thread rendering time.
+function LeaderboardDynamicList() {
   const [leaders, setLeaders] = useState(BASE_LEADERS);
 
   useEffect(() => {
@@ -119,6 +124,16 @@ export default function Leaderboard() {
     return () => clearInterval(interval);
   }, []);
 
+  return (
+    <ul>
+      {leaders.map((p, i) => (
+        <PlayerRow key={p.name} player={p} index={i} />
+      ))}
+    </ul>
+  );
+}
+
+export default function Leaderboard() {
   return (
     <Section  className="relative">
       <SectionHeading
@@ -135,11 +150,7 @@ export default function Leaderboard() {
             <div className="col-span-2 text-right">Points</div>
             <div className="col-span-2 text-right">Won</div>
           </div>
-          <ul>
-            {leaders.map((p, i) => (
-              <PlayerRow key={p.name} player={p} index={i} />
-            ))}
-          </ul>
+          <LeaderboardDynamicList />
           <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.02] px-6 py-4">
             <p className="text-xs text-white/70">
               Updated <span className="text-white">live</span> &middot; Weekly board counts the last 7 days
