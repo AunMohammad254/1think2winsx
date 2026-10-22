@@ -1,10 +1,10 @@
 -- =============================================================================
 -- Email services: Amazon SES or Brevo, switched by an admin, with a log of every email
 --
--- NOT applied to any database yet. Needs the owner's approval for production (eclivawqhdovsndlngfo).
--- It needs 20261022140000_email_daily_quota first (applied 2026-10-22 as 20261022113445). The live
--- build keeps working with it: nothing reads "EmailLog" yet, and email_provider defaults to Brevo,
--- so the daily limit stays 299.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-22 as migration 20261022142159, owner-approved,
+-- after 20261022140000_email_daily_quota (applied as 20261022113445) and before the code was deployed.
+-- The live build keeps working with it: nothing there reads "EmailLog", and email_provider defaults to
+-- Brevo, so the daily limit stays 299.
 --
 -- 1. "EmailLog": one row per email the app sends (time, type, recipient, provider, result), so the
 --    admin "Email services" page can list them. Bounce and complaint notices from SES and Brevo update
