@@ -14,14 +14,14 @@ export const rewardsSchema = z
   });
 
 /**
- * Share of the quiz's points pool split at random among the entrants who scored: 0 (none) to 100,
- * with at most two decimals. settle_quiz checks the same.
+ * Percentage of the entrants who share the quiz's points pool: the earliest who scored get it in
+ * random amounts. 0 (don't pay the pool) to 100, with at most two decimals. settle_quiz checks the same.
  */
 export const poolPercentSchema = z
   .number()
-  .min(0, 'The pool share must be 0 to 100 percent')
-  .max(100, 'The pool share must be 0 to 100 percent')
-  .refine((n) => Math.round(n * 100) === n * 100, { message: 'The pool share can have at most two decimals' })
+  .min(0, 'The pool percentage must be 0 to 100')
+  .max(100, 'The pool percentage must be 0 to 100')
+  .refine((n) => Math.round(n * 100) === n * 100, { message: 'The pool percentage can have at most two decimals' })
   .default(0);
 
 const STATUS: Record<string, number> = {

@@ -12,9 +12,10 @@
 -- The limit and the pool live in an admin-only table: signed-in players can read every column of
 -- "Quiz" through the API (policy Quiz_select_auth is USING (true)), so they must not be columns there.
 --
--- Settlement can also share a percentage of the quiz's points pool, in random amounts, among the
--- entrants who scored above 0, on top of the 1st-3rd place rewards. The amounts come from the stored
--- draw seed, so a preview and the settle that follows pay exactly the same.
+-- Settlement can also pay out the quiz's points pool, on top of the 1st-3rd place rewards: the whole
+-- pool, in random amounts, to the earliest p_pool_percent of the entrants (first come, first served,
+-- counting only entrants who scored above 0). The amounts come from the stored draw seed, so a
+-- preview and the settle that follows pay exactly the same.
 -- =============================================================================
 
 -- ── 1. Admin-only settings per quiz ──────────────────────────────────────────────────────────────
@@ -173,10 +174,12 @@ END $function$;
 DROP FUNCTION IF EXISTS public.settle_quiz(text, jsonb, text, text, text, boolean);
 
 -- Entrants are the quiz's first quiz_entry_limit completed attempts, by first submission. Placings
--- and the pool consider only entrants who scored above 0. p_pool_percent (0 to 100, two decimals) of
--- the quiz's pointsPool is split among them by random weights from md5(seed:pool:userId); each share
--- is rounded down and the points left over go one each to the largest remainders, so the shares add
--- up exactly. The pool is paid after the placings, so a placed player's attempt keeps both.
+-- consider only entrants who scored above 0. The pool goes to "places" = p_pool_percent (0 to 100,
+-- two decimals) of the entrants, rounded up so any percentage above 0 pays someone; the places are
+-- filled by the earliest entrants who scored above 0 (a zero score takes no place). The quiz's whole
+-- pointsPool is split among them by random weights from md5(seed:pool:userId); each share is rounded
+-- down and the points left over go one each to the largest remainders, so the shares add up exactly.
+-- The pool is paid after the placings, so a placed player's attempt keeps both.
 CREATE OR REPLACE FUNCTION public.settle_quiz(
   p_quiz_id text, p_rewards jsonb, p_tie_rule text, p_seed text, p_settled_by text,
   p_dry_run boolean DEFAULT false, p_pool_percent numeric DEFAULT 0)
@@ -207,6 +210,7 @@ DECLARE
   v_limit int;
   v_pool_size int;
   v_pool_target int := 0;
+  v_places int := 0;
   v_eligible int;
   v_pool jsonb;
 BEGIN
@@ -224,7 +228,7 @@ BEGIN
       RAISE EXCEPTION '%', 'invalid:Rewards must be a list of up to three places';
     END IF;
     IF p_pool_percent IS NULL OR p_pool_percent < 0 OR p_pool_percent > 100 OR p_pool_percent <> round(p_pool_percent, 2) THEN
-      RAISE EXCEPTION '%', 'invalid:The pool share must be 0 to 100 percent, with at most two decimals';
+      RAISE EXCEPTION '%', 'invalid:The pool percentage must be 0 to 100, with at most two decimals';
     END IF;
 
     SELECT id, title INTO v_quiz FROM "Quiz" WHERE id = p_quiz_id FOR UPDATE;
@@ -319,16 +323,19 @@ BEGIN
         'points', v_points, 'prizeId', v_prize_id, 'prizeName', v_prize_name, 'prizeCategory', v_prize_category);
     END LOOP;
 
-    -- The pool: random shares of p_pool_percent of pointsPool, for every entrant who scored
+    -- The pool: the whole pointsPool, in random shares, for the earliest scorers filling the places
     IF p_pool_percent > 0 THEN
-      v_pool_target := floor(v_pool_size * p_pool_percent / 100)::int;
+      v_places := ceil(v_participants * p_pool_percent / 100)::int;
+      v_pool_target := v_pool_size;
       WITH eligible AS (
         SELECT e.id AS attempt_id, e."userId" AS user_id,
                (('x' || left(md5(p_seed || ':pool:' || e."userId"), 12))::bit(48)::bigint + 1)::numeric AS w,
                md5(p_seed || ':pool-order:' || e."userId") AS tiebreak
-          FROM (SELECT id, "userId", score FROM "QuizAttempt" WHERE "quizId" = p_quiz_id AND "isCompleted"
+          FROM (SELECT id, "userId", score, "createdAt" FROM "QuizAttempt" WHERE "quizId" = p_quiz_id AND "isCompleted"
                  ORDER BY "createdAt", id LIMIT v_limit) e
          WHERE e.score > 0
+         ORDER BY e."createdAt", e.id
+         LIMIT v_places
       ), exact AS (
         SELECT *, v_pool_target * w / sum(w) OVER () AS share FROM eligible
       ), rounded AS (
@@ -349,7 +356,7 @@ BEGIN
     END IF;
 
     SELECT jsonb_build_object(
-             'percent', p_pool_percent, 'poolSize', v_pool_size, 'target', v_pool_target,
+             'percent', p_pool_percent, 'poolSize', v_pool_size, 'target', v_pool_target, 'places', v_places,
              'paid', coalesce(sum(points), 0), 'eligible', v_eligible, 'recipients', count(*),
              'min', coalesce(min(points), 0), 'max', coalesce(max(points), 0),
              'recipientIds', coalesce(jsonb_agg("userId" ORDER BY "userId"), '[]'::jsonb))

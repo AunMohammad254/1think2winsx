@@ -138,33 +138,46 @@ describe('settlement with a points pool', () => {
   const attemptPoints = async (quizId: string, userId: string) =>
     (await pool.query(`SELECT points FROM "QuizAttempt" WHERE "quizId" = $1 AND "userId" = $2`, [quizId, userId])).rows[0].points;
 
-  it('shares the chosen percentage exactly, in random amounts, among the entrants who scored', async () => {
+  it('pays the whole pool, in random amounts, to the earliest percentage of the entrants who scored', async () => {
+    // Six entrants, 50 %: three places, filled by the first three to submit (all scored)
     const { quizId, players } = await quizWithResults([4, 3, 2, 1, 0, 2], { pointsPool: 10_000 });
-    const r = await settle(quizId, { percent: 12.5 });
+    const r = await settle(quizId, { percent: 50 });
     expect(r.success).toBe(true);
-    expect(r.pool).toMatchObject({ percent: 12.5, poolSize: 10_000, target: 1250, paid: 1250, eligible: 5, recipients: 5 });
+    expect(r.pool).toMatchObject({ percent: 50, poolSize: 10_000, target: 10_000, places: 3, paid: 10_000, eligible: 5, recipients: 3 });
     const paid = await shares(quizId);
-    expect(Object.values(paid).reduce((a, b) => a + b, 0)).toBe(1250);
-    expect(paid[players[4]]).toBeUndefined(); // scored 0
+    expect(Object.keys(paid).sort()).toEqual(players.slice(0, 3).sort());
+    expect(Object.values(paid).reduce((a, b) => a + b, 0)).toBe(10_000);
     expect(new Set(Object.values(paid)).size).toBeGreaterThan(1); // random, not equal
     for (const id of Object.keys(paid)) {
       expect(await userPoints(id)).toBe(paid[id]);
       expect(await attemptPoints(quizId, id)).toBe(paid[id]);
     }
+    expect(await userPoints(players[5])).toBe(0); // scored, but came after the places were filled
     expect([...r.pool.recipientIds].sort()).toEqual(Object.keys(paid).sort());
     const s = (await pool.query(`SELECT "poolPercent"::float AS pct, "poolPoints" FROM "QuizSettlement" WHERE "quizId" = $1`, [quizId])).rows[0];
-    expect(s).toEqual({ pct: 12.5, poolPoints: 1250 });
+    expect(s).toEqual({ pct: 50, poolPoints: 10_000 });
+  });
+
+  it('lets no zero score take a place, and rounds the places up', async () => {
+    // Five entrants, 40 %: two places. The 1st and 3rd scored 0, so the 2nd and 4th get them
+    const a = await quizWithResults([0, 2, 0, 3, 1], { pointsPool: 1000 });
+    expect((await settle(a.quizId, { percent: 40 })).pool).toMatchObject({ places: 2, recipients: 2, paid: 1000 });
+    expect(Object.keys(await shares(a.quizId)).sort()).toEqual([a.players[1], a.players[3]].sort());
+    // Three entrants, 10 %: 0.3 of a place rounds up to one, the first player
+    const b = await quizWithResults([1, 1, 1], { pointsPool: 90 });
+    expect((await settle(b.quizId, { percent: 10 })).pool).toMatchObject({ places: 1, recipients: 1, paid: 90 });
+    expect(await shares(b.quizId)).toEqual({ [b.players[0]]: 90 });
   });
 
   it('pays the pool on top of the 1st-3rd place rewards', async () => {
     const { quizId, players } = await quizWithResults([4, 1, 1], { pointsPool: 1000 });
-    const r = await settle(quizId, { rewards: [{ rank: 1, points: 100 }], percent: 20 });
+    const r = await settle(quizId, { rewards: [{ rank: 1, points: 100 }], percent: 100 });
     expect(r.winners).toHaveLength(1);
     const share = (await shares(quizId))[players[0]];
     expect(share).toBeGreaterThan(0);
     expect(await userPoints(players[0])).toBe(100 + share);
     expect(await attemptPoints(quizId, players[0])).toBe(100 + share);
-    expect(r.pool.paid).toBe(200);
+    expect(r.pool.paid).toBe(1000);
   });
 
   it('lets only the first maxEntries entrants place or share, by first submission', async () => {
@@ -181,7 +194,7 @@ describe('settlement with a points pool', () => {
 
   it('gives the same shares for the same seed, and the preview pays what the settle pays', async () => {
     const { quizId } = await quizWithResults([4, 3, 3, 2, 2, 1, 1, 1], { pointsPool: 5000 });
-    const preview = await settle(quizId, { percent: 10, dryRun: true });
+    const preview = await settle(quizId, { percent: 50, dryRun: true });
     expect(preview.preview).toBe(true);
     expect(await shares(quizId)).toEqual({}); // a dry run writes nothing
 
@@ -191,7 +204,7 @@ describe('settlement with a points pool', () => {
       try {
         await db.query('BEGIN');
         await db.query(`SELECT set_config('role', 'service_role', true), set_config('request.jwt.claims', '{"role":"service_role"}', true)`);
-        await db.query(`SELECT settle_quiz($1, '[]'::jsonb, 'random', $2, 'admin', false, 10)`, [quizId, seed]);
+        await db.query(`SELECT settle_quiz($1, '[]'::jsonb, 'random', $2, 'admin', false, 50)`, [quizId, seed]);
         await db.query('RESET ROLE');
         const { rows } = await db.query(`SELECT "userId", points FROM "QuizPoolShare" WHERE "quizId" = $1 ORDER BY "userId"`, [quizId]);
         return rows;
@@ -204,7 +217,7 @@ describe('settlement with a points pool', () => {
     expect(await settleRolledBack(SEED)).toEqual(a);
     expect(await settleRolledBack('another-seed-0123456789')).not.toEqual(a);
 
-    const real = await settle(quizId, { percent: 10 });
+    const real = await settle(quizId, { percent: 50 });
     const { recipientIds, ...summary } = real.pool;
     const { recipientIds: previewIds, ...previewSummary } = preview.pool;
     expect(summary).toEqual(previewSummary);
@@ -215,14 +228,14 @@ describe('settlement with a points pool', () => {
   it('keeps the total exact when the pool is smaller than the number of scorers', async () => {
     const { quizId } = await quizWithResults([1, 1, 1, 1, 1], { pointsPool: 7 });
     const r = await settle(quizId, { percent: 100 });
-    expect(r.pool).toMatchObject({ target: 7, paid: 7, eligible: 5 });
+    expect(r.pool).toMatchObject({ target: 7, places: 5, paid: 7, eligible: 5 });
     expect(Object.values(await shares(quizId)).every((p) => p >= 1)).toBe(true);
   });
 
   it('pays nothing from the pool when nobody scored, and still records the settlement', async () => {
     const { quizId } = await quizWithResults([0, 0], { pointsPool: 1000 });
     const r = await settle(quizId, { percent: 50 });
-    expect(r).toMatchObject({ success: true, pool: { target: 500, paid: 0, eligible: 0, recipients: 0 } });
+    expect(r).toMatchObject({ success: true, pool: { target: 1000, places: 1, paid: 0, eligible: 0, recipients: 0 } });
     expect((await pool.query(`SELECT "poolPoints" FROM "QuizSettlement" WHERE "quizId" = $1`, [quizId])).rows[0].poolPoints).toBe(0);
   });
 

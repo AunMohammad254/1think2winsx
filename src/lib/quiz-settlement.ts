@@ -31,14 +31,19 @@ export interface SettlementQuiz {
   stage: QuizStage;
 }
 
-/** The points pool share settle_quiz paid (or, in a preview, would pay). */
+/**
+ * The points pool settle_quiz paid (or, in a preview, would pay): the quiz's whole pool, in random
+ * amounts, to the earliest `percent` of the entrants who scored above 0.
+ */
 export interface PoolSummary {
-  /** Percentage of the quiz's pointsPool that was shared (0: none) */
+  /** Percentage of the entrants who get a share (0: the pool is not paid) */
   percent: number;
   poolSize: number;
-  /** floor(poolSize × percent / 100): what was meant to be shared */
+  /** What was meant to be paid: the whole pool, or 0 without a percentage */
   target: number;
-  /** What was actually paid: the target, or 0 when nobody scored */
+  /** ceil(entrants × percent / 100): how many of the earliest scorers get a share */
+  places: number;
+  /** What was actually paid: the target, or 0 when no entrant scored */
   paid: number;
   /** Entrants who scored above 0 */
   eligible: number;

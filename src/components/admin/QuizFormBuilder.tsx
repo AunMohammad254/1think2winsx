@@ -370,7 +370,7 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                             step={1}
                             className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
                         />
-                        <p className="mt-1 text-xs text-gray-500">When you settle the quiz you can share a percentage of this pool, in random amounts, among the players who scored.</p>
+                        <p className="mt-1 text-xs text-gray-500">When you settle the quiz, choose a percentage of the players who got in: the earliest of them who scored share this whole pool in random amounts.</p>
                         {errors.pointsPool && (
                             <p className="mt-1 text-sm text-red-400">{errors.pointsPool.message}</p>
                         )}

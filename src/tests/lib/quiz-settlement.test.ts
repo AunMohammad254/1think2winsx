@@ -326,8 +326,8 @@ describe('notifySettlement', () => {
   const result = (winners: unknown[], recipientIds: string[] = []) => ({
     success: true as const, quizId: 'q1', quizTitle: 'Agli ball', participants: 4, questions: 1, tieRule: 'random' as const,
     seed: 's', winners: winners as never, unfilled: [],
-    pool: { percent: recipientIds.length ? 10 : 0, poolSize: 1000, target: 100, paid: recipientIds.length ? 100 : 0, eligible: 3,
-      recipients: recipientIds.length, min: 0, max: 0, recipientIds },
+    pool: { percent: recipientIds.length ? 10 : 0, poolSize: 1000, target: 1000, places: recipientIds.length, paid: recipientIds.length ? 1000 : 0,
+      eligible: 3, recipients: recipientIds.length, min: 0, max: 0, recipientIds },
   });
 
   it('gives pool recipients one bonus notice, and leaves them out of the results-in batch', async () => {

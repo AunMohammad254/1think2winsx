@@ -22,11 +22,13 @@ const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.mes
 const fmt = (n: number) => n.toLocaleString('en-US');
 const entries = (q: SettlementQuiz) => `${fmt(q.attempts)} / ${fmt(q.maxEntries)} players${q.attempts >= q.maxEntries ? ' · entries closed' : ''}`;
 
-/** "1,250 of 50,000 pool points (2.5%) shared among 840 of 900 scorers, 1 to 6 points each" */
-function poolLine(pool: Preview['pool']): string | null {
+/** "50,000 pool points shared at random among the first 400 players who scored (20% of 2,000 entrants), 1 to 260 points each." */
+function poolLine(result: Preview): string | null {
+  const pool = result.pool;
   if (!pool || pool.percent <= 0) return null;
-  if (pool.paid === 0) return `Points pool (${pool.percent}%): nobody scored, so nothing is shared.`;
-  return `${fmt(pool.paid)} of ${fmt(pool.poolSize)} pool points (${pool.percent}%) shared at random among ${fmt(pool.recipients)} of ${fmt(pool.eligible)} scorers, ${fmt(pool.min)} to ${fmt(pool.max)} points each.`;
+  if (pool.paid === 0) return `Points pool (first ${pool.percent}%): no entrant scored, so nothing is shared.`;
+  return `${fmt(pool.paid)} pool points shared at random among the first ${fmt(pool.recipients)} players who scored ` +
+    `(${pool.percent}% of ${fmt(result.participants)} entrants), ${fmt(pool.min)} to ${fmt(pool.max)} points each.`;
 }
 const pkTime = (iso: string) =>
   new Date(iso).toLocaleString('en-PK', { timeZone: 'Asia/Karachi', dateStyle: 'medium', timeStyle: 'short' });
@@ -348,7 +350,7 @@ export default function QuizSettlementManager() {
                 <RewardsEditor drafts={drafts} prizes={prizes} tieRule={tieRule} disabled={busy}
                   onChange={(i, d) => setDrafts((prev) => prev.map((old, j) => (j === i ? d : old)))}
                   onTieRule={setTieRule} />
-                <PoolEditor pointsPool={quiz.pointsPool} draft={pool} onChange={setPool} disabled={busy} />
+                <PoolEditor pointsPool={quiz.pointsPool} entrants={Math.min(quiz.attempts, quiz.maxEntries)} draft={pool} onChange={setPool} disabled={busy} />
                 <button type="button" disabled={busy} onClick={() => runPreview(quiz)}
                   className="rounded-xl bg-sky-600 px-5 py-2.5 font-semibold text-white disabled:opacity-50">
                   {busy && !previewFresh ? 'Working…' : 'Preview winners'}
@@ -362,7 +364,7 @@ export default function QuizSettlementManager() {
                 <div className="space-y-4 rounded-xl border border-sky-500/30 bg-sky-900/10 p-4">
                   <h3 className="font-semibold text-white">Preview: {preview.result.participants} {preview.result.participants === 1 ? 'player' : 'players'}</h3>
                   <WinnersTable winners={preview.result.winners} unfilled={preview.result.unfilled} />
-                  {poolLine(preview.result.pool) && <p className="text-sm text-emerald-200">{poolLine(preview.result.pool)}</p>}
+                  {poolLine(preview.result) && <p className="text-sm text-emerald-200">{poolLine(preview.result)}</p>}
                   {!confirmSettle ? (
                     <button type="button" disabled={busy} onClick={() => setConfirmSettle(true)}
                       className="rounded-xl bg-gradient-to-r from-violet-600 to-pink-600 px-5 py-2.5 font-semibold text-white disabled:opacity-50">
@@ -397,7 +399,7 @@ export default function QuizSettlementManager() {
               <WinnersTable winners={detail.settlement.winners} />
               {detail.settlement.pool.percent > 0 && (
                 <p className="text-sm text-gray-300">
-                  Points pool ({detail.settlement.pool.percent}%): {fmt(detail.settlement.pool.points)} points shared at random among {fmt(detail.settlement.pool.recipients)} players.
+                  Points pool (first {detail.settlement.pool.percent}% of entrants): {fmt(detail.settlement.pool.points)} points shared at random among {fmt(detail.settlement.pool.recipients)} players.
                 </p>
               )}
               {detail.settlement.seed && (
