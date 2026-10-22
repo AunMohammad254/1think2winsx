@@ -266,6 +266,7 @@ export default function AdminNotificationPage() {
                   <input
                     id="targetEmail"
                     type="email"
+                    suppressHydrationWarning
                     placeholder="player@example.com"
                     value={targetEmail}
                     onChange={(e) => setTargetEmail(e.target.value)}

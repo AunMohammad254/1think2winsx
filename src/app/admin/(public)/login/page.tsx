@@ -3,7 +3,6 @@
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import { Trophy } from 'lucide-react';
 
 function AdminLoginForm() {
@@ -123,6 +122,7 @@ function AdminLoginForm() {
                                     <input
                                         id="email"
                                         type="email"
+                                        suppressHydrationWarning
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
                                         required
@@ -142,6 +142,7 @@ function AdminLoginForm() {
                                     <input
                                         id="password"
                                         type={showPassword ? 'text' : 'password'}
+                                        suppressHydrationWarning
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                         required

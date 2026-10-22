@@ -321,6 +321,7 @@ export default function AdminNewsletterPage() {
                 <input
                   type="email"
                   id="sender"
+                  suppressHydrationWarning
                   value={senderEmail}
                   onChange={(e) => setSenderEmail(e.target.value)}
                   placeholder="e.g. support@1think2win.com"
@@ -337,6 +338,7 @@ export default function AdminNewsletterPage() {
                   type="text"
                   id="subject"
                   required
+                  suppressHydrationWarning
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   placeholder="e.g. Weekly Quiz Update & Sports News"
@@ -352,6 +354,7 @@ export default function AdminNewsletterPage() {
                   id="content"
                   required
                   rows={10}
+                  suppressHydrationWarning
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   placeholder="Type your newsletter body here... HTML markup is allowed."
@@ -372,6 +375,7 @@ export default function AdminNewsletterPage() {
                   <input
                     type="email"
                     id="test-email"
+                    suppressHydrationWarning
                     value={testEmail}
                     onChange={(e) => setTestEmail(e.target.value)}
                     placeholder="you@example.com"
@@ -422,6 +426,7 @@ export default function AdminNewsletterPage() {
               <input
                 type="text"
                 placeholder="Search email..."
+                suppressHydrationWarning
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-gray-950/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-colors text-sm"
