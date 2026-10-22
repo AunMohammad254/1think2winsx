@@ -361,6 +361,16 @@ describe('QuizFormBuilder: editing and prizes', () => {
     expect(screen.getByText(/Players never see this number/)).toBeInTheDocument();
   });
 
+  it('refuses an entry limit below 1 and a negative points pool', async () => {
+    render(<QuizFormBuilder initialData={existing} />);
+    fireEvent.change(screen.getByLabelText(/Entry Limit/), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText(/Points Pool/), { target: { value: '-5' } });
+    submit();
+    expect(await screen.findByText('Entry limit must be at least 1')).toBeInTheDocument();
+    expect(screen.getByText('Points pool must be 0 or more')).toBeInTheDocument();
+    expect(h.updateQuiz).not.toHaveBeenCalled();
+  });
+
   it('shows the update spinner wording', async () => {
     h.updateQuiz.mockReturnValueOnce(new Promise(() => {}));
     render(<QuizFormBuilder initialData={{ ...existing, startsAt: null, status: 'draft' }} />);

@@ -419,6 +419,15 @@ describe('entry limit and points pool', () => {
     expect(bodyOf(posts('/api/admin/quiz-settlement/preview')[0])).toMatchObject({ poolPercent: 0 });
   });
 
+  it('reports a settlement from a database without the pool yet as the winners alone', async () => {
+    onSettle = () => jsonResponse({ result: previewResult({ preview: undefined, pool: undefined }), notified: true });
+    const section = await open('Quiz ready');
+    fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+    fireEvent.click(await within(section).findByRole('button', { name: 'Settle quiz' }));
+    fireEvent.click(within(section).getByRole('button', { name: 'Yes, settle now' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Settled: 2 winners paid. Players have been notified.');
+  });
+
   it('says nobody has got in yet', async () => {
     details.ready = detailOf({ ...QUIZZES[3], attempts: 0, pointsPool: 900 });
     const section = await open('Quiz ready');

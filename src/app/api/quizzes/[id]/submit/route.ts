@@ -97,7 +97,8 @@ export async function POST(
 
     if (!r.success) {
       const status = RPC_ERROR_STATUS[r.code || ''] ?? 500;
-      if ((status === 400 || status === 403) && !EXPECTED_REFUSALS.has(r.code || '')) {
+      // 400 and 403 only come from a known code, so r.code is set here
+      if ((status === 400 || status === 403) && !EXPECTED_REFUSALS.has(r.code as string)) {
         recordSecurityEvent('INVALID_INPUT', request, userId, { endpoint: '/api/quizzes/[id]/submit', code: r.code });
       }
       return NextResponse.json(
