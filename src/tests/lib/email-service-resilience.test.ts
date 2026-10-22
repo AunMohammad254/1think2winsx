@@ -108,24 +108,30 @@ describe('sendNewsletterEmail resilience', () => {
     expect(res).toMatchObject({ sentCount: 0, error: '1 of 1 failed. First error: Brevo could not be reached: socket hang up' });
   });
 
-  it('sends through Amazon SES one at a time once an admin selected it', async () => {
+  it('sends through Amazon SES in groups of 12, one group a second, once an admin selected it', async () => {
     dbState.provider = 'ses';
     vi.stubEnv('AWS_SES_ACCESS_KEY_ID', 'AKID');
     vi.stubEnv('AWS_SES_SECRET_ACCESS_KEY', 'secret');
-    let inFlight = 0;
-    let most = 0;
+    const startedAt: number[] = [];
     const f = vi.fn(async (request: Request) => {
-      inFlight++;
-      most = Math.max(most, inFlight);
+      startedAt.push(Date.now());
       await new Promise((r) => setTimeout(r, 1));
-      inFlight--;
       return new Response(JSON.stringify({ MessageId: `ses-${request.url.length}` }), { status: 200 });
     });
     vi.stubGlobal('fetch', f);
     try {
-      expect(await send(['a@x.test', 'b@x.test', 'c@x.test'])).toEqual({ success: true, sentCount: 3, failedCount: 0, error: undefined });
+      const recipients = Array.from({ length: 13 }, (_, i) => `fan${i}@x.test`);
+      expect(await send(recipients)).toEqual({ success: true, sentCount: 13, failedCount: 0, error: undefined });
       expect(f.mock.calls.every(([r]) => r.url === 'https://email.ap-southeast-2.amazonaws.com/v2/email/outbound-emails')).toBe(true);
-      expect(most).toBe(1);
+      // the first 12 start together; the 13th waits for the next second, so SES never sees more
+      // than 12 starts in a second
+      expect(startedAt[11] - startedAt[0]).toBeLessThan(500);
+      expect(startedAt[12] - startedAt[0]).toBeGreaterThanOrEqual(990);
+
+      // a list that fits in one group doesn't wait at all
+      const before = Date.now();
+      await send(['a@x.test', 'b@x.test']);
+      expect(Date.now() - before).toBeLessThan(900);
     } finally {
       vi.unstubAllEnvs();
     }
