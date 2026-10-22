@@ -1,6 +1,10 @@
 -- =============================================================================
 -- Daily email limit (Brevo free plan: 300 emails a day)
 --
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-22 as migration 20261022113445, owner-approved,
+-- before the code that counts emails was deployed. The live build doesn't call these functions, so it
+-- keeps sending as before until the new code is deployed.
+--
 -- Every email the app sends goes through Brevo: the Supabase Auth emails (registration confirmation,
 -- "set / reset your password") through Brevo SMTP, and the app's own emails through the Brevo API.
 -- Once the day's 300 are used, Brevo silently drops the rest, so a new player never gets the link.
