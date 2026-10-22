@@ -9,6 +9,7 @@ import { ResultForm } from '@/components/quiz-settlement/ResultForm';
 import { EMPTY_REWARD, RewardsEditor, toRewards, type RewardDraft } from '@/components/quiz-settlement/RewardsEditor';
 import { NO_POOL, PoolEditor, toPoolPercent, type PoolDraft } from '@/components/quiz-settlement/PoolEditor';
 import { WinnersTable } from '@/components/quiz-settlement/WinnersTable';
+import { formatCount } from '@/lib/numbers';
 
 type Filter = 'all' | QuizStage;
 const FILTERS: Filter[] = ['all', 'open', 'awaiting_result', 'ready_to_settle', 'settled'];
@@ -19,7 +20,7 @@ const NO_REWARDS: RewardDraft[] = [EMPTY_REWARD, EMPTY_REWARD, EMPTY_REWARD];
 const TIE_RULES: Record<string, string> = { random: 'Fair random draw', earliest: 'Earliest submission', legacy: 'Old lucky draw' };
 
 const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
-const fmt = (n: number) => n.toLocaleString('en-US');
+const fmt = formatCount;
 const entries = (q: SettlementQuiz) => `${fmt(q.attempts)} / ${fmt(q.maxEntries)} players${q.attempts >= q.maxEntries ? ' · entries closed' : ''}`;
 
 /** "50,000 pool points shared at random among the first 400 players who scored (20% of 2,000 entrants), 1 to 260 points each." */

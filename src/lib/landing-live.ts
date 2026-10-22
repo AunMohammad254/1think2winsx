@@ -25,7 +25,8 @@ export interface LandingQuiz {
   entry: string;
   questionCount: number;
   duration: number;
-  totalAttempts: number;
+  /** null for a full quiz: its count is not shown (see publicAttemptCount) */
+  totalAttempts: number | null;
 }
 
 /** The carousel was designed for three cards; a few more still fit its dots. */

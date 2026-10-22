@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
   liveFetch: vi.fn(),
   // Keyed by interval: the slow personal poll and the 5 s live check
   polls: {} as Record<number, Poll>,
-  push: { notify: vi.fn(), announce: vi.fn(), open: vi.fn(), closeEntries: vi.fn() },
+  push: { notify: vi.fn(), announce: vi.fn(), open: vi.fn(), setEntriesClosed: vi.fn() },
   // Latest props the page gave LazyStreamPlayer
   streamProps: null as null | { onAvailabilityChange?: (available: boolean) => void },
   // false: LiveQuizPush's lazy chunk has not loaded yet
@@ -88,7 +88,7 @@ beforeEach(() => {
   h.suspend = false;
   h.polls = {};
   h.pushMounted = true;
-  for (const f of [h.router.push, h.router.replace, h.push.notify, h.push.announce, h.push.open, h.push.closeEntries, ...Object.values(h.toast), ...Object.values(h.wallet)]) f.mockReset();
+  for (const f of [h.router.push, h.router.replace, h.push.notify, h.push.announce, h.push.open, h.push.setEntriesClosed, ...Object.values(h.toast), ...Object.values(h.wallet)]) f.mockReset();
   Element.prototype.scrollIntoView = vi.fn();
   h.fetchWithRetry.mockReset().mockImplementation(async () => ok());
   h.liveFetch.mockReset().mockImplementation(async () => snapshot('v0', []));
@@ -406,8 +406,12 @@ describe('quizzes page: live updates', () => {
       liveQuiz('a', { entriesClosed: true }), liveQuiz('b', { entriesClosed: true }), liveQuiz('c', { entriesClosed: false }),
     ]));
     await act(async () => { await livePoll().task(); });
-    expect(h.push.closeEntries).toHaveBeenCalledTimes(1);
-    expect(h.push.closeEntries).toHaveBeenCalledWith('a');
+    expect(h.push.setEntriesClosed.mock.calls).toEqual([['a', true], ['b', false], ['c', false]]);
+    // The limit was raised: the next snapshot reopens a
+    h.push.setEntriesClosed.mockClear();
+    h.liveFetch.mockImplementation(async () => snapshot('v2', [liveQuiz('a', { entriesClosed: false })]));
+    await act(async () => { await livePoll().task(); });
+    expect(h.push.setEntriesClosed).toHaveBeenCalledWith('a', false);
   });
 
   it('pops up a newly announced upcoming quiz once, and has the bell count every new notice at once', async () => {

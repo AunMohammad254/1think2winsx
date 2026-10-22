@@ -530,6 +530,18 @@ describe('CTA', () => {
     expect(screen.getByText('2,184 players')).toBeInTheDocument();
   });
 
+  it("leaves a full quiz's plays out, so its secret entry limit can't be read off the page", async () => {
+    frames();
+    vi.setSystemTime(NOW);
+    await primeLive([
+      liveQuiz('full', { totalAttempts: null, entriesClosed: true }),
+      liveQuiz('open', { totalAttempts: 84 }),
+    ]);
+    render(<CTA />);
+    expect(screen.getByText('84 plays').parentElement).toHaveTextContent('84 plays so far on the current quizzes');
+    expect(screen.queryByText(/2,000/)).toBeNull();
+  });
+
   it('counts down to the next real quiz, with its start in Pakistan time, and shows real plays', async () => {
     frames();
     vi.setSystemTime(NOW);

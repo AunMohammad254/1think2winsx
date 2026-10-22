@@ -161,13 +161,9 @@ export async function GET(
       title: quiz.title,
     });
 
-    // Admin-only entry limit and points pool, for the edit form (defaults if none are saved yet)
-    let settings = DEFAULT_QUIZ_ADMIN_SETTINGS;
-    try {
-      settings = (await getQuizAdminSettings([quiz.id])).get(quiz.id) ?? DEFAULT_QUIZ_ADMIN_SETTINGS;
-    } catch (error) {
-      console.error('Loading the quiz entry limit and points pool failed:', error);
-    }
+    // Admin-only entry limit and points pool, for the edit form (defaults if none are saved yet). A read
+    // error fails the request: the form would otherwise show the defaults and saving would overwrite them.
+    const settings = (await getQuizAdminSettings([quiz.id])).get(quiz.id) ?? DEFAULT_QUIZ_ADMIN_SETTINGS;
 
     return createSecureJsonResponse({
       quiz: {

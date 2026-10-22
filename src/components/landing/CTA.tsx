@@ -90,7 +90,8 @@ function NextQuiz({ quizzes, now }: { quizzes: LandingQuiz[]; now: number }) {
 
 /** The social-proof line: real plays on the quizzes listed now. */
 function PlaysLine({ quizzes }: { quizzes: LandingQuiz[] }) {
-  const plays = quizzes.reduce((sum, q) => sum + q.totalAttempts, 0);
+  // A full quiz has no public count, so it adds nothing here either
+  const plays = quizzes.reduce((sum, q) => sum + (q.totalAttempts ?? 0), 0);
   if (plays > 0) {
     return (
       <>

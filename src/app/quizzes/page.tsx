@@ -43,7 +43,8 @@ interface Quiz {
   lastAttemptDate?: string;
   score?: number;
   attemptCount?: number;
-  totalAttempts?: number;
+  /** null for a full quiz (see publicAttemptCount) */
+  totalAttempts?: number | null;
   pushedAt?: string | null;
   announcedAt?: string | null;
   pushStatus?: 'unanswered' | 'answered' | 'upcoming' | 'time-up' | null;
@@ -276,12 +277,11 @@ function QuizzesPageInner() {
       }
       // The server stored a notification for each of these: the bell counts them now, not at its next poll
       for (let i = 0; i < notices; i++) window.dispatchEvent(new Event(NEW_NOTICE_EVENT));
-      // A full quiz still takes answers from its players (to questions added later), so only a
-      // player who has not entered it is told at once that entries have closed
+      // A full quiz still takes answers from its players (to questions added later), so only a player
+      // who has not entered it is told at once that entries have closed; a raised limit reopens it
       for (const q of snapshot.quizzes) {
-        if (q.entriesClosed && !quizzesRef.current.find((mine) => mine.id === q.id)?.isCompleted) {
-          liveQuizPushRef.current?.closeEntries(q.id);
-        }
+        const entered = !!quizzesRef.current.find((mine) => mine.id === q.id)?.isCompleted;
+        liveQuizPushRef.current?.setEntriesClosed(q.id, !!q.entriesClosed && !entered);
       }
       const merged = mergeLiveQuizzes(quizzesRef.current, snapshot.quizzes, hasAccessRef.current);
       quizzesRef.current = merged.list;
@@ -647,7 +647,7 @@ function QuizzesPageInner() {
                 description={quiz.description}
                 duration={quiz.duration}
                 questionCount={quiz.questionCount}
-                attemptCount={quiz.attemptCount ?? quiz.totalAttempts}
+                attemptCount={quiz.attemptCount ?? quiz.totalAttempts ?? undefined}
                 difficulty="medium"
                 status={quiz.isCompleted ? 'completed' : quiz.hasNewQuestions ? 'new' : (quiz.status as any)}
                 hasAccess={hasAccess}

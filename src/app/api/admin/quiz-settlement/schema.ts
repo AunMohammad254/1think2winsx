@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { hasAtMostTwoDecimals } from '@/lib/numbers';
 
 /** Up to one reward per place 1-3: points (1 to 100,000) or one prize. settle_quiz checks the same. */
 export const rewardsSchema = z
@@ -21,7 +22,7 @@ export const poolPercentSchema = z
   .number()
   .min(0, 'The pool percentage must be 0 to 100')
   .max(100, 'The pool percentage must be 0 to 100')
-  .refine((n) => Math.round(n * 100) === n * 100, { message: 'The pool percentage can have at most two decimals' })
+  .refine(hasAtMostTwoDecimals, { message: 'The pool percentage can have at most two decimals' })
   .default(0);
 
 const STATUS: Record<string, number> = {

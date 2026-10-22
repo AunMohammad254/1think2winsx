@@ -147,7 +147,7 @@ const RealQuizCard = memo(function RealQuizCard({
   const t = timing(quiz, now);
   const badge = quiz.isBumperPrize ? "🎁 Bumper prize" : quiz.hasPrize ? "🏆 Prize quiz" : "⚡ Quiz";
   const questions = `${quiz.questionCount} ${quiz.questionCount === 1 ? "question" : "questions"}`;
-  const played = quiz.totalAttempts > 0 ? ` · ${quiz.totalAttempts.toLocaleString()} played` : "";
+  const played = quiz.totalAttempts ? ` · ${quiz.totalAttempts.toLocaleString()} played` : "";
   return (
     <CardShell accent={accent} badge={badge} pill={quiz.state} title={quiz.title} when={t.when} tag={`${quiz.duration} min`} detail={questions + played} href={isLoggedIn ? "/quizzes" : "/register"}>
       <Metric label="Prize" value={quiz.prize} tone="trophy" />

@@ -92,8 +92,11 @@ export type SettleResult =
       seed: string;
       winners: Array<SettledWinner & { tiedWith: number }>;
       unfilled: number[];
-      /** recipientIds: every player who got a share (for notifying them); never sent to the browser */
-      pool: PoolSummary & { recipientIds: string[] };
+      /**
+       * recipientIds: every player who got a share (for notifying them); never sent to the browser.
+       * Missing when settle_quiz is from before migration 06-20261022120000.
+       */
+      pool?: PoolSummary & { recipientIds: string[] };
     }
   | { success: false; code: 'not_found' | 'already_settled' | 'result_missing' | 'out_of_stock' | 'invalid'; error: string };
 
@@ -153,14 +156,12 @@ async function attemptCounts(quizIds: string[]): Promise<Map<string, number>> {
   return counts;
 }
 
-/** Each quiz's entry limit and pool; the defaults when none are saved or the table can't be read. */
+/**
+ * Each quiz's entry limit and pool (the defaults when none are saved). A read error is thrown, never
+ * shown as "no pool": the admin could then settle the quiz, once and for good, without paying it.
+ */
 async function adminSettings(quizIds: string[]): Promise<(quizId: string) => QuizAdminSettings> {
-  let saved = new Map<string, QuizAdminSettings>();
-  try {
-    saved = await getQuizAdminSettings(quizIds);
-  } catch (error) {
-    console.error('[quiz-settlement] Loading entry limits and points pools failed:', error);
-  }
+  const saved = await getQuizAdminSettings(quizIds);
   return (quizId) => saved.get(quizId) ?? DEFAULT_QUIZ_ADMIN_SETTINGS;
 }
 

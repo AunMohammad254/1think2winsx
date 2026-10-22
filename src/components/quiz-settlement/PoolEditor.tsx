@@ -1,3 +1,5 @@
+import { formatCount as fmt, hasAtMostTwoDecimals } from '@/lib/numbers';
+
 export type PoolDraft = { kind: 'none' | '10' | '20' | 'custom'; custom: string };
 
 export const NO_POOL: PoolDraft = { kind: 'none', custom: '' };
@@ -10,11 +12,9 @@ export function toPoolPercent(draft: PoolDraft): { percent: number } | { error: 
   if (draft.custom.trim() === '' || !Number.isFinite(percent) || percent <= 0 || percent > 100) {
     return { error: 'Points pool: enter a percentage above 0 and up to 100' };
   }
-  if (Math.round(percent * 100) !== percent * 100) return { error: 'Points pool: use at most two decimals' };
+  if (!hasAtMostTwoDecimals(percent)) return { error: 'Points pool: use at most two decimals' };
   return { percent };
 }
-
-const fmt = (n: number) => n.toLocaleString('en-US');
 
 /**
  * How many of the earliest players get a share: the percentage of the entrants, rounded up as

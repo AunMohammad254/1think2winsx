@@ -18,6 +18,28 @@
 -- preview and the settle that follows pay exactly the same.
 -- =============================================================================
 
+-- ── 0. Refuse to run if a function replaced below changed since this migration was written ──────
+-- submit_quiz_attempt and settle_quiz are re-created from the copies in db-tests/schema, which matched
+-- production on 2026-10-22 (whitespace-insensitive md5 of the body). A change made to production since
+-- then would be silently undone, so the migration stops instead: merge that change into this file and
+-- update the fingerprint. Running the migration a second time stops here too.
+DO $guard$
+DECLARE
+  v_submit text;
+  v_settle text;
+BEGIN
+  SELECT md5(regexp_replace(prosrc, '\s+', ' ', 'g')) INTO v_submit FROM pg_proc
+   WHERE oid = to_regprocedure('private_hardened.submit_quiz_attempt(text,text,jsonb,text)');
+  SELECT md5(regexp_replace(prosrc, '\s+', ' ', 'g')) INTO v_settle FROM pg_proc
+   WHERE oid = to_regprocedure('public.settle_quiz(text,jsonb,text,text,text,boolean)');
+  IF v_submit IS DISTINCT FROM '3a93527bd73b98f71f7a7e7b91651621' THEN
+    RAISE EXCEPTION 'private_hardened.submit_quiz_attempt is not the version this migration was written against (body md5 %): merge the change into the migration first', coalesce(v_submit, 'missing');
+  END IF;
+  IF v_settle IS DISTINCT FROM 'ae6ed12f7deed19d8b2384e9653bf0cc' THEN
+    RAISE EXCEPTION 'public.settle_quiz(6 arguments) is not the version this migration was written against (body md5 %): merge the change into the migration first', coalesce(v_settle, 'missing');
+  END IF;
+END $guard$;
+
 -- ── 1. Admin-only settings per quiz ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public."QuizAdminSettings" (
   "quizId" text PRIMARY KEY REFERENCES public."Quiz"(id) ON DELETE CASCADE,
@@ -28,6 +50,13 @@ CREATE TABLE IF NOT EXISTS public."QuizAdminSettings" (
 ALTER TABLE public."QuizAdminSettings" ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public."QuizAdminSettings" FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public."QuizAdminSettings" TO service_role;
+
+-- Every quiz that exists now gets its limit written down, so admins see it on the quiz form and the
+-- Settle screen. No quiz starts out over its limit: one that already has more players keeps that many.
+INSERT INTO public."QuizAdminSettings" ("quizId", "maxEntries")
+SELECT q.id, LEAST(100000, GREATEST(2000, (SELECT count(*) FROM public."QuizAttempt" a WHERE a."quizId" = q.id)))::int
+  FROM public."Quiz" q
+ON CONFLICT ("quizId") DO NOTHING;
 
 -- The limit for a quiz: its setting, or 2,000 when none was saved (every quiz made before this)
 CREATE OR REPLACE FUNCTION private_hardened.quiz_entry_limit(p_quiz_id text)
@@ -167,14 +196,15 @@ EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('success', false, 'code', 'error', 'error', 'Failed to submit quiz');
 END $function$;
 
--- ── 4. settle_quiz: entrants only, plus an optional random share of the points pool ─────────────
+-- ── 4. settle_quiz: plus an optional random share of the points pool ────────────────────────────
 -- A seventh argument means a new signature: drop the old one so there is a single overload (two
 -- overloads that both match a call make PostgREST answer HTTP 300). Old six-argument calls still
 -- work through the default.
 DROP FUNCTION IF EXISTS public.settle_quiz(text, jsonb, text, text, text, boolean);
 
--- Entrants are the quiz's first quiz_entry_limit completed attempts, by first submission. Placings
--- consider only entrants who scored above 0. The pool goes to "places" = p_pool_percent (0 to 100,
+-- Entrants are every player submit_quiz_attempt admitted: the limit only turns new players away, so
+-- lowering it later never takes a place, a prize or pool points from someone who was told their answer
+-- was locked in. Placings consider only entrants who scored above 0. The pool goes to "places" = p_pool_percent (0 to 100,
 -- two decimals) of the entrants, rounded up so any percentage above 0 pays someone; the places are
 -- filled by the earliest entrants who scored above 0 (a zero score takes no place). The quiz's whole
 -- pointsPool is split among them by random weights from md5(seed:pool:userId); each share is rounded
@@ -207,7 +237,6 @@ DECLARE
   v_winners jsonb := '[]'::jsonb;
   v_unfilled jsonb := '[]'::jsonb;
   v_result jsonb;
-  v_limit int;
   v_pool_size int;
   v_pool_target int := 0;
   v_places int := 0;
@@ -254,10 +283,8 @@ BEGIN
     END IF;
 
     PERFORM public.finalize_quiz_scores(p_quiz_id);
-    v_limit := private_hardened.quiz_entry_limit(p_quiz_id);
-    SELECT count(*), count(*) FILTER (WHERE e.score > 0) INTO v_participants, v_eligible FROM (
-      SELECT score FROM "QuizAttempt" WHERE "quizId" = p_quiz_id AND "isCompleted"
-       ORDER BY "createdAt", id LIMIT v_limit) e;
+    SELECT count(*), count(*) FILTER (WHERE score > 0) INTO v_participants, v_eligible
+      FROM "QuizAttempt" WHERE "quizId" = p_quiz_id AND "isCompleted";
 
     FOR v_reward IN
       SELECT value FROM jsonb_array_elements(p_rewards) ORDER BY (value->>'rank')::int NULLS FIRST
@@ -284,10 +311,9 @@ BEGIN
                           CASE WHEN p_tie_rule = 'earliest' THEN t."createdAt" END ASC,
                           CASE WHEN p_tie_rule = 'random' THEN md5(p_seed || ':' || t."userId") END ASC,
                           t.id ASC) AS place
-          FROM (SELECT * FROM "QuizAttempt" WHERE "quizId" = p_quiz_id AND "isCompleted"
-                 ORDER BY "createdAt", id LIMIT v_limit) t
+          FROM "QuizAttempt" t
           JOIN "User" u ON u.id = t."userId"
-         WHERE t.score > 0) r
+         WHERE t."quizId" = p_quiz_id AND t."isCompleted" AND t.score > 0) r
        WHERE r.place = v_rank;
       IF NOT FOUND THEN
         -- Fewer players scored than there are rewarded places
@@ -331,9 +357,8 @@ BEGIN
         SELECT e.id AS attempt_id, e."userId" AS user_id,
                (('x' || left(md5(p_seed || ':pool:' || e."userId"), 12))::bit(48)::bigint + 1)::numeric AS w,
                md5(p_seed || ':pool-order:' || e."userId") AS tiebreak
-          FROM (SELECT id, "userId", score, "createdAt" FROM "QuizAttempt" WHERE "quizId" = p_quiz_id AND "isCompleted"
-                 ORDER BY "createdAt", id LIMIT v_limit) e
-         WHERE e.score > 0
+          FROM "QuizAttempt" e
+         WHERE e."quizId" = p_quiz_id AND e."isCompleted" AND e.score > 0
          ORDER BY e."createdAt", e.id
          LIMIT v_places
       ), exact AS (

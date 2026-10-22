@@ -212,14 +212,20 @@ describe('getSettlementDetail', () => {
     await expect(lib.getSettlementDetail('q1', NOW)).rejects.toEqual({ message: 'denied' });
   });
 
-  it('uses the default limit and no pool when the settings cannot be read', async () => {
+  it('uses the default limit and no pool before the migration, and fails loudly on any other read error', async () => {
     adminDb.setTable('Quiz', { data: quizRow() });
     adminDb.setTable('Question', { data: [] });
-    adminDb.setTable('QuizAdminSettings', { error: { message: 'relation "QuizAdminSettings" does not exist' } });
+    adminDb.setTable('QuizAdminSettings', { error: { code: '42P01', message: 'relation "QuizAdminSettings" does not exist' } });
     adminDb.setTable('QuizSettlement', { data: null });
     adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { data: [] });
     expect((await lib.getSettlementDetail('q1', NOW))!.quiz).toMatchObject({ maxEntries: 2000, pointsPool: 0 });
-    expect(console.error).toHaveBeenCalledWith('[quiz-settlement] Loading entry limits and points pools failed:', expect.anything());
+    // Showing "no pool" on a read error would let the admin settle, once and for good, without paying it
+    adminDb.setTable('QuizAdminSettings', { error: { code: '57014', message: 'statement timeout' } });
+    await expect(lib.getSettlementDetail('q1', NOW)).rejects.toEqual({ code: '57014', message: 'statement timeout' });
+    adminDb.setTable('Quiz', { data: [quizRow()] });
+    adminDb.setTable('Prize', { data: [] });
+    adminDb.setTable('QuizSettlement', { data: [] });
+    await expect(lib.listSettlementQuizzes(NOW)).rejects.toEqual({ code: '57014', message: 'statement timeout' });
   });
 
   it('settled with no winners rows yet reads as none', async () => {

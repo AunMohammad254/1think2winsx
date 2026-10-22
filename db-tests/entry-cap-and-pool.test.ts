@@ -2,8 +2,11 @@
  * Quiz entry limit (first come, first served) and the points pool shared at settlement
  * (migration 06-20261022120000_quiz_entry_cap_and_points_pool.sql).
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { DEFAULT_MAX_ENTRIES, ENTRIES_CLOSED_MESSAGE } from '../src/lib/quiz-entries';
 import {
   anon,
   createPool,
@@ -24,6 +27,7 @@ import {
 const pool = createPool();
 afterAll(() => pool.end());
 
+const MIGRATION = fs.readFileSync(path.join(__dirname, 'schema', '06-20261022120000_quiz_entry_cap_and_points_pool.sql'), 'utf8');
 const SEED = 'seed-0123456789abcdef';
 const CLOSED = { success: false, code: 'entries_closed', error: 'Entries for this quiz have closed.' };
 
@@ -88,10 +92,37 @@ describe('entry limit', () => {
     expect(await attemptCount(quizId)).toBe(10);
   });
 
-  it('uses 2,000 for a quiz with no saved settings', async () => {
+  it('uses the app\'s default limit and refusal text, so the two can never drift apart', async () => {
     const quizId = await createQuiz(pool);
     const { rows } = await pool.query(`SELECT private_hardened.quiz_entry_limit($1) AS n`, [quizId]);
-    expect(rows[0].n).toBe(2000);
+    expect(rows[0].n).toBe(DEFAULT_MAX_ENTRIES);
+    const column = await pool.query(`SELECT column_default FROM information_schema.columns
+      WHERE table_name = 'QuizAdminSettings' AND column_name = 'maxEntries'`);
+    expect(Number(column.rows[0].column_default)).toBe(DEFAULT_MAX_ENTRIES);
+    expect(CLOSED.error).toBe(ENTRIES_CLOSED_MESSAGE);
+  });
+
+  it('writes down the limit of every quiz that already exists, never below the players it has', async () => {
+    const small = await createQuiz(pool);
+    const big = await createQuiz(pool);
+    const questionIds = await createQuestions(pool, big, 1);
+    // 2,100 players already in the big quiz, inserted directly (the limit did not exist yet)
+    await pool.query(`
+      WITH u AS (SELECT gen_random_uuid() AS id FROM generate_series(1, 2100)),
+           a AS (INSERT INTO auth.users (id, email) SELECT id, id::text || '@example.test' FROM u RETURNING id, email),
+           p AS (INSERT INTO "User" (id, email, "updatedAt") SELECT id::text, email, now() FROM a RETURNING id)
+      INSERT INTO "QuizAttempt" (id, "userId", "quizId", "isCompleted", "updatedAt") SELECT 'qa_' || id, id, $1, true, now() FROM p`, [big]);
+    await pool.query(MIGRATION.match(/INSERT INTO public\."QuizAdminSettings" \("quizId", "maxEntries"\)[\s\S]*?DO NOTHING;/)![0]);
+    const limits = Object.fromEntries((await pool.query(`SELECT "quizId", "maxEntries" FROM "QuizAdminSettings"`)).rows.map((r) => [r.quizId, r.maxEntries]));
+    expect(limits).toEqual({ [small]: 2000, [big]: 2100 });
+    // The big quiz is exactly full: its players stay, new ones are told entries have closed
+    const late = await createUser(pool);
+    expect(await submitQuiz(pool, player(late.id), { userId: late.id, quizId: big, answers: answerAll(questionIds) })).toEqual(CLOSED);
+  });
+
+  it('refuses to run again: the functions it replaces no longer match its fingerprints', async () => {
+    const guard = MIGRATION.match(/DO \$guard\$[\s\S]*?END \$guard\$;/)![0];
+    await expect(pool.query(guard)).rejects.toThrow(/submit_quiz_attempt is not the version this migration was written against/);
   });
 
   it('keeps the limit, the pool and the shares out of players\' reach', async () => {
@@ -180,16 +211,16 @@ describe('settlement with a points pool', () => {
     expect(r.pool.paid).toBe(1000);
   });
 
-  it('lets only the first maxEntries entrants place or share, by first submission', async () => {
-    // Five players got in while the limit was higher; it is 3 when the quiz is settled
-    const { quizId, players } = await quizWithResults([1, 0, 1, 4, 4], { pointsPool: 900 });
+  it('counts every player who got in, even after the limit is lowered below them', async () => {
+    // Five players got in while the limit was higher; it is 3 when the quiz is settled. All five were
+    // told their answer was locked in, so all five can place and share the pool.
+    const { quizId, players } = await quizWithResults([1, 0, 1, 4, 3], { pointsPool: 900 });
     await setSettings(quizId, { maxEntries: 3, pointsPool: 900 });
     const r = await settle(quizId, { rewards: [{ rank: 1, points: 50 }, { rank: 2, points: 25 }, { rank: 3, points: 10 }], percent: 100 });
-    expect(r.participants).toBe(3);
-    expect(r.winners.map((w: { userId: string }) => w.userId).sort()).toEqual([players[0], players[2]].sort());
-    expect(r.unfilled).toEqual([3]);
-    expect(Object.keys(await shares(quizId)).sort()).toEqual([players[0], players[2]].sort());
-    expect(await userPoints(players[3])).toBe(0);
+    expect(r.participants).toBe(5);
+    expect(r.winners.map((w: { userId: string }) => w.userId)).toEqual([players[3], players[4], expect.any(String)]);
+    expect(r.pool).toMatchObject({ places: 5, eligible: 4, recipients: 4, paid: 900 });
+    expect(Object.keys(await shares(quizId)).sort()).toEqual([players[0], players[2], players[3], players[4]].sort());
   });
 
   it('gives the same shares for the same seed, and the preview pays what the settle pays', async () => {

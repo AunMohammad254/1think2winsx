@@ -11,6 +11,15 @@ export interface QuizAdminSettings { maxEntries: number; pointsPool: number }
 
 export const DEFAULT_QUIZ_ADMIN_SETTINGS: QuizAdminSettings = { maxEntries: DEFAULT_MAX_ENTRIES, pointsPool: 0 };
 
+/** PostgREST's "no such table" (PGRST205) and Postgres's (42P01): the migration is not applied yet. */
+const isMissingTable = (error: { code?: string }) => error.code === 'PGRST205' || error.code === '42P01';
+
+/**
+ * The saved settings of these quizzes (a quiz without a row has the defaults). Before the migration
+ * there is no table and nothing can have been saved, so every quiz has the defaults. Any other error
+ * is thrown: showing the defaults then would let an admin overwrite the real limit and pool, or settle
+ * a quiz without paying its pool.
+ */
 export async function getQuizAdminSettings(quizIds: string[]): Promise<Map<string, QuizAdminSettings>> {
   const settings = new Map<string, QuizAdminSettings>();
   if (quizIds.length === 0) return settings;
@@ -18,7 +27,10 @@ export async function getQuizAdminSettings(quizIds: string[]): Promise<Map<strin
     .from('QuizAdminSettings')
     .select('quizId, maxEntries, pointsPool')
     .in('quizId', quizIds);
-  if (error) throw error;
+  if (error) {
+    if (isMissingTable(error)) return settings;
+    throw error;
+  }
   for (const row of (data || []) as Array<{ quizId: string } & QuizAdminSettings>) {
     settings.set(row.quizId, { maxEntries: row.maxEntries, pointsPool: row.pointsPool });
   }

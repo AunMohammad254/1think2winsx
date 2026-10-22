@@ -32,7 +32,8 @@ export interface LiveQuiz {
   passingScore: number;
   status: string;
   questionCount: number;
-  totalAttempts: number;
+  /** null for a full quiz: see publicAttemptCount */
+  totalAttempts: number | null;
   /** Full: new players are turned away, so the quiz panel says so without sending a submit. */
   entriesClosed: boolean;
   pushedAt: string | null;
@@ -58,6 +59,14 @@ export interface LiveSnapshot {
 // entries compare equal and a quiz's pushedAt never looks "new" just because of formatting
 const iso = (value: string | null) => (value ? new Date(value).toISOString() : null);
 
+/**
+ * How many players a quiz shows to players: none once it is full. A count that stops growing exactly
+ * when entries close would give the (admin-only) entry limit away.
+ */
+export function publicAttemptCount(quiz: Pick<CatalogQuiz, 'totalAttempts' | 'entriesClosed'>): number | null {
+  return quiz.entriesClosed ? null : quiz.totalAttempts;
+}
+
 /** The public fields of a catalogue quiz: no questions, no answer key, nothing per player. */
 export function toLiveQuiz(quiz: CatalogQuiz): LiveQuiz {
   return {
@@ -68,7 +77,7 @@ export function toLiveQuiz(quiz: CatalogQuiz): LiveQuiz {
     passingScore: quiz.passingScore,
     status: quiz.status,
     questionCount: quiz.questions.length,
-    totalAttempts: quiz.totalAttempts,
+    totalAttempts: publicAttemptCount(quiz),
     entriesClosed: !!quiz.entriesClosed,
     pushedAt: iso(quiz.pushedAt),
     startsAt: quiz.status === 'upcoming' ? iso(quiz.startsAt) : null,

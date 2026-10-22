@@ -13,7 +13,7 @@ import { getActiveQuizCatalog } from '@/lib/quiz-catalog';
 import { quizListCache } from '@/lib/quiz-cache';
 import { isWalletEnabled } from '@/lib/wallet/service';
 import { withLoadShed } from '@/lib/load-shed';
-import { computePushStatus } from '@/lib/live-catalog';
+import { computePushStatus, publicAttemptCount } from '@/lib/live-catalog';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -119,7 +119,7 @@ export const GET = withLoadShed(async function GET(request: NextRequest) {
         passingScore: quiz.passingScore,
         status: quiz.status,
         questionCount: quiz.questions.length,
-        totalAttempts: quiz.totalAttempts,
+        totalAttempts: publicAttemptCount(quiz),
         hasAccess,
         isCompleted,
         hasNewQuestions,
