@@ -179,6 +179,13 @@ export default function AdminEmailServicesPage() {
           </button>
         </div>
 
+        {!overview.logReady && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-sm text-amber-200">
+            The email log isn&apos;t set up yet: its database change hasn&apos;t been applied. Switching the service and billing work now;
+            emails appear in the log, counts and alerts once it is.
+          </div>
+        )}
+
         {overview.recentFailures.count > 0 && (
           <div role="alert" className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl flex flex-col md:flex-row md:items-center gap-3">
             <AlertTriangle className="w-6 h-6 text-red-400 shrink-0" />
@@ -363,7 +370,7 @@ export default function AdminEmailServicesPage() {
               </thead>
               <tbody className="divide-y divide-white/5 text-gray-300">
                 {log.entries.length === 0 && (
-                  <tr><td colSpan={6} className="p-6 text-center text-gray-500">No emails match.</td></tr>
+                  <tr><td colSpan={6} className="p-6 text-center text-gray-500">{overview.logReady ? 'No emails match.' : 'The email log starts once its database change is applied.'}</td></tr>
                 )}
                 {log.entries.map((entry) => (
                   <tr key={entry.id}>

@@ -12,6 +12,8 @@ import type { EmailProviderId } from './types';
 export interface LogTotal { provider: EmailProviderId; period: '24h' | '30d'; status: string; count: number }
 
 export interface EmailServicesOverview {
+  /** False until the email log's database change (20261023120000_email_providers) is applied */
+  logReady: boolean;
   selected: EmailProviderId;
   /** The service emails really go through (Brevo when SES is selected but has no access key) */
   active: EmailProviderId;
@@ -44,13 +46,24 @@ async function readLimits(): Promise<EmailServicesOverview['limits']> {
   };
 }
 
-async function readTotals(): Promise<LogTotal[]> {
+/**
+ * PostgREST's "no such table" (PGRST205) or "no such function" (PGRST202), or Postgres's own (42P01 /
+ * 42883): the email log's database change isn't applied yet. The page then works without the log.
+ */
+const notApplied = (error: { code?: string }) => ['PGRST205', 'PGRST202', '42P01', '42883'].includes(error.code ?? '');
+
+/** null before the database change */
+async function readTotals(): Promise<LogTotal[] | null> {
   const { data, error } = await getAdminDb().rpc('email_log_totals');
-  if (error) throw error;
+  if (error) {
+    if (notApplied(error)) return null;
+    throw error;
+  }
   return (data ?? []) as LogTotal[];
 }
 
-async function readRecentFailures(provider: EmailProviderId, now: Date): Promise<EmailServicesOverview['recentFailures']> {
+/** null before the database change */
+async function readRecentFailures(provider: EmailProviderId, now: Date): Promise<EmailServicesOverview['recentFailures'] | null> {
   const since = new Date(now.getTime() - 60 * 60_000).toISOString();
   const { data, count, error } = await getAdminDb()
     .from('EmailLog')
@@ -60,7 +73,10 @@ async function readRecentFailures(provider: EmailProviderId, now: Date): Promise
     .gte('sentAt', since)
     .order('sentAt', { ascending: false })
     .limit(1);
-  if (error) throw error;
+  if (error) {
+    if (notApplied(error)) return null;
+    throw error;
+  }
   return { count: count ?? 0, lastError: data?.[0]?.error ?? null, lastAt: data?.[0]?.sentAt ?? null };
 }
 
@@ -75,7 +91,20 @@ export async function getEmailServicesOverview(now = new Date()): Promise<EmailS
     getBrevoPlans(now.getTime()),
     getAwsCost({ now }),
   ]);
-  return { selected, active, sesConfigured: sesConfigured(), sesRegion: sesRegion(), limits, quota, totals, recentFailures, ses, brevo, awsCost };
+  return {
+    logReady: totals !== null && recentFailures !== null,
+    selected,
+    active,
+    sesConfigured: sesConfigured(),
+    sesRegion: sesRegion(),
+    limits,
+    quota,
+    totals: totals ?? [],
+    recentFailures: recentFailures ?? { count: 0, lastError: null, lastAt: null },
+    ses,
+    brevo,
+    awsCost,
+  };
 }
 
 export class EmailServicesError extends Error {}
@@ -122,7 +151,8 @@ export interface EmailLogRow {
 /** Characters that would break PostgREST's or=(…) filter or act as wildcards. */
 export const cleanSearch = (q: string) => q.replace(/[,()*%\\]/g, ' ').trim().slice(0, 100);
 
-export async function listEmailLog(query: EmailLogQuery): Promise<{ entries: EmailLogRow[]; total: number }> {
+/** One page of the log; empty (ready: false) before the database change. */
+export async function listEmailLog(query: EmailLogQuery): Promise<{ entries: EmailLogRow[]; total: number; ready: boolean }> {
   const from = (query.page - 1) * EMAIL_LOG_PAGE_SIZE;
   let request = getAdminDb()
     .from('EmailLog')
@@ -136,6 +166,9 @@ export async function listEmailLog(query: EmailLogQuery): Promise<{ entries: Ema
   if (q) request = request.or(`recipient.ilike.*${q}*,subject.ilike.*${q}*`);
 
   const { data, count, error } = await request;
-  if (error) throw error;
-  return { entries: (data ?? []) as EmailLogRow[], total: count ?? 0 };
+  if (error) {
+    if (notApplied(error)) return { entries: [], total: 0, ready: false };
+    throw error;
+  }
+  return { entries: (data ?? []) as EmailLogRow[], total: count ?? 0, ready: true };
 }

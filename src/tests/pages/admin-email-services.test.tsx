@@ -11,6 +11,7 @@ vi.mock('@/lib/csrf', () => ({ getCSRFHeaders: async () => ({ 'x-csrf-token': 't
 import AdminEmailServicesPage from '@/app/admin/(protected)/email/page';
 
 const baseOverview = (): EmailServicesOverview => ({
+  logReady: true,
   selected: 'brevo',
   active: 'brevo',
   sesConfigured: true,
@@ -94,6 +95,16 @@ describe('admin email services page', () => {
     expect(log.getByText('550 no such user')).toBeInTheDocument();
     expect(log.getByText('2 emails')).toBeInTheDocument();
     expect(fetchMock.mock.calls[0][1].headers['x-csrf-token']).toBe('tok');
+  });
+
+  it('explains an empty log before its database change, and still offers the switch', async () => {
+    overview = { ...baseOverview(), logReady: false, totals: [] };
+    routes.log = () => jsonResponse({ success: true, entries: [], total: 0, ready: false, pageSize: 50 });
+    render(<AdminEmailServicesPage />);
+    await loaded();
+    expect(screen.getByText(/The email log isn't set up yet: its database change hasn't been applied/)).toBeInTheDocument();
+    expect(await screen.findByText('The email log starts once its database change is applied.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Amazon SES/ })).toBeEnabled();
   });
 
   it('switches to AWS after confirming, and not without', async () => {

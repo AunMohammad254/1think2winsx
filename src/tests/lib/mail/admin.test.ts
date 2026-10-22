@@ -43,6 +43,7 @@ describe('getEmailServicesOverview', () => {
   it('gathers the service, limits, counts, recent failures and billing', async () => {
     const now = new Date('2026-10-22T10:00:00Z');
     expect(await admin.getEmailServicesOverview(now)).toEqual({
+      logReady: true,
       selected: 'ses',
       active: 'ses',
       sesConfigured: true,
@@ -69,6 +70,21 @@ describe('getEmailServicesOverview', () => {
     h.getEmailQuotaStatus.mockRejectedValue(new Error('no function'));
     const overview = await admin.getEmailServicesOverview();
     expect(overview).toMatchObject({ limits: { brevo: 299, ses: 199, reserve: 20 }, quota: null, totals: [], recentFailures: { count: 0, lastError: null, lastAt: null } });
+  });
+
+  it('works without the log before its database change is applied', async () => {
+    db.setRpc('email_log_totals', { error: { code: 'PGRST202', message: 'Could not find the function' } });
+    db.setTable('EmailLog', { error: { code: 'PGRST205', message: 'Could not find the table' } });
+    expect(await admin.getEmailServicesOverview()).toMatchObject({
+      logReady: false, selected: 'ses', limits: { ses: 45000 }, totals: [], recentFailures: { count: 0, lastError: null, lastAt: null },
+    });
+    // either half missing is enough
+    db.setRpc('email_log_totals', { data: [] });
+    db.setTable('EmailLog', { error: { code: '42P01', message: 'relation does not exist' } });
+    expect((await admin.getEmailServicesOverview()).logReady).toBe(false);
+    db.setTable('EmailLog', { data: [], count: 0 });
+    db.setRpc('email_log_totals', { error: { code: '42883', message: 'function does not exist' } });
+    expect((await admin.getEmailServicesOverview()).logReady).toBe(false);
   });
 
   it('fails when the settings, counts or log cannot be read', async () => {
@@ -113,7 +129,7 @@ describe('updateEmailServices', () => {
 describe('listEmailLog', () => {
   it('pages newest first, with filters and a cleaned-up search', async () => {
     db.setTable('EmailLog', { data: [{ id: 1 }], count: 51 });
-    expect(await admin.listEmailLog({ page: 2, q: ' fan,(x)*%\\ ', provider: 'ses', status: 'bounced', kind: 'newsletter' })).toEqual({ entries: [{ id: 1 }], total: 51 });
+    expect(await admin.listEmailLog({ page: 2, q: ' fan,(x)*%\\ ', provider: 'ses', status: 'bounced', kind: 'newsletter' })).toEqual({ entries: [{ id: 1 }], total: 51, ready: true });
     const call = db.callsTo('EmailLog', 'select')[0];
     expect(call.ops.find((o) => o.op === 'range')!.args).toEqual([50, 99]);
     expect(call.ops.find((o) => o.op === 'order')!.args).toEqual(['sentAt', { ascending: false }]);
@@ -123,14 +139,16 @@ describe('listEmailLog', () => {
 
   it('lists everything without filters, and skips a search that is only symbols', async () => {
     db.setTable('EmailLog', { data: null, count: null });
-    expect(await admin.listEmailLog({ page: 1, q: '(),' })).toEqual({ entries: [], total: 0 });
+    expect(await admin.listEmailLog({ page: 1, q: '(),' })).toEqual({ entries: [], total: 0, ready: true });
     const call = db.callsTo('EmailLog', 'select')[0];
     expect(call.ops.map((o) => o.op)).toEqual(['select', 'order', 'range']);
   });
 
-  it('reports a log that cannot be read', async () => {
+  it('reports a log that cannot be read, and is empty before its database change', async () => {
     db.setTable('EmailLog', { error: { message: 'down' } });
     await expect(admin.listEmailLog({ page: 1 })).rejects.toEqual({ message: 'down' });
+    db.setTable('EmailLog', { error: { code: 'PGRST205', message: 'Could not find the table' } });
+    expect(await admin.listEmailLog({ page: 1 })).toEqual({ entries: [], total: 0, ready: false });
   });
 
   it('cleans searches to 100 characters', () => {

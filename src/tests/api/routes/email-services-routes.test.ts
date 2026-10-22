@@ -296,9 +296,9 @@ describe('POST /api/admin/email-services/refresh-billing', () => {
 
 describe('GET /api/admin/email-log', () => {
   it('passes the page and filters through, ignoring empty ones', async () => {
-    h.listEmailLog.mockResolvedValue({ entries: [{ id: 1 }], total: 1 });
+    h.listEmailLog.mockResolvedValue({ entries: [{ id: 1 }], total: 1, ready: true });
     const res = await emailLog.GET(makeRequest('/api/admin/email-log?page=2&q=fan&provider=ses&status=&kind=registration'));
-    expect(await res.json()).toEqual({ success: true, entries: [{ id: 1 }], total: 1, page: 2, pageSize: 50 });
+    expect(await res.json()).toEqual({ success: true, entries: [{ id: 1 }], total: 1, ready: true, page: 2, pageSize: 50 });
     expect(h.listEmailLog).toHaveBeenCalledWith({ page: 2, q: 'fan', provider: 'ses', kind: 'registration' });
     await emailLog.GET(makeRequest('/api/admin/email-log'));
     expect(h.listEmailLog).toHaveBeenLastCalledWith({ page: 1 });

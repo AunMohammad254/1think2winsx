@@ -29,8 +29,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'Invalid filter.' }, { status: 400 });
     }
 
-    const { entries, total } = await listEmailLog(parsed.data);
-    return createSecureJsonResponse({ success: true, entries, total, page: parsed.data.page, pageSize: EMAIL_LOG_PAGE_SIZE }, { status: 200 });
+    const { entries, total, ready } = await listEmailLog(parsed.data);
+    return createSecureJsonResponse({ success: true, entries, total, ready, page: parsed.data.page, pageSize: EMAIL_LOG_PAGE_SIZE }, { status: 200 });
   } catch (error) {
     console.error('Error in admin email log endpoint:', error);
     return NextResponse.json({ success: false, message: 'Could not load the email log.' }, { status: 500 });
