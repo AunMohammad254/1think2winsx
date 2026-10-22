@@ -1,10 +1,9 @@
 -- =============================================================================
 -- Quiz entry limit (first come, first served) and a points pool shared at settlement
 --
--- NOT applied to any database yet. Needs the owner's approval for production (eclivawqhdovsndlngfo).
--- Apply it BEFORE deploying the code that reads QuizAdminSettings. The live build keeps working with
--- it: quizzes without settings get the default limit, and its settle call (six named arguments) still
--- reaches settle_quiz, whose new seventh argument has a default.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-22 as migration 20261022100817, owner-approved,
+-- before the code that reads QuizAdminSettings was deployed. The live build keeps working with it:
+-- its settle call (six named arguments) reaches settle_quiz, whose new seventh argument has a default.
 --
 -- Why: the 2026-10-21 load test put a live quiz at about 2,000 players before Hostinger's site-wide
 -- block. Each quiz now admits its first "maxEntries" players (default 2,000); later players are told
