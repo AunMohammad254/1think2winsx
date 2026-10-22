@@ -115,18 +115,19 @@ describe('sendNewsletterEmail resilience', () => {
     const startedAt: number[] = [];
     const f = vi.fn(async (request: Request) => {
       startedAt.push(Date.now());
-      await new Promise((r) => setTimeout(r, 1));
       return new Response(JSON.stringify({ MessageId: `ses-${request.url.length}` }), { status: 200 });
     });
     vi.stubGlobal('fetch', f);
     try {
       const recipients = Array.from({ length: 13 }, (_, i) => `fan${i}@x.test`);
+      const calledAt = Date.now();
       expect(await send(recipients)).toEqual({ success: true, sentCount: 13, failedCount: 0, error: undefined });
       expect(f.mock.calls.every(([r]) => r.url === 'https://email.ap-southeast-2.amazonaws.com/v2/email/outbound-emails')).toBe(true);
-      // the first 12 start together; the 13th waits for the next second, so SES never sees more
-      // than 12 starts in a second
-      expect(startedAt[11] - startedAt[0]).toBeLessThan(500);
-      expect(startedAt[12] - startedAt[0]).toBeGreaterThanOrEqual(990);
+      // The first 12 start before the 13th, and the 13th waits a full second from when the group
+      // began (measured from the call, so a slow machine can't make it look shorter): SES never
+      // sees more than 12 starts in a second. Node timers can fire up to a millisecond early.
+      expect(Math.max(...startedAt.slice(0, 12))).toBeLessThan(startedAt[12]);
+      expect(startedAt[12] - calledAt).toBeGreaterThanOrEqual(995);
 
       // a list that fits in one group doesn't wait at all
       const before = Date.now();

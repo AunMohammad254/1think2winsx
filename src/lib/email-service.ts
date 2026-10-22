@@ -32,13 +32,14 @@ export async function sendNewsletterEmail({
   recipients
 }: SendEmailParams): Promise<{ success: boolean; sentCount: number; failedCount?: number; error?: string }> {
   try {
+    // Nothing to send: answer before looking anything up (the selected service is a database read)
+    if (!recipients || recipients.length === 0) {
+      return { success: true, sentCount: 0, failedCount: 0 };
+    }
+
     const provider = await activeProvider();
     if (provider === 'brevo' && !brevoApiKey()) {
       throw new Error('BREVO_API_KEY is not configured in environment variables');
-    }
-
-    if (!recipients || recipients.length === 0) {
-      return { success: true, sentCount: 0, failedCount: 0 };
     }
 
     // Branded wrapper (see ./email-theme); __UNSUBSCRIBE_URL__ is filled in per recipient.
@@ -109,7 +110,7 @@ export async function sendNewsletterEmail({
     return {
       success: false,
       sentCount: 0,
-      failedCount: recipients?.length ?? 0,
+      failedCount: recipients.length,
       error: msg
     };
   }
