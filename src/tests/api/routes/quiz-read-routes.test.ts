@@ -98,6 +98,16 @@ beforeEach(() => {
 describe('GET /api/quizzes', () => {
   const list = (headers: Record<string, string> = {}) => listRoute.GET(makeRequest('/api/quizzes', { headers }));
 
+  it("doesn't say how many played a full quiz: the count would give its secret entry limit away", async () => {
+    getActiveQuizCatalog.mockResolvedValue([catalogQuiz({ id: 'full', totalAttempts: 2000, entriesClosed: true }), catalogQuiz({ id: 'open', totalAttempts: 7 })]);
+    db.setTable('QuizAttempt', { data: [] });
+    db.setTable('QuestionAttempt', { data: [] });
+    const body = await (await list()).json();
+    const byId = Object.fromEntries(body.quizzes.map((q: { id: string }) => [q.id, q]));
+    expect(byId.full.totalAttempts).toBeNull();
+    expect(byId.open.totalAttempts).toBe(7);
+  });
+
   it("lists the catalogue with the caller's access and per-quiz status", async () => {
     getActiveQuizCatalog.mockResolvedValue([
       catalogQuiz({ id: 'live' }),
@@ -243,7 +253,7 @@ describe('GET /api/live', () => {
     // Same date format as the personal list, so a pushedAt never looks new because of formatting
     expect(body.quizzes[0]).toEqual({
       id: 'live', title: 'Cricket night', description: 'Predict the match', duration: 10, passingScore: 70,
-      status: 'active', questionCount: 2, totalAttempts: 3, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null, announcedAt: null,
+      status: 'active', questionCount: 2, totalAttempts: 3, entriesClosed: false, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null, announcedAt: null,
       createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z',
       prizeName: null, isBumperPrize: false, accessPrice: 0,
     });
@@ -258,6 +268,13 @@ describe('GET /api/live', () => {
     // Nothing per player and no question bodies (let alone the answer key) leave the server
     expect(JSON.stringify(body)).not.toContain('Who wins the toss');
     expect(requireAuth).not.toHaveBeenCalled();
+  });
+
+  it('says a full quiz is full without saying how many played it', async () => {
+    getActiveQuizCatalog.mockResolvedValue([catalogQuiz({ id: 'full', totalAttempts: 2000, entriesClosed: true })]);
+    const body = await (await liveRoute.GET()).json();
+    expect(body.quizzes[0]).toMatchObject({ id: 'full', entriesClosed: true, totalAttempts: null });
+    expect(JSON.stringify(body)).not.toContain('2000');
   });
 
   it('keeps the version while the catalogue is unchanged, and changes it when anything visible changes', async () => {

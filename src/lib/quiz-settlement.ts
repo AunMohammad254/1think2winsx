@@ -7,6 +7,7 @@
 import { getAdminDb, notificationDb, fetchAllByKeyset } from '@/lib/supabase/db';
 import { answeringClosesAt, quizStage, type QuizStage } from '@/lib/quiz-stage';
 import { invalidateQuizCatalog } from '@/lib/quiz-catalog';
+import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings, type QuizAdminSettings } from '@/lib/quiz-admin-settings';
 
 export type TieRule = 'random' | 'earliest';
 export interface Reward { rank: number; points?: number; prizeId?: string }
@@ -23,8 +24,32 @@ export interface SettlementQuiz {
   totalQuestions: number;
   questionsWithResult: number;
   attempts: number;
+  /** Admin-only: players admitted, first come first served, and the points pool settlement can share */
+  maxEntries: number;
+  pointsPool: number;
   settledAt: string | null;
   stage: QuizStage;
+}
+
+/**
+ * The points pool settle_quiz paid (or, in a preview, would pay): the quiz's whole pool, in random
+ * amounts, to the earliest `percent` of the entrants who scored above 0.
+ */
+export interface PoolSummary {
+  /** Percentage of the entrants who get a share (0: the pool is not paid) */
+  percent: number;
+  poolSize: number;
+  /** What was meant to be paid: the whole pool, or 0 without a percentage */
+  target: number;
+  /** ceil(entrants × percent / 100): how many of the earliest scorers get a share */
+  places: number;
+  /** What was actually paid: the target, or 0 when no entrant scored */
+  paid: number;
+  /** Entrants who scored above 0 */
+  eligible: number;
+  recipients: number;
+  min: number;
+  max: number;
 }
 
 export interface SettlementPrize { id: string; name: string; category: string; stock: number; imageUrl: string | null }
@@ -47,7 +72,11 @@ export interface SettledWinner {
 export interface SettlementDetail {
   quiz: SettlementQuiz;
   questions: SettlementQuestion[];
-  settlement: { settledAt: string; settledBy: string; tieRule: string; seed: string; winners: SettledWinner[] } | null;
+  settlement: {
+    settledAt: string; settledBy: string; tieRule: string; seed: string; winners: SettledWinner[];
+    /** The pool share paid at settlement: percent, points and how many players got some */
+    pool: { percent: number; points: number; recipients: number };
+  } | null;
 }
 
 /** What settle_quiz returns: the winners on success, or a code the API maps to an HTTP status. */
@@ -63,6 +92,11 @@ export type SettleResult =
       seed: string;
       winners: Array<SettledWinner & { tiedWith: number }>;
       unfilled: number[];
+      /**
+       * recipientIds: every player who got a share (for notifying them); never sent to the browser.
+       * Missing when settle_quiz is from before migration 06-20261022120000.
+       */
+      pool?: PoolSummary & { recipientIds: string[] };
     }
   | { success: false; code: 'not_found' | 'already_settled' | 'result_missing' | 'out_of_stock' | 'invalid'; error: string };
 
@@ -81,6 +115,7 @@ export function parseOptions(raw: unknown): string[] {
 function summarise(
   quiz: QuizRow,
   counts: { total: number; withResult: number; attempts: number },
+  settings: QuizAdminSettings,
   settledAt: string | null,
   nowMs: number,
 ): SettlementQuiz {
@@ -96,6 +131,8 @@ function summarise(
     totalQuestions: counts.total,
     questionsWithResult: counts.withResult,
     attempts: counts.attempts,
+    maxEntries: settings.maxEntries,
+    pointsPool: settings.pointsPool,
     settledAt,
     stage: quizStage({
       status: quiz.status,
@@ -119,6 +156,15 @@ async function attemptCounts(quizIds: string[]): Promise<Map<string, number>> {
   return counts;
 }
 
+/**
+ * Each quiz's entry limit and pool (the defaults when none are saved). A read error is thrown, never
+ * shown as "no pool": the admin could then settle the quiz, once and for good, without paying it.
+ */
+async function adminSettings(quizIds: string[]): Promise<(quizId: string) => QuizAdminSettings> {
+  const saved = await getQuizAdminSettings(quizIds);
+  return (quizId) => saved.get(quizId) ?? DEFAULT_QUIZ_ADMIN_SETTINGS;
+}
+
 /** Every quiz with its stage, plus the prizes (bumper ones included) that can be given as rewards. */
 export async function listSettlementQuizzes(nowMs: number): Promise<{ quizzes: SettlementQuiz[]; prizes: SettlementPrize[] }> {
   const db = getAdminDb();
@@ -131,7 +177,7 @@ export async function listSettlementQuizzes(nowMs: number): Promise<{ quizzes: S
   const quizzes = (quizzesRes.data || []) as QuizRow[];
   const ids = quizzes.map((q) => q.id);
 
-  const [questions, attempts, settlementsRes] = await Promise.all([
+  const [questions, attempts, settlementsRes, settingsFor] = await Promise.all([
     ids.length
       ? fetchAllByKeyset<{ id: string; quizId: string; hasCorrectAnswer: boolean }>(
           (after, limit) => {
@@ -146,6 +192,7 @@ export async function listSettlementQuizzes(nowMs: number): Promise<{ quizzes: S
     ids.length
       ? db.from('QuizSettlement').select('quizId, settledAt').in('quizId', ids)
       : Promise.resolve({ data: [], error: null }),
+    adminSettings(ids),
   ]);
   if (settlementsRes.error) throw settlementsRes.error;
 
@@ -162,6 +209,7 @@ export async function listSettlementQuizzes(nowMs: number): Promise<{ quizzes: S
     quizzes: quizzes.map((quiz) => summarise(
       quiz,
       { ...(questionCounts.get(quiz.id) || { total: 0, withResult: 0 }), attempts: attempts.get(quiz.id) || 0 },
+      settingsFor(quiz.id),
       settledAt.get(quiz.id) ?? null,
       nowMs,
     )),
@@ -172,12 +220,14 @@ export async function listSettlementQuizzes(nowMs: number): Promise<{ quizzes: S
 /** One quiz: its questions with any saved result, and the settlement with its winners once settled. */
 export async function getSettlementDetail(quizId: string, nowMs: number): Promise<SettlementDetail | null> {
   const db = getAdminDb();
-  const [quizRes, questionsRes, settlementRes, attempts] = await Promise.all([
+  const [quizRes, questionsRes, settlementRes, attempts, settingsFor] = await Promise.all([
     db.from('Quiz').select('id, title, status, quizType, pushedAt, duration').eq('id', quizId).maybeSingle(),
     db.from('Question').select('id, text, options, correctOption, hasCorrectAnswer')
       .eq('quizId', quizId).eq('status', 'active').order('createdAt', { ascending: true }),
-    db.from('QuizSettlement').select('settledAt, settledBy, tieRule, seed').eq('quizId', quizId).maybeSingle(),
+    // `*`: the pool columns come from a migration (06-20261022120000) and naming them before it is applied fails the read
+    db.from('QuizSettlement').select('*').eq('quizId', quizId).maybeSingle(),
     attemptCounts([quizId]),
+    adminSettings([quizId]),
   ]);
   if (quizRes.error) throw quizRes.error;
   if (questionsRes.error) throw questionsRes.error;
@@ -186,9 +236,17 @@ export async function getSettlementDetail(quizId: string, nowMs: number): Promis
 
   const rows = (questionsRes.data || []) as Array<{ id: string; text: string; options: unknown; correctOption: number | null; hasCorrectAnswer: boolean }>;
   const isNormalQuiz = (quizRes.data as QuizRow).quizType === 'normal';
-  const settlement = settlementRes.data as { settledAt: string; settledBy: string; tieRule: string; seed: string } | null;
+  const settlement = settlementRes.data as {
+    settledAt: string; settledBy: string; tieRule: string; seed: string; poolPercent?: number | string; poolPoints?: number;
+  } | null;
 
   let winners: SettledWinner[] = [];
+  let poolRecipients = 0;
+  if (settlement && (settlement.poolPoints ?? 0) > 0) {
+    const { count, error } = await db.from('QuizPoolShare').select('*', { count: 'exact', head: true }).eq('quizId', quizId);
+    if (error) throw error;
+    poolRecipients = count ?? 0;
+  }
   if (settlement) {
     const { data, error } = await db.from('QuizWinner')
       .select('rank, userId, score, selectionMethod, pointsAwarded, prizeId, User:userId (name, email), Prize:prizeId (name, category)')
@@ -218,6 +276,7 @@ export async function getSettlementDetail(quizId: string, nowMs: number): Promis
     quiz: summarise(
       quizRes.data as QuizRow,
       { total: rows.length, withResult: rows.filter((q) => q.hasCorrectAnswer).length, attempts: attempts.get(quizId) || 0 },
+      settingsFor(quizId),
       settlement?.settledAt ?? null,
       nowMs,
     ),
@@ -229,7 +288,16 @@ export async function getSettlementDetail(quizId: string, nowMs: number): Promis
       // result form (only saving the result closes the question). A prediction has no key before it.
       correctOption: q.hasCorrectAnswer || isNormalQuiz ? q.correctOption : null,
     })),
-    settlement: settlement ? { ...settlement, winners } : null,
+    settlement: settlement
+      ? {
+          settledAt: settlement.settledAt,
+          settledBy: settlement.settledBy,
+          tieRule: settlement.tieRule,
+          seed: settlement.seed,
+          winners,
+          pool: { percent: Number(settlement.poolPercent) || 0, points: settlement.poolPoints ?? 0, recipients: poolRecipients },
+        }
+      : null,
   };
 }
 
@@ -268,9 +336,12 @@ export async function saveQuizResult(quizId: string, answers: Record<string, num
   return { ok: true };
 }
 
-/** Run settle_quiz; with dryRun it returns the same winners and changes nothing. */
+/**
+ * Run settle_quiz; with dryRun it returns the same winners and pool shares and changes nothing.
+ * `poolPercent`: the share of the quiz's points pool to split at random among the entrants who scored.
+ */
 export async function runSettlement(input: {
-  quizId: string; rewards: Reward[]; tieRule: TieRule; seed: string; settledBy: string; dryRun: boolean;
+  quizId: string; rewards: Reward[]; tieRule: TieRule; seed: string; settledBy: string; dryRun: boolean; poolPercent: number;
 }): Promise<SettleResult> {
   const { data, error } = await getAdminDb().rpc('settle_quiz', {
     p_quiz_id: input.quizId,
@@ -279,9 +350,18 @@ export async function runSettlement(input: {
     p_seed: input.seed,
     p_settled_by: input.settledBy,
     p_dry_run: input.dryRun,
+    p_pool_percent: input.poolPercent,
   });
   if (error) throw error;
   return data as SettleResult;
+}
+
+/** A settle result for the admin's browser: the pool summary without the list of every recipient. */
+export function settleResultForBrowser(result: Extract<SettleResult, { success: true }>) {
+  // settle_quiz from before migration 06-20261022120000 returns no pool: the settlement still happened
+  if (!result.pool) return result;
+  const { recipientIds: _recipientIds, ...pool } = result.pool;
+  return { ...result, pool };
 }
 
 const PLACE = ['', '1st', '2nd', '3rd'];
@@ -320,8 +400,18 @@ export async function notifySettlement(result: Extract<SettleResult, { success: 
       },
       (a) => a.id,
     );
+    // Pool shares differ per player, so one message for all of them points to the profile for the amount
+    const poolIds = new Set(result.pool?.recipientIds ?? []);
+    if (poolIds.size > 0) {
+      await notificationDb.createBatchForUsers([...poolIds], {
+        title: '🎁 Bonus points',
+        message: `You received bonus points in "${result.quizTitle}". See your profile for your points.`,
+        type: 'prize_won',
+        link: '/profile',
+      });
+    }
     const winnerIds = new Set(result.winners.map((w) => w.userId));
-    const others = [...new Set(attempts.map((a) => a.userId))].filter((id) => !winnerIds.has(id));
+    const others = [...new Set(attempts.map((a) => a.userId))].filter((id) => !winnerIds.has(id) && !poolIds.has(id));
     await notificationDb.createBatchForUsers(others, {
       title: '🏅 Results are in',
       message: `Results for "${result.quizTitle}" are in. See how you did.`,

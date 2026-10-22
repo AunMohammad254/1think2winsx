@@ -4,15 +4,16 @@ import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { adminApiGuard } from '@/lib/admin-api-guard';
 import { createSecureJsonResponse } from '@/lib/security-headers';
-import { runSettlement } from '@/lib/quiz-settlement';
-import { rewardsSchema, settleErrorStatus } from '../schema';
+import { runSettlement, settleResultForBrowser } from '@/lib/quiz-settlement';
+import { poolPercentSchema, rewardsSchema, settleErrorStatus } from '../schema';
 
 const previewSchema = z.object({
   quizId: z.string().min(1),
   rewards: rewardsSchema,
   tieRule: z.enum(['random', 'earliest']),
-  // Reuse the seed of an earlier preview to keep a random tie-break stable while editing rewards
+  // Reuse the seed of an earlier preview to keep a random tie-break (and the pool shares) stable while editing
   seed: z.string().min(16).max(128).optional(),
+  poolPercent: poolPercentSchema,
 });
 
 /**
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     if (!result.success) {
       return NextResponse.json({ error: result.error, code: result.code }, { status: settleErrorStatus(result.code) });
     }
-    return createSecureJsonResponse({ result }, { status: 200 });
+    return createSecureJsonResponse({ result: settleResultForBrowser(result) }, { status: 200 });
   } catch (error) {
     console.error('[quiz-settlement] Preview failed:', error);
     return NextResponse.json({ error: 'Failed to preview the winners' }, { status: 500 });

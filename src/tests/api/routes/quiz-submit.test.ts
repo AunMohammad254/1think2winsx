@@ -115,6 +115,7 @@ describe('POST /api/quizzes/[id]/submit', () => {
     ['invalid', 400],
     ['forbidden', 403],
     ['closed', 403],
+    ['entries_closed', 403],
     ['something_new', 500],
   ])('maps the RPC code %s to HTTP %i', async (code, status) => {
     db.setRpc('submit_quiz_attempt', { data: { success: false, code, error: `reason ${code}` } });
@@ -134,6 +135,14 @@ describe('POST /api/quizzes/[id]/submit', () => {
     db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'closed' } });
     const res = await submit();
     expect((await res.json()).error).toBe('Failed to submit quiz');
+    expect(recordSecurityEvent).not.toHaveBeenCalled();
+  });
+
+  it('tells a player who comes after the entry limit that entries have closed, without a security event', async () => {
+    db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'entries_closed', error: 'Entries for this quiz have closed.' } });
+    const res = await submit();
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: 'Entries for this quiz have closed.' });
     expect(recordSecurityEvent).not.toHaveBeenCalled();
   });
 

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import { isWindowClosed, localWindowEnd } from '@/lib/quiz-clock';
+import { ENTRIES_CLOSED_MESSAGE } from '@/lib/quiz-entries';
 import { describeStart, formatClock } from '@/lib/live-countdown';
 import { isStreamFullscreen } from '@/lib/stream-fullscreen';
 import { isNotificationSoundOn, playChime } from '@/lib/notification-sound';
@@ -53,6 +54,12 @@ export interface LiveQuizPushHandle {
      * already open: reuses in-progress answers instead of resetting them.
      */
     open: (quizId: string) => void;
+    /**
+     * From every live check: whether this quiz is full for this viewer (full, and they are not one of its
+     * players). While it is, Lock in says entries have closed without sending a submit the server would
+     * refuse; false (the limit was raised, or the viewer got in) lets them submit again.
+     */
+    setEntriesClosed: (quizId: string, closed: boolean) => void;
 }
 
 interface LiveQuizPushProps {
@@ -255,7 +262,16 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         loadQuiz(quizId);
     }, [hideBanner, startFresh, loadQuiz]);
 
-    useImperativeHandle(ref, () => ({ notify, announce, open }), [notify, announce, open]);
+    const closedEntriesRef = useRef(new Set<string>());
+    // Quizzes this viewer locked in here. Their own entry may be what filled the quiz, and the page's
+    // next live check can say "full" before its personal list knows they entered.
+    const enteredRef = useRef(new Set<string>());
+    const setEntriesClosed = useCallback((quizId: string, closed: boolean) => {
+        if (closed && !enteredRef.current.has(quizId)) closedEntriesRef.current.add(quizId);
+        else closedEntriesRef.current.delete(quizId);
+    }, []);
+
+    useImperativeHandle(ref, () => ({ notify, announce, open, setEntriesClosed }), [notify, announce, open, setEntriesClosed]);
 
     // From the live banner or pill. Both show only for a pushed quiz, so there is always one to open;
     // a quiz already loaded is not fetched again.
@@ -303,6 +319,11 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             toast.error(TIME_UP_MESSAGE);
             return;
         }
+        // Full, and this viewer is not one of its players: the server would refuse the submit
+        if (closedEntriesRef.current.has(loaded.id)) {
+            toast.error(ENTRIES_CLOSED_MESSAGE);
+            return;
+        }
         setSubmitting(true);
         try {
             const csrfToken = await getCSRFToken();
@@ -322,6 +343,9 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                 toast.error(timeUp() ? TIME_UP_MESSAGE : data.error || 'Failed to submit');
                 return;
             }
+            // They are one of its players now: questions added later stay open to them even once it is full
+            enteredRef.current.add(loaded.id);
+            closedEntriesRef.current.delete(loaded.id);
             setLocked(true);
             toast.success('Answer locked in!');
             onAnswered?.();

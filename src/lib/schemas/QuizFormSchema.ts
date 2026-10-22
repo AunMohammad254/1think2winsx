@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { toUtcIso } from '@/lib/schedule-time';
+import { DEFAULT_MAX_ENTRIES, MAX_ENTRIES_LIMIT, MAX_POINTS_POOL } from '@/lib/quiz-entries';
 
 // ============================================
 // Option Schema
@@ -56,6 +57,18 @@ export const QuizFormBaseSchema = z.object({
     difficulty: z.enum(['easy', 'medium', 'hard']).default('medium'),
     status: z.enum(['draft', 'active', 'paused', 'scheduled', 'upcoming']).default('draft'),
     startsAt: z.string().nullable().optional(),
+    // Admin-only (QuizAdminSettings): players admitted first come, first served, and the points pool
+    // settlement can share among them. Neither is ever shown to players.
+    maxEntries: z.number()
+        .int('Entry limit must be a whole number')
+        .min(1, 'Entry limit must be at least 1')
+        .max(MAX_ENTRIES_LIMIT, `Entry limit cannot exceed ${MAX_ENTRIES_LIMIT.toLocaleString('en-US')}`)
+        .default(DEFAULT_MAX_ENTRIES),
+    pointsPool: z.number()
+        .int('Points pool must be a whole number')
+        .min(0, 'Points pool must be 0 or more')
+        .max(MAX_POINTS_POOL, `Points pool cannot exceed ${MAX_POINTS_POOL.toLocaleString('en-US')}`)
+        .default(0),
     // Prize-link fields (optional — non-prize quizzes leave these unset)
     prizeId: z.string().nullable().optional(),
     isBumperPrize: z.boolean().default(false),
@@ -174,6 +187,8 @@ export const defaultQuiz: QuizFormData = {
     difficulty: 'medium',
     status: 'draft',
     startsAt: null,
+    maxEntries: DEFAULT_MAX_ENTRIES,
+    pointsPool: 0,
     prizeId: null,
     isBumperPrize: false,
     quizType: 'normal',

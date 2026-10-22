@@ -148,6 +148,23 @@ describe('GET /api/admin/quizzes/[id]', () => {
     expect(recordSecurityEvent).toHaveBeenCalledWith('ADMIN_QUIZ_VIEWED', expect.anything(), 'admin-1', { quizId: 'quiz-1', title: 'T' });
   });
 
+  it("gives the admin the quiz's entry limit and points pool, or the defaults when none are saved", async () => {
+    adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
+    adminDb.setTable('QuizAdminSettings', { data: [{ quizId: 'quiz-1', maxEntries: 750, pointsPool: 30_000 }] });
+    expect((await (await get()).json()).quiz).toMatchObject({ maxEntries: 750, pointsPool: 30_000 });
+    adminDb.setTable('QuizAdminSettings', { data: [] });
+    expect((await (await get()).json()).quiz).toMatchObject({ maxEntries: 2000, pointsPool: 0 });
+    // Before the migration there is no table, so nothing can have been saved
+    adminDb.setTable('QuizAdminSettings', { error: { code: 'PGRST205', message: "Could not find the table 'public.QuizAdminSettings'" } });
+    expect((await (await get()).json()).quiz).toMatchObject({ maxEntries: 2000, pointsPool: 0 });
+  });
+
+  it('fails rather than show the defaults when the settings cannot be read, so a save cannot overwrite them', async () => {
+    adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
+    adminDb.setTable('QuizAdminSettings', { error: { code: '57014', message: 'canceling statement due to statement timeout' } });
+    expect((await get()).status).toBe(500);
+  });
+
   it('treats a missing completed-attempt count as none', async () => {
     adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
     adminDb.setTable('QuizAttempt', (call) => (isHead(call) ? { count: eqValue(call, 'isCompleted') ? null : 2 } : { data: [] }));

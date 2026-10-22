@@ -179,8 +179,53 @@ describe('getSettlementDetail', () => {
         { rank: 1, userId: 'u1', name: 'Ali', email: 'ali@x', score: 100, selectionMethod: 'ranked', points: null, prizeId: 'p1', prizeName: 'Bike', prizeCategory: 'bumper' },
         { rank: 2, userId: 'u2', name: null, email: null, score: 50, selectionMethod: 'ranked_random_tiebreak', points: 500, prizeId: null, prizeName: null, prizeCategory: null },
       ],
+      pool: { percent: 0, points: 0, recipients: 0 },
     });
     expect(eqValue(adminDb.callsTo('QuizWinner')[0], 'quizId')).toBe('q1');
+    // No pool was paid, so nobody's shares are counted
+    expect(adminDb.callsTo('QuizPoolShare')).toHaveLength(0);
+  });
+
+  it('gives the entry limit, the points pool and the pool a settlement shared', async () => {
+    adminDb.setTable('Quiz', { data: quizRow() });
+    adminDb.setTable('Question', { data: [] });
+    adminDb.setTable('QuizAdminSettings', { data: [{ quizId: 'q1', maxEntries: 3, pointsPool: 50_000 }] });
+    adminDb.setTable('QuizSettlement', { data: { settledAt: 't', settledBy: 'a', tieRule: 'random', seed: 's', poolPercent: '12.50', poolPoints: 6250 } });
+    adminDb.setTable('QuizPoolShare', { data: null, count: 840 });
+    adminDb.setTable('QuizWinner', { data: [] });
+    adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { data: [{ quiz_id: 'q1', attempt_count: 3 }] });
+
+    const detail = await lib.getSettlementDetail('q1', NOW);
+    expect(detail!.quiz).toMatchObject({ attempts: 3, maxEntries: 3, pointsPool: 50_000 });
+    expect(detail!.settlement!.pool).toEqual({ percent: 12.5, points: 6250, recipients: 840 });
+  });
+
+  it('counts no pool recipients when the count is missing, and fails loudly when it cannot be read', async () => {
+    adminDb.setTable('Quiz', { data: quizRow() });
+    adminDb.setTable('Question', { data: [] });
+    adminDb.setTable('QuizAdminSettings', { data: [] });
+    adminDb.setTable('QuizSettlement', { data: { settledAt: 't', settledBy: 'a', tieRule: 'random', seed: 's', poolPercent: 10, poolPoints: 500 } });
+    adminDb.setTable('QuizWinner', { data: [] });
+    adminDb.setTable('QuizPoolShare', { data: null, count: null });
+    expect((await lib.getSettlementDetail('q1', NOW))!.settlement!.pool).toEqual({ percent: 10, points: 500, recipients: 0 });
+    adminDb.setTable('QuizPoolShare', { error: { message: 'denied' } });
+    await expect(lib.getSettlementDetail('q1', NOW)).rejects.toEqual({ message: 'denied' });
+  });
+
+  it('uses the default limit and no pool before the migration, and fails loudly on any other read error', async () => {
+    adminDb.setTable('Quiz', { data: quizRow() });
+    adminDb.setTable('Question', { data: [] });
+    adminDb.setTable('QuizAdminSettings', { error: { code: '42P01', message: 'relation "QuizAdminSettings" does not exist' } });
+    adminDb.setTable('QuizSettlement', { data: null });
+    adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { data: [] });
+    expect((await lib.getSettlementDetail('q1', NOW))!.quiz).toMatchObject({ maxEntries: 2000, pointsPool: 0 });
+    // Showing "no pool" on a read error would let the admin settle, once and for good, without paying it
+    adminDb.setTable('QuizAdminSettings', { error: { code: '57014', message: 'statement timeout' } });
+    await expect(lib.getSettlementDetail('q1', NOW)).rejects.toEqual({ code: '57014', message: 'statement timeout' });
+    adminDb.setTable('Quiz', { data: [quizRow()] });
+    adminDb.setTable('Prize', { data: [] });
+    adminDb.setTable('QuizSettlement', { data: [] });
+    await expect(lib.listSettlementQuizzes(NOW)).rejects.toEqual({ code: '57014', message: 'statement timeout' });
   });
 
   it('settled with no winners rows yet reads as none', async () => {
@@ -277,16 +322,17 @@ describe('runSettlement', () => {
   it('calls settle_quiz with every argument and returns its answer', async () => {
     const answer = { success: true, winners: [] };
     adminDb.setRpc('settle_quiz', { data: answer });
-    const r = await lib.runSettlement({ quizId: 'q1', rewards: [{ rank: 1, points: 5 }], tieRule: 'earliest', seed: 's'.repeat(16), settledBy: 'admin@x', dryRun: true });
+    const r = await lib.runSettlement({ quizId: 'q1', rewards: [{ rank: 1, points: 5 }], tieRule: 'earliest', seed: 's'.repeat(16), settledBy: 'admin@x', dryRun: true, poolPercent: 12.5 });
     expect(r).toEqual(answer);
     expect(adminDb.rpcCalls[0]).toEqual({ fn: 'settle_quiz', args: {
       p_quiz_id: 'q1', p_rewards: [{ rank: 1, points: 5 }], p_tie_rule: 'earliest', p_seed: 's'.repeat(16), p_settled_by: 'admin@x', p_dry_run: true,
+      p_pool_percent: 12.5,
     } });
   });
 
   it('throws a database error', async () => {
     adminDb.setRpc('settle_quiz', { error: { message: 'boom' } });
-    await expect(lib.runSettlement({ quizId: 'q1', rewards: [], tieRule: 'random', seed: 'x', settledBy: 'a', dryRun: false })).rejects.toEqual({ message: 'boom' });
+    await expect(lib.runSettlement({ quizId: 'q1', rewards: [], tieRule: 'random', seed: 'x', settledBy: 'a', dryRun: false, poolPercent: 0 })).rejects.toEqual({ message: 'boom' });
   });
 });
 
@@ -295,9 +341,23 @@ describe('notifySettlement', () => {
     rank: 1, userId: 'u1', name: 'Ali', email: 'a@x', score: 100, tiedWith: 0, selectionMethod: 'ranked',
     points: null, prizeId: null, prizeName: null, prizeCategory: null, ...over,
   });
-  const result = (winners: unknown[]) => ({
+  const result = (winners: unknown[], recipientIds: string[] = []) => ({
     success: true as const, quizId: 'q1', quizTitle: 'Agli ball', participants: 4, questions: 1, tieRule: 'random' as const,
     seed: 's', winners: winners as never, unfilled: [],
+    pool: { percent: recipientIds.length ? 10 : 0, poolSize: 1000, target: 1000, places: recipientIds.length, paid: recipientIds.length ? 1000 : 0,
+      eligible: 3, recipients: recipientIds.length, min: 0, max: 0, recipientIds },
+  });
+
+  it('gives pool recipients one bonus notice, and leaves them out of the results-in batch', async () => {
+    adminDb.setTable('QuizWinner', { data: null });
+    adminDb.setTable('QuizAttempt', paged([{ id: 'a1', userId: 'u1' }, { id: 'a2', userId: 'u2' }, { id: 'a3', userId: 'u3' }]));
+
+    expect(await lib.notifySettlement(result([winner({ points: 50 })], ['u1', 'u2']))).toBe(true);
+
+    expect(createBatchForUsers).toHaveBeenNthCalledWith(1, ['u1', 'u2'], {
+      title: '🎁 Bonus points', message: 'You received bonus points in "Agli ball". See your profile for your points.', type: 'prize_won', link: '/profile',
+    });
+    expect(createBatchForUsers).toHaveBeenNthCalledWith(2, ['u3'], expect.objectContaining({ title: '🏅 Results are in' }));
   });
 
   it('tells each winner what they won and everyone else that results are in', async () => {
@@ -321,6 +381,14 @@ describe('notifySettlement', () => {
     expect(createBatchForUsers).toHaveBeenCalledWith(['u3'], {
       title: '🏅 Results are in', message: 'Results for "Agli ball" are in. See how you did.', type: 'general', link: '/quiz/q1/results',
     });
+  });
+
+  it('sends no bonus notice for a settlement from a database without the pool yet', async () => {
+    adminDb.setTable('QuizAttempt', paged([{ id: 'a1', userId: 'u1' }]));
+    const { pool: _pool, ...noPool } = result([]);
+    expect(await lib.notifySettlement(noPool as never)).toBe(true);
+    expect(createBatchForUsers).toHaveBeenCalledTimes(1);
+    expect(createBatchForUsers).toHaveBeenCalledWith(['u1'], expect.objectContaining({ title: '🏅 Results are in' }));
   });
 
   it('with no winners, only announces the results', async () => {

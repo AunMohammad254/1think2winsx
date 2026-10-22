@@ -59,7 +59,7 @@ const storeScrollLeft = (el: HTMLElement) => {
 let fetchMock: ReturnType<typeof vi.fn>;
 const liveQuiz = (id: string, over: Partial<LiveQuizData> = {}): LiveQuizData => ({
   id, title: `Quiz ${id}`, description: '', duration: 10, passingScore: 70, status: 'active', questionCount: 10,
-  totalAttempts: 0, pushedAt: null, startsAt: null, announcedAt: null, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
+  totalAttempts: 0, entriesClosed: false, pushedAt: null, startsAt: null, announcedAt: null, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
   prizeName: null, isBumperPrize: false, accessPrice: 0, ...over,
 });
 /** Answers the snapshot before rendering, the way it arrives from Cloudflare's cache. */
@@ -528,6 +528,18 @@ describe('CTA', () => {
     render(<CTA />);
     expect(screen.getByText('Next tournament starts in')).toBeInTheDocument();
     expect(screen.getByText('2,184 players')).toBeInTheDocument();
+  });
+
+  it("leaves a full quiz's plays out, so its secret entry limit can't be read off the page", async () => {
+    frames();
+    vi.setSystemTime(NOW);
+    await primeLive([
+      liveQuiz('full', { totalAttempts: null, entriesClosed: true }),
+      liveQuiz('open', { totalAttempts: 84 }),
+    ]);
+    render(<CTA />);
+    expect(screen.getByText('84 plays').parentElement).toHaveTextContent('84 plays so far on the current quizzes');
+    expect(screen.queryByText(/2,000/)).toBeNull();
   });
 
   it('counts down to the next real quiz, with its start in Pakistan time, and shows real plays', async () => {

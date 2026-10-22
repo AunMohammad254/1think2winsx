@@ -7,7 +7,9 @@ import type { Reward, SettlementDetail, SettlementPrize, SettlementQuiz, SettleR
 import { StageBadge } from '@/components/quiz-settlement/StageBadge';
 import { ResultForm } from '@/components/quiz-settlement/ResultForm';
 import { EMPTY_REWARD, RewardsEditor, toRewards, type RewardDraft } from '@/components/quiz-settlement/RewardsEditor';
+import { NO_POOL, PoolEditor, toPoolPercent, type PoolDraft } from '@/components/quiz-settlement/PoolEditor';
 import { WinnersTable } from '@/components/quiz-settlement/WinnersTable';
+import { formatCount } from '@/lib/numbers';
 
 type Filter = 'all' | QuizStage;
 const FILTERS: Filter[] = ['all', 'open', 'awaiting_result', 'ready_to_settle', 'settled'];
@@ -18,6 +20,17 @@ const NO_REWARDS: RewardDraft[] = [EMPTY_REWARD, EMPTY_REWARD, EMPTY_REWARD];
 const TIE_RULES: Record<string, string> = { random: 'Fair random draw', earliest: 'Earliest submission', legacy: 'Old lucky draw' };
 
 const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
+const fmt = formatCount;
+const entries = (q: SettlementQuiz) => `${fmt(q.attempts)} / ${fmt(q.maxEntries)} players${q.attempts >= q.maxEntries ? ' · entries closed' : ''}`;
+
+/** "50,000 pool points shared at random among the first 400 players who scored (20% of 2,000 entrants), 1 to 260 points each." */
+function poolLine(result: Preview): string | null {
+  const pool = result.pool;
+  if (!pool || pool.percent <= 0) return null;
+  if (pool.paid === 0) return `Points pool (first ${pool.percent}%): no entrant scored, so nothing is shared.`;
+  return `${fmt(pool.paid)} pool points shared at random among the first ${fmt(pool.recipients)} players who scored ` +
+    `(${pool.percent}% of ${fmt(result.participants)} entrants), ${fmt(pool.min)} to ${fmt(pool.max)} points each.`;
+}
 const pkTime = (iso: string) =>
   new Date(iso).toLocaleString('en-PK', { timeZone: 'Asia/Karachi', dateStyle: 'medium', timeStyle: 'short' });
 
@@ -58,7 +71,8 @@ export default function QuizSettlementManager() {
   const [confirmResult, setConfirmResult] = useState(false);
   const [drafts, setDrafts] = useState<RewardDraft[]>(NO_REWARDS);
   const [tieRule, setTieRule] = useState<TieRule>('random');
-  const [preview, setPreview] = useState<{ result: Preview; rewards: Reward[]; key: string } | null>(null);
+  const [pool, setPool] = useState<PoolDraft>(NO_POOL);
+  const [preview, setPreview] = useState<{ result: Preview; rewards: Reward[]; poolPercent: number; key: string } | null>(null);
   const [confirmSettle, setConfirmSettle] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
@@ -102,6 +116,7 @@ export default function QuizSettlementManager() {
     setConfirmResult(false);
     setDrafts(NO_REWARDS);
     setTieRule('random');
+    setPool(NO_POOL);
     setPreview(null);
     setConfirmSettle(false);
     setMessage(null);
@@ -127,7 +142,7 @@ export default function QuizSettlementManager() {
     }
   };
 
-  const rewardsKey = JSON.stringify({ drafts, tieRule });
+  const rewardsKey = JSON.stringify({ drafts, tieRule, pool });
   const previewFresh = preview !== null && preview.key === rewardsKey;
 
   const runPreview = async (quiz: SettlementQuiz) => {
@@ -136,14 +151,20 @@ export default function QuizSettlementManager() {
       setMessage({ type: 'error', text: parsed.error });
       return;
     }
+    const share = quiz.pointsPool > 0 ? toPoolPercent(pool) : { percent: 0 };
+    if ('error' in share) {
+      setMessage({ type: 'error', text: share.error });
+      return;
+    }
     setBusy(true);
     setMessage(null);
     setConfirmSettle(false);
     try {
-      // Reusing the seed keeps a random tie-break the same while the admin edits rewards
+      // Reusing the seed keeps a random tie-break and the pool shares the same while the admin edits rewards
       const data = await postJson('/api/admin/quiz-settlement/preview',
-        { quizId: quiz.id, rewards: parsed.rewards, tieRule, seed: preview?.result.seed }, 'Failed to preview the winners');
-      setPreview({ result: data.result, rewards: parsed.rewards, key: rewardsKey });
+        { quizId: quiz.id, rewards: parsed.rewards, tieRule, seed: preview?.result.seed, poolPercent: share.percent },
+        'Failed to preview the winners');
+      setPreview({ result: data.result, rewards: parsed.rewards, poolPercent: share.percent, key: rewardsKey });
     } catch (e) {
       setMessage({ type: 'error', text: errorText(e, 'Failed to preview the winners') });
     } finally {
@@ -151,18 +172,22 @@ export default function QuizSettlementManager() {
     }
   };
 
-  const settle = async (quiz: SettlementQuiz, fresh: { result: Preview; rewards: Reward[] }) => {
+  const settle = async (quiz: SettlementQuiz, fresh: { result: Preview; rewards: Reward[]; poolPercent: number }) => {
     setBusy(true);
     setMessage(null);
     try {
       const data = await postJson('/api/admin/quiz-settlement',
-        { quizId: quiz.id, rewards: fresh.rewards, tieRule, seed: fresh.result.seed }, 'Failed to settle the quiz');
+        { quizId: quiz.id, rewards: fresh.rewards, tieRule, seed: fresh.result.seed, poolPercent: fresh.poolPercent },
+        'Failed to settle the quiz');
       setPreview(null);
       setConfirmSettle(false);
       const paid = data.result.winners.length;
+      const poolPaid = data.result.pool?.paid ?? 0;
       setMessage({
         type: 'success',
-        text: `Settled: ${paid} ${paid === 1 ? 'winner' : 'winners'} paid. ${data.notified ? 'Players have been notified.' : 'Notifying players failed, but the rewards are paid.'}`,
+        text: `Settled: ${paid} ${paid === 1 ? 'winner' : 'winners'} paid` +
+          (poolPaid > 0 ? `, and ${fmt(poolPaid)} pool points shared among ${fmt(data.result.pool.recipients)} players` : '') +
+          `. ${data.notified ? 'Players have been notified.' : 'Notifying players failed, but the rewards are paid.'}`,
       });
       await refresh(quiz.id);
     } catch (e) {
@@ -225,7 +250,7 @@ export default function QuizSettlementManager() {
               <StageBadge stage={q.stage} />
             </div>
             <p className="text-xs text-gray-400">
-              {q.totalQuestions} {q.totalQuestions === 1 ? 'question' : 'questions'} · {q.attempts} {q.attempts === 1 ? 'player' : 'players'}
+              {q.totalQuestions} {q.totalQuestions === 1 ? 'question' : 'questions'} · {entries(q)}
             </p>
           </button>
         ))}
@@ -243,6 +268,9 @@ export default function QuizSettlementManager() {
             <p className="text-sm text-gray-400">
               {quiz.attempts} {quiz.attempts === 1 ? 'player' : 'players'} answered {quiz.totalQuestions} {quiz.totalQuestions === 1 ? 'question' : 'questions'}
               {quiz.closesAt ? ` · answering ${quiz.stage === 'open' ? 'closes' : 'closed'} ${pkTime(quiz.closesAt)}` : ''}
+            </p>
+            <p className="text-xs text-gray-500">
+              Entries: {entries(quiz)}{quiz.pointsPool > 0 ? ` · points pool ${fmt(quiz.pointsPool)}` : ''} (only admins see these)
             </p>
           </header>
 
@@ -323,6 +351,7 @@ export default function QuizSettlementManager() {
                 <RewardsEditor drafts={drafts} prizes={prizes} tieRule={tieRule} disabled={busy}
                   onChange={(i, d) => setDrafts((prev) => prev.map((old, j) => (j === i ? d : old)))}
                   onTieRule={setTieRule} />
+                <PoolEditor pointsPool={quiz.pointsPool} entrants={Math.min(quiz.attempts, quiz.maxEntries)} draft={pool} onChange={setPool} disabled={busy} />
                 <button type="button" disabled={busy} onClick={() => runPreview(quiz)}
                   className="rounded-xl bg-sky-600 px-5 py-2.5 font-semibold text-white disabled:opacity-50">
                   {busy && !previewFresh ? 'Working…' : 'Preview winners'}
@@ -336,6 +365,7 @@ export default function QuizSettlementManager() {
                 <div className="space-y-4 rounded-xl border border-sky-500/30 bg-sky-900/10 p-4">
                   <h3 className="font-semibold text-white">Preview: {preview.result.participants} {preview.result.participants === 1 ? 'player' : 'players'}</h3>
                   <WinnersTable winners={preview.result.winners} unfilled={preview.result.unfilled} />
+                  {poolLine(preview.result) && <p className="text-sm text-emerald-200">{poolLine(preview.result)}</p>}
                   {!confirmSettle ? (
                     <button type="button" disabled={busy} onClick={() => setConfirmSettle(true)}
                       className="rounded-xl bg-gradient-to-r from-violet-600 to-pink-600 px-5 py-2.5 font-semibold text-white disabled:opacity-50">
@@ -368,6 +398,11 @@ export default function QuizSettlementManager() {
                 Settled {pkTime(detail.settlement.settledAt)} by {detail.settlement.settledBy} · ties: {TIE_RULES[detail.settlement.tieRule] ?? detail.settlement.tieRule}
               </p>
               <WinnersTable winners={detail.settlement.winners} />
+              {detail.settlement.pool.percent > 0 && (
+                <p className="text-sm text-gray-300">
+                  Points pool (first {detail.settlement.pool.percent}% of entrants): {fmt(detail.settlement.pool.points)} points shared at random among {fmt(detail.settlement.pool.recipients)} players.
+                </p>
+              )}
               {detail.settlement.seed && (
                 <p className="break-all font-mono text-xs text-gray-500">Draw seed: {detail.settlement.seed}</p>
               )}

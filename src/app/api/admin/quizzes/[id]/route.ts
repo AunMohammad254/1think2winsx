@@ -7,6 +7,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings } from '@/lib/quiz-admin-settings';
 
 const updateQuizSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -160,6 +161,10 @@ export async function GET(
       title: quiz.title,
     });
 
+    // Admin-only entry limit and points pool, for the edit form (defaults if none are saved yet). A read
+    // error fails the request: the form would otherwise show the defaults and saving would overwrite them.
+    const settings = (await getQuizAdminSettings([quiz.id])).get(quiz.id) ?? DEFAULT_QUIZ_ADMIN_SETTINGS;
+
     return createSecureJsonResponse({
       quiz: {
         id: quiz.id,
@@ -173,6 +178,8 @@ export async function GET(
         isBumperPrize: quiz.isBumperPrize,
         quizType: quiz.quizType,
         startsAt: quiz.startsAt,
+        maxEntries: settings.maxEntries,
+        pointsPool: settings.pointsPool,
         createdAt: quiz.createdAt,
         updatedAt: quiz.updatedAt,
         questions: questions || [],

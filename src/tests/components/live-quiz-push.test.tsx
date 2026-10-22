@@ -463,6 +463,59 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(h.toast.error).toHaveBeenCalledWith('The time is up for the quiz. You cannot lock in answer.');
   });
 
+  it('says entries have closed, without submitting, once the page saw the quiz full', async () => {
+    setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(screen.getByText('2009'));
+    // Another quiz being full changes nothing here
+    act(() => ref.current!.setEntriesClosed('other', true));
+    h.fetchWithRetry.mockClear();
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ error: 'Entries for this quiz have closed.' }, 403));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Entries for this quiz have closed.'));
+    expect(h.fetchWithRetry).toHaveBeenCalledTimes(1); // the server said so
+
+    act(() => ref.current!.setEntriesClosed('q1', true));
+    h.fetchWithRetry.mockClear();
+    h.toast.error.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Entries for this quiz have closed.'));
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+    expect(screen.queryByText('Answer locked in — waiting for results')).toBeNull();
+
+    // The limit was raised: the next live check reopens it
+    act(() => ref.current!.setEntriesClosed('q1', false));
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
+  });
+
+  it('keeps a quiz open to a viewer whose own lock-in filled it, whatever the next live check says', async () => {
+    setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(screen.getByText('2009'));
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await screen.findByText('Answer locked in — waiting for results');
+    // The page's personal list hasn't caught up yet, so it still says "full" for this viewer
+    act(() => ref.current!.setEntriesClosed('q1', true));
+    // A question added later and pushed again: they can answer it
+    act(() => ref.current!.notify('q1', 'Live Cricket'));
+    fireEvent.click(screen.getByText('New quiz just dropped'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(screen.getByText('Rizwan'));
+    fireEvent.click(screen.getByText('1992'));
+    h.fetchWithRetry.mockClear();
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q1/submit', expect.anything(), expect.anything()));
+    expect(h.toast.error).not.toHaveBeenCalledWith('Entries for this quiz have closed.');
+  });
+
   it('ignores a submit while one is in flight', async () => {
     setup();
     act(() => ref.current!.open('q1'));
