@@ -72,6 +72,7 @@ export async function PUT(request: NextRequest) {
         ? await sendPasswordSetupEmail(supabase, user.email, captchaToken)
         : { ok: false, captchaFailed: false };
       if (!sent.ok) {
+        if (sent.limited) return NextResponse.json({ message: sent.error }, { status: 429 });
         return sent.captchaFailed
           ? NextResponse.json({ message: CAPTCHA_FAILED_MESSAGE }, { status: 400 })
           : NextResponse.json(

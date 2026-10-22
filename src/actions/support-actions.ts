@@ -2,6 +2,7 @@
 
 import { getAdminDb } from '@/lib/supabase/db';
 import { requireAdminSession } from '@/lib/admin-session';
+import { limitMessage, releaseEmails, reserveEmails } from '@/lib/email-quota';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
@@ -241,7 +242,10 @@ export async function resendVerificationEmailAction(userId: string) {
         
         const user = await userDb.findById(userId);
         if (!user || !user.email) return { success: false, error: 'User not found' };
-        
+
+        const slot = await reserveEmails('support');
+        if (!slot.ok) return { success: false, error: limitMessage('support', slot.retryAt) };
+
         // 1. Generate the raw verification link from Supabase (bypassing Supabase's email service).
         // A 'signup' link needs the user's password, which admins don't have; opening a magic link
         // confirms the email address as well.
@@ -252,9 +256,12 @@ export async function resendVerificationEmailAction(userId: string) {
                 redirectTo: SITE_URL
             }
         });
-        
-        if (linkError) throw linkError;
-        
+
+        if (linkError) {
+            await releaseEmails(slot.id);
+            throw linkError;
+        }
+
         const verificationUrl = linkData.properties.action_link;
         
         // 2. Send it using our native Nodemailer + Brevo setup
@@ -269,8 +276,11 @@ export async function resendVerificationEmailAction(userId: string) {
             text: mail.text
         });
 
-        if (!emailResult.success) throw new Error(emailResult.error);
-        
+        if (!emailResult.success) {
+            await releaseEmails(slot.id);
+            throw new Error(emailResult.error);
+        }
+
         await supabase.from('SecurityEvent').insert({
             type: 'ADMIN_RESEND_VERIFICATION_EMAIL',
             userId,
@@ -330,22 +340,31 @@ export async function sendNotificationAction(userId: string, title: string, mess
         });
         
         let emailSent = false;
+        // Why the email wasn't sent, when it is today's email limit (the notification is saved anyway)
+        let emailError: string | undefined;
         if (sendAsEmail) {
             const user = await userDb.findById(userId);
             if (user && user.email) {
-                const { sendEmail } = await import('@/lib/email');
-                const { buildAdminMessageEmail } = await import('@/lib/email-templates');
-                const mail = buildAdminMessageEmail({ title, message });
+                const slot = await reserveEmails('support');
+                if (!slot.ok) {
+                    emailError = limitMessage('support', slot.retryAt);
+                } else {
+                    const { sendEmail } = await import('@/lib/email');
+                    const { buildAdminMessageEmail } = await import('@/lib/email-templates');
+                    const mail = buildAdminMessageEmail({ title, message });
 
-                const emailResult = await sendEmail({
-                    to: user.email,
-                    subject: mail.subject,
-                    html: mail.html,
-                    text: mail.text
-                });
+                    const emailResult = await sendEmail({
+                        to: user.email,
+                        subject: mail.subject,
+                        html: mail.html,
+                        text: mail.text
+                    });
 
-                if (emailResult.success) {
-                    emailSent = true;
+                    if (emailResult.success) {
+                        emailSent = true;
+                    } else {
+                        await releaseEmails(slot.id);
+                    }
                 }
             }
         }
@@ -357,7 +376,7 @@ export async function sendNotificationAction(userId: string, title: string, mess
             severity: 'LOW'
         });
         
-        return { success: true, emailSent };
+        return { success: true, emailSent, emailError };
     } catch (e: any) {
         return { success: false, error: e.message || 'Failed to send notification' };
     }

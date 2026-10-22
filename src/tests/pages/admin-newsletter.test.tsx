@@ -11,8 +11,10 @@ import AdminNewsletterPage from '@/app/admin/(protected)/newsletter/page';
 
 let fetchMock: ReturnType<typeof vi.fn>;
 let confirmMock: ReturnType<typeof vi.fn>;
-const routes = (over: { list?: () => Response | Promise<Response>; del?: () => Response; send?: () => Response | Promise<Response> } = {}) =>
+const routes = (over: { list?: () => Response | Promise<Response>; del?: () => Response; send?: () => Response | Promise<Response>; quota?: () => Response | Promise<Response> } = {}) =>
   vi.fn(async (url: string, init?: RequestInit) => {
+    // The daily email count is hidden unless a test gives one
+    if (url.endsWith('/email-quota')) return over.quota?.() ?? jsonResponse({ success: false }, 500);
     if (url.endsWith('/send')) return over.send?.() ?? jsonResponse({ success: true, message: 'Sent to 2 subscribers' });
     if (init?.method === 'DELETE') return over.del?.() ?? jsonResponse({ success: true });
     return over.list?.() ?? jsonResponse({ subscribers: ['ali@x.com', 'sara@x.com'] });
@@ -52,7 +54,42 @@ describe('admin newsletter page', () => {
     fireEvent.change(screen.getByPlaceholderText('Search email...'), { target: { value: 'nobody' } });
     expect(screen.getByText('Try another search query')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Refresh list/ }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => u.endsWith('/subscribers'))).toHaveLength(2));
+  });
+
+  it("shows today's email count in Pakistan time, and refreshes it after each send", async () => {
+    const counts = [
+      { used: 1234, limit: 5000, reserve: 20, cap: 4980, remaining: 3766, capRemaining: 3746, nextFreeAt: '2099-01-01T15:15:00Z' },
+      { used: 0, limit: 299, reserve: 20, cap: 279, remaining: 299, capRemaining: 279, nextFreeAt: null },
+    ];
+    vi.stubGlobal('fetch', (fetchMock = routes({ quota: () => jsonResponse({ success: true, quota: counts.shift() ?? counts[0] }) })));
+    render(<AdminNewsletterPage />);
+    const card = await screen.findByTestId('email-quota');
+    expect(card).toHaveTextContent('1,234 / 5,000');
+    expect(card).toHaveTextContent('Emails in the last 24 hours');
+    expect(card).toHaveTextContent('Registrations and newsletters stop at 4,980 · next frees up Thu, Jan 1, 8:15 PM PKT');
+    expect(screen.queryByText('Brevo Email Service')).toBeNull();
+    expect(fetchMock.mock.calls.find(([u]) => u.endsWith('/email-quota'))![1].headers['x-csrf-token']).toBe('tok');
+
+    await loaded();
+    fill('Weekly update', 'Hello everyone, new quizzes!');
+    send();
+    await waitFor(() => expect(screen.getByTestId('email-quota')).toHaveTextContent('0 / 299'));
+    expect(screen.getByTestId('email-quota')).not.toHaveTextContent('next frees up');
+    fill('Weekly update', 'Hello everyone, new quizzes!'); // the dispatch cleared the form
+    fireEvent.change(screen.getByLabelText('Send a test first'), { target: { value: 'me@x.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send test' }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => u.endsWith('/email-quota'))).toHaveLength(3));
+  });
+
+  it('hides the email count when it cannot be read', async () => {
+    let fail = true;
+    vi.stubGlobal('fetch', routes({ quota: () => { if (fail) { fail = false; throw new Error('offline'); } return jsonResponse({ success: false }, 500); } }));
+    render(<AdminNewsletterPage />);
+    await loaded();
+    await waitFor(() => expect(console.error).toHaveBeenCalledWith('Error loading the daily email count:', expect.any(Error)));
+    expect(screen.getByText('Brevo Email Service')).toBeInTheDocument();
+    expect(screen.queryByTestId('email-quota')).toBeNull();
   });
 
   it('handles an empty list, an expired session and load failures', async () => {

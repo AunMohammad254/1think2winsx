@@ -34,6 +34,7 @@ export async function requestPasswordSetupEmail(captchaToken: string): Promise<{
 
         const sent = await sendPasswordSetupEmail(supabase, user.email, captchaToken);
         if (!sent.ok) {
+            if (sent.limited) return { error: sent.error };
             return { error: sent.captchaFailed ? CAPTCHA_FAILED_MESSAGE : "We couldn't send the email right now. Please try again in a minute." };
         }
         return { success: true, email: user.email };

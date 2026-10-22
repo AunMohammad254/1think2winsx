@@ -107,6 +107,12 @@ export async function sendEmailReminder(formData: FormData) {
             };
         }
 
+        const { limitMessage, releaseEmails, reserveEmails } = await import('@/lib/email-quota');
+        const slot = await reserveEmails('account');
+        if (!slot.ok) {
+            return { error: limitMessage('account', slot.retryAt) };
+        }
+
         const { sendEmail } = await import('@/lib/email');
         const { buildEmailReminderEmail } = await import('@/lib/email-templates');
         const mail = buildEmailReminderEmail({
@@ -116,6 +122,7 @@ export async function sendEmailReminder(formData: FormData) {
         const sent = await sendEmail({ to: found.user.email, subject: mail.subject, html: mail.html, text: mail.text });
 
         if (!sent.success) {
+            await releaseEmails(slot.id);
             console.error('Email reminder send failed:', sent.error);
             return { error: "We couldn't send the reminder email right now. Please try again later or contact support." };
         }

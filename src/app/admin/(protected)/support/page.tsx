@@ -203,7 +203,11 @@ export default function UserSupportPage() {
         setSuccessMsg(null);
         const result = await sendNotificationAction(userData.id, notifTitle, notifMessage, sendAsEmail);
         if (result.success) {
-            setSuccessMsg(result.emailSent ? 'Notification sent directly to user dashboard and via Email!' : 'Notification sent directly to user dashboard.');
+            setSuccessMsg(result.emailSent
+                ? 'Notification sent directly to user dashboard and via Email!'
+                : result.emailError
+                    ? `Notification sent directly to user dashboard. The email was not sent: ${result.emailError}`
+                    : 'Notification sent directly to user dashboard.');
             setNotifTitle('');
             setNotifMessage('');
             setSendAsEmail(false);

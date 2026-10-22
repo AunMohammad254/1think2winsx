@@ -16,6 +16,16 @@ vi.mock('@/lib/email-templates', () => ({
   buildVerifyEmailEmail: ({ verificationUrl }: { verificationUrl: string }) => ({ subject: 'Verify', html: verificationUrl, text: verificationUrl }),
   buildAdminMessageEmail: ({ title }: { title: string }) => ({ subject: title, html: title, text: title }),
 }));
+// The daily email limit: the real messages, a stand-in counter
+const reserveEmails = vi.fn();
+const releaseEmails = vi.fn();
+vi.mock('@/lib/email-quota', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/email-quota')>()),
+  reserveEmails: (...a: unknown[]) => reserveEmails(...a),
+  releaseEmails: (...a: unknown[]) => releaseEmails(...a),
+}));
+const LIMIT_REACHED = { ok: false, used: 299, cap: 299, remaining: 0, retryAt: null };
+const LIMIT_MESSAGE = "Today's email limit has been reached, so we can't send this email right now. Please try again tomorrow.";
 
 const s = await import('@/actions/support-actions');
 
@@ -24,7 +34,8 @@ const securityEvents = () => adminDb.callsTo('SecurityEvent', 'insert').map((c) 
 
 beforeEach(() => {
   adminDb = createSupabaseMock({ user: { id: 'u1', email: 'ali@example.test' } });
-  for (const fn of [requireAdminSession, sendEmail, ...Object.values(userDb), ...Object.values(notificationDb)]) fn.mockReset();
+  for (const fn of [requireAdminSession, sendEmail, reserveEmails, releaseEmails, ...Object.values(userDb), ...Object.values(notificationDb)]) fn.mockReset();
+  reserveEmails.mockResolvedValue({ ok: true, id: 3 });
   requireAdminSession.mockResolvedValue('boss@example.test');
   userDb.findById.mockResolvedValue(player);
   sendEmail.mockResolvedValue({ success: true });
@@ -191,6 +202,23 @@ describe('suspension and email verification', () => {
     userDb.findById.mockResolvedValueOnce(null);
     expect(await s.resendVerificationEmailAction('u1')).toEqual({ success: false, error: 'User not found' });
   });
+
+  it("counts the verification email against today's limit, giving it back when nothing is sent", async () => {
+    await s.resendVerificationEmailAction('u1');
+    expect(reserveEmails).toHaveBeenCalledWith('support');
+    expect(releaseEmails).not.toHaveBeenCalled();
+
+    sendEmail.mockResolvedValueOnce({ success: false, error: 'smtp down' });
+    await s.resendVerificationEmailAction('u1');
+    adminDb.auth.admin.generateLink.mockResolvedValueOnce({ data: null, error: new Error('rate limited') } as never);
+    await s.resendVerificationEmailAction('u1');
+    expect(releaseEmails.mock.calls).toEqual([[3], [3]]);
+
+    reserveEmails.mockResolvedValueOnce(LIMIT_REACHED);
+    sendEmail.mockClear();
+    expect(await s.resendVerificationEmailAction('u1')).toEqual({ success: false, error: LIMIT_MESSAGE });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
 });
 
 describe('impersonation, messages and refunds', () => {
@@ -211,6 +239,19 @@ describe('impersonation, messages and refunds', () => {
     expect(await s.sendNotificationAction('u1', 'Hi', 'There', true)).toEqual({ success: true, emailSent: false });
     userDb.findById.mockResolvedValueOnce(null);
     expect(await s.sendNotificationAction('u1', 'Hi', 'There', true)).toEqual({ success: true, emailSent: false });
+  });
+
+  it("saves the in-app message but not the email once today's email limit is reached, and says why", async () => {
+    sendEmail.mockResolvedValueOnce({ success: false });
+    await s.sendNotificationAction('u1', 'Hi', 'There', true);
+    expect(reserveEmails).toHaveBeenCalledWith('support');
+    expect(releaseEmails).toHaveBeenCalledExactlyOnceWith(3);
+
+    reserveEmails.mockResolvedValueOnce(LIMIT_REACHED);
+    sendEmail.mockClear();
+    expect(await s.sendNotificationAction('u1', 'Hi', 'There', true)).toEqual({ success: true, emailSent: false, emailError: LIMIT_MESSAGE });
+    expect(notificationDb.create).toHaveBeenCalledTimes(2);
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it('refunds an attempt to the wallet only after deleting it', async () => {

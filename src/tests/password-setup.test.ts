@@ -18,6 +18,8 @@ const h = vi.hoisted(() => {
         authLimit: vi.fn(),
         pwLimit: vi.fn(),
         userUpdate: vi.fn(),
+        reserveEmails: vi.fn(),
+        releaseEmails: vi.fn(),
     };
 });
 
@@ -47,6 +49,12 @@ vi.mock('@/lib/security-logger', () => ({
     securityLogger: { logUnauthorizedAccess: vi.fn(), logInvalidInput: vi.fn(), logAuthFailure: vi.fn() },
 }));
 vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: vi.fn() }));
+// The daily email limit: the real messages, a stand-in counter
+vi.mock('@/lib/email-quota', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/email-quota')>()),
+    reserveEmails: h.reserveEmails,
+    releaseEmails: h.releaseEmails,
+}));
 
 import { registerAction } from '@/actions/auth-actions';
 import { updatePassword } from '@/app/update-password/actions';
@@ -76,7 +84,11 @@ beforeEach(() => {
     h.auth.getSession.mockResolvedValue({ data: { session: null } });
     h.auth.updateUser.mockResolvedValue({ error: null });
     h.auth.getUser.mockResolvedValue({ data: { user: googleUser }, error: null });
+    h.reserveEmails.mockResolvedValue({ ok: true, id: 9 });
 });
+
+const LIMIT_REACHED = { ok: false, used: 299, cap: 299, remaining: 0, retryAt: null };
+const LIMIT_MESSAGE = "Today's email limit has been reached, so we can't send this email right now. Please try again tomorrow.";
 
 describe('registering with an email that already has an account (e.g. created with Google)', () => {
     it('emails a "set your password" link and answers exactly like a new sign-up', async () => {
@@ -177,6 +189,22 @@ describe('profile: "Email me a link to set a password" (Google-only account)', (
         expect(await requestPasswordSetupEmail('used')).toEqual({ error: 'The security check failed or expired. Please try again.' });
         expect(await requestPasswordSetupEmail('')).toEqual({ error: 'Please complete the security check.' });
     });
+
+    it("counts the email against today's limit, and gives it back when Supabase doesn't send it", async () => {
+        await requestPasswordSetupEmail('tok');
+        expect(h.reserveEmails).toHaveBeenCalledWith('password');
+        expect(h.releaseEmails).not.toHaveBeenCalled();
+
+        h.auth.resetPasswordForEmail.mockResolvedValue({ error: { message: 'smtp down' } });
+        await requestPasswordSetupEmail('tok');
+        expect(h.releaseEmails).toHaveBeenCalledExactlyOnceWith(9);
+    });
+
+    it("sends nothing once today's email limit is reached, and says so", async () => {
+        h.reserveEmails.mockResolvedValue(LIMIT_REACHED);
+        expect(await requestPasswordSetupEmail('tok')).toEqual({ error: LIMIT_MESSAGE });
+        expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
+    });
 });
 
 describe('API: PUT /api/profile/change-password', () => {
@@ -200,6 +228,14 @@ describe('API: PUT /api/profile/change-password', () => {
         expect(body.message).not.toMatch(/OAuth provider/i);
         expect(h.auth.resetPasswordForEmail).toHaveBeenCalledWith('fan@example.com', { redirectTo: EXPECTED_REDIRECT, captchaToken: 'tok' });
         expect(h.auth.signInWithPassword).not.toHaveBeenCalled();
+    });
+
+    it("answers 429 with the reason once today's email limit is reached", async () => {
+        h.reserveEmails.mockResolvedValue(LIMIT_REACHED);
+        const res = await put({ captchaToken: 'tok' });
+        expect(res.status).toBe(429);
+        expect(await res.json()).toEqual({ message: LIMIT_MESSAGE });
+        expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
     });
 
     it('leaves the normal change-password flow alone for email/password accounts', async () => {

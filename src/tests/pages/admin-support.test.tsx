@@ -308,6 +308,10 @@ describe('admin user support page', () => {
     expect(screen.getByRole('checkbox')).not.toBeChecked();
     send(false);
     expect(await success('Notification sent directly to user dashboard.')).toBeInTheDocument();
+    // today's email limit: the notification is saved and the admin is told why no email went out
+    h.sendNotificationAction.mockResolvedValueOnce(ok({ emailSent: false, emailError: "Today's email limit has been reached." }));
+    send(true);
+    expect(await success("Notification sent directly to user dashboard. The email was not sent: Today's email limit has been reached.")).toBeInTheDocument();
     h.sendNotificationAction.mockResolvedValueOnce(fail('Mailer down'));
     send(false);
     expect(await failure('Mailer down')).toBeInTheDocument();

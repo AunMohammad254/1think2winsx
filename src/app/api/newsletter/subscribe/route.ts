@@ -45,20 +45,29 @@ export async function POST(request: NextRequest) {
 
     // One confirmation email, only for a brand-new subscription (never on repeats). A failed send
     // must not fail the sign-up itself, so it is logged and the subscription still succeeds.
+    // Once today's email limit is used up the subscription is still saved, just without the email.
     let message = result.message;
     if (result.isNew) {
-      try {
-        const { sendEmail } = await import('@/lib/email');
-        const { buildNewsletterWelcomeEmail } = await import('@/lib/email-templates');
-        const mail = buildNewsletterWelcomeEmail({ email: normalizedEmail });
-        const sent = await sendEmail({ to: normalizedEmail, subject: mail.subject, html: mail.html, text: mail.text });
-        if (sent.success) {
-          message = 'Subscribed successfully! We sent you a confirmation email.';
-        } else {
-          console.error('Newsletter confirmation email failed:', sent.error);
+      const { releaseEmails, reserveEmails } = await import('@/lib/email-quota');
+      const slot = await reserveEmails('newsletter_signup');
+      if (!slot.ok) {
+        message = "You're subscribed. We couldn't send a welcome email today.";
+      } else {
+        try {
+          const { sendEmail } = await import('@/lib/email');
+          const { buildNewsletterWelcomeEmail } = await import('@/lib/email-templates');
+          const mail = buildNewsletterWelcomeEmail({ email: normalizedEmail });
+          const sent = await sendEmail({ to: normalizedEmail, subject: mail.subject, html: mail.html, text: mail.text });
+          if (sent.success) {
+            message = 'Subscribed successfully! We sent you a confirmation email.';
+          } else {
+            await releaseEmails(slot.id);
+            console.error('Newsletter confirmation email failed:', sent.error);
+          }
+        } catch (mailError) {
+          await releaseEmails(slot.id);
+          console.error('Newsletter confirmation email failed:', mailError);
         }
-      } catch (mailError) {
-        console.error('Newsletter confirmation email failed:', mailError);
       }
     }
 

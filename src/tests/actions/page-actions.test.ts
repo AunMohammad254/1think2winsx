@@ -6,6 +6,8 @@ const h = vi.hoisted(() => ({
   authLimit: vi.fn(),
   reminderLimit: vi.fn(),
   markPasswordSet: vi.fn(),
+  reserveEmails: vi.fn(),
+  releaseEmails: vi.fn(),
 }));
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: h.auth }) }));
 vi.mock('@/lib/supabase/db', () => ({ userDb: { findByPhone: (...a: unknown[]) => h.findByPhone(...a) } }));
@@ -17,6 +19,12 @@ vi.mock('@/lib/rate-limiter', () => ({
   },
 }));
 vi.mock('@/lib/password-flag', () => ({ markPasswordSet: (...a: unknown[]) => h.markPasswordSet(...a) }));
+// The daily email limit: the real messages, a stand-in counter
+vi.mock('@/lib/email-quota', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/email-quota')>()),
+  reserveEmails: (...a: unknown[]) => h.reserveEmails(...a),
+  releaseEmails: (...a: unknown[]) => h.releaseEmails(...a),
+}));
 
 import { resetPassword } from '@/app/forgot-password/actions';
 import { lookupEmailByPhone, sendEmailReminder } from '@/app/forgot-email/actions';
@@ -40,6 +48,7 @@ beforeEach(() => {
   h.authLimit.mockResolvedValue({ success: true });
   h.reminderLimit.mockResolvedValue({ success: true });
   h.findByPhone.mockResolvedValue({ id: 'u1', email: 'ab@example.com' });
+  h.reserveEmails.mockResolvedValue({ ok: true, id: 6 });
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => {
@@ -74,6 +83,23 @@ describe('resetPassword', () => {
     expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
     h.auth.resetPasswordForEmail.mockResolvedValue({ error: { message: 'captcha protection: request disallowed', code: 'captcha_failed' } });
     expect(await resetPassword(form({ email: 'ali@example.com', captchaToken: 'used' }))).toEqual({ error: 'The security check failed or expired. Please try again.' });
+  });
+
+  it("counts the reset email against today's limit, giving it back when Supabase sends nothing", async () => {
+    await resetPassword(form({ email: 'ali@example.com', captchaToken: 'tok' }));
+    expect(h.reserveEmails).toHaveBeenCalledWith('password');
+    expect(h.releaseEmails).not.toHaveBeenCalled();
+    h.auth.resetPasswordForEmail.mockResolvedValue({ error: { message: 'captcha protection: request disallowed', code: 'captcha_failed' } });
+    await resetPassword(form({ email: 'ali@example.com', captchaToken: 'used' }));
+    expect(h.releaseEmails).toHaveBeenCalledExactlyOnceWith(6);
+  });
+
+  it("sends nothing once today's email limit is reached, and says when to try again", async () => {
+    h.reserveEmails.mockResolvedValue({ ok: false, used: 299, cap: 299, remaining: 0, retryAt: null });
+    expect(await resetPassword(form({ email: 'ali@example.com', captchaToken: 'tok' }))).toEqual({
+      error: "Today's email limit has been reached, so we can't send this email right now. Please try again tomorrow.",
+    });
+    expect(h.auth.resetPasswordForEmail).not.toHaveBeenCalled();
   });
 });
 

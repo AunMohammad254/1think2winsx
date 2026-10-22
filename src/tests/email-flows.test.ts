@@ -30,6 +30,16 @@ vi.mock('@/lib/email', async (importOriginal) => ({
     sendEmail: (...a: unknown[]) => sendEmail(...a),
 }));
 
+// The daily email limit: the real messages, a stand-in counter
+const reserveEmails = vi.fn();
+const releaseEmails = vi.fn();
+vi.mock('@/lib/email-quota', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/email-quota')>()),
+    reserveEmails: (...a: unknown[]) => reserveEmails(...a),
+    releaseEmails: (...a: unknown[]) => releaseEmails(...a),
+}));
+const LIMIT_REACHED = { ok: false, used: 299, cap: 299, remaining: 0, retryAt: null };
+
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: vi.fn().mockResolvedValue(null) }));
 vi.mock('@/lib/security-headers', async () => {
     const { NextResponse } = await import('next/server');
@@ -55,6 +65,7 @@ beforeEach(() => {
     reminderLimit.mockResolvedValue({ success: true });
     findByPhone.mockResolvedValue({ id: 'u1', email: FULL_EMAIL, name: 'Ahmed' });
     sendEmail.mockResolvedValue({ success: true, messageId: 'm1' });
+    reserveEmails.mockResolvedValue({ ok: true, id: 5 });
 });
 
 describe('forgot-email: lookup', () => {
@@ -111,6 +122,18 @@ describe('forgot-email: "Email me a reminder"', () => {
         const res = await sendEmailReminder(phoneForm('03123456789'));
         expect(res.success).toBeUndefined();
         expect(res.error).toMatch(/couldn't send/i);
+        expect(releaseEmails).toHaveBeenCalledExactlyOnceWith(5);
+    });
+
+    it("counts the reminder against today's email limit, and sends nothing once it is reached", async () => {
+        await sendEmailReminder(phoneForm('03123456789'));
+        expect(reserveEmails).toHaveBeenCalledWith('account');
+        expect(releaseEmails).not.toHaveBeenCalled();
+
+        reserveEmails.mockResolvedValue(LIMIT_REACHED);
+        const res = await sendEmailReminder(phoneForm('03123456789'));
+        expect(res).toEqual({ error: "Today's email limit has been reached, so we can't send this email right now. Please try again tomorrow." });
+        expect(sendEmail).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -153,6 +176,25 @@ describe('newsletter subscription confirmation email', () => {
         expect(res.status).toBe(200);
         expect(body.success).toBe(true);
         expect(body.message).toBe('Subscribed successfully!');
+        expect(releaseEmails).toHaveBeenCalledExactlyOnceWith(5);
+
+        // a send that throws is given back too
+        sendEmail.mockRejectedValue(new Error('network'));
+        expect((await (await post('fan@example.com')).json()).message).toBe('Subscribed successfully!');
+        expect(releaseEmails).toHaveBeenCalledTimes(2);
+    });
+
+    it("counts the welcome email against today's limit, and still subscribes once the limit is reached", async () => {
+        subscribeEmail.mockResolvedValue({ success: true, isNew: true, message: 'Subscribed successfully!' });
+        await post('fan@example.com');
+        expect(reserveEmails).toHaveBeenCalledWith('newsletter_signup');
+
+        reserveEmails.mockResolvedValue(LIMIT_REACHED);
+        const res = await post('other@example.com');
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ success: true, message: "You're subscribed. We couldn't send a welcome email today." });
+        expect(sendEmail).toHaveBeenCalledTimes(1);
+        expect(subscribeEmail).toHaveBeenCalledWith('other@example.com');
     });
 });
 
