@@ -118,7 +118,7 @@ describe('POST /api/newsletter/subscribe', () => {
     sendEmail.mockResolvedValue({ success: true });
     expect(await (await post({ email: ' Ali@Example.test ' })).json()).toEqual({ success: true, message: 'Subscribed successfully! We sent you a confirmation email.' });
     expect(newsletterDb.subscribeEmail).toHaveBeenCalledWith('ali@example.test');
-    expect(sendEmail).toHaveBeenCalledWith({ to: 'ali@example.test', subject: 'Welcome', html: '<p>ali@example.test</p>', text: 'ali@example.test' });
+    expect(sendEmail).toHaveBeenCalledWith({ to: 'ali@example.test', subject: 'Welcome', html: '<p>ali@example.test</p>', text: 'ali@example.test', kind: 'newsletter_signup' });
   });
 
   it('never re-sends the email for a repeat sign-up, and survives a failed send', async () => {

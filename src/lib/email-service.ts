@@ -1,14 +1,16 @@
 /**
  * Email Dispatch Service
- * Utility for sending emails via Brevo SMTP HTTP API
+ * Sends newsletters through the service selected on the admin Email services page (Brevo or Amazon
+ * SES; see ./mail/mailer), one email per subscriber.
  */
 import logger from '@/lib/logger';
 import { emailShell } from '@/lib/email-theme';
 import { buildUnsubscribePageUrl, buildOneClickUnsubscribeUrl } from '@/lib/newsletter-unsubscribe';
-import { fetchWithRetry } from '@/lib/fetch-retry';
+import { activeProvider, logEntry, sendThrough, writeEmailLog, type EmailLogEntry } from '@/lib/mail/mailer';
+import { brevoApiKey } from '@/lib/mail/providers/brevo';
 
-/** Per-request ceiling for the Brevo API (seconds-long in practice; this only guards a hung connection). */
-const BREVO_TIMEOUT_MS = 15_000;
+/** Per-request ceiling (seconds-long in practice; this only guards a hung connection). */
+const SEND_TIMEOUT_MS = 15_000;
 
 interface SendEmailParams {
   senderEmail: string;
@@ -26,8 +28,8 @@ export async function sendNewsletterEmail({
   recipients
 }: SendEmailParams): Promise<{ success: boolean; sentCount: number; failedCount?: number; error?: string }> {
   try {
-    const brevoApiKey = process.env.BREVO_API_KEY;
-    if (!brevoApiKey) {
+    const provider = await activeProvider();
+    if (provider === 'brevo' && !brevoApiKey()) {
       throw new Error('BREVO_API_KEY is not configured in environment variables');
     }
 
@@ -46,42 +48,32 @@ export async function sendNewsletterEmail({
         '<a href="__UNSUBSCRIBE_URL__" target="_blank" style="color:#94a3b8;text-decoration:underline;">Unsubscribe</a>',
     });
 
-    // One email per subscriber: each needs its own unsubscribe link, and Brevo only
-    // allows headers (List-Unsubscribe) per request, not per recipient.
+    // One email per subscriber: each needs its own unsubscribe link and List-Unsubscribe header.
+    // Rate limits (Brevo 429, SES throttling) and outages are retried with backoff; a timeout is never
+    // retried, because the request may still have been processed and a repeat could email someone twice.
+    const log: EmailLogEntry[] = [];
     const sendOne = async (email: string) => {
-      // Brevo rate-limits bulk sends with 429, and a hung connection used to stall the whole blast
-      // (there was no timeout). Retry only the cases where the email was certainly NOT accepted
-      // (429 rate limit, 503 unavailable) with jittered backoff, and never retry a timeout: that
-      // request may still have been processed, and repeating it could email someone twice.
-      const response = await fetchWithRetry('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
+      const message = {
+        from: { name: senderName, email: senderEmail },
+        to: email,
+        subject,
+        html: htmlTemplate.replace('__UNSUBSCRIBE_URL__', buildUnsubscribePageUrl(email)),
+        // RFC 8058 one-click unsubscribe (Gmail/Yahoo bulk-sender requirement)
         headers: {
-          'accept': 'application/json',
-          'api-key': brevoApiKey,
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          sender: { name: senderName, email: senderEmail },
-          to: [{ email }],
-          subject,
-          htmlContent: htmlTemplate.replace('__UNSUBSCRIBE_URL__', buildUnsubscribePageUrl(email)),
-          // RFC 8058 one-click unsubscribe (Gmail/Yahoo bulk-sender requirement)
-          headers: {
-            'List-Unsubscribe': `<${buildOneClickUnsubscribeUrl(email)}>`,
-            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
-          }
-        })
-      }, { retries: 3, retryOn: [429, 503], baseDelayMs: 1_000, maxDelayMs: 20_000, timeoutMs: BREVO_TIMEOUT_MS, retryOnTimeout: false });
-      if (!response.ok) {
-        throw new Error(`Brevo API failed with status ${response.status}: ${await response.text()}`);
-      }
-      const data = await response.json();
-      logger.log('[Email] Brevo API response:', data);
+          'List-Unsubscribe': `<${buildOneClickUnsubscribeUrl(email)}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
+        }
+      };
+      const result = await sendThrough(provider, message, { retries: 3, timeoutMs: SEND_TIMEOUT_MS });
+      log.push(logEntry('newsletter', message, provider, result));
+      if (!result.ok) throw new Error(result.error);
+      logger.log('[Email] Accepted by %s:', provider, result.messageId);
     };
 
     let sentCount = 0;
     const failures: string[] = [];
-    const CONCURRENCY = 5;
+    // SES allows only a few sends a second (1 a second in its sandbox), so it goes one at a time
+    const CONCURRENCY = provider === 'ses' ? 1 : 5;
     for (let i = 0; i < recipients.length; i += CONCURRENCY) {
       const batch = recipients.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(batch.map(sendOne));
@@ -90,10 +82,11 @@ export async function sendNewsletterEmail({
           sentCount++;
         } else {
           console.error(`Newsletter send failed for recipient #${i + j + 1}:`, r.reason);
-          failures.push(r.reason instanceof Error ? r.reason.message : String(r.reason));
+          failures.push((r.reason as Error).message);
         }
       });
     }
+    await writeEmailLog(log);
 
     return {
       success: sentCount > 0,

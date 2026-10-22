@@ -192,7 +192,7 @@ describe('suspension and email verification', () => {
     const fresh = await import('@/actions/support-actions');
     expect(await fresh.resendVerificationEmailAction('u1')).toEqual({ success: true });
     expect(adminDb.auth.admin.generateLink).toHaveBeenCalledWith({ type: 'magiclink', email: 'ali@example.test', options: { redirectTo: 'https://site.example.test' } });
-    expect(sendEmail).toHaveBeenCalledWith({ to: 'ali@example.test', subject: 'Verify', html: 'https://example.test/link', text: 'https://example.test/link' });
+    expect(sendEmail).toHaveBeenCalledWith({ to: 'ali@example.test', subject: 'Verify', html: 'https://example.test/link', text: 'https://example.test/link', kind: 'support' });
     vi.unstubAllEnvs();
 
     sendEmail.mockResolvedValueOnce({ success: false, error: 'smtp down' });

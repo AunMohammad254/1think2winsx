@@ -1,60 +1,36 @@
 import { emailShell } from './email-theme';
+import { deliver } from './mail/mailer';
+import type { EmailKind } from './email-quota';
 
 export interface SendEmailOptions {
     to: string;
     subject: string;
     html: string;
     text?: string;
+    /** What the email is for, as counted by the daily limit; shown in the admin email log */
+    kind?: EmailKind;
 }
 
-export const sendEmail = async ({ to, subject, html, text }: SendEmailOptions) => {
-    try {
-        // 1. Prefer BREVO_API_KEY (set in both .env files, same as email-service.ts); fall back to
-        // the legacy base64-encoded JSON key, whose hyphenated name hosting panels can't set.
-        let apiKey: string | undefined = process.env.BREVO_API_KEY;
-        if (!apiKey) {
-            const base64Key = process.env['Bravo-MCP-API-key'];
-            if (!base64Key) {
-                throw new Error("Missing BREVO_API_KEY in environment");
-            }
-            apiKey = JSON.parse(Buffer.from(base64Key, 'base64').toString('utf-8')).api_key as string;
-        }
+/**
+ * Sends one email through the service selected on the admin Email services page (Brevo or Amazon SES;
+ * see ./mail/mailer). The sender must be on the domain verified with both services.
+ */
+export const sendEmail = async ({ to, subject, html, text, kind = 'account' }: SendEmailOptions) => {
+    const result = await deliver({
+        // Must be a verified sender (or authenticated domain), or the send is rejected
+        from: { email: process.env.BREVO_SENDER_EMAIL || 'support@1think2win.com', name: '1Think 2Win Support' },
+        to,
+        subject,
+        html,
+        text,
+    }, { kind });
 
-        // 3. Use Brevo's REST API (bypassing SMTP which had authentication failures)
-        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-            method: 'POST',
-            headers: {
-                'accept': 'application/json',
-                'api-key': apiKey,
-                'content-type': 'application/json'
-            },
-            body: JSON.stringify({
-                sender: {
-                    // Must be a verified sender (or authenticated domain) in Brevo, or the send is rejected
-                    email: process.env.BREVO_SENDER_EMAIL || 'support@1think2win.com',
-                    name: '1Think 2Win Support'
-                },
-                to: [{ email: to }],
-                subject: subject,
-                htmlContent: html,
-                textContent: text || "Please use an HTML compatible email client."
-            })
-        });
-
-        if (!response.ok) {
-            const errData = await response.json();
-            console.error('Brevo API Error:', errData);
-            throw new Error(errData.message || 'Failed to send email via Brevo REST API');
-        }
-
-        const data = await response.json();
-        console.log('Message sent via Brevo API: %s', data.messageId);
-        
-        return { success: true, messageId: data.messageId };
-    } catch (error: any) {
-        console.error('Error sending email via Brevo API:', error);
-        return { success: false, error: error.message };
+    if (!result.success) {
+        console.error('Error sending email:', result.error);
+        return { success: false, error: result.error };
     }
+    console.log('Message sent via %s: %s', result.provider, result.messageId);
+    return { success: true, messageId: result.messageId };
 };
 
 /**

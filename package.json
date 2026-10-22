@@ -44,6 +44,7 @@
     "@sentry/nextjs": "11.8.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.108.2",
+    "aws4fetch": "1.0.20",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "cloudinary": "^2.11.0",
@@ -60,6 +61,7 @@
     "sanitize-html": "^2.17.7",
     "sharp": "^0.35.5",
     "sonner": "^2.0.7",
+    "standardwebhooks": "^1.1.1",
     "tailwind-merge": "^3.6.0",
     "web-push": "^3.6.7",
     "zod": "^4.4.3"

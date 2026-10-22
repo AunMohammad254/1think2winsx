@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
           const { sendEmail } = await import('@/lib/email');
           const { buildNewsletterWelcomeEmail } = await import('@/lib/email-templates');
           const mail = buildNewsletterWelcomeEmail({ email: normalizedEmail });
-          const sent = await sendEmail({ to: normalizedEmail, subject: mail.subject, html: mail.html, text: mail.text });
+          const sent = await sendEmail({ to: normalizedEmail, subject: mail.subject, html: mail.html, text: mail.text, kind: 'newsletter_signup' });
           if (sent.success) {
             message = 'Subscribed successfully! We sent you a confirmation email.';
           } else {
