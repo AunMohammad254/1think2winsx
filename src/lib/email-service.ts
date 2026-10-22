@@ -11,6 +11,10 @@ import { brevoApiKey } from '@/lib/mail/providers/brevo';
 
 /** Per-request ceiling (seconds-long in practice; this only guards a hung connection). */
 const SEND_TIMEOUT_MS = 15_000;
+/** Newsletter emails started per second through SES: under the account's 14-a-second limit. */
+export const SES_PER_SECOND = 12;
+
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 interface SendEmailParams {
   senderEmail: string;
@@ -28,13 +32,14 @@ export async function sendNewsletterEmail({
   recipients
 }: SendEmailParams): Promise<{ success: boolean; sentCount: number; failedCount?: number; error?: string }> {
   try {
+    // Nothing to send: answer before looking anything up (the selected service is a database read)
+    if (!recipients || recipients.length === 0) {
+      return { success: true, sentCount: 0, failedCount: 0 };
+    }
+
     const provider = await activeProvider();
     if (provider === 'brevo' && !brevoApiKey()) {
       throw new Error('BREVO_API_KEY is not configured in environment variables');
-    }
-
-    if (!recipients || recipients.length === 0) {
-      return { success: true, sentCount: 0, failedCount: 0 };
     }
 
     // Branded wrapper (see ./email-theme); __UNSUBSCRIBE_URL__ is filled in per recipient.
@@ -72,11 +77,16 @@ export async function sendNewsletterEmail({
 
     let sentCount = 0;
     const failures: string[] = [];
-    // SES allows only a few sends a second (1 a second in its sandbox), so it goes one at a time
-    const CONCURRENCY = provider === 'ses' ? 1 : 5;
+    // SES allows 14 sends a second on this account, so it gets groups of 12 started at most once a
+    // second (a group finishes in well under a second, even to the Sydney region). Brevo gets groups of 5.
+    const CONCURRENCY = provider === 'ses' ? SES_PER_SECOND : 5;
     for (let i = 0; i < recipients.length; i += CONCURRENCY) {
+      const startedAt = Date.now();
       const batch = recipients.slice(i, i + CONCURRENCY);
       const results = await Promise.allSettled(batch.map(sendOne));
+      if (provider === 'ses' && i + CONCURRENCY < recipients.length) {
+        await pause(Math.max(0, 1_000 - (Date.now() - startedAt)));
+      }
       results.forEach((r, j) => {
         if (r.status === 'fulfilled') {
           sentCount++;
@@ -100,7 +110,7 @@ export async function sendNewsletterEmail({
     return {
       success: false,
       sentCount: 0,
-      failedCount: recipients?.length ?? 0,
+      failedCount: recipients.length,
       error: msg
     };
   }
