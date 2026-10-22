@@ -2,16 +2,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({ default: { log: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// Brevo is the selected service unless a test sets the AppSettings row; the email log accepts every insert
+const dbState = vi.hoisted(() => ({ provider: null as string | null }));
+vi.mock('@/lib/supabase/db', async () => {
+  const { createSupabaseMock } = await import('@/tests/helpers/supabase-mock');
+  const db = createSupabaseMock({ tables: { AppSettings: () => ({ data: dbState.provider ? { value: dbState.provider } : null }) } });
+  return { getAdminDb: () => db.client };
+});
 vi.mock('@/lib/newsletter-unsubscribe', () => ({
   buildUnsubscribePageUrl: (e: string) => `https://x.test/unsub?e=${e}`,
   buildOneClickUnsubscribeUrl: (e: string) => `https://x.test/oneclick?e=${e}`,
 }));
 
 import { sendNewsletterEmail } from '@/lib/email-service';
+import { invalidateProviderCache } from '@/lib/mail/mailer';
 
 const ok = () => new Response(JSON.stringify({ messageId: 'm' }), { status: 201 });
 
 beforeEach(() => {
+  dbState.provider = null;
+  invalidateProviderCache();
   process.env.BREVO_API_KEY = 'test-key';
   // zero jitter: retries wait 0 ms so the tests are instant
   vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -95,6 +105,29 @@ describe('sendNewsletterEmail resilience', () => {
   it('reports a failure that is not an Error object', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue('socket hang up'));
     const res = await send(['a@x.test']);
-    expect(res).toMatchObject({ sentCount: 0, error: '1 of 1 failed. First error: socket hang up' });
+    expect(res).toMatchObject({ sentCount: 0, error: '1 of 1 failed. First error: Brevo could not be reached: socket hang up' });
+  });
+
+  it('sends through Amazon SES one at a time once an admin selected it', async () => {
+    dbState.provider = 'ses';
+    vi.stubEnv('AWS_SES_ACCESS_KEY_ID', 'AKID');
+    vi.stubEnv('AWS_SES_SECRET_ACCESS_KEY', 'secret');
+    let inFlight = 0;
+    let most = 0;
+    const f = vi.fn(async (request: Request) => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      return new Response(JSON.stringify({ MessageId: `ses-${request.url.length}` }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', f);
+    try {
+      expect(await send(['a@x.test', 'b@x.test', 'c@x.test'])).toEqual({ success: true, sentCount: 3, failedCount: 0, error: undefined });
+      expect(f.mock.calls.every(([r]) => r.url === 'https://email.ap-southeast-2.amazonaws.com/v2/email/outbound-emails')).toBe(true);
+      expect(most).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

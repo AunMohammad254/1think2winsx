@@ -272,6 +272,7 @@ export default function AdminNewsletterPage() {
                   Registrations and newsletters stop at {formatCount(quota.cap)}
                   {quota.nextFreeAt ? ` · next frees up ${formatBusinessStart(quota.nextFreeAt)}` : ''}
                 </p>
+                <Link href="/admin/email" className="text-[11px] text-blue-400 hover:text-blue-300 underline">Email services and log</Link>
               </div>
             ) : (
               <div>

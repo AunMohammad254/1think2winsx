@@ -119,7 +119,7 @@ export async function sendEmailReminder(formData: FormData) {
             email: found.user.email,
             phoneLast4: found.normalizedPhone.slice(-4),
         });
-        const sent = await sendEmail({ to: found.user.email, subject: mail.subject, html: mail.html, text: mail.text });
+        const sent = await sendEmail({ to: found.user.email, subject: mail.subject, html: mail.html, text: mail.text, kind: 'account' });
 
         if (!sent.success) {
             await releaseEmails(slot.id);

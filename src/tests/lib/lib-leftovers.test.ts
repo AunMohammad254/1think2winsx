@@ -630,6 +630,12 @@ describe('quiz catalogue', () => {
 });
 
 describe('sendEmail (Brevo REST)', () => {
+  // Brevo is the selected service (no AppSettings row), and the email log accepts every insert
+  beforeEach(() => {
+    const db = createSupabaseMock();
+    vi.doMock('@/lib/supabase/db', () => ({ getAdminDb: () => db.client }));
+  });
+
   it('sends with BREVO_API_KEY and the verified sender', async () => {
     vi.stubEnv('BREVO_API_KEY', 'live-key');
     vi.stubEnv('BREVO_SENDER_EMAIL', 'news@example.test');
@@ -659,12 +665,12 @@ describe('sendEmail (Brevo REST)', () => {
     vi.stubEnv('BREVO_API_KEY', '');
     vi.stubEnv('Bravo-MCP-API-key', '');
     const { sendEmail, generateBeautifulEmailTemplate } = await import('@/lib/email');
-    expect(await sendEmail({ to: 'a', subject: 's', html: 'h' })).toEqual({ success: false, error: 'Missing BREVO_API_KEY in environment' });
+    expect(await sendEmail({ to: 'a', subject: 's', html: 'h' })).toEqual({ success: false, error: 'Brevo is not configured (BREVO_API_KEY is missing)' });
     vi.stubEnv('BREVO_API_KEY', 'k');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: 'unauthorized sender' }), { status: 400 })));
-    expect(await sendEmail({ to: 'a', subject: 's', html: 'h' })).toEqual({ success: false, error: 'unauthorized sender' });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 500 })));
-    expect((await sendEmail({ to: 'a', subject: 's', html: 'h' })).error).toBe('Failed to send email via Brevo REST API');
+    expect(await sendEmail({ to: 'a', subject: 's', html: 'h' })).toEqual({ success: false, error: 'Brevo refused the email (400): unauthorized sender' });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('not json', { status: 500 })));
+    expect((await sendEmail({ to: 'a', subject: 's', html: 'h' })).error).toBe('Brevo refused the email (500): no reason given');
     expect(generateBeautifulEmailTemplate('Title <x>', '<p>body</p>')).toContain('<p>body</p>');
   });
 });

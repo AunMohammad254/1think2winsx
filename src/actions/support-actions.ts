@@ -273,7 +273,8 @@ export async function resendVerificationEmailAction(userId: string) {
             to: user.email,
             subject: mail.subject,
             html: mail.html,
-            text: mail.text
+            text: mail.text,
+            kind: 'support'
         });
 
         if (!emailResult.success) {
@@ -357,7 +358,8 @@ export async function sendNotificationAction(userId: string, title: string, mess
                         to: user.email,
                         subject: mail.subject,
                         html: mail.html,
-                        text: mail.text
+                        text: mail.text,
+                        kind: 'support'
                     });
 
                     if (emailResult.success) {
