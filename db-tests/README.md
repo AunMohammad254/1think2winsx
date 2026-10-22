@@ -19,6 +19,10 @@ wrong SQL. Covered so far:
 - Admin claim decisions: `update_claim_status` approves, rejects (refund and restock) or marks a claim
   delivered only along the admin screen's steps, refunds once under concurrent rejects, has a single
   overload, and only the service role can call it
+- Daily email limit: `reserve_email_quota` stops registrations and newsletters at 279 and the
+  password, account and support emails at 299 over a rolling 24 hours, gives the exact retry time,
+  lets exactly the cap through under concurrent requests, and reads its numbers from `AppSettings`;
+  `release_email_quota`, `email_quota_status`, and that only the service role can reach any of it
 
 ## Running locally
 

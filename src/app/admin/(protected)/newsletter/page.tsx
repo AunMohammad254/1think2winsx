@@ -16,6 +16,9 @@ import {
   FileText
 } from 'lucide-react';
 import { getCSRFHeaders } from '@/lib/csrf';
+import { formatCount } from '@/lib/numbers';
+import { formatBusinessStart } from '@/lib/schedule-time';
+import type { EmailQuotaStatus } from '@/lib/email-quota';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -63,9 +66,24 @@ export default function AdminNewsletterPage() {
     }
   }, []);
 
+  // Emails sent in the last 24 hours against the daily limit; null hides the count
+  const [quota, setQuota] = useState<EmailQuotaStatus | null>(null);
+  const fetchQuota = useCallback(async () => {
+    try {
+      const csrfHeaders = await getCSRFHeaders();
+      const response = await fetch('/api/admin/email-quota', { headers: { ...csrfHeaders } });
+      const data = await response.json();
+      setQuota(response.ok && data.success ? data.quota : null);
+    } catch (error) {
+      console.error('Error loading the daily email count:', error);
+      setQuota(null);
+    }
+  }, []);
+
   useEffect(() => {
     fetchSubscribers();
-  }, [fetchSubscribers]);
+    fetchQuota();
+  }, [fetchSubscribers, fetchQuota]);
 
   // Handle subscriber deletion
   const handleDeleteSubscriber = async (email: string) => {
@@ -156,6 +174,7 @@ export default function AdminNewsletterPage() {
       toast.error('An error occurred. Please try again.');
     } finally {
       setSendingTest(false);
+      fetchQuota();
     }
   };
 
@@ -191,6 +210,7 @@ export default function AdminNewsletterPage() {
       toast.error('An error occurred. Please try again.');
     } finally {
       setSending(false);
+      fetchQuota();
     }
   };
 
@@ -244,10 +264,21 @@ export default function AdminNewsletterPage() {
             <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
               <Mail className="w-6 h-6" />
             </div>
-            <div>
-              <p className="text-2xl font-bold text-white">Active</p>
-              <p className="text-sm text-gray-400">Brevo Email Service</p>
-            </div>
+            {quota ? (
+              <div data-testid="email-quota">
+                <p className="text-2xl font-bold text-white">{formatCount(quota.used)} / {formatCount(quota.limit)}</p>
+                <p className="text-sm text-gray-400">Emails in the last 24 hours</p>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Registrations and newsletters stop at {formatCount(quota.cap)}
+                  {quota.nextFreeAt ? ` · next frees up ${formatBusinessStart(quota.nextFreeAt)}` : ''}
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-2xl font-bold text-white">Active</p>
+                <p className="text-sm text-gray-400">Brevo Email Service</p>
+              </div>
+            )}
           </div>
 
           <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6 flex items-center gap-4">

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 import { siteUrl } from '@/lib/site-url';
 import { CAPTCHA_FAILED_MESSAGE, CAPTCHA_REQUIRED_MESSAGE, isCaptchaError } from '@/lib/captcha';
+import { limitMessage, releaseEmails, reserveEmails } from '@/lib/email-quota';
 
 const forgotPasswordSchema = z.object({
     email: z.string().email('Please enter a valid email address'),
@@ -22,12 +23,19 @@ export async function resetPassword(formData: FormData) {
         return { error: CAPTCHA_REQUIRED_MESSAGE };
     }
 
+    // Counted whether or not the address has an account (Supabase doesn't say), so the count errs high
+    const slot = await reserveEmails('password');
+    if (!slot.ok) {
+        return { error: limitMessage('password', slot.retryAt) };
+    }
+
     const supabase = await createClient();
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${siteUrl()}/auth/callback?next=/update-password`,
         captchaToken,
     });
+    if (error) await releaseEmails(slot.id);
 
     // A failed check says nothing about the account, so it is safe (and necessary) to report
     if (isCaptchaError(error)) {

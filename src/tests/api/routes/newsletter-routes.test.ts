@@ -19,16 +19,28 @@ vi.mock('@/lib/email-service', () => ({ sendNewsletterEmail: (...a: unknown[]) =
 vi.mock('@/lib/email', () => ({ sendEmail: (...a: unknown[]) => sendEmail(...a) }));
 vi.mock('@/lib/email-templates', () => ({ buildNewsletterWelcomeEmail: ({ email }: { email: string }) => ({ subject: 'Welcome', html: `<p>${email}</p>`, text: email }) }));
 vi.mock('@/lib/security-logger', () => ({ securityLogger: { logSecurityEvent: (...a: unknown[]) => logSecurityEvent(...a) } }));
+// The daily email limit: the real messages, a stand-in counter
+const reserveEmails = vi.fn();
+const releaseEmails = vi.fn();
+const getEmailQuotaStatus = vi.fn();
+vi.mock('@/lib/email-quota', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/email-quota')>()),
+  reserveEmails: (...a: unknown[]) => reserveEmails(...a),
+  releaseEmails: (...a: unknown[]) => releaseEmails(...a),
+  getEmailQuotaStatus: (...a: unknown[]) => getEmailQuotaStatus(...a),
+}));
 
 const SECRET = 's'.repeat(40);
 const subscribers = await import('@/app/api/admin/newsletter/subscribers/route');
 const send = await import('@/app/api/admin/newsletter/send/route');
 const unsubscribe = await import('@/app/api/newsletter/unsubscribe/route');
 const subscribe = await import('@/app/api/newsletter/subscribe/route');
+const emailQuota = await import('@/app/api/admin/email-quota/route');
 const tokens = await import('@/lib/newsletter-unsubscribe');
 
 beforeEach(() => {
-  for (const fn of [validateAdminSession, requireCSRFToken, applyRateLimit, sendNewsletterEmail, sendEmail, logSecurityEvent, ...Object.values(newsletterDb)]) fn.mockReset();
+  for (const fn of [validateAdminSession, requireCSRFToken, applyRateLimit, sendNewsletterEmail, sendEmail, logSecurityEvent, reserveEmails, releaseEmails, getEmailQuotaStatus, ...Object.values(newsletterDb)]) fn.mockReset();
+  reserveEmails.mockResolvedValue({ ok: true, id: 8 });
   validateAdminSession.mockResolvedValue({ valid: true, email: 'boss@example.test' });
   requireCSRFToken.mockResolvedValue(null);
   applyRateLimit.mockResolvedValue(null);
@@ -246,5 +258,96 @@ describe('POST /api/admin/newsletter/send', () => {
     expect((await post(good)).status).toBe(403);
     newsletterDb.getSubscribers.mockRejectedValueOnce(new Error('db'));
     expect((await post(good)).status).toBe(500);
+  });
+
+  describe("today's email limit", () => {
+    beforeEach(() => {
+      vi.stubEnv('BREVO_SENDER_EMAIL', 'noreply@example.test');
+      vi.useFakeTimers({ now: new Date('2026-10-22T10:00:00Z'), toFake: ['Date'] }); // 3:00 PM PKT
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('counts the whole newsletter first and keeps only the emails Brevo accepted', async () => {
+      newsletterDb.getSubscribers.mockResolvedValue(['a@x', 'b@x', 'c@x']);
+      sendNewsletterEmail.mockResolvedValue({ success: true, sentCount: 3, failedCount: 0 });
+      await post(good);
+      expect(reserveEmails).toHaveBeenCalledWith('newsletter', 3);
+      expect(releaseEmails).not.toHaveBeenCalled();
+
+      sendNewsletterEmail.mockResolvedValue({ success: true, sentCount: 2, failedCount: 1 });
+      await post(good);
+      sendNewsletterEmail.mockResolvedValue({ success: false, sentCount: 0, error: 'brevo down' });
+      await post(good);
+      expect(releaseEmails.mock.calls).toEqual([[8, 2], [8, 0]]);
+    });
+
+    it('refuses a newsletter that does not fit, saying how many are left and when more free up', async () => {
+      newsletterDb.getSubscribers.mockResolvedValue(Array.from({ length: 1450 }, (_, i) => `s${i}@x`));
+      reserveEmails.mockResolvedValue({ ok: false, used: 159, cap: 279, remaining: 120, retryAt: '2026-10-22T15:15:00Z' });
+      const res = await post(good);
+      expect(res.status).toBe(429);
+      expect(await res.json()).toEqual({
+        success: false,
+        message: "Today's email limit has been reached: only 120 emails are left for newsletters and this one needs 1,450 emails. Enough free up today after 8:15 PM PKT.",
+      });
+      expect(sendNewsletterEmail).not.toHaveBeenCalled();
+
+      newsletterDb.getSubscribers.mockResolvedValue(['a@x']);
+      reserveEmails.mockResolvedValue({ ok: false, used: 278, cap: 279, remaining: 1, retryAt: '2026-10-23T01:00:00Z' });
+      expect((await (await post(good)).json()).message).toBe(
+        "Today's email limit has been reached: only 1 email is left for newsletters and this one needs 1 email. Enough free up tomorrow after 6:00 AM PKT.",
+      );
+    });
+
+    it('says when a newsletter is bigger than a whole day allows', async () => {
+      newsletterDb.getSubscribers.mockResolvedValue(Array.from({ length: 300 }, (_, i) => `s${i}@x`));
+      reserveEmails.mockResolvedValue({ ok: false, used: 0, cap: 279, remaining: 279, retryAt: null });
+      expect((await (await post(good)).json()).message).toBe('This newsletter needs 300 emails, but at most 279 newsletter emails can be sent in 24 hours.');
+    });
+
+    it('counts a test email, gives it back when it fails, and refuses it once the limit is reached', async () => {
+      sendNewsletterEmail.mockResolvedValue({ success: true, sentCount: 1 });
+      await post({ ...good, testEmail: 'me@example.org' });
+      expect(reserveEmails).toHaveBeenCalledWith('newsletter');
+      expect(releaseEmails).not.toHaveBeenCalled();
+
+      sendNewsletterEmail.mockResolvedValue({ success: false, error: 'Key not found' });
+      await post({ ...good, testEmail: 'me@example.org' });
+      expect(releaseEmails).toHaveBeenCalledExactlyOnceWith(8);
+
+      sendNewsletterEmail.mockClear();
+      reserveEmails.mockResolvedValue({ ok: false, used: 279, cap: 279, remaining: 0, retryAt: '2026-10-22T10:30:30Z' });
+      const res = await post({ ...good, testEmail: 'me@example.org' });
+      expect(res.status).toBe(429);
+      expect((await res.json()).message).toBe(
+        "Today's email limit has been reached: only 0 emails are left for newsletters and this one needs 1 email. Enough free up today after 3:31 PM PKT.",
+      );
+      expect(sendNewsletterEmail).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('GET /api/admin/email-quota', () => {
+  const get = () => emailQuota.GET(makeRequest('/api/admin/email-quota', { method: 'GET' }));
+  const status = { used: 120, limit: 299, reserve: 20, cap: 279, remaining: 179, capRemaining: 159, nextFreeAt: '2026-10-22T15:15:00Z' };
+
+  it("returns today's email count to an admin", async () => {
+    getEmailQuotaStatus.mockResolvedValue(status);
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, quota: status });
+  });
+
+  it('needs an admin session and a CSRF token, and reports a failed read', async () => {
+    validateAdminSession.mockResolvedValueOnce({ valid: false });
+    expect((await get()).status).toBe(401);
+    requireCSRFToken.mockResolvedValueOnce(NextResponse.json({}, { status: 403 }));
+    expect((await get()).status).toBe(403);
+    expect(getEmailQuotaStatus).not.toHaveBeenCalled();
+
+    getEmailQuotaStatus.mockRejectedValueOnce(new Error('no such function'));
+    const res = await get();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ success: false, message: 'Could not read the daily email count.' });
   });
 });

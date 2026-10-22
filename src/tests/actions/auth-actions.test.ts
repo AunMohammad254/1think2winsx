@@ -24,6 +24,14 @@ vi.mock('@/lib/password-setup', () => ({ sendPasswordSetupEmail: (...a: unknown[
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { auth: { checkLimit: (...a: unknown[]) => checkLimit(...a) } } }));
 const adminDb = { service: 'role' };
 vi.mock('@/lib/supabase/db', () => ({ userDb: { update: (...a: unknown[]) => userUpdate(...a) }, getAdminDb: () => adminDb }));
+// The daily email limit: the real messages, a stand-in counter
+const reserveEmails = vi.fn();
+const releaseEmails = vi.fn();
+vi.mock('@/lib/email-quota', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/email-quota')>()),
+  reserveEmails: (...a: unknown[]) => reserveEmails(...a),
+  releaseEmails: (...a: unknown[]) => releaseEmails(...a),
+}));
 
 const actions = await import('@/actions/auth-actions');
 
@@ -34,9 +42,10 @@ const login = { email: 'a@b.co', password: 'pw', captchaToken: 'tok' };
 beforeEach(() => {
   sb = createSupabaseMock({ user: newUser });
   ssr = undefined;
-  for (const fn of [cookieStore.set, redirect, sendPasswordSetupEmail, checkLimit, userUpdate]) fn.mockReset();
+  for (const fn of [cookieStore.set, redirect, sendPasswordSetupEmail, checkLimit, userUpdate, reserveEmails, releaseEmails]) fn.mockReset();
   delete requestHeaders.origin;
   checkLimit.mockResolvedValue({ success: true });
+  reserveEmails.mockResolvedValue({ ok: true, id: 41 });
   userUpdate.mockResolvedValue({});
   vi.stubEnv('NEXT_PUBLIC_SITE_URL', 'https://site.example.test/');
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -179,6 +188,53 @@ describe('registerAction', () => {
     requestHeaders.origin = 'http://192.168.1.100:3000';
     await actions.registerAction(form);
     expect(mockArg(sb.auth.signUp).options.emailRedirectTo).toBe('http://192.168.1.100:3000/auth/callback?next=/quizzes');
+  });
+
+  describe("today's email limit", () => {
+    it('counts the confirmation email and keeps it counted once Supabase sends it', async () => {
+      await actions.registerAction(form);
+      expect(reserveEmails).toHaveBeenCalledWith('registration');
+      expect(releaseEmails).not.toHaveBeenCalled();
+    });
+
+    it('creates no account once the limit is reached, and says when to try again (Pakistan time)', async () => {
+      vi.useFakeTimers({ now: new Date('2026-10-22T17:00:00Z'), toFake: ['Date'] }); // 10:00 PM PKT
+      try {
+        reserveEmails.mockResolvedValueOnce({ ok: false, used: 279, cap: 279, remaining: 0, retryAt: '2026-10-23T15:14:20Z' });
+        expect(await actions.registerAction(form)).toEqual({
+          success: false,
+          error: "Today's registration limit has been reached. Please try again tomorrow after 8:15 PM PKT.",
+        });
+        expect(sb.auth.signUp).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('gives the email back when Supabase refuses the sign-up or the call fails', async () => {
+      sb.auth.signUp.mockResolvedValueOnce({ data: { user: null, session: null }, error: { message: 'User already registered' } } as never);
+      await actions.registerAction(form);
+      sb.auth.signUp.mockRejectedValueOnce(new Error('network'));
+      await actions.registerAction(form);
+      expect(releaseEmails.mock.calls).toEqual([[41], [41]]);
+    });
+
+    it('gives the email back for an address that already has an account (Supabase sends nothing)', async () => {
+      sb.setUser({ id: 'obfuscated', email: 'new@example.test', identities: [] });
+      await actions.registerAction(form);
+      expect(releaseEmails).toHaveBeenCalledExactlyOnceWith(41);
+      // released before the password email, which counts its own
+      expect(releaseEmails.mock.invocationCallOrder[0]).toBeLessThan(sendPasswordSetupEmail.mock.invocationCallOrder[0]);
+    });
+
+    it('gives back nothing when the check was skipped, or when the form is refused first', async () => {
+      await actions.registerAction({ ...form, captchaToken: '' });
+      expect(reserveEmails).not.toHaveBeenCalled();
+      reserveEmails.mockResolvedValueOnce({ ok: true, id: null });
+      sb.auth.signUp.mockRejectedValueOnce(new Error('network'));
+      await actions.registerAction(form);
+      expect(releaseEmails).toHaveBeenCalledExactlyOnceWith(null);
+    });
   });
 });
 

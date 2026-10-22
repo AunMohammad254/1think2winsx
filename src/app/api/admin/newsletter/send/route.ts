@@ -5,6 +5,18 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { sendNewsletterEmail } from '@/lib/email-service';
 import { securityLogger } from '@/lib/security-logger';
+import { releaseEmails, reserveEmails, retryText, type EmailReservation } from '@/lib/email-quota';
+import { formatCount } from '@/lib/numbers';
+
+/** Why a newsletter of `needed` emails doesn't fit in today's email limit, and when it will. */
+function newsletterLimitMessage(needed: number, slot: Extract<EmailReservation, { ok: false }>): string {
+  const emails = needed === 1 ? '1 email' : `${formatCount(needed)} emails`;
+  if (!slot.retryAt) {
+    return `This newsletter needs ${emails}, but at most ${formatCount(slot.cap)} newsletter emails can be sent in 24 hours.`;
+  }
+  const left = slot.remaining === 1 ? '1 email is' : `${formatCount(slot.remaining)} emails are`;
+  return `Today's email limit has been reached: only ${left} left for newsletters and this one needs ${emails}. Enough free up ${retryText(slot.retryAt)}.`;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -73,6 +85,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (testEmail) {
+      const slot = await reserveEmails('newsletter');
+      if (!slot.ok) {
+        return NextResponse.json({ success: false, message: newsletterLimitMessage(1, slot) }, { status: 429 });
+      }
       const testResult = await sendNewsletterEmail({
         senderEmail: senderEmail.trim(),
         subject: `[TEST] ${subject.trim()}`,
@@ -80,6 +96,7 @@ export async function POST(request: NextRequest) {
         recipients: [testEmail]
       });
       if (!testResult.success) {
+        await releaseEmails(slot.id);
         return NextResponse.json(
           { success: false, message: testResult.error || 'Failed to send the test email.' },
           { status: 500 }
@@ -105,13 +122,22 @@ export async function POST(request: NextRequest) {
       }, { status: 200 });
     }
 
-    // 6. Send newsletter dispatch
+    // 6. Count the whole newsletter against today's email limit first: it goes to everyone or no one
+    const slot = await reserveEmails('newsletter', subscribers.length);
+    if (!slot.ok) {
+      return NextResponse.json({ success: false, message: newsletterLimitMessage(subscribers.length, slot) }, { status: 429 });
+    }
+
+    // 7. Send newsletter dispatch; only the emails Brevo accepted stay counted
     const emailResult = await sendNewsletterEmail({
       senderEmail: senderEmail.trim(),
       subject: subject.trim(),
       content: content.trim(),
       recipients: subscribers
     });
+    if (emailResult.sentCount < subscribers.length) {
+      await releaseEmails(slot.id, emailResult.sentCount);
+    }
 
     if (!emailResult.success) {
       return NextResponse.json(
@@ -120,7 +146,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 7. Log admin action to security logs
+    // 8. Log admin action to security logs
     securityLogger.logSecurityEvent({
       type: 'QUIZ_ACCESS',
       userId: undefined,

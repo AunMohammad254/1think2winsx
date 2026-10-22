@@ -5,6 +5,7 @@ import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { siteUrl } from '@/lib/site-url';
 import { sendPasswordSetupEmail } from '@/lib/password-setup';
+import { limitMessage, releaseEmails, reserveEmails } from '@/lib/email-quota';
 import { CAPTCHA_FAILED_MESSAGE, CAPTCHA_REQUIRED_MESSAGE, isCaptchaError } from '@/lib/captcha';
 
 // Types for form data
@@ -126,10 +127,26 @@ export async function loginAction(formData: LoginFormData): Promise<AuthResult> 
  * Server Action: Register a new user
  */
 export async function registerAction(formData: RegisterFormData): Promise<AuthResult> {
+    // The confirmation email counted against today's email limit, until it is known to have gone out
+    let pendingEmail: number | null = null;
+    const releasePendingEmail = async () => {
+        const id = pendingEmail;
+        pendingEmail = null;
+        await releaseEmails(id);
+    };
+
     try {
         if (!formData.captchaToken) {
             return { success: false, error: CAPTCHA_REQUIRED_MESSAGE };
         }
+
+        // Without a confirmation email the account can't be used, so no account is created once
+        // today's emails are used up
+        const slot = await reserveEmails('registration');
+        if (!slot.ok) {
+            return { success: false, error: limitMessage('registration', slot.retryAt) };
+        }
+        pendingEmail = slot.id;
 
         const supabase = await createSupabaseClient();
 
@@ -151,6 +168,7 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
         });
 
         if (signUpError) {
+            await releasePendingEmail();
             if (isCaptchaError(signUpError)) {
                 return { success: false, error: CAPTCHA_FAILED_MESSAGE };
             } else if (signUpError.message.includes('already registered')) {
@@ -167,7 +185,9 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
         // email, so the person would wait for a message that never comes. Instead email them a link to
         // set a password. The answer is the same as for a brand-new sign-up ("check your email"), so
         // this does not reveal whether an address is registered. Sends are limited per address.
+        // Supabase sent nothing, so the sign-up's email is given back; the password email counts its own.
         if (signUpData.user && (signUpData.user.identities?.length ?? 0) === 0) {
+            await releasePendingEmail();
             try {
                 const { rateLimiters } = await import('@/lib/rate-limiter');
                 const limit = await rateLimiters.auth.checkLimit(
@@ -187,6 +207,7 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
             }
             return { success: true, redirectTo: '/auth?registered=true' };
         }
+        pendingEmail = null; // Supabase accepted the sign-up and sent the confirmation
 
         // Also create user in public.User table with hashed password
         // This ensures the password is stored for password change detection
@@ -218,6 +239,7 @@ export async function registerAction(formData: RegisterFormData): Promise<AuthRe
         };
     } catch (error) {
         console.error('[registerAction] Error:', error);
+        await releasePendingEmail();
         return { success: false, error: 'An unexpected error occurred during registration' };
     }
 }
