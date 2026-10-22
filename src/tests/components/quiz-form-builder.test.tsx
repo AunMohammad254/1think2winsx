@@ -324,6 +324,7 @@ describe('QuizFormBuilder: editing and prizes', () => {
   const existing: QuizFormData = {
     id: 'z1', title: 'Cricket Cup', description: 'desc', duration: 15, timeUpDuration: 60, passingScore: 50, accessPrice: 2, difficulty: 'easy',
     status: 'scheduled', startsAt: '2026-12-01T11:30:00.000Z', prizeId: 'p1', isBumperPrize: false, quizType: 'normal',
+    maxEntries: 500, pointsPool: 20_000,
     questions: [{ id: 'q1', text: 'Who won in 1992?', options: [{ text: 'Pakistan', isCorrect: true }, { text: 'England', isCorrect: false }], correctOption: 0, status: 'active' }],
   };
 
@@ -342,6 +343,22 @@ describe('QuizFormBuilder: editing and prizes', () => {
     expect(onSuccess).toHaveBeenCalledWith(undefined);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onCancel).toHaveBeenCalled();
+  });
+
+  it('loads and saves the entry limit and points pool, which start at 2,000 and 0 for a new quiz', async () => {
+    const { unmount } = render(<QuizFormBuilder initialData={existing} />);
+    expect(screen.getByLabelText(/Entry Limit/)).toHaveValue(500);
+    expect(screen.getByLabelText(/Points Pool/)).toHaveValue(20_000);
+    fireEvent.change(screen.getByLabelText(/Entry Limit/), { target: { value: '1500' } });
+    submit();
+    await waitFor(() => expect(h.updateQuiz).toHaveBeenCalled());
+    expect(h.updateQuiz.mock.calls[0][0]).toMatchObject({ maxEntries: 1500, pointsPool: 20_000 });
+    unmount();
+
+    render(<QuizFormBuilder />);
+    expect(screen.getByLabelText(/Entry Limit/)).toHaveValue(2000);
+    expect(screen.getByLabelText(/Points Pool/)).toHaveValue(0);
+    expect(screen.getByText(/Players never see this number/)).toBeInTheDocument();
   });
 
   it('shows the update spinner wording', async () => {

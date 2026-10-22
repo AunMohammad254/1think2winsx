@@ -7,6 +7,7 @@ import { UPCOMING_NOTICE_TITLE, upcomingQuizLink, markQuizAnnounced } from '@/li
 import { toUtcIso, formatBusinessTime } from '@/lib/schedule-time';
 import { revalidatePath } from 'next/cache';
 import { clearQuizListCache } from '@/lib/quiz-cache';
+import { saveQuizAdminSettings } from '@/lib/quiz-admin-settings';
 import {
     QuizFormSchema,
     CreateQuizInputSchema,
@@ -32,6 +33,20 @@ function answerKey(quizType: string, options: Array<{ isCorrect?: boolean }>): n
     if (quizType !== 'normal') return null;
     const index = options.findIndex(opt => opt.isCorrect);
     return index === -1 ? null : index;
+}
+
+/**
+ * Save the admin-only entry limit and points pool. The quiz itself is already saved by then, so a
+ * failure is reported as a warning to retry, not as a failed save (which invites a duplicate quiz).
+ */
+async function saveSettingsOrWarn(quizId: string, maxEntries: number, pointsPool: number): Promise<string | null> {
+    try {
+        await saveQuizAdminSettings(quizId, { maxEntries, pointsPool });
+        return null;
+    } catch (error) {
+        console.error(`Saving entry limit and points pool for quiz ${quizId} failed:`, error);
+        return 'but its entry limit and points pool were not saved. Edit the quiz and save again';
+    }
 }
 
 // ============================================
@@ -86,6 +101,8 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             });
         }
 
+        const settingsWarning = await saveSettingsOrWarn(quiz.id, quizData.maxEntries, quizData.pointsPool);
+
         if (quizData.status === 'active') {
             try {
                 await notificationDb.createBroadcast({
@@ -106,7 +123,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
         return {
             success: true,
             data: { id: quiz.id },
-            message: 'Quiz created successfully!'
+            message: settingsWarning ? `Quiz created, ${settingsWarning}.` : 'Quiz created successfully!'
         };
     } catch (error: any) {
         console.error('Create quiz error:', error);
@@ -188,12 +205,14 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             }
         }
 
+        const settingsWarning = await saveSettingsOrWarn(quizId!, quizData.maxEntries, quizData.pointsPool);
+
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
         clearQuizListCache();
         revalidatePath(`/quiz/${input.id}`);
 
-        return { success: true, message: 'Quiz updated successfully!' };
+        return { success: true, message: settingsWarning ? `Quiz updated, ${settingsWarning}.` : 'Quiz updated successfully!' };
     } catch (error) {
         console.error('Update quiz error:', error);
         return { success: false, error: 'Failed to update quiz. Please try again.' };

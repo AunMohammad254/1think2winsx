@@ -11,7 +11,9 @@ const run = vi.fn();
 const notify = vi.fn();
 
 vi.mock('@/lib/admin-api-guard', () => ({ adminApiGuard: (...a: unknown[]) => guard(...a) }));
-vi.mock('@/lib/quiz-settlement', () => ({
+vi.mock('@/lib/quiz-settlement', async () => ({
+  // The real one: what the browser gets must not list every pool recipient
+  settleResultForBrowser: (await vi.importActual<typeof import('@/lib/quiz-settlement')>('@/lib/quiz-settlement')).settleResultForBrowser,
   listSettlementQuizzes: (...a: unknown[]) => list(...a),
   getSettlementDetail: (...a: unknown[]) => detail(...a),
   saveQuizResult: (...a: unknown[]) => save(...a),
@@ -27,7 +29,9 @@ const { rewardsSchema, settleErrorStatus } = await import('@/app/api/admin/quiz-
 
 const ADMIN = { id: 'admin-user', email: 'admin@1think2win.com' };
 const SEED = 'f'.repeat(32);
-const ok = { success: true, quizId: 'q1', quizTitle: 'Agli ball', winners: [{ rank: 1 }], seed: SEED };
+const POOL = { percent: 10, paid: 100, recipients: 2 };
+const ok = { success: true, quizId: 'q1', quizTitle: 'Agli ball', winners: [{ rank: 1 }], seed: SEED, pool: { ...POOL, recipientIds: ['u1', 'u2'] } };
+const okInBrowser = { ...ok, pool: POOL };
 
 beforeEach(() => {
   for (const fn of [guard, list, detail, save, run, notify]) fn.mockReset();
@@ -70,10 +74,22 @@ describe('POST /api/admin/quiz-settlement (settle)', () => {
     notify.mockResolvedValue(true);
     const res = await post(main, '/api/admin/quiz-settlement', body);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ result: ok, notified: true });
-    expect(run).toHaveBeenCalledWith({ ...body, settledBy: 'admin@1think2win.com', dryRun: false });
+    expect(await res.json()).toEqual({ result: okInBrowser, notified: true });
+    expect(run).toHaveBeenCalledWith({ ...body, poolPercent: 0, settledBy: 'admin@1think2win.com', dryRun: false });
     expect(notify).toHaveBeenCalledWith(ok);
     expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/quiz-settlement', { write: true });
+  });
+
+  it('passes a share of the points pool through, and copes with a database that has no pool yet', async () => {
+    run.mockResolvedValue(ok);
+    notify.mockResolvedValue(true);
+    await post(main, '/api/admin/quiz-settlement', { ...body, poolPercent: 12.5 });
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ poolPercent: 12.5 }));
+    // settle_quiz from before the migration returns no pool
+    const { pool: _pool, ...noPool } = ok;
+    run.mockResolvedValue(noPool);
+    const res = await post(main, '/api/admin/quiz-settlement', body);
+    expect(await res.json()).toEqual({ result: noPool, notified: true });
   });
 
   it('maps a refusal from the database to its status', async () => {
@@ -94,6 +110,10 @@ describe('POST /api/admin/quiz-settlement (settle)', () => {
       { ...body, rewards: [{ rank: 1, points: 5 }, { rank: 1, points: 6 }] },
       { ...body, rewards: [{ rank: 4, points: 5 }] },
       { ...body, rewards: [{ rank: 1, points: 5, prizeId: 'p' }] },
+      { ...body, poolPercent: -1 },
+      { ...body, poolPercent: 100.5 },
+      { ...body, poolPercent: 12.555 },
+      { ...body, poolPercent: '10' },
     ]) {
       expect((await post(main, '/api/admin/quiz-settlement', bad)).status).toBe(400);
     }
@@ -118,7 +138,7 @@ describe('POST /api/admin/quiz-settlement/preview', () => {
     run.mockResolvedValue({ ...ok, preview: true });
     const res = await post(preview, '/api/admin/quiz-settlement/preview', body);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ result: { ...ok, preview: true } });
+    expect(await res.json()).toEqual({ result: { ...okInBrowser, preview: true } });
     expect(run.mock.calls[0][0]).toMatchObject({ ...body, settledBy: 'admin@1think2win.com', dryRun: true });
     expect(run.mock.calls[0][0].seed).toMatch(/^[0-9a-f]{32}$/);
 

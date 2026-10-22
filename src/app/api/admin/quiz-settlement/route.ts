@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { adminApiGuard } from '@/lib/admin-api-guard';
 import { createSecureJsonResponse } from '@/lib/security-headers';
-import { getSettlementDetail, listSettlementQuizzes, notifySettlement, runSettlement } from '@/lib/quiz-settlement';
-import { rewardsSchema, settleErrorStatus } from './schema';
+import { getSettlementDetail, listSettlementQuizzes, notifySettlement, runSettlement, settleResultForBrowser } from '@/lib/quiz-settlement';
+import { poolPercentSchema, rewardsSchema, settleErrorStatus } from './schema';
 import logger from '@/lib/logger';
 
 const ENDPOINT = '/api/admin/quiz-settlement';
@@ -13,8 +13,9 @@ const settleSchema = z.object({
   quizId: z.string().min(1),
   rewards: rewardsSchema,
   tieRule: z.enum(['random', 'earliest']),
-  // The seed the preview was made with, so the settled winners are the previewed ones
+  // The seed the preview was made with, so the settled winners and pool shares are the previewed ones
   seed: z.string().min(16).max(128),
+  poolPercent: poolPercentSchema,
 });
 
 /**
@@ -52,9 +53,10 @@ export async function POST(request: NextRequest) {
     if (!result.success) {
       return NextResponse.json({ error: result.error, code: result.code }, { status: settleErrorStatus(result.code) });
     }
-    logger.log(`[quiz-settlement] ${result.quizId} settled by ${admin.email}: ${result.winners.length} winner(s)`);
+    logger.log(`[quiz-settlement] ${result.quizId} settled by ${admin.email}: ${result.winners.length} winner(s), ` +
+      `${result.pool?.paid ?? 0} pool points to ${result.pool?.recipients ?? 0} player(s)`);
     const notified = await notifySettlement(result);
-    return createSecureJsonResponse({ result, notified }, { status: 200 });
+    return createSecureJsonResponse({ result: settleResultForBrowser(result), notified }, { status: 200 });
   } catch (error) {
     console.error('[quiz-settlement] Settling failed:', error);
     return NextResponse.json({ error: 'Failed to settle the quiz' }, { status: 500 });

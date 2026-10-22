@@ -463,6 +463,29 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(h.toast.error).toHaveBeenCalledWith('The time is up for the quiz. You cannot lock in answer.');
   });
 
+  it('says entries have closed, without submitting, once the page saw the quiz full', async () => {
+    setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(screen.getByText('2009'));
+    // Another quiz being full changes nothing here
+    act(() => ref.current!.closeEntries('other'));
+    h.fetchWithRetry.mockClear();
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ error: 'Entries for this quiz have closed.' }, 403));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Entries for this quiz have closed.'));
+    expect(h.fetchWithRetry).toHaveBeenCalledTimes(1); // the server said so
+
+    act(() => ref.current!.closeEntries('q1'));
+    h.fetchWithRetry.mockClear();
+    h.toast.error.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Entries for this quiz have closed.'));
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+    expect(screen.queryByText('Answer locked in — waiting for results')).toBeNull();
+  });
+
   it('ignores a submit while one is in flight', async () => {
     setup();
     act(() => ref.current!.open('q1'));

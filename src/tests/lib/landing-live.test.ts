@@ -9,7 +9,7 @@ const at = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
 
 const quiz = (id: string, over: Partial<LiveQuiz> = {}): LiveQuiz => ({
   id, title: `Quiz ${id}`, description: '', duration: 10, passingScore: 70, status: 'active', questionCount: 5,
-  totalAttempts: 0, pushedAt: null, startsAt: null, announcedAt: null, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
+  totalAttempts: 0, entriesClosed: false, pushedAt: null, startsAt: null, announcedAt: null, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
   prizeName: null, isBumperPrize: false, accessPrice: 0, ...over,
 });
 const snap = (quizzes: LiveQuiz[], walletEnabled = false): LiveSnapshot => ({ version: 'v', quizzes, walletEnabled });

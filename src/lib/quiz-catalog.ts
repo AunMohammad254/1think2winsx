@@ -1,5 +1,6 @@
 import { getAdminDb } from '@/lib/supabase/db';
 import { activateDueQuizzes, broadcastQuizLive } from '@/lib/quiz-scheduler';
+import { DEFAULT_MAX_ENTRIES } from '@/lib/quiz-entries';
 
 /**
  * Shared (not per-user) quiz catalogue: active quizzes, their active questions
@@ -36,6 +37,8 @@ export interface CatalogQuiz {
   /** Every active question has its result (saved or settled): nothing is left to answer. */
   ended: boolean;
   totalAttempts: number;
+  /** The quiz has as many players as its (admin-only) entry limit: new players are turned away. */
+  entriesClosed: boolean;
   /** Name of the linked lucky-draw prize, for public listings such as the landing page. */
   prizeName: string | null;
 }
@@ -111,7 +114,7 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
   if (ids.length === 0) return [];
   const prizeIds = [...new Set(quizzes.map((q: { prizeId?: string | null }) => q.prizeId).filter(Boolean))] as string[];
 
-  const [questionsRes, countsRes, prizesRes] = await Promise.all([
+  const [questionsRes, countsRes, prizesRes, settingsRes] = await Promise.all([
     db.from('Question')
       .select('id, quizId, text, options, hasCorrectAnswer, createdAt')
       .in('quizId', ids)
@@ -123,8 +126,20 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     db.rpc('get_quiz_attempt_counts_by_quiz', { quiz_ids: ids }),
     // Prize names for public listings; most quizzes have no prize, and then there is no query at all
     prizeIds.length > 0 ? db.from('Prize').select('id, name, category').in('id', prizeIds) : { data: [], error: null },
+    // Entry limits (admin-only table): only whether a quiz is full leaves the server, never the number
+    db.from('QuizAdminSettings').select('quizId, maxEntries').in('quizId', ids),
   ]);
   if (questionsRes.error) throw questionsRes.error;
+
+  const limits = new Map<string, number>();
+  // Without the settings a quiz with a higher limit could look full, and players still allowed in would
+  // be told entries have closed. So every quiz counts as open; submit_quiz_attempt still enforces the limit.
+  const limitsKnown = !settingsRes.error;
+  if (settingsRes.error) {
+    console.error('[QuizCatalog] Quiz entry limits failed:', settingsRes.error);
+  } else {
+    for (const row of (settingsRes.data || []) as Array<{ quizId: string; maxEntries: number }>) limits.set(row.quizId, row.maxEntries);
+  }
 
   const byQuiz = new Map<string, CatalogQuestion[]>();
   const closedByQuiz = new Map<string, number>();
@@ -164,7 +179,7 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
     }
   }
 
-  type QuizRow = Omit<CatalogQuiz, 'questions' | 'closedQuestionCount' | 'ended' | 'totalAttempts' | 'prizeName'> & { prizeId?: string | null };
+  type QuizRow = Omit<CatalogQuiz, 'questions' | 'closedQuestionCount' | 'ended' | 'totalAttempts' | 'entriesClosed' | 'prizeName'> & { prizeId?: string | null };
   return quizzes.flatMap((q: QuizRow): CatalogQuiz[] => {
     const questions = byQuiz.get(q.id) || [];
     const closedQuestionCount = closedByQuiz.get(q.id) || 0;
@@ -184,6 +199,8 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
       closedQuestionCount,
       ended,
       totalAttempts: counts.get(q.id) || 0,
+      // Counts or limits failing leave every quiz open here; submit_quiz_attempt still enforces the limit
+      entriesClosed: !countsRes.error && limitsKnown && (counts.get(q.id) || 0) >= (limits.get(q.id) ?? DEFAULT_MAX_ENTRIES),
       prizeName: (q.prizeId && prizeNames.get(q.prizeId)) || null,
     }];
   });

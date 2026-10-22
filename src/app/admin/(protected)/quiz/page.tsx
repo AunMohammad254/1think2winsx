@@ -25,6 +25,7 @@ import {
 import { DynamicQuizFormBuilder } from '@/components/admin/DynamicAdminComponents';
 import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive, notifyUpcomingQuiz } from '@/actions/quiz-actions';
 import { createClient } from '@/lib/supabase/client';
+import { DEFAULT_MAX_ENTRIES } from '@/lib/quiz-entries';
 
 // ============================================
 // Types
@@ -299,6 +300,8 @@ export default function AdminQuizManagementPage() {
                 prizeId: fullQuiz.prizeId || null,
                 isBumperPrize: fullQuiz.isBumperPrize || false,
                 quizType: fullQuiz.quizType || 'normal',
+                maxEntries: fullQuiz.maxEntries ?? DEFAULT_MAX_ENTRIES,
+                pointsPool: fullQuiz.pointsPool ?? 0,
                 questions: (fullQuiz.questions || []).map((q: { id: string; text: string; options: string | string[]; correctOption?: number; hasCorrectAnswer?: boolean; status?: string }) => ({
                     id: q.id,
                     text: q.text,
@@ -348,6 +351,8 @@ export default function AdminQuizManagementPage() {
                 prizeId: fullQuiz.prizeId || null,
                 isBumperPrize: fullQuiz.isBumperPrize || false,
                 quizType: fullQuiz.quizType || 'normal',
+                maxEntries: fullQuiz.maxEntries ?? DEFAULT_MAX_ENTRIES,
+                pointsPool: fullQuiz.pointsPool ?? 0,
                 questions: (fullQuiz.questions || []).map((q: any) => ({
                     text: q.text,
                     options: (Array.isArray(q.options) ? q.options : JSON.parse(q.options || '[]')).map((text: string, idx: number) => ({

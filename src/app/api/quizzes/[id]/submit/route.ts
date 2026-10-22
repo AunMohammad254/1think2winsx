@@ -25,7 +25,11 @@ const RPC_ERROR_STATUS: Record<string, number> = {
   invalid: 400,
   forbidden: 403,
   closed: 403, // answering window over
+  entries_closed: 403, // the quiz already has as many players as its entry limit
 };
+
+// Late or full: normal player behaviour, not a security event
+const EXPECTED_REFUSALS = new Set(['closed', 'entries_closed']);
 
 /**
  * POST /api/quizzes/[id]/submit — Submit quiz answers
@@ -93,8 +97,7 @@ export async function POST(
 
     if (!r.success) {
       const status = RPC_ERROR_STATUS[r.code || ''] ?? 500;
-      // A late submit ('closed') is normal user behaviour, not a security event
-      if ((status === 400 || status === 403) && r.code !== 'closed') {
+      if ((status === 400 || status === 403) && !EXPECTED_REFUSALS.has(r.code || '')) {
         recordSecurityEvent('INVALID_INPUT', request, userId, { endpoint: '/api/quizzes/[id]/submit', code: r.code });
       }
       return NextResponse.json(

@@ -148,6 +148,18 @@ describe('GET /api/admin/quizzes/[id]', () => {
     expect(recordSecurityEvent).toHaveBeenCalledWith('ADMIN_QUIZ_VIEWED', expect.anything(), 'admin-1', { quizId: 'quiz-1', title: 'T' });
   });
 
+  it("gives the admin the quiz's entry limit and points pool, or the defaults when none are saved or readable", async () => {
+    adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
+    adminDb.setTable('QuizAdminSettings', { data: [{ quizId: 'quiz-1', maxEntries: 750, pointsPool: 30_000 }] });
+    expect((await (await get()).json()).quiz).toMatchObject({ maxEntries: 750, pointsPool: 30_000 });
+    adminDb.setTable('QuizAdminSettings', { data: [] });
+    expect((await (await get()).json()).quiz).toMatchObject({ maxEntries: 2000, pointsPool: 0 });
+    adminDb.setTable('QuizAdminSettings', { error: { message: 'relation "QuizAdminSettings" does not exist' } });
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect((await res.json()).quiz).toMatchObject({ maxEntries: 2000, pointsPool: 0 });
+  });
+
   it('treats a missing completed-attempt count as none', async () => {
     adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
     adminDb.setTable('QuizAttempt', (call) => (isHead(call) ? { count: eqValue(call, 'isCompleted') ? null : 2 } : { data: [] }));

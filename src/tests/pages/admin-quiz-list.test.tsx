@@ -356,7 +356,7 @@ describe('admin quiz list page', () => {
     const full = {
       quiz: {
         id: 'q1', title: 'Cricket Basics', description: 'Bats', duration: 20, timeUpDuration: 0, passingScore: 60, accessPrice: 0, status: 'active',
-        startsAt: '2026-11-01T00:00:00Z', prizeId: 'p1', isBumperPrize: true, quizType: 'live',
+        startsAt: '2026-11-01T00:00:00Z', prizeId: 'p1', isBumperPrize: true, quizType: 'live', maxEntries: 750, pointsPool: 30000,
         questions: [
           { id: 'x1', text: 'Q1', options: ['A', 'B'], correctOption: 1, status: 'inactive' },
           { id: 'x2', text: 'Q2', options: '["X","Y"]' },
@@ -381,7 +381,7 @@ describe('admin quiz list page', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/quizzes/q1');
     expect(JSON.parse(screen.getByTestId('initial-data').textContent!)).toEqual({
       id: 'q1', title: 'Cricket Basics', description: 'Bats', duration: 20, timeUpDuration: 0, passingScore: 60, accessPrice: 0, difficulty: 'medium',
-      status: 'active', startsAt: '2026-11-01T00:00:00Z', prizeId: 'p1', isBumperPrize: true, quizType: 'live',
+      status: 'active', startsAt: '2026-11-01T00:00:00Z', prizeId: 'p1', isBumperPrize: true, quizType: 'live', maxEntries: 750, pointsPool: 30000,
       questions: [
         { id: 'x1', text: 'Q1', options: [{ text: 'A', isCorrect: false }, { text: 'B', isCorrect: true }], correctOption: 1, status: 'inactive' },
         { id: 'x2', text: 'Q2', options: [{ text: 'X', isCorrect: false }, { text: 'Y', isCorrect: false }], status: 'active' },
@@ -396,7 +396,7 @@ describe('admin quiz list page', () => {
     await screen.findByRole('heading', { name: 'Edit Quiz' });
     expect(JSON.parse(screen.getByTestId('initial-data').textContent!)).toEqual({
       id: 'q2', title: '', description: '', duration: 30, timeUpDuration: 60, passingScore: 70, accessPrice: 0, difficulty: 'medium',
-      status: 'draft', startsAt: null, prizeId: null, isBumperPrize: false, quizType: 'normal', questions: [],
+      status: 'draft', startsAt: null, prizeId: null, isBumperPrize: false, quizType: 'normal', maxEntries: 2000, pointsPool: 0, questions: [],
     });
     const listCalls = () => fetchMock.mock.calls.filter(([u]) => u === '/api/admin/quizzes').length;
     const before = listCalls();
@@ -417,7 +417,7 @@ describe('admin quiz list page', () => {
 
   it('duplicates a quiz as a draft copy', async () => {
     const details = [
-      jsonResponse({ quiz: { title: 'Cricket Basics', description: 'Bats', duration: 20, timeUpDuration: 0, passingScore: 60, accessPrice: 50, prizeId: 'p1', isBumperPrize: true, quizType: 'live',
+      jsonResponse({ quiz: { title: 'Cricket Basics', description: 'Bats', duration: 20, timeUpDuration: 0, passingScore: 60, accessPrice: 50, prizeId: 'p1', isBumperPrize: true, quizType: 'live', maxEntries: 500, pointsPool: 1000,
         questions: [{ text: 'Q1', options: ['A', 'B'], correctOption: 1, status: 'inactive' }, { text: 'Q2', options: '["X"]' }, { text: 'Q3', options: '' }] } }),
       jsonResponse({ title: 'Bare' }),
       jsonResponse({ title: 'Bare' }),
@@ -437,7 +437,7 @@ describe('admin quiz list page', () => {
     expect(h.toast.loading).toHaveBeenCalledWith('Creating duplicated quiz...', { id: 'toast-1' });
     expect(h.actions.createQuiz).toHaveBeenCalledWith({
       title: 'Cricket Basics (Copy)', description: 'Bats', duration: 20, timeUpDuration: 0, passingScore: 60, accessPrice: 50, difficulty: 'medium',
-      status: 'draft', startsAt: null, prizeId: 'p1', isBumperPrize: true, quizType: 'live',
+      status: 'draft', startsAt: null, prizeId: 'p1', isBumperPrize: true, quizType: 'live', maxEntries: 500, pointsPool: 1000,
       questions: [
         { text: 'Q1', options: [{ text: 'A', isCorrect: false }, { text: 'B', isCorrect: true }], correctOption: 1, status: 'inactive' },
         { text: 'Q2', options: [{ text: 'X', isCorrect: false }], correctOption: 0, status: 'active' },

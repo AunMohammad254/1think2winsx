@@ -12,7 +12,7 @@ import { toRewards } from '@/components/quiz-settlement/RewardsEditor';
 
 const summary = (id: string, stage: string, over: Record<string, unknown> = {}) => ({
   id, title: `Quiz ${id}`, status: 'active', quizType: 'predictable', pushedAt: null as string | null, duration: 10,
-  closesAt: null as string | null, totalQuestions: 2, questionsWithResult: 0, attempts: 3, settledAt: null as string | null, stage, ...over,
+  closesAt: null as string | null, totalQuestions: 2, questionsWithResult: 0, attempts: 3, maxEntries: 2000, pointsPool: 0, settledAt: null as string | null, stage, ...over,
 });
 const QUIZZES = [
   summary('open', 'open', { closesAt: '2026-10-19T12:10:30.000Z' }),
@@ -40,11 +40,13 @@ const winner = (rank: number, over: Record<string, unknown> = {}) => ({
   selectionMethod: 'ranked', points: null, prizeId: null, prizeName: null, prizeCategory: null, ...over,
 });
 const SEED = 'a'.repeat(32);
+const NO_POOL = { percent: 0, poolSize: 0, target: 0, paid: 0, eligible: 2, recipients: 0, min: 0, max: 0 };
 const previewResult = (over: Record<string, unknown> = {}) => ({
   success: true, preview: true, quizId: 'ready', quizTitle: 'Quiz ready', participants: 4, questions: 2, tieRule: 'random', seed: SEED,
   winners: [winner(1, { points: 500 }), winner(2, { prizeId: 'p-bumper', prizeName: 'Mystery bike', prizeCategory: 'bumper', selectionMethod: 'ranked_random_tiebreak', tiedWith: 1 })],
-  unfilled: [3], ...over,
+  unfilled: [3], pool: NO_POOL, ...over,
 });
+const NO_POOL_SETTLED = { percent: 0, points: 0, recipients: 0 };
 
 type Handler = (body: any) => Response | Promise<Response>;
 let details: Record<string, unknown>;
@@ -91,8 +93,8 @@ describe('quiz list', () => {
     expect(screen.getByText('Loading quizzes…')).toBeInTheDocument();
     const list = await screen.findByRole('region', { name: 'Quizzes' });
     expect(within(list).getAllByRole('button')).toHaveLength(6);
-    expect(within(list).getByRole('button', { name: /Quiz nolimit.*1 question · 1 player/ })).toBeInTheDocument();
-    expect(within(list).getByRole('button', { name: /Quiz open.*2 questions · 3 players/ })).toBeInTheDocument();
+    expect(within(list).getByRole('button', { name: /Quiz nolimit.*1 question · 1 \/ 2,000 players/ })).toBeInTheDocument();
+    expect(within(list).getByRole('button', { name: /Quiz open.*2 questions · 3 \/ 2,000 players/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Open (2)' }));
     expect(within(list).getAllByRole('button')).toHaveLength(2);
@@ -221,7 +223,7 @@ describe('a quiz ready to settle', () => {
     fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
     expect(await within(section).findByRole('heading', { name: 'Preview: 4 players' })).toBeInTheDocument();
     expect(bodyOf(posts('/api/admin/quiz-settlement/preview')[0])).toEqual({
-      quizId: 'ready', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p-bumper' }], tieRule: 'random',
+      quizId: 'ready', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p-bumper' }], tieRule: 'random', poolPercent: 0,
     });
     expect(posts('/api/admin/quiz-settlement/preview')[0][1].headers).toMatchObject({ 'X-CSRF-Token': '' });
     expect(within(section).getByText('500 points')).toBeInTheDocument();
@@ -242,12 +244,12 @@ describe('a quiz ready to settle', () => {
     fireEvent.click(within(section).getByRole('button', { name: 'Settle quiz' }));
 
     details.ready = detailOf({ ...QUIZZES[3], stage: 'settled', settledAt: '2026-10-19T12:30:00Z' }, {
-      settlement: { settledAt: '2026-10-19T12:30:00Z', settledBy: 'admin@x', tieRule: 'earliest', seed: SEED, winners: [winner(1, { points: 500 })] },
+      settlement: { settledAt: '2026-10-19T12:30:00Z', settledBy: 'admin@x', tieRule: 'earliest', seed: SEED, winners: [winner(1, { points: 500 })], pool: NO_POOL_SETTLED },
     });
     fireEvent.click(within(section).getByRole('button', { name: 'Yes, settle now' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Settled: 2 winners paid. Players have been notified.');
     expect(bodyOf(posts('/api/admin/quiz-settlement')[0])).toEqual({
-      quizId: 'ready', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p-bumper' }], tieRule: 'earliest', seed: SEED,
+      quizId: 'ready', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p-bumper' }], tieRule: 'earliest', seed: SEED, poolPercent: 0,
     });
     expect(await within(panel()).findByText(/Settled .* by admin@x · ties: Earliest submission/)).toBeInTheDocument();
   });
@@ -299,6 +301,7 @@ describe('settled and upcoming quizzes', () => {
           winner(2, { prizeId: 'p-watch', prizeName: 'Smartwatch', prizeCategory: 'electronics', selectionMethod: 'ranked_earliest_tiebreak', email: null, name: null }),
           winner(3, { points: 100, selectionMethod: 'random_draw' }),
         ],
+        pool: NO_POOL_SETTLED,
       },
     });
     const section = await open('Quiz settled');
@@ -313,7 +316,7 @@ describe('settled and upcoming quizzes', () => {
   });
 
   it('names an unknown tie rule as it is, and hides an empty seed', async () => {
-    details.settled = detailOf(QUIZZES[4], { settlement: { settledAt: '2026-10-19T11:00:00Z', settledBy: 'admin', tieRule: 'odd', seed: '', winners: [] } });
+    details.settled = detailOf(QUIZZES[4], { settlement: { settledAt: '2026-10-19T11:00:00Z', settledBy: 'admin', tieRule: 'odd', seed: '', winners: [], pool: NO_POOL_SETTLED } });
     const section = await open('Quiz settled');
     expect(within(section).getByText(/ties: odd/)).toBeInTheDocument();
     expect(within(section).queryByText(/Draw seed/)).toBeNull();
@@ -359,5 +362,66 @@ describe('pieces', () => {
   it('a winners table without winners or empty places says so', () => {
     render(<WinnersTable winners={[]} />);
     expect(screen.getByText('No rewards were set for this quiz.')).toBeInTheDocument();
+  });
+});
+
+describe('entry limit and points pool', () => {
+  const POOL = { poolSize: 50_000, target: 5000, paid: 5000, eligible: 900, recipients: 840, min: 1, max: 12 };
+
+  it('shows the entries against the limit, then shares a chosen percentage of the pool', async () => {
+    details.ready = detailOf({ ...QUIZZES[3], attempts: 3, maxEntries: 3, pointsPool: 50_000 });
+    onPreview = (body) => jsonResponse({ result: previewResult({ pool: { ...POOL, percent: body.poolPercent } }) });
+    onSettle = (body) => jsonResponse({ result: previewResult({ preview: undefined, pool: { ...POOL, percent: body.poolPercent } }), notified: true });
+    const section = await open('Quiz ready');
+    expect(within(section).getByText('Entries: 3 / 3 players · entries closed · points pool 50,000 (only admins see these)')).toBeInTheDocument();
+    expect(within(section).getByText('Share of the points pool (50,000 points)')).toBeInTheDocument();
+
+    // A custom share must be above 0, up to 100, with at most two decimals
+    fireEvent.click(within(section).getByRole('radio', { name: 'Custom' }));
+    fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Points pool: enter a share above 0 and up to 100 percent');
+    fireEvent.change(within(section).getByRole('spinbutton', { name: 'Custom pool share in percent' }), { target: { value: '12.555' } });
+    fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Points pool: use at most two decimals');
+    expect(posts('/api/admin/quiz-settlement/preview')).toHaveLength(0);
+
+    fireEvent.click(within(section).getByRole('radio', { name: '10%' }));
+    expect(within(section).getByText('5,000 points will be shared at random.')).toBeInTheDocument();
+    fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+    expect(await within(section).findByText(
+      '5,000 of 50,000 pool points (10%) shared at random among 840 of 900 scorers, 1 to 12 points each.')).toBeInTheDocument();
+    expect(bodyOf(posts('/api/admin/quiz-settlement/preview')[0])).toMatchObject({ poolPercent: 10 });
+
+    // A different share needs a new preview, with the same draw seed
+    fireEvent.click(within(section).getByRole('radio', { name: '20%' }));
+    expect(within(section).getByText('The rewards changed since this preview. Preview again before settling.')).toBeInTheDocument();
+    fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+    await waitFor(() => expect(posts('/api/admin/quiz-settlement/preview')).toHaveLength(2));
+    expect(bodyOf(posts('/api/admin/quiz-settlement/preview')[1])).toMatchObject({ poolPercent: 20, seed: SEED });
+
+    fireEvent.click(await within(section).findByRole('button', { name: 'Settle quiz' }));
+    fireEvent.click(within(section).getByRole('button', { name: 'Yes, settle now' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Settled: 2 winners paid, and 5,000 pool points shared among 840 players. Players have been notified.');
+    expect(bodyOf(posts('/api/admin/quiz-settlement')[0])).toMatchObject({ poolPercent: 20, seed: SEED });
+  });
+
+  it('says how to add a pool when a quiz has none, and what nobody scoring means', async () => {
+    onPreview = () => jsonResponse({ result: previewResult({ pool: { ...POOL, percent: 10, paid: 0, recipients: 0 } }) });
+    const section = await open('Quiz ready');
+    expect(within(section).getByText(/This quiz has no points pool/)).toBeInTheDocument();
+    expect(within(section).queryByRole('radiogroup', { name: 'Share of the points pool' })).toBeNull();
+    fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+    expect(await within(section).findByText('Points pool (10%): nobody scored, so nothing is shared.')).toBeInTheDocument();
+    expect(bodyOf(posts('/api/admin/quiz-settlement/preview')[0])).toMatchObject({ poolPercent: 0 });
+  });
+
+  it('shows the pool a settled quiz shared', async () => {
+    details.settled = detailOf(QUIZZES[4], {
+      settlement: { settledAt: '2026-10-19T11:00:00Z', settledBy: 'admin@x', tieRule: 'random', seed: SEED, winners: [],
+        pool: { percent: 12.5, points: 6250, recipients: 840 } },
+    });
+    const section = await open('Quiz settled');
+    expect(within(section).getByText('Points pool (12.5%): 6,250 points shared at random among 840 players.')).toBeInTheDocument();
   });
 });

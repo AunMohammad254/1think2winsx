@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { argOf, createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
 const adminActionGuard = vi.fn();
@@ -91,6 +91,28 @@ describe('createQuiz', () => {
     expect(res.success).toBe(false);
     expect((res as { error: string }).error).toMatch(/Title must be at least 3 characters.*Pick a valid date and time/);
     expect((await actions.createQuiz(quizInput({ questions: [question({ correctOption: null })] }) as never) as { error: string }).error).toBe('Correct option must be selected for normal quizzes');
+  });
+
+  it('saves the entry limit and points pool in the admin-only settings, never on the quiz', async () => {
+    await actions.createQuiz(quizInput() as never);
+    expect(argOf(adminDb.callsTo('QuizAdminSettings', 'upsert')[0], 'upsert')).toMatchObject({ quizId: 'quiz-1', maxEntries: 2000, pointsPool: 0 });
+    await actions.createQuiz(quizInput({ maxEntries: 500, pointsPool: 25_000 }) as never);
+    expect(argOf(adminDb.callsTo('QuizAdminSettings', 'upsert')[1], 'upsert')).toMatchObject({ maxEntries: 500, pointsPool: 25_000 });
+    expect(quizDb.create.mock.calls[1][0]).not.toHaveProperty('maxEntries');
+    expect(quizDb.create.mock.calls[1][0]).not.toHaveProperty('pointsPool');
+    const bad = await actions.createQuiz(quizInput({ maxEntries: 0, pointsPool: -5 }) as never);
+    expect((bad as { error: string }).error).toBe('Entry limit must be at least 1, Points pool must be 0 or more');
+  });
+
+  it('reports a quiz saved without its settings as a warning to retry, not a failure', async () => {
+    adminDb.setTable('QuizAdminSettings', { error: { message: 'relation "QuizAdminSettings" does not exist' } });
+    expect(await actions.createQuiz(quizInput() as never)).toEqual({
+      success: true, data: { id: 'quiz-1' },
+      message: 'Quiz created, but its entry limit and points pool were not saved. Edit the quiz and save again.',
+    });
+    expect(await actions.updateQuiz({ id: 'quiz-1', ...quizInput() } as never)).toEqual({
+      success: true, message: 'Quiz updated, but its entry limit and points pool were not saved. Edit the quiz and save again.',
+    });
   });
 
   it('relays database errors', async () => {

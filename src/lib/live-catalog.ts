@@ -33,6 +33,8 @@ export interface LiveQuiz {
   status: string;
   questionCount: number;
   totalAttempts: number;
+  /** Full: new players are turned away, so the quiz panel says so without sending a submit. */
+  entriesClosed: boolean;
   pushedAt: string | null;
   startsAt: string | null;
   /** Upcoming quizzes: when players were last told it is coming (a new value pops it up on the stream). */
@@ -67,6 +69,7 @@ export function toLiveQuiz(quiz: CatalogQuiz): LiveQuiz {
     status: quiz.status,
     questionCount: quiz.questions.length,
     totalAttempts: quiz.totalAttempts,
+    entriesClosed: !!quiz.entriesClosed,
     pushedAt: iso(quiz.pushedAt),
     startsAt: quiz.status === 'upcoming' ? iso(quiz.startsAt) : null,
     announcedAt: quiz.status === 'upcoming' ? iso(quiz.announcedAt) : null,

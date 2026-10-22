@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import { isWindowClosed, localWindowEnd } from '@/lib/quiz-clock';
+import { ENTRIES_CLOSED_MESSAGE } from '@/lib/quiz-entries';
 import { describeStart, formatClock } from '@/lib/live-countdown';
 import { isStreamFullscreen } from '@/lib/stream-fullscreen';
 import { isNotificationSoundOn, playChime } from '@/lib/notification-sound';
@@ -53,6 +54,11 @@ export interface LiveQuizPushHandle {
      * already open: reuses in-progress answers instead of resetting them.
      */
     open: (quizId: string) => void;
+    /**
+     * The page's live check saw this quiz full, and the viewer is not one of its players: Lock in then
+     * says entries have closed without sending a submit the server would refuse.
+     */
+    closeEntries: (quizId: string) => void;
 }
 
 interface LiveQuizPushProps {
@@ -255,7 +261,10 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         loadQuiz(quizId);
     }, [hideBanner, startFresh, loadQuiz]);
 
-    useImperativeHandle(ref, () => ({ notify, announce, open }), [notify, announce, open]);
+    const closedEntriesRef = useRef(new Set<string>());
+    const closeEntries = useCallback((quizId: string) => { closedEntriesRef.current.add(quizId); }, []);
+
+    useImperativeHandle(ref, () => ({ notify, announce, open, closeEntries }), [notify, announce, open, closeEntries]);
 
     // From the live banner or pill. Both show only for a pushed quiz, so there is always one to open;
     // a quiz already loaded is not fetched again.
@@ -301,6 +310,11 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         const timeUp = () => isWindowClosed(live?.endsAtMs ?? null, Date.now());
         if (timeUp()) {
             toast.error(TIME_UP_MESSAGE);
+            return;
+        }
+        // Full, and this viewer is not one of its players: the server would refuse the submit
+        if (closedEntriesRef.current.has(loaded.id)) {
+            toast.error(ENTRIES_CLOSED_MESSAGE);
             return;
         }
         setSubmitting(true);

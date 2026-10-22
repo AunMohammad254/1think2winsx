@@ -243,7 +243,7 @@ describe('GET /api/live', () => {
     // Same date format as the personal list, so a pushedAt never looks new because of formatting
     expect(body.quizzes[0]).toEqual({
       id: 'live', title: 'Cricket night', description: 'Predict the match', duration: 10, passingScore: 70,
-      status: 'active', questionCount: 2, totalAttempts: 3, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null, announcedAt: null,
+      status: 'active', questionCount: 2, totalAttempts: 3, entriesClosed: false, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null, announcedAt: null,
       createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z',
       prizeName: null, isBumperPrize: false, accessPrice: 0,
     });

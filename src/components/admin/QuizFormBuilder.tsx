@@ -12,6 +12,7 @@ import {
     defaultQuiz
 } from '@/lib/schemas/QuizFormSchema';
 import { createQuiz, updateQuiz } from '@/actions/quiz-actions';
+import { MAX_ENTRIES_LIMIT, MAX_POINTS_POOL } from '@/lib/quiz-entries';
 import DateTimePicker from '@/components/ui/DateTimePicker';
 
 interface QuizFormBuilderProps {
@@ -332,6 +333,46 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                         />
                         {errors.passingScore && (
                             <p className="mt-1 text-sm text-red-400">{errors.passingScore.message}</p>
+                        )}
+                    </div>
+
+                    {/* Entry limit (admin-only) */}
+                    <div>
+                        <label htmlFor="quiz-max-entries" className="block text-sm font-medium text-gray-300 mb-2">
+                            Entry Limit (players) <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                            id="quiz-max-entries"
+                            type="number"
+                            {...register('maxEntries', { valueAsNumber: true })}
+                            min={1}
+                            max={MAX_ENTRIES_LIMIT}
+                            step={1}
+                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">The first players to lock in an answer get in; later players are told entries have closed. Players never see this number.</p>
+                        {errors.maxEntries && (
+                            <p className="mt-1 text-sm text-red-400">{errors.maxEntries.message}</p>
+                        )}
+                    </div>
+
+                    {/* Points pool (admin-only) */}
+                    <div>
+                        <label htmlFor="quiz-points-pool" className="block text-sm font-medium text-gray-300 mb-2">
+                            Points Pool
+                        </label>
+                        <input
+                            id="quiz-points-pool"
+                            type="number"
+                            {...register('pointsPool', { valueAsNumber: true })}
+                            min={0}
+                            max={MAX_POINTS_POOL}
+                            step={1}
+                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">When you settle the quiz you can share a percentage of this pool, in random amounts, among the players who scored.</p>
+                        {errors.pointsPool && (
+                            <p className="mt-1 text-sm text-red-400">{errors.pointsPool.message}</p>
                         )}
                     </div>
 

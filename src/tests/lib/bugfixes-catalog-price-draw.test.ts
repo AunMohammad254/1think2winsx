@@ -63,6 +63,38 @@ describe('quiz catalogue attempt counts', () => {
     status: 'upcoming', accessPrice: 2, quizType: 'normal', isBumperPrize: false, startsAt: null,
     pushedAt: null, createdAt: 'x', updatedAt: 'x',
   };
+  beforeEach(() => { tables.QuizAdminSettings = { data: [], error: null }; });
+
+  it('marks a quiz full once it has as many players as its entry limit (2,000 when none is saved), never sending the limit', async () => {
+    tables.Quiz = { data: [quiz, { ...quiz, id: 'q2' }, { ...quiz, id: 'q3' }], error: null };
+    tables.Question = { data: [], error: null };
+    tables.QuizAdminSettings = { data: [{ quizId: 'q1', maxEntries: 42 }, { quizId: 'q2', maxEntries: 43 }], error: null };
+    rpc.mockResolvedValue({ data: [
+      { quiz_id: 'q1', attempt_count: '42' }, { quiz_id: 'q2', attempt_count: 42 }, { quiz_id: 'q3', attempt_count: 1999 },
+    ], error: null });
+
+    const { getActiveQuizCatalog } = await import('@/lib/quiz-catalog');
+    const byId = Object.fromEntries((await getActiveQuizCatalog()).map((q) => [q.id, q]));
+    expect(byId.q1.entriesClosed).toBe(true);
+    expect(byId.q2.entriesClosed).toBe(false);
+    expect(byId.q3.entriesClosed).toBe(false);
+    expect(Object.keys(byId.q1)).not.toContain('maxEntries');
+  });
+
+  it('keeps every quiz open (and logs) when the entry limits cannot be read: the database still enforces them', async () => {
+    tables.Quiz = { data: [quiz], error: null };
+    tables.Question = { data: [], error: null };
+    tables.QuizAdminSettings = { data: null, error: new Error('relation "QuizAdminSettings" does not exist') };
+    rpc.mockResolvedValue({ data: [{ quiz_id: 'q1', attempt_count: 5000 }], error: null });
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { getActiveQuizCatalog } = await import('@/lib/quiz-catalog');
+    const [only] = await getActiveQuizCatalog();
+    // 5,000 players is over the default 2,000, but this quiz may have a higher limit: it must not look full
+    expect(only.entriesClosed).toBe(false);
+    expect(spy).toHaveBeenCalledWith('[QuizCatalog] Quiz entry limits failed:', expect.anything());
+    spy.mockRestore();
+  });
 
   it('reads the `{ quiz_id, attempt_count }` rows the RPC really returns (it used to always show 0)', async () => {
     tables.Quiz = { data: [quiz, { ...quiz, id: 'q2' }], error: null };
