@@ -76,8 +76,8 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Skip API routes (they authenticate themselves), Sentry's tunnel (/monitoring, see
-     * next.config.js), Next internals, and static files in /public so the proxy never runs for assets.
+     * Skip API routes (they authenticate themselves), the Sentry tunnel (/monitoring, see
+     * src/app/monitoring/route.ts), Next internals, and static files in /public so the proxy never runs for assets.
      */
     '/((?!api|monitoring|_next/static|_next/image|favicon.ico|sw.js|manifest|Favicon|images|.*\\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|css|js|map|txt|xml|json|woff2?|ttf|glb|gltf|mp4|webm)$).*)',
   ],

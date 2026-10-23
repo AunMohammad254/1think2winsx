@@ -207,7 +207,7 @@ describe('proxy', () => {
   it('never runs for API routes, Next internals or static files', () => {
     const matcher = new RegExp(`^${proxyMod.config.matcher[0]}$`);
     expect(matcher.test('/quizzes')).toBe(true);
-    // /monitoring is Sentry's tunnel (next.config.js): no session refresh for every error report
+    // /monitoring is the Sentry tunnel (src/app/monitoring/route.ts): no session refresh for every error report
     for (const path of ['/api/quizzes', '/monitoring', '/_next/static/chunk.js', '/favicon.ico', '/images/logo.png', '/sw.js', '/model.glb']) {
       expect(matcher.test(path)).toBe(false);
     }

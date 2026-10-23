@@ -195,9 +195,8 @@ module.exports = withSentryConfig(withBundleAnalyzer(nextConfig), {
   sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
   widenClientFileUpload: true,
   release: { name: sentryRelease() },
-  // Browsers send events to this site (POST /monitoring), which forwards them: ad blockers don't drop
-  // them and the CSP needs no Sentry host. src/proxy.ts skips this path.
-  tunnelRoute: '/monitoring',
+  // No `tunnelRoute`: browsers send events to this site's own route, src/app/monitoring/route.ts, which
+  // forwards them. Sentry's rewrite printed a MaxListenersExceededWarning for every event.
   silent: !process.env.CI,
   telemetry: false,
   webpack: {

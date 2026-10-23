@@ -46,6 +46,7 @@ describe('Sentry init', () => {
     expect(lastInit()).toMatchObject({
       dsn: 'https://key@o1.ingest.us.sentry.io/2',
       enableLogs: true,
+      tunnel: '/monitoring',
       replaysSessionSampleRate: 0,
       replaysOnErrorSampleRate: 1,
       integrations: [{ name: 'Replay' }, { name: 'ConsoleLogs', options: { levels: ['warn', 'error'] } }],
@@ -65,6 +66,8 @@ describe('Sentry init', () => {
       integrations: [{ name: 'ConsoleLogs', options: { levels: ['warn', 'error'] } }],
     });
     expect(lastInit()).not.toHaveProperty('replaysOnErrorSampleRate');
+    // The server talks to Sentry directly
+    expect(lastInit()).not.toHaveProperty('tunnel');
   });
 });
 
