@@ -11,6 +11,9 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
       "edge-shield/**",
+      // Claude Code worktrees: whole copies of the project, each with its own build output
+      ".claude/**",
+      "coverage/**",
     ],
   },
   {

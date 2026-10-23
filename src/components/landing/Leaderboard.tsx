@@ -9,18 +9,19 @@ interface Player {
   name: string;
   country: string;
   countryFlag: string;
-  points: number;
+  winRate: number;
+  points?: number;
   won: string;
   streak: number;
   avatar: string;
 }
 
 const BASE_LEADERS: Player[] = [
-  { rank: 1, name: "Tariq_KHI", country: "Pakistan", countryFlag: "🇵🇰", points: 48720, won: "iPhone 15", streak: 47, avatar: "from-amber-400 to-orange-500" },
-  { rank: 2, name: "BabarAzamFan", country: "UAE", countryFlag: "🇦🇪", points: 46380, won: "PS5", streak: 38, avatar: "from-violet-500 to-pink-500" },
-  { rank: 3, name: "LyariStriker", country: "Pakistan", countryFlag: "🇵🇰", points: 44210, won: "Smartwatch", streak: 31, avatar: "from-emerald-400 to-cyan-500" },
-  { rank: 4, name: "Fatima_DHA", country: "UK", countryFlag: "🇬🇧", points: 41980, won: "AirPods Pro", streak: 29, avatar: "from-rose-400 to-red-500" },
-  { rank: 5, name: "JahangirKhanFan", country: "Saudi Arabia", countryFlag: "🇸🇦", points: 40150, won: "Sports Kit", streak: 24, avatar: "from-blue-400 to-violet-500" },
+  { rank: 1, name: "Tariq_KHI", country: "Pakistan", countryFlag: "🇵🇰", winRate: 94, won: "iPhone 15", streak: 47, avatar: "from-amber-400 to-orange-500" },
+  { rank: 2, name: "BabarAzamFan", country: "UAE", countryFlag: "🇦🇪", winRate: 91, won: "PS5", streak: 38, avatar: "from-violet-500 to-pink-500" },
+  { rank: 3, name: "LyariStriker", country: "Pakistan", countryFlag: "🇵🇰", winRate: 88, won: "Smartwatch", streak: 31, avatar: "from-emerald-400 to-cyan-500" },
+  { rank: 4, name: "Fatima_DHA", country: "UK", countryFlag: "🇬🇧", winRate: 85, won: "AirPods Pro", streak: 29, avatar: "from-rose-400 to-red-500" },
+  { rank: 5, name: "JahangirKhanFan", country: "Saudi Arabia", countryFlag: "🇸🇦", winRate: 82, won: "Sports Kit", streak: 24, avatar: "from-blue-400 to-violet-500" },
 ];
 
 function CountryFlag({ code }: { code: string }) {
@@ -44,8 +45,7 @@ function shuffleArray<T>(arr: T[]): T[] {
 }
 
 function PlayerRow({ player, index }: { player: Player; index: number }) {
-  const maxPoints = BASE_LEADERS[0].points;
-  const progress = (player.points / maxPoints) * 100;
+  const progress = player.winRate;
   const [animate, setAnimate] = useState(false);
 
   useEffect(() => {
@@ -94,7 +94,7 @@ function PlayerRow({ player, index }: { player: Player; index: number }) {
       </div>
       <div className="col-span-4 text-right sm:col-span-2">
         <span className="font-display text-base font-bold tabular-nums text-white">
-          {player.points.toLocaleString()}
+          {player.winRate}%
         </span>
       </div>
       <div className="col-span-4 text-right sm:col-span-2">
@@ -132,7 +132,7 @@ export default function Leaderboard() {
             <div className="col-span-1">Rank</div>
             <div className="col-span-5">Player</div>
             <div className="col-span-2 text-right">Streak</div>
-            <div className="col-span-2 text-right">Points</div>
+            <div className="col-span-2 text-right">Win Rate</div>
             <div className="col-span-2 text-right">Won</div>
           </div>
           <ul>

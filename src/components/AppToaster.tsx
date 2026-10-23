@@ -13,9 +13,22 @@ export default function AppToaster() {
   const [host, setHost] = useState<Element | null>(null);
 
   useEffect(() => {
-    const onChange = () => setHost(document.fullscreenElement);
+    const getFullscreenHost = () =>
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      document.querySelector('[data-stream-fullscreen]');
+
+    const onChange = () => setHost(getFullscreenHost());
     document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+
+    // Initial check for any already-active fullscreen element or attribute
+    onChange();
+
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
   }, []);
 
   const toaster = <Toaster position="top-right" richColors closeButton />;

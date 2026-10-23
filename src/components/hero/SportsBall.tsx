@@ -1,5 +1,4 @@
-// No client code: the flip-in and spin are CSS (.ball-enter / .ball-spin in globals.css), so the
-// hero renders these on the server and ships no JavaScript for them.
+import Image from 'next/image';
 
 export type SportsBallType = 'cricket' | 'basketball' | 'tennis' | 'football' | 'hockey' | 'squash';
 
@@ -8,130 +7,106 @@ interface SportsBallProps {
   type?: SportsBallType;
 }
 
-export function SportsBall({ className = "", type = "cricket" }: SportsBallProps) {
-  const getBallStyles = () => {
-    switch (type) {
-      case 'basketball':
-        return {
-          background: 'radial-gradient(circle at 30% 30%, #ea580c 0%, #c2410c 50%, #9a3412 100%)',
-          accent: 'rgba(234, 88, 12, 0.3)',
-        };
-      case 'tennis':
-        return {
-          background: 'radial-gradient(circle at 30% 30%, #bef264 0%, #a3e635 50%, #65a30d 100%)',
-          accent: 'rgba(163, 230, 53, 0.3)',
-        };
-      case 'football':
-        return {
-          background: 'radial-gradient(circle at 30% 30%, #ffffff 0%, #f1f5f9 50%, #94a3b8 100%)',
-          accent: 'rgba(255, 255, 255, 0.3)',
-        };
-      case 'hockey':
-        return {
-          background: 'radial-gradient(circle at 30% 30%, #fff7ed 0%, #fdba74 55%, #ea580c 100%)',
-          accent: 'rgba(251, 146, 60, 0.3)',
-        };
-      case 'squash':
-        return {
-          background: 'radial-gradient(circle at 30% 30%, #475569 0%, #1e293b 55%, #020617 100%)',
-          accent: 'rgba(250, 204, 21, 0.25)',
-        };
-      case 'cricket':
-      default:
-        return {
-          background: 'radial-gradient(circle at 30% 30%, #dc2626 0%, #991b1b 50%, #7f1d1d 100%)',
-          accent: 'rgba(220, 38, 38, 0.3)',
-        };
-    }
-  };
+interface BallStyleConfig {
+  name: string;
+  image: string;
+  glow: string;
+  shadow: string;
+}
 
-  const styles = getBallStyles();
+const BALL_CONFIGS: Record<SportsBallType, BallStyleConfig> = {
+  cricket: {
+    name: 'Cricket Ball',
+    image: '/images/sports/cricket.webp',
+    glow: 'radial-gradient(circle, rgba(239, 68, 68, 0.45) 0%, rgba(185, 28, 28, 0.18) 50%, transparent 72%)',
+    shadow: 'rgba(185, 28, 28, 0.45)',
+  },
+  football: {
+    name: 'Football',
+    image: '/images/sports/football.webp',
+    glow: 'radial-gradient(circle, rgba(255, 255, 255, 0.38) 0%, rgba(56, 189, 248, 0.2) 50%, transparent 72%)',
+    shadow: 'rgba(56, 189, 248, 0.35)',
+  },
+  hockey: {
+    name: 'Field Hockey Ball',
+    image: '/images/sports/hockey.webp',
+    glow: 'radial-gradient(circle, rgba(254, 240, 138, 0.4) 0%, rgba(245, 158, 11, 0.18) 50%, transparent 72%)',
+    shadow: 'rgba(245, 158, 11, 0.35)',
+  },
+  squash: {
+    name: 'Squash Ball',
+    image: '/images/sports/squash.webp',
+    glow: 'radial-gradient(circle, rgba(250, 204, 21, 0.4) 0%, rgba(100, 116, 139, 0.18) 50%, transparent 72%)',
+    shadow: 'rgba(250, 204, 21, 0.3)',
+  },
+  tennis: {
+    name: 'Tennis Ball',
+    image: '/images/sports/tennis.webp',
+    glow: 'radial-gradient(circle, rgba(163, 230, 53, 0.45) 0%, rgba(132, 204, 22, 0.2) 50%, transparent 72%)',
+    shadow: 'rgba(132, 204, 22, 0.4)',
+  },
+  basketball: {
+    name: 'Basketball',
+    image: '/images/sports/basketball.webp',
+    glow: 'radial-gradient(circle, rgba(249, 115, 22, 0.45) 0%, rgba(194, 65, 12, 0.2) 50%, transparent 72%)',
+    shadow: 'rgba(234, 88, 12, 0.4)',
+  },
+};
+
+export function SportsBall({ className = "", type = "cricket" }: SportsBallProps) {
+  const config = BALL_CONFIGS[type] || BALL_CONFIGS.cricket;
 
   return (
     <div
       // Default sizes only apply when the caller supplies none: the responsive defaults
       // (md:/lg:) would otherwise beat a caller's `w-full h-full` and blow the ball up to 320px.
-      className={`ball-enter relative ${className || 'w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80'}`}
+      className={`ball-enter group relative transition-transform duration-500 ease-out hover:scale-110 cursor-pointer ${
+        className || 'w-48 h-48 md:w-64 md:h-64 lg:w-80 lg:h-80'
+      }`}
     >
-      {/* Glow effect */}
-      <div 
-        className="absolute inset-0 rounded-full blur-2xl animate-pulse" 
-        style={{ background: `radial-gradient(circle, ${styles.accent} 0%, transparent 70%)` }}
+      {/* Dynamic ambient colored glow */}
+      <div
+        className="absolute -inset-2 rounded-full blur-2xl opacity-60 transition-opacity duration-500 group-hover:opacity-90 animate-pulse pointer-events-none"
+        style={{
+          background: config.glow,
+          animationDuration: '4s',
+        }}
+        aria-hidden="true"
       />
 
-      {/* Main ball */}
+      {/* Realistic volumetric drop shadow underneath ball */}
       <div
-        className="ball-spin relative w-full h-full rounded-full overflow-hidden"
+        className="absolute inset-0 rounded-full pointer-events-none"
         style={{
-          background: styles.background,
-          boxShadow: `
-            inset -20px -20px 40px rgba(0,0,0,0.4),
-            inset 10px 10px 30px rgba(255,255,255,0.2),
-            0 20px 60px rgba(0,0,0,0.5),
-            0 0 80px ${styles.accent}
-          `
+          boxShadow: `0 20px 45px -10px ${config.shadow}, 0 28px 60px -15px rgba(0, 0, 0, 0.75)`,
         }}
-      >
-        {/* Ball Details based on type */}
-        {type === 'cricket' && (
-          <>
-            <div className="absolute inset-4 rounded-full border-2 border-white/20"
-              style={{ borderStyle: 'dashed', transform: 'rotateX(60deg) rotateZ(20deg)' }}
-            />
-            <div className="absolute inset-4 rounded-full border-2 border-white/20"
-              style={{ borderStyle: 'dashed', transform: 'rotateX(60deg) rotateZ(-20deg)' }}
-            />
-          </>
-        )}
+        aria-hidden="true"
+      />
 
-        {type === 'basketball' && (
-          <>
-            <div className="absolute top-1/2 left-0 right-0 h-1 bg-black/40 -translate-y-1/2" />
-            <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-black/40 -translate-x-1/2" />
-            <div className="absolute inset-4 rounded-full border-[3px] border-black/40" style={{ transform: 'rotateX(75deg)' }} />
-          </>
-        )}
+      {/* Main 3D ball container */}
+      <div className="ball-spin relative w-full h-full rounded-full overflow-hidden select-none">
+        <Image
+          src={config.image}
+          alt={config.name}
+          fill
+          sizes="(max-width: 640px) 96px, (max-width: 1024px) 160px, 240px"
+          priority
+          className="object-contain pointer-events-none drop-shadow-2xl"
+        />
 
-        {type === 'tennis' && (
-          <>
-            <div className="absolute w-[120%] h-[120%] rounded-full border-4 border-white/70" style={{ top: '-60%', left: '-20%' }} />
-            <div className="absolute w-[120%] h-[120%] rounded-full border-4 border-white/70" style={{ bottom: '-60%', right: '-20%' }} />
-          </>
-        )}
-
-        {type === 'football' && (
-          <>
-             {/* Simple pentagon pattern for football */}
-             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1/3 h-1/3 bg-slate-800 rounded-sm" style={{ clipPath: 'polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)' }} />
-             <div className="absolute top-0 left-0 w-[40%] h-[4px] bg-slate-800 origin-left" style={{ transform: 'rotate(45deg)' }} />
-             <div className="absolute top-0 right-0 w-[40%] h-[4px] bg-slate-800 origin-right" style={{ transform: 'rotate(-45deg)' }} />
-             <div className="absolute bottom-0 left-[20%] w-[4px] h-[40%] bg-slate-800 origin-bottom" style={{ transform: 'rotate(-20deg)' }} />
-             <div className="absolute bottom-0 right-[20%] w-[4px] h-[40%] bg-slate-800 origin-bottom" style={{ transform: 'rotate(20deg)' }} />
-          </>
-        )}
-
-        {type === 'hockey' && (
-          // Dimpled turf ball
-          <div
-            className="absolute inset-0 opacity-40"
-            style={{ backgroundImage: 'radial-gradient(rgba(124,45,18,0.55) 18%, transparent 20%)', backgroundSize: '22% 22%' }}
-          />
-        )}
-
-        {type === 'squash' && (
-          // The two yellow dots of a competition squash ball
-          <>
-            <div className="absolute left-[30%] top-[46%] h-[14%] w-[14%] rounded-full bg-yellow-400" />
-            <div className="absolute left-[56%] top-[46%] h-[14%] w-[14%] rounded-full bg-yellow-400" />
-          </>
-        )}
-
-        {/* Highlight */}
+        {/* Specular glass sheen overlay */}
         <div
-          className="absolute top-[15%] left-[20%] w-[25%] h-[20%] rounded-full"
+          className="absolute inset-0 rounded-full pointer-events-none opacity-40 mix-blend-overlay transition-opacity duration-300 group-hover:opacity-60"
           style={{
-            background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.6) 0%, transparent 70%)'
+            background: 'radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.1) 40%, transparent 65%)',
           }}
+          aria-hidden="true"
+        />
+
+        {/* Fine spherical depth rim highlight */}
+        <div
+          className="absolute inset-0 rounded-full pointer-events-none border border-white/10"
+          aria-hidden="true"
         />
       </div>
     </div>

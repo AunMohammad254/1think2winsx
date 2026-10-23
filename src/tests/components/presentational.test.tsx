@@ -38,6 +38,11 @@ describe('hero decorations', () => {
     expect(outer.className).toContain(type ? 'w-full' : 'w-48');
     expect(container.querySelectorAll('div').length).toBeGreaterThan(3);
   });
+
+  it('SportsBall draws a cricket ball for a sport it has no picture of', () => {
+    render(<SportsBall type={'golf' as never} />);
+    expect(screen.getByAltText('Cricket Ball')).toBeInTheDocument();
+  });
 });
 
 describe('profile pieces', () => {

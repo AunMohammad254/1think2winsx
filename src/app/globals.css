@@ -94,12 +94,28 @@
 }
 .badge-pop { animation: badge-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 
-/* Hero balls: a springy flip-in, then a slow spin */
+/* Hero balls: a springy flip-in, then natural floating movement */
 @keyframes ball-enter {
   from { transform: scale(0) rotateY(-180deg); }
 }
 .ball-enter { animation: ball-enter 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.4s backwards; }
-.ball-spin { animation: icon-spin 20s linear infinite; }
+
+@keyframes ball-sway {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+  }
+  33% {
+    transform: rotate(3.5deg) scale(1.015);
+  }
+  66% {
+    transform: rotate(-3deg) scale(0.99);
+  }
+}
+.ball-spin {
+  animation: ball-sway 12s ease-in-out infinite;
+  will-change: transform;
+  transform: translateZ(0);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .nav-enter,
@@ -980,6 +996,89 @@ h1, h2, h3, h4, h5, h6 {
   transform: translateZ(0);
 }
 
+/* Authentic sports ball organic floating physics */
+@keyframes ball-float-cricket {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate3d(6px, -15px, 0) rotate(3deg);
+  }
+  50% {
+    transform: translate3d(-3px, -24px, 0) rotate(-2deg);
+  }
+  75% {
+    transform: translate3d(-5px, -9px, 0) rotate(1.5deg);
+  }
+}
+
+@keyframes ball-float-football {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  30% {
+    transform: translate3d(-8px, -18px, 0) rotate(-3.5deg);
+  }
+  60% {
+    transform: translate3d(5px, -26px, 0) rotate(2.5deg);
+  }
+  85% {
+    transform: translate3d(3px, -8px, 0) rotate(-1deg);
+  }
+}
+
+@keyframes ball-float-hockey {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  35% {
+    transform: translate3d(-5px, -16px, 0) rotate(3deg);
+  }
+  70% {
+    transform: translate3d(6px, -22px, 0) rotate(-2.5deg);
+  }
+}
+
+@keyframes ball-float-squash {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  28% {
+    transform: translate3d(5px, -12px, 0) rotate(-2.5deg);
+  }
+  65% {
+    transform: translate3d(-4px, -18px, 0) rotate(2deg);
+  }
+}
+
+.anim-ball-cricket {
+  animation: ball-float-cricket 7.5s ease-in-out infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.anim-ball-football {
+  animation: ball-float-football 9s ease-in-out infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.anim-ball-hockey {
+  animation: ball-float-hockey 8.2s ease-in-out infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.anim-ball-squash {
+  animation: ball-float-squash 6.8s ease-in-out infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
 /* Card Hover Glows */
 .hover\:glow-pitch {
   transition: box-shadow 0.3s ease, border-color 0.3s ease;
@@ -1168,6 +1267,10 @@ h1, h2, h3, h4, h5, h6 {
   .anim-orb,
   .anim-icon,
   .anim-float-soft,
+  .anim-ball-cricket,
+  .anim-ball-football,
+  .anim-ball-hockey,
+  .anim-ball-squash,
   .animate-success-scale {
     animation: none !important;
   }

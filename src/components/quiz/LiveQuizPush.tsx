@@ -86,8 +86,8 @@ const parseMs = (iso: string | null | undefined) => {
     return Number.isFinite(ms) ? ms : null;
 };
 
-/** Phones, and the stream in fullscreen, put the quiz beside or under the video instead of over it. */
-const preferredPanel = (): Panel => (isStreamFullscreen() || window.innerWidth < 768 ? 'split' : 'popup');
+/** In fullscreen, the quiz opens as a centered modal popup over the stream so the video experience is preserved. */
+const preferredPanel = (): Panel => (isStreamFullscreen() ? 'popup' : window.innerWidth < 768 ? 'split' : 'popup');
 
 /** The bell's sound setting covers the stream's pop-ups too. */
 function alertViewer() {

@@ -21,7 +21,7 @@ export default function HowItWorks() {
       <div className="absolute inset-0 -z-10 bg-dots opacity-30" />
       <SectionHeading
         eyebrow="Get started in 4 steps"
-        title={<>From sign-up to <span className="text-gradient-trophy">payout in minutes.</span></>}
+        title={<>From sign-up to <span className="text-gradient-trophy">winning rewards in minutes.</span></>}
         description="A frictionless flow built for one thing: getting you into the game and rewarded fast."
       />
       <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
