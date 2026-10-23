@@ -5,6 +5,8 @@ import { sentryOptions } from '@/lib/sentry-options';
 // their own console. Off until NEXT_PUBLIC_SENTRY_DSN is set (see src/lib/sentry-options.ts).
 Sentry.init({
   ...sentryOptions(),
+  // Through this site (src/app/monitoring/route.ts): ad blockers don't drop it and the CSP needs no Sentry host
+  tunnel: '/monitoring',
   integrations: [
     // A replay of the moments before an error, with all text, inputs and media masked (the defaults)
     Sentry.replayIntegration(),
