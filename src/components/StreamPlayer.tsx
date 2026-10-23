@@ -78,14 +78,16 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
   );
 
   const enterFullscreen = useCallback(async () => {
-    const target = getTarget();
+    const target = getTarget() as any;
     if (!target) return;
-    if (document.fullscreenEnabled && target.requestFullscreen) {
+    const fullscreenEnabled = document.fullscreenEnabled || (document as any).webkitFullscreenEnabled;
+    const requestFs = target.requestFullscreen || target.webkitRequestFullscreen;
+    if (fullscreenEnabled && requestFs) {
       try {
         // The fullscreenchange listener below records the mode. Some in-app browsers never settle
         // the request: after a moment the window is filled instead (a late success still wins).
         const entered = await Promise.race([
-          target.requestFullscreen({ navigationUI: 'hide' }).then(() => true),
+          requestFs.call(target, { navigationUI: 'hide' }).then(() => true).catch(() => requestFs.call(target).then(() => true)),
           new Promise<false>((resolve) => setTimeout(() => resolve(false), FULLSCREEN_WAIT_MS)),
         ]);
         if (entered) return;
@@ -102,7 +104,8 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
       return;
     }
     try {
-      await document.exitFullscreen();
+      const exitFs = document.exitFullscreen || (document as any).webkitExitFullscreen;
+      if (exitFs) await exitFs.call(document);
     } catch (err) {
       console.error('Leaving fullscreen failed', err);
     }
@@ -114,7 +117,8 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
   useEffect(() => {
     const onChange = async () => {
       const orientation: any = window.screen?.orientation;
-      if (document.fullscreenElement && document.fullscreenElement === getTarget()) {
+      const fsEl = document.fullscreenElement || (document as any).webkitFullscreenElement;
+      if (fsEl && fsEl === getTarget()) {
         setFullscreen('native');
         try {
           await orientation?.lock?.('landscape');
@@ -127,7 +131,11 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
       }
     };
     document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
   }, [getTarget]);
 
   // Mark the target for live-quiz.css and the quiz pop-ups. Immersive mode also stops the page

@@ -25,7 +25,7 @@ function Metric({ label, value, tone = "default" }: { label: string; value: stri
   return (
     <div className="min-w-0">
       <p className="text-[10px] uppercase tracking-[0.16em] text-white/60">{label}</p>
-      <p className={`mt-1 font-display text-base font-bold wrap-break-word ${toneCls}`}>{value}</p>
+      <p className={`mt-1 font-display text-base font-bold break-words ${toneCls}`}>{value}</p>
     </div>
   );
 }
@@ -51,7 +51,18 @@ function StatePill({ pill }: { pill: Pill }) {
   return null;
 }
 
-function CardShell({ accent, badge, pill, title, when, tag, detail, href, children }: {
+function CardShell({
+  accent,
+  badge,
+  pill,
+  title,
+  when,
+  tag,
+  detail,
+  href,
+  isActive = false,
+  children
+}: {
   accent: string;
   badge: string;
   pill: Pill;
@@ -60,12 +71,13 @@ function CardShell({ accent, badge, pill, title, when, tag, detail, href, childr
   tag: string;
   detail: string;
   href: string;
+  isActive?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="w-full shrink-0 snap-start lg:w-full">
-      <div className="glass relative overflow-hidden rounded-3xl p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)] transition-all duration-500">
-        <div className={`pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-linear-to-br ${accent} opacity-25 blur-3xl transition-opacity duration-500`} />
+      <div className={`glass relative overflow-hidden rounded-3xl p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)] transition-all duration-500 ${isActive ? 'ring-1 ring-white/20' : 'hover:ring-1 hover:ring-white/10'}`}>
+        <div className={`pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-linear-to-br ${accent} ${isActive ? 'opacity-35' : 'opacity-20'} blur-3xl transition-opacity duration-500`} />
         <div className="relative">
           <div className="flex items-center justify-between">
             <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-white">{badge}</span>
@@ -83,7 +95,8 @@ function CardShell({ accent, badge, pill, title, when, tag, detail, href, childr
             <Link
               href={href}
               prefetch={linkPrefetch(href)}
-              className={`group/btn flex items-center gap-1.5 rounded-full bg-linear-to-r ${accent} px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition-transform hover:scale-105`}
+              aria-label={`Join ${title}`}
+              className={`group/btn flex items-center gap-1.5 rounded-full bg-linear-to-r ${accent} px-4 py-2 text-sm font-bold text-ink-950 shadow-lg transition-transform hover:scale-105 active:scale-95`}
             >
               Join
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 transition-transform group-hover/btn:translate-x-0.5" fill="currentColor">
@@ -111,7 +124,7 @@ const QuizCarouselCard = memo(function QuizCarouselCard({
   isLoggedIn: boolean;
 }) {
   return (
-    <CardShell accent={q.accent} badge={q.badge} pill={isActive ? "live" : null} title={q.title} tag={q.difficulty} detail="10 questions" href={isLoggedIn ? "/quizzes" : "/register"}>
+    <CardShell accent={q.accent} badge={q.badge} pill={isActive ? "live" : null} title={q.title} tag={q.difficulty} detail="10 questions" href={isLoggedIn ? "/quizzes" : "/register"} isActive={isActive}>
       <Metric label="Prize pool" value={`${q.prize.toLocaleString()} PKR`} tone="trophy" />
       <Metric label="Players" value={livePlayers.toLocaleString()} />
       <Metric label="Starts in" value={q.timeLeft} tone={q.timeLeft === "Live now" ? "live" : "default"} />
@@ -137,11 +150,13 @@ const RealQuizCard = memo(function RealQuizCard({
   quiz,
   now,
   accent,
+  isActive,
   isLoggedIn,
 }: {
   quiz: LandingQuiz;
   now: number;
   accent: string;
+  isActive: boolean;
   isLoggedIn: boolean;
 }) {
   const t = timing(quiz, now);
@@ -149,7 +164,7 @@ const RealQuizCard = memo(function RealQuizCard({
   const questions = `${quiz.questionCount} ${quiz.questionCount === 1 ? "question" : "questions"}`;
   const played = quiz.totalAttempts ? ` · ${quiz.totalAttempts.toLocaleString()} played` : "";
   return (
-    <CardShell accent={accent} badge={badge} pill={quiz.state} title={quiz.title} when={t.when} tag={`${quiz.duration} min`} detail={questions + played} href={isLoggedIn ? "/quizzes" : "/register"}>
+    <CardShell accent={accent} badge={badge} pill={quiz.state} title={quiz.title} when={t.when} tag={`${quiz.duration} min`} detail={questions + played} href={isLoggedIn ? "/quizzes" : "/register"} isActive={isActive}>
       <Metric label="Prize" value={quiz.prize} tone="trophy" />
       <Metric label="Entry" value={quiz.entry} />
       <Metric label={t.label} value={t.value} tone={t.tone} />
@@ -221,12 +236,14 @@ export default function LiveQuiz() {
   const { user } = useAuth();
   const isLoggedIn = !!user;
   const [active, setActive] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
   const { ref, isVisible } = useScrollReveal({ threshold: 0.1, once: false });
   const carouselRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const startX = useRef(0);
   const scrollLeft = useRef(0);
   const touchStartX = useRef(0);
+  const isFirstRender = useRef(true);
 
   // Real quizzes once the cached snapshot arrives; until then (or if it fails) the demo cards stay
   const { snapshot } = useLiveSnapshot();
@@ -240,15 +257,42 @@ export default function LiveQuiz() {
   const livePlayers = useAnimatedCounter(quizzes ? 0 : QUIZ_DATA[current].players, 800);
 
   useEffect(() => {
-    // No auto-advance for reduced motion: the dots and swipes still switch cards (WCAG 2.2.2)
-    if (!isVisible || count < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    // No auto-advance for reduced motion, during hover, or when few cards (WCAG 2.2.2)
+    if (!isVisible || isHovered || count < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const id = setInterval(() => setActive((a) => (Math.min(a, count - 1) + 1) % count), 5000);
     return () => clearInterval(id);
-  }, [isVisible, count]);
+  }, [isVisible, isHovered, count]);
+
+  // Synchronize carousel scroll position whenever the active slide changes
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (isDragging) return;
+    const carousel = carouselRef.current;
+    if (!carousel) return;
+    const child = carousel.children[current] as HTMLElement | undefined;
+    const targetLeft =
+      child && typeof child.offsetLeft === "number" && child.offsetLeft > 0
+        ? child.offsetLeft
+        : current * (carousel.clientWidth || 0);
+
+    if (Math.abs(carousel.scrollLeft - targetLeft) > 5) {
+      carousel.scrollTo({ left: targetLeft, behavior: "smooth" });
+    }
+  }, [current, isDragging]);
 
   const handleDotClick = useCallback((i: number) => {
     setActive(i);
-    carouselRef.current?.scrollTo({ left: i * (carouselRef.current.clientWidth), behavior: "smooth" });
+    const carousel = carouselRef.current;
+    if (!carousel) return;
+    const child = carousel.children[i] as HTMLElement | undefined;
+    const targetLeft =
+      child && typeof child.offsetLeft === "number" && child.offsetLeft > 0
+        ? child.offsetLeft
+        : i * (carousel.clientWidth || 0);
+    carousel.scrollTo({ left: targetLeft, behavior: "smooth" });
   }, []);
 
   // The mouse handlers sit on the carousel itself, so carouselRef is set whenever they run
@@ -262,9 +306,16 @@ export default function LiveQuiz() {
   const onMouseUp = useCallback(() => {
     setIsDragging(false);
     const carousel = carouselRef.current!;
-    const idx = Math.round(carousel.scrollLeft / carousel.clientWidth);
+    const clientWidth = carousel.clientWidth || 1;
+    const idx = Math.max(0, Math.min(count - 1, Math.round(carousel.scrollLeft / clientWidth)));
     setActive(idx);
-  }, []);
+    const child = carousel.children[idx] as HTMLElement | undefined;
+    const targetLeft =
+      child && typeof child.offsetLeft === "number" && child.offsetLeft > 0
+        ? child.offsetLeft
+        : idx * (carousel.clientWidth || 0);
+    carousel.scrollTo({ left: targetLeft, behavior: "smooth" });
+  }, [count]);
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -293,7 +344,7 @@ export default function LiveQuiz() {
   );
 
   return (
-    <Section  ref={ref as React.RefObject<HTMLDivElement>} className="relative overflow-hidden">
+    <Section ref={ref as React.RefObject<HTMLDivElement>} className="relative overflow-hidden">
       <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
         <LiveQuizIntro isLoggedIn={isLoggedIn} />
         <div className="relative">
@@ -307,7 +358,17 @@ export default function LiveQuiz() {
                   onMouseDown={onMouseDown}
                   onMouseUp={onMouseUp}
                   onMouseMove={onMouseMove}
-                  onMouseLeave={onMouseUp}
+                  onMouseLeave={() => {
+                    setIsHovered(false);
+                    if (isDragging) onMouseUp();
+                  }}
+                  onMouseEnter={() => setIsHovered(true)}
+                  onFocus={() => setIsHovered(true)}
+                  onBlur={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget)) {
+                      setIsHovered(false);
+                    }
+                  }}
                   onTouchStart={onTouchStart}
                   onTouchEnd={onTouchEnd}
                   className="flex snap-x snap-mandatory gap-6 overflow-x-auto scrollbar-none lg:overflow-hidden"
@@ -315,7 +376,14 @@ export default function LiveQuiz() {
                 >
                   {quizzes
                     ? quizzes.map((quiz, i) => (
-                        <RealQuizCard key={quiz.id} quiz={quiz} now={now} accent={QUIZ_DATA[i % QUIZ_DATA.length].accent} isLoggedIn={isLoggedIn} />
+                        <RealQuizCard
+                          key={quiz.id}
+                          quiz={quiz}
+                          now={now}
+                          accent={QUIZ_DATA[i % QUIZ_DATA.length].accent}
+                          isActive={i === current}
+                          isLoggedIn={isLoggedIn}
+                        />
                       ))
                     : QUIZ_DATA.map((q, i) => (
                         <QuizCarouselCard

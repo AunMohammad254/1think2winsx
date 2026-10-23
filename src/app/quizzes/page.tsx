@@ -267,6 +267,14 @@ function QuizzesPageInner() {
         if (q.pushedAt && seenPushedAtRef.current.get(q.id) !== q.pushedAt) {
           seenPushedAtRef.current.set(q.id, q.pushedAt);
           liveQuizPushRef.current?.notify(q.id, q.title, computeQuizEndsAt(q.pushedAt, q.duration), q.duration);
+          toast.info(`New quiz live: ${q.title}`, {
+            description: 'Tap to play now',
+            action: {
+              label: 'Open Quiz',
+              onClick: () => liveQuizPushRef.current?.open(q.id),
+            },
+            duration: 10000,
+          });
           notices++;
         }
         if (q.announcedAt && seenAnnouncedAtRef.current.get(q.id) !== q.announcedAt) {
@@ -553,7 +561,7 @@ function QuizzesPageInner() {
             quiz grid below or any other part of the page. The box itself is
             what goes fullscreen, so the quiz pop-ups come along. */}
         <div className="mb-8 live-quiz-theme scroll-mt-24" id="live-stream-section" ref={streamSectionRef}>
-          <div id="live-stream-fullscreen-target" className={`stream-section${streamAvailable === false ? ' no-stream' : ''}`}>
+          <div id="live-stream-fullscreen-target" className={`live-quiz-theme stream-section${streamAvailable === false ? ' no-stream' : ''}`}>
             <div className="stream-row">
               <div className="player">
                 <Suspense fallback={<div className="aspect-video w-full bg-gray-800 animate-pulse" />}>

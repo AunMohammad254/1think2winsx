@@ -191,7 +191,7 @@ describe('LiveQuizPush: answering', () => {
     expect(screen.queryByText('1. Who?')).toBeNull();
   });
 
-  it('opens beside or under the video on phones and in fullscreen, from the banner and from a deep link', async () => {
+  it('opens beside or under the video on phones, and as a popup modal in fullscreen', async () => {
     window.innerWidth = 500;
     setup();
     act(() => ref.current!.notify('q1', 'Live Cricket'));
@@ -202,11 +202,11 @@ describe('LiveQuizPush: answering', () => {
     expect(await screen.findByText('Split view: the stream keeps playing beside the quiz.')).toBeInTheDocument();
     fireEvent.click(screen.getByTitle('Close'));
 
-    // A wide screen, but the stream is fullscreen: a popup would cover the video
+    // In fullscreen: the popup modal floats over the stream
     window.innerWidth = 1600;
     document.body.insertAdjacentHTML('beforeend', `<div ${STREAM_FULLSCREEN_ATTR}="immersive"></div>`);
     act(() => ref.current!.open('q3'));
-    expect(await screen.findByText('Split view: the stream keeps playing beside the quiz.')).toBeInTheDocument();
+    expect(await screen.findByText('Popup mode: the quiz floats above the stream.')).toBeInTheDocument();
   });
 
   it('a new push of the same quiz starts fresh and loads it once', async () => {
