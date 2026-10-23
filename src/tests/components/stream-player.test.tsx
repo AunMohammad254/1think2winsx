@@ -25,6 +25,8 @@ afterEach(() => {
   delete document.fullscreenElement;
   // @ts-expect-error test cleanup
   delete document.fullscreenEnabled;
+  for (const key of ['webkitFullscreenEnabled', 'webkitFullscreenElement', 'webkitExitFullscreen']) delete (document as unknown as Record<string, unknown>)[key];
+  delete (HTMLElement.prototype as unknown as Record<string, unknown>).webkitRequestFullscreen;
   Object.defineProperty(window.screen, 'orientation', { configurable: true, value: undefined });
 });
 
@@ -191,6 +193,36 @@ describe('StreamPlayer', () => {
     enter();
     fireEvent.click(exitButton());
     expect(viewer()).not.toHaveAttribute(STREAM_FULLSCREEN_ATTR);
+  });
+
+  it('asks again without options when the browser rejects them', async () => {
+    const { request } = nativeFullscreen(vi.fn().mockRejectedValueOnce(new TypeError('bad options')).mockResolvedValueOnce(undefined));
+    render(<StreamPlayer />);
+    await iframe();
+    enter();
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(request.mock.calls).toEqual([[{ navigationUI: 'hide' }], []]);
+    // The second request worked, so the window is not filled with CSS
+    await act(async () => {});
+    expect(viewer()).not.toHaveAttribute(STREAM_FULLSCREEN_ATTR);
+  });
+
+  it('uses the webkit-prefixed Fullscreen API (older Safari, iPad)', async () => {
+    const doc = document as unknown as Record<string, unknown>;
+    const request = vi.fn(async () => {});
+    const exit = vi.fn(async () => {});
+    doc.webkitFullscreenEnabled = true;
+    doc.webkitExitFullscreen = exit;
+    (HTMLElement.prototype as unknown as Record<string, unknown>).webkitRequestFullscreen = request;
+    render(<StreamPlayer />);
+    await iframe();
+    enter();
+    await waitFor(() => expect(request).toHaveBeenCalledWith({ navigationUI: 'hide' }));
+    Object.defineProperty(document, 'webkitFullscreenElement', { configurable: true, get: () => viewer() });
+    act(() => void document.dispatchEvent(new Event('webkitfullscreenchange')));
+    expect(viewer()).toHaveAttribute(STREAM_FULLSCREEN_ATTR, 'native');
+    fireEvent.click(exitButton());
+    await waitFor(() => expect(exit).toHaveBeenCalled());
   });
 
   it('falls back to filling the window when the browser refuses fullscreen', async () => {

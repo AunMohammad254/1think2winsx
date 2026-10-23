@@ -384,6 +384,10 @@ describe('quizzes page: live updates', () => {
     expect(h.push.notify).toHaveBeenCalledTimes(1);
     // With its answering window (pushedAt + duration), for the countdown
     expect(h.push.notify).toHaveBeenCalledWith('a', 'Cricket Classics LIVE', '2026-10-16T10:10:00.000Z', 10);
+    // A toast says so too, and its button opens the quiz
+    expect(h.toast.info).toHaveBeenCalledWith('New quiz live: Cricket Classics LIVE', expect.objectContaining({ description: 'Tap to play now', duration: 10000 }));
+    h.toast.info.mock.calls[0][1].action.onClick();
+    expect(h.push.open).toHaveBeenCalledWith('a');
     expect(screen.getByText('Cricket Classics LIVE')).toBeInTheDocument();
     expect(screen.getByText('Brand new quiz')).toBeInTheDocument();
     expect(screen.queryByText('Quiz b')).toBeNull();

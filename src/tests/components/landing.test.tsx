@@ -698,6 +698,70 @@ describe('LiveQuiz', () => {
     expect(active()).toBe(1);
   });
 
+  it('pauses auto-advance while the pointer or keyboard focus is on the cards (WCAG 2.2.2)', () => {
+    frames();
+    const { container } = render(<LiveQuiz />);
+    const active = () => screen.getAllByRole('button').findIndex((b) => b.className.includes('w-8'));
+    const track = container.querySelector('.snap-x') as HTMLElement;
+    intersect();
+    fireEvent.mouseEnter(track);
+    advance(6000);
+    expect(active()).toBe(0);
+    fireEvent.mouseLeave(track);
+    advance(5000);
+    expect(active()).toBe(1);
+
+    fireEvent.focusIn(track);
+    advance(6000);
+    expect(active()).toBe(1);
+    // Moving focus to another link inside the cards keeps it paused; leaving them resumes it
+    fireEvent.focusOut(track, { relatedTarget: track.querySelector('a') });
+    advance(6000);
+    expect(active()).toBe(1);
+    fireEvent.focusOut(track, { relatedTarget: document.body });
+    advance(5000);
+    expect(active()).toBe(2);
+  });
+
+  it('snaps to the nearest card when a drag leaves the cards, and scrolls to where a card was laid out', () => {
+    const { container } = render(<LiveQuiz />);
+    const active = () => screen.getAllByRole('button').findIndex((b) => b.className.includes('w-8'));
+    const track = container.querySelector('.snap-x') as HTMLElement;
+    storeScrollLeft(track);
+    Object.defineProperty(track, 'clientWidth', { configurable: true, value: 100 });
+    fireEvent.mouseDown(track, { clientX: 300 });
+    fireEvent.mouseMove(track, { clientX: 200 });
+    fireEvent.mouseLeave(track);
+    expect(active()).toBe(2);
+    expect(track.style.cursor).toBe('grab');
+    // Leaving without a drag changes nothing
+    fireEvent.mouseLeave(track);
+    expect(active()).toBe(2);
+
+    // Before layout (no width yet) a release picks the first card instead of dividing by zero
+    Object.defineProperty(track, 'clientWidth', { configurable: true, value: 0 });
+    track.scrollLeft = 0;
+    fireEvent.mouseDown(track, { clientX: 100 });
+    fireEvent.mouseUp(track);
+    expect(active()).toBe(0);
+
+    Object.defineProperty(track.children[1], 'offsetLeft', { configurable: true, value: 640 });
+    fireEvent.click(screen.getByRole('button', { name: 'Show quiz 2' }));
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({ left: 640, behavior: 'smooth' });
+  });
+
+  it('shows the empty card when the real list turns out empty while a later card is selected', async () => {
+    let answer: (r: Response) => void = () => {};
+    fetchMock.mockImplementation(() => new Promise<Response>((resolve) => { answer = resolve; }));
+    render(<LiveQuiz />);
+    fireEvent.click(screen.getByRole('button', { name: 'Show quiz 3' }));
+    await act(async () => {
+      answer(jsonResponse({ version: 'v1', walletEnabled: false, quizzes: [] }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByText('No quiz is live right now')).toBeInTheDocument();
+  });
+
   const titles = () => screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
 
   it('shows the real quizzes: prize, entry, and countdowns with times in Pakistan time', async () => {

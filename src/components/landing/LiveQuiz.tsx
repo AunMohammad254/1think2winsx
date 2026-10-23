@@ -232,6 +232,12 @@ const LiveQuizIntro = memo(function LiveQuizIntro({ isLoggedIn }: { isLoggedIn: 
   );
 });
 
+/** Where slide `i` starts in the track: its laid-out position, or i track-widths in before layout. */
+function slideLeft(track: HTMLElement, i: number) {
+  const slide = track.children[i] as HTMLElement;
+  return slide.offsetLeft > 0 ? slide.offsetLeft : i * track.clientWidth;
+}
+
 export default function LiveQuiz() {
   const { user } = useAuth();
   const isLoggedIn = !!user;
@@ -271,28 +277,19 @@ export default function LiveQuiz() {
     }
     if (isDragging) return;
     const carousel = carouselRef.current;
+    // The empty card replaces the track when the last quiz goes
     if (!carousel) return;
-    const child = carousel.children[current] as HTMLElement | undefined;
-    const targetLeft =
-      child && typeof child.offsetLeft === "number" && child.offsetLeft > 0
-        ? child.offsetLeft
-        : current * (carousel.clientWidth || 0);
-
+    const targetLeft = slideLeft(carousel, current);
     if (Math.abs(carousel.scrollLeft - targetLeft) > 5) {
       carousel.scrollTo({ left: targetLeft, behavior: "smooth" });
     }
   }, [current, isDragging]);
 
+  // The dots only show beside the track, so carouselRef is set whenever one is clicked
   const handleDotClick = useCallback((i: number) => {
     setActive(i);
-    const carousel = carouselRef.current;
-    if (!carousel) return;
-    const child = carousel.children[i] as HTMLElement | undefined;
-    const targetLeft =
-      child && typeof child.offsetLeft === "number" && child.offsetLeft > 0
-        ? child.offsetLeft
-        : i * (carousel.clientWidth || 0);
-    carousel.scrollTo({ left: targetLeft, behavior: "smooth" });
+    const carousel = carouselRef.current!;
+    carousel.scrollTo({ left: slideLeft(carousel, i), behavior: "smooth" });
   }, []);
 
   // The mouse handlers sit on the carousel itself, so carouselRef is set whenever they run
@@ -309,12 +306,7 @@ export default function LiveQuiz() {
     const clientWidth = carousel.clientWidth || 1;
     const idx = Math.max(0, Math.min(count - 1, Math.round(carousel.scrollLeft / clientWidth)));
     setActive(idx);
-    const child = carousel.children[idx] as HTMLElement | undefined;
-    const targetLeft =
-      child && typeof child.offsetLeft === "number" && child.offsetLeft > 0
-        ? child.offsetLeft
-        : idx * (carousel.clientWidth || 0);
-    carousel.scrollTo({ left: targetLeft, behavior: "smooth" });
+    carousel.scrollTo({ left: slideLeft(carousel, idx), behavior: "smooth" });
   }, [count]);
 
   const onMouseMove = useCallback(
