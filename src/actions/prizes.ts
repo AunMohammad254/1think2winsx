@@ -434,18 +434,30 @@ export async function deletePrize(
     const denied = await adminActionGuard();
     if (denied) return denied as any;
     try {
-        const supabase = await getDb();
+        // The server client: the admin session is not a Supabase sign-in, so the visitor's client is
+        // filtered by row-level security and counted no claims at all. Deleting a prize deletes its claims
+        // and its quiz winners with it (both cascade), so a failed count stops the delete.
+        const supabase = getAdminDb();
 
-        // Check if prize has redemptions
-        const { count: redemptionCount } = await supabase
-            .from('PrizeRedemption')
-            .select('*', { count: 'exact', head: true })
-            .eq('prizeId', id);
+        const [redemptions, wins] = await Promise.all([
+            supabase.from('PrizeRedemption').select('*', { count: 'exact', head: true }).eq('prizeId', id),
+            supabase.from('QuizWinner').select('*', { count: 'exact', head: true }).eq('prizeId', id),
+        ]);
+        if (redemptions.error) throw redemptions.error;
+        if (wins.error) throw wins.error;
+        const redemptionCount = redemptions.count;
 
         if (redemptionCount && redemptionCount > 0) {
             return {
                 success: false,
                 error: `Cannot delete prize with ${redemptionCount} redemptions. Deactivate instead.`
+            };
+        }
+        // A prize won in a quiz: its winner records are the only trace of who is owed it
+        if (wins.count && wins.count > 0) {
+            return {
+                success: false,
+                error: `Cannot delete a prize that was won in ${wins.count === 1 ? 'a quiz' : `${wins.count} quizzes`}. Deactivate instead.`
             };
         }
 

@@ -8,6 +8,7 @@ import { toUtcIso, formatBusinessTime } from '@/lib/schedule-time';
 import { revalidatePath } from 'next/cache';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import { saveQuizAdminSettings } from '@/lib/quiz-admin-settings';
+import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 import {
     QuizFormSchema,
     CreateQuizInputSchema,
@@ -155,6 +156,25 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
 
         const { questions, id: quizId, ...quizData } = validationResult.data;
 
+        // Before anything is saved: refuse to remove an answered question or change its options, which
+        // would delete or re-map players' answers (lib/question-guard)
+        const currentQuestions = await questionDb.findByQuizId(quizId!);
+        const keptIds = new Set(questions.filter(q => q.id).map(q => q.id as string));
+        const currentById = new Map<string, { id: string; text?: string; options?: unknown }>(
+            currentQuestions.map((q: { id: string; text?: string; options?: unknown }) => [q.id, q])
+        );
+        const optionsChanged = (q: (typeof questions)[number]) =>
+            !!q.id && currentById.has(q.id) && !sameOptions(currentById.get(q.id)!.options, q.options.map(opt => opt.text));
+        const risky = [
+            ...currentQuestions.filter((q: { id: string }) => !keptIds.has(q.id)).map((q: { id: string }) => q.id),
+            ...questions.filter(optionsChanged).map(q => q.id as string),
+        ];
+        const answered = risky.length > 0 ? await answeredQuestionIds(risky) : new Set<string>();
+        if (answered.size > 0) {
+            const first = currentById.get([...answered][0]);
+            return { success: false, error: answeredQuestionError(first?.text || 'a question', answered.size - 1), code: 'QUESTION_ANSWERED' };
+        }
+
         // Update quiz basic info
         // See createQuiz: absolute instant, independent of the server's timezone.
         const startsAtUtc = toUtcIso(quizData.startsAt);
@@ -172,15 +192,9 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             quizType: quizData.quizType,
         } as any);
 
-        // Get existing question IDs to update
-        const existingQuestionIds = questions
-            .filter(q => q.id)
-            .map(q => q.id as string);
-
-        // Delete questions not in the update list
-        const currentQuestions = await questionDb.findByQuizId(quizId!);
+        // Delete questions not in the update list (none of them has answers: checked above)
         for (const question of currentQuestions) {
-            if (!existingQuestionIds.includes(question.id)) {
+            if (!keptIds.has(question.id)) {
                 await questionDb.delete(question.id);
             }
         }
@@ -189,19 +203,21 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
         // erase a prediction's result (and reopen the question). Results change in Settle Quizzes.
         const resultSaved = new Set(currentQuestions.filter((q: { hasCorrectAnswer?: boolean }) => q.hasCorrectAnswer).map((q: { id: string }) => q.id));
         for (const question of questions) {
-            const content = {
-                text: question.text,
-                options: JSON.stringify(question.options.map(opt => opt.text)),
-                status: question.status,
-            };
+            const options = JSON.stringify(question.options.map(opt => opt.text));
             const key = { correctOption: answerKey(quizData.quizType, question.options), hasCorrectAnswer: false };
 
             if (question.id) {
-                // Update existing question
+                // Update existing question. Unchanged options are not rewritten: the database refuses any
+                // options write to an answered question, even one that only re-spaces the JSON
+                const content = {
+                    text: question.text,
+                    ...(optionsChanged(question) || !currentById.has(question.id) ? { options } : {}),
+                    status: question.status,
+                };
                 await questionDb.update(question.id, resultSaved.has(question.id) ? content : { ...content, ...key });
             } else {
                 // Create new question
-                await questionDb.create({ quizId: quizId!, ...content, ...key });
+                await questionDb.create({ quizId: quizId!, text: question.text, options, status: question.status, ...key });
             }
         }
 

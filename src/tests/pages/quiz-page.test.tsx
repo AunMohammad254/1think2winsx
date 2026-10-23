@@ -216,10 +216,22 @@ describe('quiz page: answering', () => {
     choose('Pakistan');
     act(() => h.onExpire!());
     expect(screen.getByText('Your Quiz Time is Over!')).toBeInTheDocument();
+    expect(screen.getByText(/submit the 1 question you answered/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'View Results' }));
     await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/quiz/q1/results'));
+    // Only the answered question: the server refuses option -1, and one used to sink the whole submission
     const body = JSON.parse(h.fetchWithRetry.mock.calls.find(([u]) => u.endsWith('/submit'))![1].body);
-    expect(body.answers.filter((a: { selectedOption: number }) => a.selectedOption === -1)).toHaveLength(2);
+    expect(body).toEqual({ answers: [{ questionId: 'a', selectedOption: 0 }] });
+  });
+
+  it('sends nothing when time runs out before any answer, and goes back to the quizzes', async () => {
+    render(<QuizPage />);
+    await start();
+    act(() => h.onExpire!());
+    expect(screen.getByText(/before you answered any question, so there is nothing to submit/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Quizzes' }));
+    expect(h.router.push).toHaveBeenCalledWith('/quizzes');
+    expect(h.fetchWithRetry.mock.calls.some(([u]) => u.endsWith('/submit'))).toBe(false);
   });
 
   it('stays on the quiz with the error when the time-up submit fails, and lets the player retry', async () => {
@@ -265,10 +277,12 @@ describe('quiz page: offline submissions', () => {
   });
 
   it('submits saved answers when the connection returns', async () => {
-    localStorage.setItem('pending_submit_q1_u1', JSON.stringify({ quizId: 'q1', answers: [{ questionId: 'a', selectedOption: 0 }] }));
+    // Saved by a page from before the fix: the unanswered question is left out of the submit
+    localStorage.setItem('pending_submit_q1_u1', JSON.stringify({ quizId: 'q1', answers: [{ questionId: 'a', selectedOption: 0 }, { questionId: 'b', selectedOption: -1 }] }));
     render(<QuizPage />);
     expect(await screen.findByText('Synced!')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/api/quizzes/q1/submit', expect.objectContaining({ method: 'POST' }));
+    expect(JSON.parse(fetchMock.mock.calls.find(([u]) => u.endsWith('/submit'))![1].body)).toEqual({ answers: [{ questionId: 'a', selectedOption: 0 }] });
     expect(localStorage.getItem('pending_submit_q1_u1')).toBeNull();
   });
 

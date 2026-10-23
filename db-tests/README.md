@@ -23,6 +23,9 @@ wrong SQL. Covered so far:
   password, account and support emails at 299 over a rolling 24 hours, gives the exact retry time,
   lets exactly the cap through under concurrent requests, and reads its numbers from `AppSettings`;
   `release_email_quota`, `email_quota_status`, and that only the service role can reach any of it
+- Protected answers and winners (migration `06-20261024120000`): a question players answered can't be
+  deleted or get new options (its wording and status can change, and deleting the whole quiz still
+  works), and a prize won in a quiz can't be deleted
 - Email services: the `EmailLog` table's checks and 90-day pruning, `record_email_event` never taking
   a result back, `email_log_totals`, the daily limit following `AppSettings.email_provider` (Brevo
   299, SES 199 by default), the guard that stops on a changed `email_quota_settings()`, and that

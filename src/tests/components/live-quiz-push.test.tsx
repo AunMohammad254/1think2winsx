@@ -46,6 +46,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  // The deadline lock-in tests pin the random wait
+  if (vi.isMockFunction(Math.random)) vi.mocked(Math.random).mockRestore();
   document.querySelectorAll(`[${STREAM_FULLSCREEN_ATTR}]`).forEach((el) => el.remove());
 });
 
@@ -153,6 +155,9 @@ describe('LiveQuizPush: answering', () => {
     expect((container.querySelector('.qp-progress span') as HTMLElement).style.width).toBe('50%');
     await tick(60_000);
     expect(screen.getByText("Time's up")).toHaveClass('over');
+    // Nothing was answered, so nothing is locked in at the deadline
+    await tick(15_000);
+    expect(h.fetchWithRetry).toHaveBeenCalledTimes(1);
     // Closed, a quiz whose time is up leaves no pill behind
     fireEvent.click(screen.getByTitle('Close'));
     expect(container).toBeEmptyDOMElement();
@@ -428,16 +433,66 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(screen.getByRole('button', { name: 'Lock in answer' })).toBeEnabled();
   });
 
-  it('says the time is up instead of submitting once the countdown has run out', async () => {
+  it('locks in what was answered when time runs out, after a random wait inside the grace period', async () => {
     fakeClock();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // 7.5 s into the 15 s spread
+    h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
+    const { onAnswered } = setup();
+    act(() => ref.current!.open('q1'));
+    await flush();
+    fireEvent.click(screen.getByText('Babar')); // only the first of two questions
+    await tick(60_000);
+    expect(screen.getByText("Time's up")).toBeInTheDocument();
+    // The answers are final now: a late pick changes nothing
+    fireEvent.click(screen.getByText('2009'));
+    expect(screen.getByText('2009').className).not.toContain('picked');
+    expect(screen.getByRole('button', { name: 'Submitting...' })).toBeDisabled();
+
+    h.fetchWithRetry.mockClear();
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    await tick(6_000);
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+    await tick(2_000);
+    expect(h.fetchWithRetry).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(h.fetchWithRetry.mock.calls[0][1].body)).toEqual({ answers: [{ questionId: 'a', selectedOption: 0 }] });
+    expect(screen.getByText('Answer locked in — waiting for results')).toBeInTheDocument();
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was locked in.");
+    expect(onAnswered).toHaveBeenCalled();
+  });
+
+  it('locks in at the deadline with the panel closed too, once per answering window', async () => {
+    fakeClock();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
     h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
     setup();
     act(() => ref.current!.open('q1'));
     await flush();
     fireEvent.click(screen.getByText('Babar'));
     fireEvent.click(screen.getByText('2009'));
-    await tick(60_000);
-    expect(screen.getByText("Time's up")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('Close'));
+    h.fetchWithRetry.mockClear();
+    h.fetchWithRetry.mockResolvedValue(jsonResponse({ ok: true }));
+    await tick(61_000);
+    await tick(1_000); // the deadline effect runs once the first act ends, then its timer
+    expect(h.fetchWithRetry).toHaveBeenCalledTimes(1);
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 2 answers were locked in.");
+    await tick(30_000);
+    expect(h.fetchWithRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a refused deadline lock-in, and Lock in then says the time is up without submitting', async () => {
+    fakeClock();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
+    setup();
+    act(() => ref.current!.open('q1'));
+    await flush();
+    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(screen.getByText('2009'));
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ error: 'This quiz has ended and no longer accepts answers.' }, 403));
+    await tick(61_000);
+    await tick(1_000); // the deadline effect runs once the first act ends, then its timer
+    expect(h.toast.error).toHaveBeenCalledWith('This quiz has ended and no longer accepts answers.');
     h.fetchWithRetry.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
     await flush();
