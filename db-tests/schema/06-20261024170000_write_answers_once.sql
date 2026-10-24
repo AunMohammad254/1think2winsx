@@ -1,14 +1,19 @@
 -- =============================================================================
 -- Write each answer once, score from the answer key, rank by correct answers, count entries
 --
--- NOT applied to production yet. Apply it AFTER 20261024150000_atomic_quiz_saves (it replaces that
--- migration's save_quiz_result) and BEFORE deploying the code that reads answers from "QuestionAttempt"
--- only. The live code keeps working with it: every answer it shows is in "QuestionAttempt" too (checked
--- on production on 2026-10-24: 15 answers, all with an identical "QuestionAttempt" row).
+-- NOT applied to production yet. Order: apply 20261024150000_atomic_quiz_saves first (this replaces its
+-- save_quiz_result), DEPLOY PR #64's CODE, and only then apply this migration.
+--   - From this migration on, new answers are written to "QuestionAttempt" only. Code from before PR #64
+--     shows players' answers from "Answer" (results page, profile history, admin question stats), so
+--     applied before that code is live it would show nothing for every answer given since.
+--   - PR #64's code works on the database as it is before this migration: submit_quiz_attempt already
+--     writes every answer to "QuestionAttempt" (checked on production on 2026-10-24: 15 answers, all with
+--     an identical "QuestionAttempt" row), and nothing in it needs the objects added here.
 --
 -- 1. submit_quiz_attempt wrote every answer twice, to "QuestionAttempt" and "Answer". The staging
 --    benchmark (load-test/PROJECT_HANDLING_REPORT.md, section 4) put the second write at 40-70% of a
---    submit. Answers now go to "QuestionAttempt" only; "Answer" keeps its older rows, read by nothing.
+--    submit. Answers now go to "QuestionAttempt" only; "Answer" keeps its older rows, which PR #64's code
+--    no longer reads.
 -- 2. Scores are computed from the answer key with one set-based statement, and saving a result stamps
 --    "isCorrect" on one table in one UPDATE instead of two tables, question by question. Only active
 --    questions count, as in the total: a correct answer to a question paused later used to count too,
