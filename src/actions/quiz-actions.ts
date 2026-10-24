@@ -2,12 +2,12 @@
 
 import { adminActionGuard } from '@/lib/admin-guard';
 
-import { quizDb, questionDb, notificationDb, getAdminDb } from '@/lib/supabase/db';
+import { quizDb, questionDb, notificationDb, getAdminDb, generateId } from '@/lib/supabase/db';
 import { UPCOMING_NOTICE_TITLE, upcomingQuizLink, markQuizAnnounced } from '@/lib/quiz-scheduler';
 import { toUtcIso, formatBusinessTime } from '@/lib/schedule-time';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { clearQuizListCache } from '@/lib/quiz-cache';
-import { saveQuizAdminSettings } from '@/lib/quiz-admin-settings';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 import { hasPayoutHistory, SETTLED_QUIZ_DELETE_ERROR } from '@/lib/quiz-history';
 import {
@@ -38,17 +38,62 @@ function answerKey(quizType: string, options: Array<{ isCorrect?: boolean }>): n
 }
 
 /**
- * Save the admin-only entry limit and points pool. The quiz itself is already saved by then, so a
- * failure is reported as a warning to retry, not as a failed save (which invites a duplicate quiz).
+ * A broadcast inserts one notification per registered user, which takes a while on a big user base. It
+ * runs after the response (next/server `after`), so the admin's click returns and the catalogue refresh
+ * that shows players the change isn't held up behind it. A failure is only logged, as before.
  */
-async function saveSettingsOrWarn(quizId: string, maxEntries: number, pointsPool: number): Promise<string | null> {
-    try {
-        await saveQuizAdminSettings(quizId, { maxEntries, pointsPool });
-        return null;
-    } catch (error) {
-        console.error(`Saving entry limit and points pool for quiz ${quizId} failed:`, error);
-        return 'but its entry limit and points pool were not saved. Edit the quiz and save again';
-    }
+function broadcastAfterResponse(notice: { title: string; message: string; type: string; link: string }, failure: string) {
+    after(async () => {
+        try {
+            await notificationDb.createBroadcast(notice);
+        } catch (error) {
+            console.error(failure, error);
+        }
+    });
+}
+
+interface QuizRow {
+    title: string; description: string | null; duration: number; timeUpDuration: number; passingScore: number;
+    status: string; startsAt: string | null; prizeId: string | null; isBumperPrize: boolean; quizType: string;
+}
+interface QuestionRow { id: string; isNew?: true; text: string; status: string; correctOption: number | null; options?: string }
+
+const ANSWERED_MEANWHILE =
+    "Players answered one of these questions while you were editing, so it can't be removed and its options can't change. Reload the quiz and try again.";
+
+/**
+ * The quiz, its questions and its entry limit and points pool, saved in one transaction by the save_quiz
+ * database function (migration 20261024150000): saving them one request at a time left a half-saved quiz
+ * when a step failed. Questions of an edited quiz that are left out are deleted. A refusal comes back as
+ * an action error; a database error is thrown.
+ */
+async function saveQuizAtomically(quizId: string, create: boolean, quiz: QuizRow, questions: QuestionRow[], settings: { maxEntries: number; pointsPool: number }): Promise<ActionResult | null> {
+    const { data, error } = await getAdminDb().rpc('save_quiz', {
+        p_quiz_id: quizId, p_create: create, p_quiz: quiz, p_questions: questions, p_settings: settings,
+    });
+    if (error) throw error;
+    const result = data as { success: boolean; code?: string; error?: string };
+    if (result.success) return null;
+    // The protect_answered_question trigger caught an answer that came in after updateQuiz's own check
+    if (result.code === 'question_answered') return { success: false, error: ANSWERED_MEANWHILE, code: 'QUESTION_ANSWERED' };
+    return { success: false, error: result.error || 'Failed to save the quiz', code: (result.code || 'invalid').toUpperCase() };
+}
+
+/** The quiz row the form describes. startsAt must be an absolute instant (the scheduler compares it with
+ * UTC now); toUtcIso never reads a zone-less string in the server's own timezone. */
+function quizRow(data: { title: string; description?: string | null; duration: number; timeUpDuration: number; passingScore: number; status: string; startsAt?: string | null; prizeId?: string | null; isBumperPrize: boolean; quizType: string }): QuizRow {
+    return {
+        title: data.title,
+        description: data.description || null,
+        duration: data.duration,
+        timeUpDuration: data.timeUpDuration,
+        passingScore: data.passingScore,
+        status: data.status,
+        startsAt: toUtcIso(data.startsAt),
+        prizeId: data.prizeId || null,
+        isBumperPrize: data.isBumperPrize,
+        quizType: data.quizType,
+    };
 }
 
 // ============================================
@@ -72,61 +117,34 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
         }
 
         const { questions, ...quizData } = validationResult.data;
+        const quizId = generateId();
+        const quiz = quizRow(quizData);
 
-        // Create the quiz
-        // startsAt must be an absolute instant (the cron compares it against UTC now).
-        // toUtcIso never reads a zone-less string in the server's own timezone.
-        const startsAtUtc = toUtcIso(quizData.startsAt);
-
-        const quiz = await quizDb.create({
-            title: quizData.title,
-            description: quizData.description || null,
-            duration: quizData.duration,
-            timeUpDuration: quizData.timeUpDuration,
-            passingScore: quizData.passingScore,
-            status: quizData.status,
-            startsAt: startsAtUtc,
-            prizeId: quizData.prizeId || null,
-            isBumperPrize: quizData.isBumperPrize,
-            quizType: quizData.quizType,
-        } as any);
-
-        // Create questions for the quiz (open: see answerKey)
-        for (const question of questions) {
-            await questionDb.create({
-                quizId: quiz.id,
-                text: question.text,
-                options: JSON.stringify(question.options.map(opt => opt.text)),
-                correctOption: answerKey(quizData.quizType, question.options),
-                hasCorrectAnswer: false,
-                status: question.status,
-            });
-        }
-
-        const settingsWarning = await saveSettingsOrWarn(quiz.id, quizData.maxEntries, quizData.pointsPool);
+        // New questions are open: see answerKey
+        const refused = await saveQuizAtomically(quizId, true, quiz, questions.map((question) => ({
+            id: generateId(),
+            isNew: true as const,
+            text: question.text,
+            status: question.status,
+            correctOption: answerKey(quizData.quizType, question.options),
+            options: JSON.stringify(question.options.map(opt => opt.text)),
+        })), { maxEntries: quizData.maxEntries, pointsPool: quizData.pointsPool });
+        if (refused) return refused as ActionResult<{ id: string }>;
 
         if (quizData.status === 'active') {
-            try {
-                await notificationDb.createBroadcast({
-                    title: '🎮 New Quiz Published!',
-                    message: `"${quiz.title || 'Challenge'}" is now active. Play now and score points!`,
-                    type: 'quiz_deadline',
-                    link: `/quizzes?openQuiz=${quiz.id}`
-                });
-            } catch (notifErr) {
-                console.error('Failed to send quiz publication broadcast notification:', notifErr);
-            }
+            broadcastAfterResponse({
+                title: '🎮 New Quiz Published!',
+                message: `"${quiz.title}" is now active. Play now and score points!`,
+                type: 'quiz_deadline',
+                link: `/quizzes?openQuiz=${quizId}`
+            }, 'Failed to send quiz publication broadcast notification:');
         }
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
         clearQuizListCache();
 
-        return {
-            success: true,
-            data: { id: quiz.id },
-            message: settingsWarning ? `Quiz created, ${settingsWarning}.` : 'Quiz created successfully!'
-        };
+        return { success: true, data: { id: quizId }, message: 'Quiz created successfully!' };
     } catch (error: any) {
         console.error('Create quiz error:', error);
         return {
@@ -177,60 +195,23 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             return { success: false, error: answeredQuestionError(first.text, answered.size - 1), code: 'QUESTION_ANSWERED' };
         }
 
-        // Update quiz basic info
-        // See createQuiz: absolute instant, independent of the server's timezone.
-        const startsAtUtc = toUtcIso(quizData.startsAt);
-
-        await quizDb.update(quizId!, {
-            title: quizData.title,
-            description: quizData.description || null,
-            duration: quizData.duration,
-            timeUpDuration: quizData.timeUpDuration,
-            passingScore: quizData.passingScore,
-            status: quizData.status,
-            startsAt: startsAtUtc,
-            prizeId: quizData.prizeId || null,
-            isBumperPrize: quizData.isBumperPrize,
-            quizType: quizData.quizType,
-        } as any);
-
-        // Delete questions not in the update list (none of them has answers: checked above)
-        for (const question of currentQuestions) {
-            if (!keptIds.has(question.id)) {
-                await questionDb.delete(question.id);
-            }
-        }
-
-        // Upsert questions. A question whose result is already saved keeps it: editing the quiz used to
-        // erase a prediction's result (and reopen the question). Results change in Settle Quizzes.
-        const resultSaved = new Set(currentQuestions.filter((q: { hasCorrectAnswer?: boolean }) => q.hasCorrectAnswer).map((q: { id: string }) => q.id));
-        for (const question of questions) {
+        // Existing questions keep a saved result (save_quiz leaves its key alone): editing the quiz used to
+        // erase a prediction's result and reopen the question. Results change in Settle Quizzes. Unchanged
+        // options are not sent: the database refuses any options write to an answered question.
+        const refused = await saveQuizAtomically(quizId!, false, quizRow(quizData), questions.map((question) => {
             const options = JSON.stringify(question.options.map(opt => opt.text));
-            const key = { correctOption: answerKey(quizData.quizType, question.options), hasCorrectAnswer: false };
-
-            if (question.id) {
-                // Update existing question. Unchanged options are not rewritten: the database refuses any
-                // options write to an answered question, even one that only re-spaces the JSON
-                const content = {
-                    text: question.text,
-                    ...(optionsChanged(question) || !currentById.has(question.id) ? { options } : {}),
-                    status: question.status,
-                };
-                await questionDb.update(question.id, resultSaved.has(question.id) ? content : { ...content, ...key });
-            } else {
-                // Create new question
-                await questionDb.create({ quizId: quizId!, text: question.text, options, status: question.status, ...key });
-            }
-        }
-
-        const settingsWarning = await saveSettingsOrWarn(quizId!, quizData.maxEntries, quizData.pointsPool);
+            const row = { text: question.text, status: question.status, correctOption: answerKey(quizData.quizType, question.options) };
+            if (!question.id) return { id: generateId(), isNew: true as const, ...row, options };
+            return { id: question.id, ...row, ...(optionsChanged(question) ? { options } : {}) };
+        }), { maxEntries: quizData.maxEntries, pointsPool: quizData.pointsPool });
+        if (refused) return refused;
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
         clearQuizListCache();
         revalidatePath(`/quiz/${input.id}`);
 
-        return { success: true, message: settingsWarning ? `Quiz updated, ${settingsWarning}.` : 'Quiz updated successfully!' };
+        return { success: true, message: 'Quiz updated successfully!' };
     } catch (error) {
         console.error('Update quiz error:', error);
         return { success: false, error: 'Failed to update quiz. Please try again.' };
@@ -278,16 +259,12 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
         const updatedQuiz = await quizDb.update(id, { status: 'active' });
 
         if (updatedQuiz) {
-            try {
-                await notificationDb.createBroadcast({
-                    title: '🎮 New Quiz Published!',
-                    message: `"${updatedQuiz.title || 'Challenge'}" is now active. Play now and score points!`,
-                    type: 'quiz_deadline',
-                    link: `/quizzes?openQuiz=${id}`
-                });
-            } catch (notifErr) {
-                console.error('Failed to send quiz publication broadcast notification:', notifErr);
-            }
+            broadcastAfterResponse({
+                title: '🎮 New Quiz Published!',
+                message: `"${updatedQuiz.title || 'Challenge'}" is now active. Play now and score points!`,
+                type: 'quiz_deadline',
+                link: `/quizzes?openQuiz=${id}`
+            }, 'Failed to send quiz publication broadcast notification:');
         }
 
         revalidatePath('/admin/quiz');
@@ -325,11 +302,12 @@ export async function pauseQuiz(id: string): Promise<ActionResult> {
  * Push an already-published quiz to everyone currently on the live stream.
  *
  * Sets Quiz.pushedAt, which the client picks up two ways with no new
- * infrastructure: (1) the quizzes page's existing Realtime subscription on
- * Quiz UPDATE events sees pushedAt change and shows the live toast/popup,
+ * infrastructure: (1) the quizzes page's live check (GET /api/live, every few
+ * seconds) sees pushedAt change and shows the live banner and popup,
  * (2) the "Today's quizzes" cards read pushedAt (via /api/quizzes) to show
  * the Active/Answered/Missed badge. Also fires the same broadcast
- * notification publishQuiz() sends, for anyone not currently on the page.
+ * notification publishQuiz() sends, for anyone not currently on the page;
+ * it runs after the response, so the push reaches players at once.
  */
 export async function pushQuizLive(id: string): Promise<ActionResult> {
     const denied = await adminActionGuard();
@@ -344,16 +322,12 @@ export async function pushQuizLive(id: string): Promise<ActionResult> {
         const updatedQuiz = await quizDb.update(id, { pushedAt: new Date().toISOString() } as any);
 
         if (updatedQuiz) {
-            try {
-                await notificationDb.createBroadcast({
-                    title: '🔴 Live now',
-                    message: `"${updatedQuiz.title || 'Quiz'}" was just pushed during the stream — jump in now!`,
-                    type: 'quiz_deadline',
-                    link: `/quizzes?openQuiz=${id}`
-                });
-            } catch (notifErr) {
-                console.error('Failed to send quiz push broadcast notification:', notifErr);
-            }
+            broadcastAfterResponse({
+                title: '🔴 Live now',
+                message: `"${updatedQuiz.title || 'Quiz'}" was just pushed during the stream — jump in now!`,
+                type: 'quiz_deadline',
+                link: `/quizzes?openQuiz=${id}`
+            }, 'Failed to send quiz push broadcast notification:');
         }
 
         revalidatePath('/admin/quiz');

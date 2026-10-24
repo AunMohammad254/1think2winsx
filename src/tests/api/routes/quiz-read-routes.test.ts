@@ -44,7 +44,8 @@ vi.mock('@/lib/quiz-catalog', async (importOriginal) => ({
   getCatalogQuiz: (...a: unknown[]) => getCatalogQuiz(...a),
 }));
 vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: (...a: unknown[]) => isWalletEnabled(...a) }));
-vi.mock('@/lib/quiz-cache', () => ({ quizListCache: { clear: (...a: unknown[]) => cacheClear(...a) } }));
+// Both caches at once: the per-player list and the shared catalogue players read
+vi.mock('@/lib/quiz-cache', () => ({ clearQuizListCache: (...a: unknown[]) => cacheClear(...a) }));
 
 const listRoute = await import('@/app/api/quizzes/route');
 const liveRoute = await import('@/app/api/live/route');
@@ -414,7 +415,7 @@ describe('GET /api/quizzes cron safety net', () => {
 describe('POST /api/quizzes (admin create)', () => {
   const create = (body: unknown) => listRoute.POST(makeRequest('/api/quizzes', { body }));
 
-  it('creates the quiz with defaults and clears the list cache', async () => {
+  it('creates the quiz with defaults and clears the quiz caches', async () => {
     quizCreate.mockResolvedValue({ id: 'new-quiz', title: 'Final', description: null, duration: 30, passingScore: 70, status: 'active', createdAt: 'c', updatedAt: 'u' });
     adminDb.setTable('Question', { count: 4 });
     adminDb.setTable('QuizAttempt', { count: null });

@@ -7,6 +7,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { clearQuizListCache } from '@/lib/quiz-cache';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -282,6 +283,8 @@ export async function POST(request: NextRequest) {
       createdQuestions = insertedQuestions || [];
     }
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
     recordSecurityEvent('ADMIN_QUIZ_CREATED', request, session.user.id, {
       quizId: createdQuiz.id,
       title: createdQuiz.title,
