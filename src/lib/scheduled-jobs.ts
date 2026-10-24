@@ -8,6 +8,7 @@ import {
   upcomingQuizLink,
 } from '@/lib/quiz-scheduler';
 import logger from '@/lib/logger';
+import { answeringClosesAt } from '@/lib/quiz-stage';
 import { runMediaCleanupIfDue } from '@/lib/media/deletion-queue';
 
 /**
@@ -89,7 +90,10 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
     }
   }
 
-  // 3. Close active quizzes whose answering window (duration from pushedAt) is over
+  // 3. Close active quizzes whose answering window is over, grace period included: submit_quiz_attempt
+  // takes answers for 30 s past pushedAt + duration, and players' screens lock in what they answered
+  // during those seconds. Pausing at the bare deadline refused those lock-ins ("Quiz not found or
+  // inactive") whenever this ran inside the grace period.
   const { data: activeQuizzes } = await adminDb
     .from('Quiz')
     .select('id, pushedAt, duration')
@@ -97,7 +101,10 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
 
   const nowMs = Date.now();
   const expiredQuizIds = (activeQuizzes || [])
-    .filter((q) => q.pushedAt && q.duration && nowMs >= new Date(q.pushedAt).getTime() + q.duration * 60 * 1000)
+    .filter((q) => {
+      const closesAt = answeringClosesAt(q.pushedAt, q.duration);
+      return closesAt !== null && nowMs >= closesAt;
+    })
     .map((q) => q.id);
 
   if (expiredQuizIds.length > 0) {

@@ -1,0 +1,33 @@
+/**
+ * What the admin action log records (lib/admin-action-log.ts), as the History tab names it. No server
+ * imports: the admin quiz page's client component reads these too.
+ */
+
+export const QUIZ_ACTION_LABELS = {
+  quiz_created: 'Created the quiz',
+  quiz_edited: 'Edited the quiz',
+  quiz_status_changed: 'Changed the status',
+  quiz_published: 'Published',
+  quiz_paused: 'Paused',
+  quiz_pushed_live: 'Pushed live',
+  quiz_announced: 'Announced as upcoming',
+  quiz_deleted: 'Deleted the quiz',
+  question_added: 'Added a question',
+  question_edited: 'Edited a question',
+  question_deleted: 'Deleted a question',
+  result_saved: 'Saved the result',
+  quiz_settled: 'Settled the quiz',
+  notices_resent: 'Sent the notices again',
+} as const;
+
+export type QuizAction = keyof typeof QUIZ_ACTION_LABELS;
+
+export interface QuizActionEntry {
+  id: string;
+  quizId: string | null;
+  quizTitle: string | null;
+  action: QuizAction;
+  adminEmail: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+}

@@ -6,6 +6,8 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { clearQuizListCache } from '@/lib/quiz-cache';
+import { adminName, logQuizAction } from '@/lib/admin-action-log';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 
 const updateQuestionSchema = z.object({
@@ -73,49 +75,41 @@ export async function GET(
       );
     }
 
-    // Get answers for this question (last 20)
+    // The latest 20 answers, with who gave them
     const { data: answers } = await supabase
-      .from('Answer')
+      .from('QuestionAttempt')
       .select(`
         id, selectedOption, isCorrect, createdAt,
-        QuizAttempt:quizAttemptId (
-          User:userId (id, name, email)
-        )
+        User:userId (id, name, email)
       `)
       .eq('questionId', questionId)
       .order('createdAt', { ascending: false })
       .limit(20);
 
-    // Get total answer count
-    const { count: totalAnswers } = await supabase
-      .from('Answer')
-      .select('*', { count: 'exact', head: true })
-      .eq('questionId', questionId);
-
-    // Calculate answer statistics
+    // Every answer counted: in total, correct, and per option (the distribution used to count only the
+    // latest 20 answers while its percentages divided by the total)
     const options = JSON.parse(question.options);
-    const answerStats = options.map((option: string, index: number) => {
-      const count = (answers || []).filter((answer: any) => answer.selectedOption === index).length;
-      const percentage = totalAnswers && totalAnswers > 0 ? Math.round((count / totalAnswers) * 100) : 0;
-      return {
-        option: index,
-        text: option,
-        count,
-        percentage,
-        isCorrect: question.correctOption === index,
-      };
-    });
+    const countAnswers = async (filter: { selectedOption?: number; isCorrect?: true } = {}) => {
+      let query = supabase.from('QuestionAttempt').select('*', { count: 'exact', head: true }).eq('questionId', questionId);
+      if (filter.selectedOption !== undefined) query = query.eq('selectedOption', filter.selectedOption);
+      if (filter.isCorrect) query = query.eq('isCorrect', true);
+      const { count } = await query;
+      return count || 0;
+    };
+    const [totalAnswers, correctAnswerCount, ...optionCounts] = await Promise.all([
+      countAnswers(),
+      countAnswers({ isCorrect: true }),
+      ...options.map((_: string, index: number) => countAnswers({ selectedOption: index })),
+    ]);
+    const answerStats = options.map((option: string, index: number) => ({
+      option: index,
+      text: option,
+      count: optionCounts[index],
+      percentage: totalAnswers > 0 ? Math.round((optionCounts[index] / totalAnswers) * 100) : 0,
+      isCorrect: question.correctOption === index,
+    }));
 
-    // Count correct answers
-    const { count: correctAnswerCount } = await supabase
-      .from('Answer')
-      .select('*', { count: 'exact', head: true })
-      .eq('questionId', questionId)
-      .eq('isCorrect', true);
-
-    const correctAnswerRate = totalAnswers && totalAnswers > 0
-      ? Math.round(((correctAnswerCount || 0) / totalAnswers) * 100)
-      : 0;
+    const correctAnswerRate = totalAnswers > 0 ? Math.round((correctAnswerCount / totalAnswers) * 100) : 0;
 
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: question.id,
@@ -135,8 +129,7 @@ export async function GET(
         createdAt: question.createdAt,
         updatedAt: question.updatedAt,
         recentAnswers: (answers || []).map((answer: any) => {
-          const attempt = Array.isArray(answer.QuizAttempt) ? answer.QuizAttempt[0] : answer.QuizAttempt;
-          const user = attempt ? (Array.isArray(attempt.User) ? attempt.User[0] : attempt.User) : null;
+          const user = (Array.isArray(answer.User) ? answer.User[0] : answer.User) ?? null;
           return {
             id: answer.id,
             selectedOption: answer.selectedOption,
@@ -146,8 +139,8 @@ export async function GET(
           };
         }),
         stats: {
-          totalAnswers: totalAnswers || 0,
-          correctAnswerCount: correctAnswerCount || 0,
+          totalAnswers,
+          correctAnswerCount,
           correctAnswerRate,
           answerDistribution: answerStats,
         },
@@ -289,6 +282,12 @@ export async function PATCH(
 
     if (updateError) throw updateError;
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
+    await logQuizAction({
+      quizId: updatedQuestion.quizId, action: 'question_edited', adminEmail: adminName(session.user),
+      details: { questionId: updatedQuestion.id, changes: updateData },
+    });
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: updatedQuestion.id,
       quizId: updatedQuestion.quizId,
@@ -392,6 +391,12 @@ export async function DELETE(
 
     if (deleteError) throw deleteError;
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
+    await logQuizAction({
+      quizId: existingQuestion.quizId, action: 'question_deleted', adminEmail: adminName(session.user),
+      details: { questionId: existingQuestion.id, text: existingQuestion.text },
+    });
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: existingQuestion.id,
       quizId: existingQuestion.quizId,

@@ -5,6 +5,8 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
     testDir: './e2e',
+    // The quiz test needs the local Supabase stack and its own config (playwright.stack.config.ts)
+    testIgnore: /play-quiz\.spec\.ts/,
     /* Run tests in files in parallel */
     fullyParallel: true,
     /* Fail the build on CI if you accidentally left test.only in the source code. */

@@ -48,7 +48,9 @@ export function ClaimCard({ claim, updating, onViewDetails, onUpdateStatus }: Cl
                     <div>
                         <p className="text-white font-semibold text-lg">{claim.prize.name}</p>
                         <p className="text-gray-400 text-sm">{claim.user.name} • {claim.user.email}</p>
-                        <p className="text-amber-300 text-sm font-medium">{claim.pointsUsed} points</p>
+                        <p className="text-amber-300 text-sm font-medium">
+                            {claim.quiz ? <>🏆 Won in &ldquo;{claim.quiz.title}&rdquo;</> : `${claim.pointsUsed} points`}
+                        </p>
                     </div>
                 </div>
 
