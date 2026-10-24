@@ -1,14 +1,15 @@
 -- =============================================================================
 -- Write each answer once, score from the answer key, rank by correct answers, count entries
 --
--- NOT applied to production yet. Order: apply 20261024150000_atomic_quiz_saves first (this replaces its
--- save_quiz_result), DEPLOY PR #64's CODE, and only then apply this migration.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-24 as migration 20261024195040, owner-approved,
+-- AFTER PR #64's code went live (main f1007ec) and after 20261024150000_atomic_quiz_saves (this replaces
+-- its save_quiz_result). Keep that order for any other database:
 --   - From this migration on, new answers are written to "QuestionAttempt" only. Code from before PR #64
 --     shows players' answers from "Answer" (results page, profile history, admin question stats), so
 --     applied before that code is live it would show nothing for every answer given since.
 --   - PR #64's code works on the database as it is before this migration: submit_quiz_attempt already
---     writes every answer to "QuestionAttempt" (checked on production on 2026-10-24: 15 answers, all with
---     an identical "QuestionAttempt" row), and nothing in it needs the objects added here.
+--     wrote every answer to "QuestionAttempt" (production had 15 answers, all with an identical
+--     "QuestionAttempt" row, so section 1 copied nothing), and nothing in it needs the objects added here.
 --
 -- 1. submit_quiz_attempt wrote every answer twice, to "QuestionAttempt" and "Answer". The staging
 --    benchmark (load-test/PROJECT_HANDLING_REPORT.md, section 4) put the second write at 40-70% of a

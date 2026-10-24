@@ -1,10 +1,10 @@
 -- =============================================================================
 -- Delivery claims for prizes won in a quiz
 --
--- NOT applied to production yet. Apply it BEFORE deploying the code that calls claim_quiz_prize (the
--- profile's "Prizes you won" section). The live code keeps working with it: get_admin_claims only gains
--- a "quiz" field. Production on 2026-10-24: 2 prizes won in quizzes, neither with a claim yet; both
--- winners can claim once this is live.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-24 as migration 20261024190201, owner-approved,
+-- before the code that calls claim_quiz_prize (PR #65, the profile's "Prizes you won" section) was
+-- deployed with main f1007ec. The code live then kept working: get_admin_claims only gained a "quiz"
+-- field. Production then had 2 prizes won in quizzes, neither with a claim yet.
 --
 -- Why (F1 in the quiz deep dive): settle_quiz takes a won prize out of stock and tells the winner "our
 -- team will contact you", but creates no claim. "QuizWinner"."prizeRedemptionId" existed and was never

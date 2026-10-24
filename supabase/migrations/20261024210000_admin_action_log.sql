@@ -1,9 +1,10 @@
 -- =============================================================================
 -- Admin action log for quizzes
 --
--- NOT applied to production yet. Apply it BEFORE deploying the code that writes to it. Applying it
--- early is harmless (nothing writes yet), and the code copes without it: a failed log write is only
--- reported in the server log, never shown to the admin as a failed action.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-24 as migration 20261024191149, owner-approved,
+-- before the code that writes to it (PR #66) was deployed with main f1007ec. The code copes without the
+-- table all the same: a failed log write is only reported in the server log, never shown to the admin
+-- as a failed action.
 --
 -- Why (F5 in the quiz deep dive): nothing stored who pushed, paused, edited, saved the result of or
 -- deleted a quiz; only settlement kept "settledBy". Each of those admin actions now adds a row here,

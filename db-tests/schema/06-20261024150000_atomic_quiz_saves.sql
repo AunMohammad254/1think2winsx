@@ -1,8 +1,9 @@
 -- =============================================================================
 -- All-or-nothing quiz saves: a quiz with its questions and settings, and a quiz's result
 --
--- NOT applied to production yet. Apply it BEFORE deploying the code that calls these functions: they are
--- new, so the live code is unaffected until then, while the new code needs them.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-24 as migration 20261024190121, owner-approved,
+-- before the code that calls these functions (PR #63) was deployed with main f1007ec. They were new, so
+-- the code that was live then was unaffected.
 --
 -- 1. save_quiz: the admin quiz form saved a quiz, then each question, then the entry limit and points
 --    pool, one request at a time. A failure part-way (a question players answered that may not be
