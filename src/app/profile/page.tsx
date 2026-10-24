@@ -10,7 +10,7 @@ import { useProfile } from '@/contexts/ProfileContext';
 import ProfilePictureUpload from '@/components/ProfilePictureUpload';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { loaderFor } from '@/lib/cloudinary';
-import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal, SignInMethodBadge } from '@/components/profile';
+import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal, SignInMethodBadge, QuizPrizes } from '@/components/profile';
 
 function PrizeThumbnail({ image, name }: { image?: string; name: string }) {
   const [hasError, setHasError] = useState(false);
@@ -386,6 +386,9 @@ export default function ProfilePage() {
 
           {/* Stats Grid */}
           <StatsGrid stats={stats} />
+
+          {/* Prizes won in quizzes, with their delivery (shows nothing without one) */}
+          <QuizPrizes />
 
           {/* Prizes Section */}
           <section className="backdrop-blur-xl bg-white/5 border border-white/10 rounded-[32px] overflow-hidden" aria-label="Your prizes">
