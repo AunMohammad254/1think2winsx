@@ -391,6 +391,12 @@ describe('pieces', () => {
     render(<WinnersTable winners={[]} />);
     expect(screen.getByText('No rewards were set for this quiz.')).toBeInTheDocument();
   });
+
+  it('shows the correct answers places are ranked by, when the result has them', () => {
+    render(<WinnersTable winners={[winner(1, { points: 5, score: 1, correctAnswers: 2 }), winner(2, { points: 3, score: 1 })]} />);
+    expect(screen.getByText('2 correct')).toBeInTheDocument();
+    expect(screen.queryAllByText(/ correct$/)).toHaveLength(1);
+  });
 });
 
 describe('entry limit and points pool', () => {

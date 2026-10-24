@@ -255,7 +255,7 @@ describe('PUT /api/admin/quizzes/[id] (full edit)', () => {
 
     expect(argOf(adminDb.callsTo('Quiz', 'update')[0], 'update')).toMatchObject({ title: 'T', status: 'active', duration: 20, timeUpDuration: 30, passingScore: 60 });
     expect(clearQuizListCache).toHaveBeenCalledTimes(1);
-    expect(adminDb.callsTo('Answer', 'delete')[0].ops.find((o) => o.op === 'in')?.args).toEqual(['questionId', ['drop']]);
+    expect(adminDb.callsTo('Answer')).toHaveLength(0);
     expect(adminDb.callsTo('Question', 'delete')[0].ops.find((o) => o.op === 'in')?.args).toEqual(['id', ['drop']]);
     expect(eqValue(adminDb.callsTo('Question', 'update')[0], 'id')).toBe('keep');
     const inserts = adminDb.callsTo('Question', 'insert').map((c) => argOf(c, 'insert') as Record<string, unknown>);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { quizAttemptDb, answerDb, questionDb, getDb, getAdminDb } from '@/lib/supabase/db';
+import { getDb, getAdminDb } from '@/lib/supabase/db';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
@@ -62,16 +62,26 @@ export async function GET(
       );
     }
 
-    // Get answers with question details
-    const { data: answers, error: answersError } = await supabase
-      .from('Answer')
-      .select(`
-        id, questionId, selectedOption, isCorrect,
-        Question:questionId (id, text, options, hasCorrectAnswer)
-      `)
-      .eq('quizAttemptId', quizAttempt.id);
+    // The player's answers with question details, and the quiz's active questions: the score is out of
+    // all of them, so the total is too (it used to count only the questions the player answered)
+    const [{ data: answers, error: answersError }, { count: activeQuestions, error: countError }] = await Promise.all([
+      supabase
+        .from('QuestionAttempt')
+        .select(`
+          id, questionId, selectedOption, isCorrect,
+          Question:questionId (id, text, options, hasCorrectAnswer)
+        `)
+        .eq('userId', userId)
+        .eq('quizId', quizId),
+      supabase
+        .from('Question')
+        .select('id', { count: 'exact', head: true })
+        .eq('quizId', quizId)
+        .eq('status', 'active'),
+    ]);
 
     if (answersError) throw answersError;
+    if (countError) throw countError;
 
     // The answer key is not readable by users; fetch it server-side (service role)
     // and only for questions whose answer has already been published.
@@ -104,7 +114,7 @@ export async function GET(
       };
     });
 
-    const totalQuestions = answerDetails.length;
+    const totalQuestions = activeQuestions ?? 0;
     const correctAnswers = answerDetails.filter((a: { isCorrect: boolean }) => a.isCorrect).length;
     // Handle Supabase join - can return array or single object
     const quizRaw = quizAttempt.Quiz;

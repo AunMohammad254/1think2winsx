@@ -476,15 +476,9 @@ export async function PUT(
         .filter(q => q.id && !q.id.startsWith('temp-'))
         .map(q => q.id!);
 
-      // Delete questions that are no longer in the update
+      // Delete questions that are no longer in the update (none of them has answers: checked above)
       const questionsToDelete = existingQuestionIds.filter(id => !updatedQuestionIds.includes(id));
       if (questionsToDelete.length > 0) {
-        // Delete answers first
-        await supabase
-          .from('Answer')
-          .delete()
-          .in('questionId', questionsToDelete);
-
         await supabase
           .from('Question')
           .delete()

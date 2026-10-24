@@ -205,7 +205,7 @@ export async function GET(request: NextRequest) {
     const formattedQuestions = await Promise.all(
       (questions || []).map(async (question: any) => {
         const { count: answerCount } = await supabase
-          .from('Answer')
+          .from('QuestionAttempt')
           .select('*', { count: 'exact', head: true })
           .eq('questionId', question.id);
 

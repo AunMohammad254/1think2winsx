@@ -12,7 +12,8 @@ export function WinnersTable({
   winners,
   unfilled = [],
 }: {
-  winners: Array<SettledWinner & { tiedWith?: number }>;
+  /** correctAnswers: what places are ranked by; only a settle or preview result carries it */
+  winners: Array<SettledWinner & { tiedWith?: number; correctAnswers?: number }>;
   unfilled?: number[];
 }) {
   if (winners.length === 0 && unfilled.length === 0) {
@@ -42,7 +43,10 @@ export function WinnersTable({
                   </span>
                 )}
               </td>
-              <td className="py-2 pr-4 text-gray-200">{w.score}%</td>
+              <td className="py-2 pr-4 text-gray-200">
+                {w.score}%
+                {w.correctAnswers !== undefined && <span className="block text-xs text-gray-400">{w.correctAnswers} correct</span>}
+              </td>
               <td className="py-2 text-gray-200">
                 {w.prizeName
                   ? <>{w.prizeCategory === 'bumper' ? '🎁 ' : '🏆 '}{w.prizeName}</>

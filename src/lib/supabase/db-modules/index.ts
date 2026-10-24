@@ -14,7 +14,6 @@ export {
     quizDb,
     questionDb,
     quizAttemptDb,
-    answerDb,
     questionAttemptDb
 } from './quiz.db'
 export {
@@ -37,7 +36,7 @@ export { supportTicketDb } from './support-ticket.db'
 
 // Combined db object for convenience
 import { userDb } from './user.db'
-import { quizDb, questionDb, quizAttemptDb, answerDb } from './quiz.db'
+import { quizDb, questionDb, quizAttemptDb } from './quiz.db'
 import { walletTransactionDb, dailyPaymentDb } from './wallet.db'
 import { prizeDb, prizeRedemptionDb } from './prize.db'
 import { adminSessionDb, securityEventDb } from './admin.db'
@@ -52,7 +51,6 @@ export const db = {
     quiz: quizDb,
     question: questionDb,
     quizAttempt: quizAttemptDb,
-    answer: answerDb,
     walletTransaction: walletTransactionDb,
     prize: prizeDb,
     prizeRedemption: prizeRedemptionDb,

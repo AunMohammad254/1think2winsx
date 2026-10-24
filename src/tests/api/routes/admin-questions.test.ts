@@ -93,7 +93,7 @@ describe('GET /api/admin/questions', () => {
 
   it('pages questions with an answer count each', async () => {
     adminDb.setTable('Question', { data: [row(), row({ id: 'q2', Quiz: { id: 'quiz-2' } })], count: 45 });
-    adminDb.setTable('Answer', (call) => ({ count: eqValue(call, 'questionId') === 'q1' ? 12 : null }));
+    adminDb.setTable('QuestionAttempt', (call) => ({ count: eqValue(call, 'questionId') === 'q1' ? 12 : null }));
 
     const body = await (await get('?quizId=quiz-1&status=active&page=2&limit=20')).json();
 
@@ -126,13 +126,17 @@ describe('GET /api/admin/questions/[id]', () => {
 
   it('returns the question, recent answers and stats', async () => {
     adminDb.setTable('Question', { data: row() });
-    adminDb.setTable('Answer', (call) => {
-      if (isHead(call)) return { count: eqValue(call, 'isCorrect') ? 1 : 4 };
+    adminDb.setTable('QuestionAttempt', (call) => {
+      if (isHead(call)) {
+        if (eqValue(call, 'isCorrect')) return { count: 1 };
+        const option = eqValue(call, 'selectedOption') as number | undefined;
+        return { count: option === undefined ? 4 : [2, 1, 0][option] };
+      }
       return {
         data: [
-          { id: 'a1', selectedOption: 1, isCorrect: true, QuizAttempt: [{ User: [{ name: 'Ali' }] }] },
-          { id: 'a2', selectedOption: 0, isCorrect: false, QuizAttempt: { User: { name: 'Sara' } } },
-          { id: 'a3', selectedOption: 0, isCorrect: false, QuizAttempt: null },
+          { id: 'a1', selectedOption: 1, isCorrect: true, User: [{ name: 'Ali' }] },
+          { id: 'a2', selectedOption: 0, isCorrect: false, User: { name: 'Sara' } },
+          { id: 'a3', selectedOption: 0, isCorrect: false, User: null },
         ],
       };
     });
@@ -155,17 +159,25 @@ describe('GET /api/admin/questions/[id]', () => {
     expect(recordSecurityEvent).toHaveBeenCalledWith('SUSPICIOUS_ACTIVITY', expect.anything(), 'admin-1', { questionId: 'q1', quizId: 'quiz-1' });
   });
 
-  it('computes the distribution from only the last 20 answers but divides by the total', async () => {
+  it('counts the distribution over every answer, not just the 20 shown', async () => {
+    // It used to count the latest 20 answers and divide by the total: 20 of 1,000 showed as 2%
     adminDb.setTable('Question', { data: row({ Quiz: { id: 'quiz-1' } }) });
-    adminDb.setTable('Answer', (call) => (isHead(call) ? { count: eqValue(call, 'isCorrect') ? null : 1000 } : { data: Array.from({ length: 20 }, (_, i) => ({ id: `a${i}`, selectedOption: 0 })) }));
+    adminDb.setTable('QuestionAttempt', (call) => {
+      if (!isHead(call)) return { data: Array.from({ length: 20 }, (_, i) => ({ id: `a${i}`, selectedOption: 0 })) };
+      if (eqValue(call, 'isCorrect')) return { count: null };
+      const option = eqValue(call, 'selectedOption') as number | undefined;
+      return { count: option === undefined ? 1000 : [700, 300, null][option] };
+    });
     const { question } = await (await get()).json();
-    expect(question.stats.answerDistribution[0]).toMatchObject({ count: 20, percentage: 2 });
+    expect(question.stats.answerDistribution.map((d: { count: number; percentage: number }) => [d.count, d.percentage])).toEqual([[700, 70], [300, 30], [0, 0]]);
     expect(question.stats.correctAnswerCount).toBe(0);
+    expect(question.recentAnswers).toHaveLength(20);
+    expect(adminDb.callsTo('Answer')).toHaveLength(0);
   });
 
   it('handles a question with no answers', async () => {
     adminDb.setTable('Question', { data: row() });
-    adminDb.setTable('Answer', { data: null, count: null });
+    adminDb.setTable('QuestionAttempt', { data: null, count: null });
     const { question } = await (await get()).json();
     expect(question.stats).toMatchObject({ totalAnswers: 0, correctAnswerRate: 0 });
     expect(question.recentAnswers).toEqual([]);
@@ -242,7 +254,6 @@ describe('DELETE /api/admin/questions/[id]', () => {
 
   it('deletes a question nobody answered', async () => {
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row() }));
-    adminDb.setTable('Answer', { data: [] });
     adminDb.setTable('QuestionAttempt', { data: [] });
     const body = await (await del()).json();
     expect(body).toEqual({ message: 'Question deleted successfully', deletedQuestion: { id: 'q1', text: 'Toss?', quiz: { id: 'quiz-1', title: 'T' } } });
@@ -251,10 +262,10 @@ describe('DELETE /api/admin/questions/[id]', () => {
     expect(clearQuizListCache).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['Answer', 'QuestionAttempt'])('refuses to delete a question with answers in "%s", and deletes nothing', async (table) => {
+  it('refuses to delete a question with answers, and deletes nothing', async () => {
     // Deleting the question used to delete every player's answer to it
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row() }));
-    adminDb.setTable(table, { data: [{ id: 'a-1' }] });
+    adminDb.setTable('QuestionAttempt', { data: [{ id: 'a-1' }] });
     const res = await del();
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe('QUESTION_ANSWERED');
@@ -264,7 +275,7 @@ describe('DELETE /api/admin/questions/[id]', () => {
 
   it('handles an object quiz join and no answers', async () => {
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row({ Quiz: { id: 'quiz-1', title: 'Obj' } }) }));
-    adminDb.setTable('Answer', { data: null });
+    adminDb.setTable('QuestionAttempt', { data: null });
     expect((await (await del()).json()).deletedQuestion.quiz.title).toBe('Obj');
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row({ Quiz: null }) }));
     expect((await del()).status).toBe(200);

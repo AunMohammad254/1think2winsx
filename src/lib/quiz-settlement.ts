@@ -90,7 +90,8 @@ export type SettleResult =
       questions: number;
       tieRule: TieRule;
       seed: string;
-      winners: Array<SettledWinner & { tiedWith: number }>;
+      /** Places are ranked by correctAnswers (the rounded score can tie above 100 questions) */
+      winners: Array<SettledWinner & { tiedWith: number; correctAnswers?: number }>;
       unfilled: number[];
       /**
        * recipientIds: every player who got a share (for notifying them); never sent to the browser.

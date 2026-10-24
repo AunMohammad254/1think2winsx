@@ -175,7 +175,7 @@ describe('updateQuiz', () => {
   it('refuses, before saving anything, to remove an answered question or change its options', async () => {
     // Removing the question used to delete every player's answer to it; new options re-mapped them
     questionDb.findByQuizId.mockResolvedValue([{ id: 'keep', text: 'Who wins?', options: '["A","B"]' }, { id: 'drop', text: 'Toss winner?', options: '["A","B"]' }]);
-    adminDb.setTable('Answer', (call) => ({ data: eqValue(call, 'questionId') === 'drop' ? [{ id: 'ans-1' }] : [] }));
+    adminDb.setTable('QuestionAttempt', (call) => ({ data: eqValue(call, 'questionId') === 'drop' ? [{ id: 'qa-1' }] : [] }));
     const removed = await actions.updateQuiz({ id: 'quiz-1', ...quizInput({ questions: [question({ id: 'keep' })] }) } as never);
     expect(removed).toEqual({
       success: false,

@@ -29,8 +29,6 @@ vi.mock('@/lib/supabase/db', () => ({
   notificationDb: { getUnreadCount: (...a: unknown[]) => getUnreadCount(...a) },
   quizAttemptDb: { findByUserAndQuiz: (...a: unknown[]) => findAttempt(...a) },
   questionAttemptDb: { findByUserAndQuiz: (...a: unknown[]) => findQuestionAttempts(...a) },
-  answerDb: {},
-  questionDb: {},
 }));
 vi.mock('@/lib/auth-middleware', () => ({ requireAuth: (...a: unknown[]) => requireAuth(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
@@ -570,7 +568,8 @@ describe('GET /api/quizzes/[id]/results', () => {
 
   it('returns answers, revealing correct options only for published questions', async () => {
     db.setTable('QuizAttempt', { data: attempt() });
-    db.setTable('Answer', {
+    db.setTable('Question', { count: 5 });
+    db.setTable('QuestionAttempt', {
       data: [
         { questionId: 'q1', selectedOption: 0, isCorrect: true, Question: { id: 'q1', text: 'Toss?', options: '["A","B"]', hasCorrectAnswer: true } },
         { questionId: 'q2', selectedOption: 1, isCorrect: false, Question: [{ id: 'q2', text: 'Scorer?', options: '["C","D"]', hasCorrectAnswer: false }] },
@@ -585,18 +584,24 @@ describe('GET /api/quizzes/[id]/results', () => {
     expect(res.status).toBe(200);
     expect(argOf(adminDb.callsTo('Question')[0], 'in')).toBe('id');
     expect(adminDb.callsTo('Question')[0].ops.find((o) => o.op === 'in')?.args[1]).toEqual(['q1']);
-    expect(body.results).toMatchObject({ attemptId: 'att-1', score: 75, points: 12, correctAnswers: 1, totalQuestions: 3, passed: true, isEvaluated: true });
+    // Three of the quiz's five active questions answered: the total is still five (the score is out of five)
+    expect(body.results).toMatchObject({ attemptId: 'att-1', score: 75, points: 12, correctAnswers: 1, totalQuestions: 5, passed: true, isEvaluated: true });
     expect(body.results.answers).toEqual([
       { questionId: 'q1', questionText: 'Toss?', options: ['A', 'B'], selectedOption: 0, correctOption: 0, isCorrect: true },
       { questionId: 'q2', questionText: 'Scorer?', options: ['C', 'D'], selectedOption: 1, correctOption: null, isCorrect: false },
       { questionId: 'q3', questionText: '', options: [], selectedOption: 2, correctOption: null, isCorrect: false },
     ]);
     expect(eqValue(db.callsTo('QuizAttempt')[0], 'userId')).toBe('user-1');
+    expect(eqValue(db.callsTo('QuestionAttempt')[0], 'userId')).toBe('user-1');
+    expect(eqValue(db.callsTo('QuestionAttempt')[0], 'quizId')).toBe('quiz-1');
+    expect(eqValue(db.callsTo('Question')[0], 'status')).toBe('active');
+    expect(db.callsTo('Answer')).toHaveLength(0);
   });
 
   it('marks a score below the pass mark as not passed and skips the answer key when nothing is revealed', async () => {
     db.setTable('QuizAttempt', { data: attempt({ score: 40, Quiz: [{ id: 'quiz-1', passingScore: 70 }] }) });
-    db.setTable('Answer', { data: null });
+    db.setTable('QuestionAttempt', { data: null });
+    db.setTable('Question', { count: null });
     const body = await (await results()).json();
     expect(body.results).toMatchObject({ passed: false, totalQuestions: 0, correctAnswers: 0 });
     expect(adminDb.calls).toHaveLength(0);
@@ -604,7 +609,7 @@ describe('GET /api/quizzes/[id]/results', () => {
 
   it('shows no correct option when the answer-key lookup returns nothing', async () => {
     db.setTable('QuizAttempt', { data: attempt() });
-    db.setTable('Answer', { data: [{ questionId: 'q1', selectedOption: 0, isCorrect: true, Question: { id: 'q1', text: 'Toss?', options: '["A","B"]', hasCorrectAnswer: true } }] });
+    db.setTable('QuestionAttempt', { data: [{ questionId: 'q1', selectedOption: 0, isCorrect: true, Question: { id: 'q1', text: 'Toss?', options: '["A","B"]', hasCorrectAnswer: true } }] });
     adminDb.setTable('Question', { data: null });
     const body = await (await results()).json();
     expect(body.results.answers[0]).toMatchObject({ questionId: 'q1', correctOption: null });
@@ -612,7 +617,7 @@ describe('GET /api/quizzes/[id]/results', () => {
 
   it('reports not passed when the quiz join is missing', async () => {
     db.setTable('QuizAttempt', { data: attempt({ Quiz: null }) });
-    db.setTable('Answer', { data: [] });
+    db.setTable('QuestionAttempt', { data: [] });
     expect((await (await results()).json()).results.passed).toBe(false);
   });
 
@@ -625,7 +630,10 @@ describe('GET /api/quizzes/[id]/results', () => {
     db.setTable('QuizAttempt', { error: { code: '500', message: 'db' } });
     expect((await results()).status).toBe(500);
     db.setTable('QuizAttempt', { data: attempt() });
-    db.setTable('Answer', { error: { message: 'answers failed' } });
+    db.setTable('QuestionAttempt', { error: { message: 'answers failed' } });
+    expect((await results()).status).toBe(500);
+    db.setTable('QuestionAttempt', { data: [] });
+    db.setTable('Question', { error: { message: 'count failed' } });
     expect((await results()).status).toBe(500);
     expect(recordSecurityEvent).toHaveBeenLastCalledWith('QUIZ_RESULTS_ERROR', expect.anything(), undefined, { error: 'Unknown error', quizId: 'quiz-1' });
   });
