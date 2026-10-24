@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { ADMIN, closeDb, createLiveQuiz, createPlayer, db, readStackEnv } from './stack/fixtures';
 
 /**
@@ -11,8 +11,8 @@ test.describe.configure({ mode: 'serial' });
 test.afterAll(closeDb);
 
 const QUESTIONS = [
-  { text: 'Who wins the toss?', options: ['Pakistan', 'India'] },
-  { text: 'Who is the top scorer?', options: ['Babar Azam', 'Virat Kohli'] },
+  { text: 'Who wins the toss?', options: ['Lahore Qalandars', 'Karachi Kings'] },
+  { text: 'Who is the top scorer?', options: ['Babar Azam', 'Fakhar Zaman'] },
 ];
 
 async function signIn(page: Page, player: { email: string; password: string }) {
@@ -26,6 +26,20 @@ async function signIn(page: Page, player: { email: string; password: string }) {
   await page.waitForURL((url) => !url.pathname.startsWith('/auth'), { timeout: 30_000 });
 }
 
+/**
+ * Wait until the app's live snapshot lists the quiz, as it does at once after a real push: an admin's
+ * push clears the app's 15-second quiz catalogue cache, while these quizzes are written straight into
+ * the database. Opened before that, the page's live check would later take the quiz for a new push and
+ * reset the popup.
+ */
+async function waitUntilLive(request: APIRequestContext, quizId: string) {
+  await expect.poll(async () => {
+    const response = await request.get('/api/live');
+    const snapshot = (response.ok() ? await response.json() : { quizzes: [] }) as { quizzes: Array<{ id: string }> };
+    return snapshot.quizzes.some((q) => q.id === quizId);
+  }, { timeout: 30_000, intervals: [1_000] }).toBe(true);
+}
+
 /** The live quiz popup on /quizzes, through the link the "quiz is live" notification carries. */
 async function openLiveQuiz(page: Page, quiz: { id: string }, title: string) {
   await page.goto(`/quizzes?openQuiz=${quiz.id}`);
@@ -37,16 +51,17 @@ async function openLiveQuiz(page: Page, quiz: { id: string }, title: string) {
 const answersOf = async (userId: string, quizId: string) =>
   (await db().query(`SELECT "questionId", "selectedOption" FROM "QuestionAttempt" WHERE "userId" = $1 AND "quizId" = $2 ORDER BY "questionId"`, [userId, quizId])).rows;
 
-test('a player answers a live quiz, the admin saves the result and settles, and the player sees the outcome', async ({ page, browser }) => {
+test('a player answers a live quiz, the admin saves the result and settles, and the player sees the outcome', async ({ page, browser, request }) => {
   const title = `E2E final ${Date.now()}`;
   const quiz = await createLiveQuiz({ title, durationMinutes: 10, pushedSecondsAgo: 5, questions: QUESTIONS });
   const player = await createPlayer('E2E Player');
 
-  // The player locks in Pakistan and Virat Kohli
+  // The player locks in Lahore Qalandars and Fakhar Zaman
   await signIn(page, player);
+  await waitUntilLive(request, quiz.id);
   const panel = await openLiveQuiz(page, quiz, title);
-  await panel.getByText('Pakistan', { exact: true }).click();
-  await panel.getByText('Virat Kohli', { exact: true }).click();
+  await panel.getByText('Lahore Qalandars', { exact: true }).click();
+  await panel.getByText('Fakhar Zaman', { exact: true }).click();
   await panel.getByRole('button', { name: 'Lock in answer' }).click();
   await expect(panel.getByText('Answer locked in — waiting for results')).toBeVisible();
   expect(await answersOf(player.id, quiz.id)).toEqual([
@@ -54,7 +69,7 @@ test('a player answers a live quiz, the admin saves the result and settles, and 
     { questionId: quiz.questionIds[1], selectedOption: 1 },
   ]);
 
-  // The admin ends the quiz with the result (Pakistan, Babar Azam), then pays 1st place 500 points
+  // The admin ends the quiz with the result (Lahore Qalandars, Babar Azam), then pays 1st place 500 points
   const admin = await (await browser.newContext()).newPage();
   await admin.goto('/admin/login');
   await admin.locator('#email').fill(ADMIN.email);
@@ -66,7 +81,7 @@ test('a player answers a live quiz, the admin saves the result and settles, and 
   await admin.getByRole('region', { name: 'Quizzes' }).getByRole('button', { name: new RegExp(title) }).click({ timeout: 30_000 });
   const selected = admin.getByRole('region', { name: 'Selected quiz' });
   await selected.getByRole('button', { name: 'End quiz now and enter the result' }).click();
-  await selected.getByRole('radiogroup', { name: `Correct answer for: ${QUESTIONS[0].text}` }).getByRole('radio', { name: 'Pakistan' }).click();
+  await selected.getByRole('radiogroup', { name: `Correct answer for: ${QUESTIONS[0].text}` }).getByRole('radio', { name: 'Lahore Qalandars' }).click();
   await selected.getByRole('radiogroup', { name: `Correct answer for: ${QUESTIONS[1].text}` }).getByRole('radio', { name: 'Babar Azam' }).click();
   await selected.getByRole('button', { name: 'Save result' }).click();
   await selected.getByRole('alertdialog', { name: 'Confirm result' }).getByRole('button', { name: 'Yes, save the result' }).click();
@@ -96,10 +111,10 @@ test('a player answers a live quiz, the admin saves the result and settles, and 
   await expect(page.getByText('1/2')).toBeVisible({ timeout: 30_000 });
 });
 
-test("when time runs out, the player's answers so far are locked in", async ({ page }) => {
-  // About half a minute left: enough to sign in and answer one of the two questions
+test("when time runs out, the player's answers so far are locked in", async ({ page, request }) => {
+  // 50 s left: enough to wait for the snapshot, sign in and answer one of the two questions
   const title = `E2E time-out ${Date.now()}`;
-  const quiz = await createLiveQuiz({ title, durationMinutes: 1, pushedSecondsAgo: 25, questions: QUESTIONS });
+  const quiz = await createLiveQuiz({ title, durationMinutes: 1, pushedSecondsAgo: 10, questions: QUESTIONS });
   const player = await createPlayer('E2E Late Player');
 
   // What the server said to each submit, for the report when the lock-in is missing
@@ -108,8 +123,9 @@ test("when time runs out, the player's answers so far are locked in", async ({ p
     if (r.url().endsWith('/submit')) submits.push(`${new Date().toISOString()} ${r.status()} ${await r.text().catch(() => '')}`);
   });
   await signIn(page, player);
+  await waitUntilLive(request, quiz.id);
   const panel = await openLiveQuiz(page, quiz, title);
-  await panel.getByText('India', { exact: true }).click();
+  await panel.getByText('Karachi Kings', { exact: true }).click();
   await expect(panel.getByRole('button', { name: 'Answer all 2 questions' })).toBeDisabled();
 
   // At the deadline the answered question is locked in on its own (within the 15 s spread);
