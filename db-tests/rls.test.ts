@@ -15,6 +15,7 @@ import {
   createQuiz,
   createUser,
   errorAs,
+  insertOlderAnswers,
   player,
   queryAs,
   resetData,
@@ -46,6 +47,8 @@ beforeAll(async () => {
     await createDailyPayment(pool, u.id);
     const r = await submitQuiz(pool, player(u.id), { userId: u.id, quizId, answers: answersFor(questionIds) });
     expect(r.success).toBe(true);
+    // "Answer" is no longer written, but players can still read their older rows there
+    await insertOlderAnswers(pool, u.id, quizId);
   }
   aliceNotificationId = await createNotification(pool, alice.id);
   bobNotificationId = await createNotification(pool, bob.id);

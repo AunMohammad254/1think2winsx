@@ -257,6 +257,20 @@ export async function createNotification(pool: pg.Pool, userId: string): Promise
 export const answersFor = (questionIds: string[], selectedOption = 1): SubmitAnswer[] =>
   questionIds.map((questionId) => ({ questionId, selectedOption }));
 
+/**
+ * Copies a player's answers to a quiz into "Answer", as submit_quiz_attempt wrote them before
+ * 2026-10-24 (migration 20261024170000 writes "QuestionAttempt" only; older rows stay in both).
+ */
+export async function insertOlderAnswers(pool: pg.Pool, userId: string, quizId: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO "Answer" (id, "userId", "questionId", "quizAttemptId", "selectedOption", "isCorrect")
+     SELECT 'ans_' || gen_random_uuid()::text, qa."userId", qa."questionId", t.id, qa."selectedOption", qa."isCorrect"
+       FROM "QuestionAttempt" qa JOIN "QuizAttempt" t ON t."userId" = qa."userId" AND t."quizId" = qa."quizId"
+      WHERE qa."userId" = $1 AND qa."quizId" = $2`,
+    [userId, quizId],
+  );
+}
+
 /** Row count of a table, optionally filtered by "userId" (as the superuser). */
 export async function countRows(pool: pg.Pool, table: string, userId?: string): Promise<number> {
   const { rows } = userId

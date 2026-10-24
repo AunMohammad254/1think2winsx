@@ -10,7 +10,7 @@ import { createSecureJsonResponse } from '@/lib/security-headers';
 import { createHash } from 'crypto';
 import { securityLogger } from '@/lib/security-logger';
 import { getActiveQuizCatalog } from '@/lib/quiz-catalog';
-import { quizListCache } from '@/lib/quiz-cache';
+import { clearQuizListCache } from '@/lib/quiz-cache';
 import { isWalletEnabled } from '@/lib/wallet/service';
 import { withLoadShed } from '@/lib/load-shed';
 import { computePushStatus, publicAttemptCount } from '@/lib/live-catalog';
@@ -237,8 +237,8 @@ export async function POST(request: NextRequest) {
       supabase.from('QuizAttempt').select('*', { count: 'exact', head: true }).eq('quizId', quiz.id),
     ]);
 
-    // Clear cache
-    quizListCache.clear();
+    // Both caches: the per-player list and the shared catalogue players actually read
+    clearQuizListCache();
 
     recordSecurityEvent('QUIZ_CREATED', request, session.user.id, {
       quizId: quiz.id,

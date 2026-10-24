@@ -120,9 +120,8 @@ function Ring({ fraction, label }: { fraction: number; label?: string }) {
  * Self-contained live-push quiz experience, scoped entirely to the
  * live-stream section (rendered as a sibling of the stream player, inside
  * the same `position:relative` wrapper, which is also what goes fullscreen).
- * Nothing here touches the regular quiz-taking flow (QuizAttemptModal) used
- * elsewhere in the app - that component intentionally resets on close and
- * blocks closing mid-attempt, which is right for a payment-gated attempt but
+ * Nothing here touches the full-page quiz flow (/quiz/[id]), which keeps a
+ * player on the quiz until they submit - right for a payment-gated attempt but
  * wrong for "glance at a live quiz during the stream, come back to it". This
  * component keeps its own answers/lock state for exactly that reason, and is
  * never unmounted by its parent between open/close - only hidden - so closing

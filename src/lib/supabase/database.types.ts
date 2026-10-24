@@ -155,6 +155,7 @@ export interface Database {
                     userId: string
                     quizId: string
                     score: number
+                    correctAnswers: number
                     points: number
                     isCompleted: boolean
                     isEvaluated: boolean
@@ -169,6 +170,7 @@ export interface Database {
                     userId: string
                     quizId: string
                     score?: number
+                    correctAnswers?: number
                     points?: number
                     isCompleted?: boolean
                     isEvaluated?: boolean
@@ -183,6 +185,7 @@ export interface Database {
                     userId?: string
                     quizId?: string
                     score?: number
+                    correctAnswers?: number
                     points?: number
                     isCompleted?: boolean
                     isEvaluated?: boolean
