@@ -8,12 +8,14 @@ const requireAuth = vi.fn();
 const requireCSRFToken = vi.fn();
 const applyRateLimit = vi.fn();
 const recordSecurityEvent = vi.fn();
+const clearQuizListCache = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, generateId: () => 'gen-q' }));
 vi.mock('@/lib/auth-middleware', () => ({ requireAuth: (...a: unknown[]) => requireAuth(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { admin: 'admin' }, applyRateLimit: (...a: unknown[]) => applyRateLimit(...a) }));
 vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: (...a: unknown[]) => recordSecurityEvent(...a) }));
+vi.mock('@/lib/quiz-cache', () => ({ clearQuizListCache: () => clearQuizListCache() }));
 
 const list = await import('@/app/api/admin/questions/route');
 const one = await import('@/app/api/admin/questions/[id]/route');
@@ -24,7 +26,7 @@ const row = (over: Record<string, unknown> = {}) => ({ id: 'q1', quizId: 'quiz-1
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent]) fn.mockReset();
+  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, clearQuizListCache]) fn.mockReset();
   requireAuth.mockResolvedValue(authOk('admin-1'));
   requireCSRFToken.mockResolvedValue(null);
   applyRateLimit.mockResolvedValue(null);
@@ -53,6 +55,8 @@ describe('POST /api/admin/questions', () => {
     expect(res.status).toBe(201);
     expect(argOf(adminDb.callsTo('Question')[0], 'insert')).toMatchObject({ id: 'gen-q', options: '["A","B"]', correctOption: 1, hasCorrectAnswer: false, status: 'active' });
     expect((await res.json()).question.options).toEqual(['A', 'B']);
+    // Players see the new question now, not when the shared catalogue's cache runs out
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
   });
 
   it('creates a prediction question without an answer yet', async () => {
@@ -192,6 +196,7 @@ describe('PATCH /api/admin/questions/[id]', () => {
     expect(body.question).toMatchObject({ text: 'New', quiz: { id: 'quiz-1' } });
     await patch({});
     expect(Object.keys(argOf(adminDb.callsTo('Question', 'update')[1], 'update') as object)).toEqual(['updatedAt']);
+    expect(clearQuizListCache).toHaveBeenCalledTimes(2);
   });
 
   it("refuses new options for a question players answered, but saves its wording and doesn't rewrite the same options", async () => {
@@ -243,6 +248,7 @@ describe('DELETE /api/admin/questions/[id]', () => {
     expect(body).toEqual({ message: 'Question deleted successfully', deletedQuestion: { id: 'q1', text: 'Toss?', quiz: { id: 'quiz-1', title: 'T' } } });
     expect(adminDb.calls.filter((c) => hasOp(c, 'delete')).map((c) => c.table)).toEqual(['Question']);
     expect(recordSecurityEvent).toHaveBeenCalledWith('SUSPICIOUS_ACTIVITY', expect.anything(), 'admin-1', expect.objectContaining({ quizTitle: 'T' }));
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
   });
 
   it.each(['Answer', 'QuestionAttempt'])('refuses to delete a question with answers in "%s", and deletes nothing', async (table) => {
@@ -253,6 +259,7 @@ describe('DELETE /api/admin/questions/[id]', () => {
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe('QUESTION_ANSWERED');
     expect(adminDb.calls.filter((c) => hasOp(c, 'delete'))).toHaveLength(0);
+    expect(clearQuizListCache).not.toHaveBeenCalled();
   });
 
   it('handles an object quiz join and no answers', async () => {

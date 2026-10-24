@@ -7,6 +7,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { clearQuizListCache } from '@/lib/quiz-cache';
 import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings } from '@/lib/quiz-admin-settings';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 import { hasPayoutHistory, SETTLED_QUIZ_DELETE_ERROR } from '@/lib/quiz-history';
@@ -311,6 +312,8 @@ export async function PATCH(
       .select('*', { count: 'exact', head: true })
       .eq('quizId', quizId);
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
     recordSecurityEvent('ADMIN_QUIZ_UPDATED', request, session.user.id, {
       quizId: updatedQuiz.id,
       title: updatedQuiz.title,
@@ -542,6 +545,8 @@ export async function PUT(
       .select('*', { count: 'exact', head: true })
       .eq('quizId', quizId);
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
     recordSecurityEvent('ADMIN_QUIZ_COMPLETE_UPDATE', request, session.user.id, {
       quizId: resultQuiz!.id,
       title: resultQuiz!.title,
@@ -678,6 +683,8 @@ export async function DELETE(
 
     if (deleteError) throw deleteError;
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
     recordSecurityEvent('ADMIN_QUIZ_DELETED', request, session.user.id, {
       quizId: existingQuiz.id,
       title: existingQuiz.title,

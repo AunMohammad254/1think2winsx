@@ -6,6 +6,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { clearQuizListCache } from '@/lib/quiz-cache';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 
 const updateQuestionSchema = z.object({
@@ -289,6 +290,8 @@ export async function PATCH(
 
     if (updateError) throw updateError;
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: updatedQuestion.id,
       quizId: updatedQuestion.quizId,
@@ -392,6 +395,8 @@ export async function DELETE(
 
     if (deleteError) throw deleteError;
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: existingQuestion.id,
       quizId: existingQuestion.quizId,
