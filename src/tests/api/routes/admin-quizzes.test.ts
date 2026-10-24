@@ -338,6 +338,26 @@ describe('DELETE /api/admin/quizzes/[id]', () => {
     expect(recordSecurityEvent).toHaveBeenCalledWith('ADMIN_QUIZ_DELETED', expect.anything(), 'admin-1', { quizId: 'quiz-1', title: 'T', attemptCount: 3 });
   });
 
+  it.each(['QuizSettlement', 'QuizWinner'])('refuses to delete a quiz with %s rows, deleting nothing', async (table) => {
+    // Its payout history would cascade away while the paid points stay
+    adminDb.setTable('Quiz', (call) => (hasOp(call, 'delete') ? { error: null } : { data: { id: 'quiz-1', title: 'T' } }));
+    adminDb.setTable(table, (call) => ({ count: eqValue(call, 'quizId') === 'quiz-1' ? 1 : 0 }));
+    const res = await del();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'This quiz has been settled: deleting it would erase who won and what was paid. Pause it instead.',
+      code: 'QUIZ_SETTLED',
+    });
+    expect(adminDb.calls.filter((c) => hasOp(c, 'delete'))).toHaveLength(0);
+  });
+
+  it('deletes nothing when the payout history cannot be checked', async () => {
+    adminDb.setTable('Quiz', (call) => (hasOp(call, 'delete') ? { error: null } : { data: { id: 'quiz-1', title: 'T' } }));
+    adminDb.setTable('QuizSettlement', { error: { message: 'timeout' } });
+    expect((await del()).status).toBe(500);
+    expect(adminDb.calls.filter((c) => hasOp(c, 'delete'))).toHaveLength(0);
+  });
+
   it('skips child deletes when there are none', async () => {
     adminDb.setTable('Quiz', (call) => (hasOp(call, 'delete') ? { error: null } : { data: { id: 'quiz-1', title: 'T' } }));
     adminDb.setTable('Question', { data: [] });

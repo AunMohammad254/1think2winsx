@@ -354,9 +354,12 @@ describe('notifySettlement', () => {
 
     expect(await lib.notifySettlement(result([winner({ points: 50 })], ['u1', 'u2']))).toBe(true);
 
+    // The quiz in the link lets a resend tell this bonus notice from another quiz's
     expect(createBatchForUsers).toHaveBeenNthCalledWith(1, ['u1', 'u2'], {
-      title: '🎁 Bonus points', message: 'You received bonus points in "Agli ball". See your profile for your points.', type: 'prize_won', link: '/profile',
+      title: '🎁 Bonus points', message: 'You received bonus points in "Agli ball". See your profile for your points.', type: 'prize_won', link: '/profile?quiz=q1',
     });
+    // Right after settling nobody has a notice yet, so nobody is looked up
+    expect(adminDb.callsTo('Notification')).toHaveLength(0);
     expect(createBatchForUsers).toHaveBeenNthCalledWith(2, ['u3'], expect.objectContaining({ title: '🏅 Results are in' }));
   });
 
@@ -375,9 +378,10 @@ describe('notifySettlement', () => {
     expect(createNotification).toHaveBeenNthCalledWith(2, 'u2', {
       title: '🏆 You placed 2nd!', message: 'You won 500 points in "Agli ball".', type: 'prize_won', link: '/profile',
     });
-    const update = adminDb.callsTo('QuizWinner', 'update')[0];
-    expect(argOf(update, 'update')).toMatchObject({ notificationSent: true });
-    expect(argOf(update, 'in')).toBe('userId');
+    // Marked one winner at a time, so a failure part-way leaves only the rest to a resend
+    const updates = adminDb.callsTo('QuizWinner', 'update');
+    expect(updates.map((u) => [eqValue(u, 'quizId'), eqValue(u, 'userId')])).toEqual([['q1', 'u1'], ['q1', 'u2']]);
+    expect(argOf(updates[0], 'update')).toMatchObject({ notificationSent: true });
     expect(createBatchForUsers).toHaveBeenCalledWith(['u3'], {
       title: '🏅 Results are in', message: 'Results for "Agli ball" are in. See how you did.', type: 'general', link: '/quiz/q1/results',
     });
@@ -411,5 +415,101 @@ describe('notifySettlement', () => {
     createNotification.mockRejectedValueOnce(new Error('push down'));
     expect(await lib.notifySettlement(result([winner({ points: 5 })]))).toBe(false);
     expect(console.error).toHaveBeenCalledWith('[quiz-settlement] Notifying players failed:', expect.anything());
+  });
+});
+
+describe('resendSettlementNotices', () => {
+  /** A settled quiz: u1 (1st, told already), u2 (2nd, not told), pool to u3 and u4, and u5, u6 who only entered. */
+  const settled = (over: { settlement?: unknown; winners?: unknown[] } = {}) => {
+    adminDb.setTable('Quiz', { data: { id: 'q1', title: 'Agli ball' } });
+    adminDb.setTable('QuizSettlement', { data: 'settlement' in over ? over.settlement : { quizId: 'q1' } });
+    adminDb.setTable('QuizWinner', (call) => (call.ops.some((o) => o.op === 'update') ? { error: null } : {
+      data: over.winners ?? [
+        { rank: 1, userId: 'u1', pointsAwarded: 0, notificationSent: true, Prize: [{ name: 'Mystery bike' }] },
+        { rank: 2, userId: 'u2', pointsAwarded: 500, notificationSent: false, Prize: null },
+      ],
+    }));
+    adminDb.setTable('QuizPoolShare', paged([{ userId: 'u3' }, { userId: 'u4' }]));
+    adminDb.setTable('QuizAttempt', paged(['u1', 'u2', 'u3', 'u4', 'u5', 'u6'].map((u, i) => ({ id: `a${i}`, userId: u }))));
+  };
+  /** Who already has each notice, answered per lookup from the ids it asked about. */
+  const alreadyHave = (byTitle: Record<string, string[]>) => adminDb.setTable('Notification', (call) => {
+    const asked = (call.ops.find((o) => o.op === 'in')?.args[1] ?? []) as string[];
+    const have = byTitle[eqValue(call, 'title') as string] ?? [];
+    return { data: asked.filter((id) => have.includes(id)).map((userId) => ({ userId })) };
+  });
+
+  it('sends only the notices players do not have yet', async () => {
+    settled();
+    alreadyHave({ '🎁 Bonus points': ['u3'], '🏅 Results are in': ['u5'] });
+
+    expect(await lib.resendSettlementNotices('q1')).toEqual({ ok: true, notified: true });
+
+    // u1 was told (notificationSent); u2 was not, and is marked once told
+    expect(createNotification).toHaveBeenCalledTimes(1);
+    expect(createNotification).toHaveBeenCalledWith('u2', {
+      title: '🏆 You placed 2nd!', message: 'You won 500 points in "Agli ball".', type: 'prize_won', link: '/profile',
+    });
+    expect(eqValue(adminDb.callsTo('QuizWinner', 'update')[0], 'userId')).toBe('u2');
+    expect(createBatchForUsers).toHaveBeenNthCalledWith(1, ['u4'], expect.objectContaining({ title: '🎁 Bonus points', link: '/profile?quiz=q1' }));
+    expect(createBatchForUsers).toHaveBeenNthCalledWith(2, ['u6'], expect.objectContaining({ title: '🏅 Results are in', link: '/quiz/q1/results' }));
+    // Each lookup is filtered to its own notice
+    const lookups = adminDb.callsTo('Notification');
+    expect(lookups.map((c) => [eqValue(c, 'title'), eqValue(c, 'link')])).toEqual([
+      ['🎁 Bonus points', '/profile?quiz=q1'],
+      ['🏅 Results are in', '/quiz/q1/results'],
+    ]);
+  });
+
+  it("names a winner's prize from either shape of the join, and skips the bonus notice when everyone has it", async () => {
+    settled({ winners: [
+      { rank: 1, userId: 'u1', pointsAwarded: 0, notificationSent: false, Prize: { name: 'Smartwatch' } },
+      { rank: 3, userId: 'u2', pointsAwarded: 0, notificationSent: false, Prize: [] },
+    ] });
+    alreadyHave({ '🎁 Bonus points': ['u3', 'u4'] });
+    expect((await lib.resendSettlementNotices('q1')).ok).toBe(true);
+    expect(createNotification).toHaveBeenNthCalledWith(1, 'u1', expect.objectContaining({ message: expect.stringContaining('You won Smartwatch') }));
+    expect(createNotification).toHaveBeenNthCalledWith(2, 'u2', expect.objectContaining({ title: '🏆 You placed 3rd!' }));
+    expect(createBatchForUsers).toHaveBeenCalledTimes(1);
+    expect(createBatchForUsers).toHaveBeenCalledWith(['u5', 'u6'], expect.objectContaining({ title: '🏅 Results are in' }));
+  });
+
+  it('looks players up 200 at a time', async () => {
+    settled({ winners: [] });
+    adminDb.setTable('QuizPoolShare', paged([]));
+    adminDb.setTable('QuizAttempt', paged(Array.from({ length: 450 }, (_, i) => ({ id: `a${String(i).padStart(3, '0')}`, userId: `p${i}` }))));
+    adminDb.setTable('Notification', { data: null });
+    expect((await lib.resendSettlementNotices('q1')).ok).toBe(true);
+    expect(adminDb.callsTo('Notification').map((c) => (c.ops.find((o) => o.op === 'in')!.args[1] as string[]).length)).toEqual([200, 200, 50]);
+    expect((createBatchForUsers.mock.calls[0][0] as string[]).length).toBe(450);
+  });
+
+  it('reports a failed lookup as a failed send', async () => {
+    settled();
+    adminDb.setTable('Notification', { error: { message: 'timeout' } });
+    expect(await lib.resendSettlementNotices('q1')).toEqual({ ok: true, notified: false });
+  });
+
+  it('refuses a quiz that does not exist or is not settled', async () => {
+    adminDb.setTable('Quiz', { data: null });
+    expect(await lib.resendSettlementNotices('nope')).toEqual({ ok: false, status: 404, code: 'not_found', error: 'Quiz not found' });
+    settled({ settlement: null });
+    expect(await lib.resendSettlementNotices('q1')).toEqual({ ok: false, status: 409, code: 'not_settled', error: 'This quiz has not been settled yet' });
+    expect(createNotification).not.toHaveBeenCalled();
+    expect(createBatchForUsers).not.toHaveBeenCalled();
+  });
+
+  it.each(['Quiz', 'QuizSettlement', 'QuizWinner'])('throws when reading %s fails', async (table) => {
+    settled({ winners: [] });
+    adminDb.setTable(table, { error: { message: `${table} down` } });
+    await expect(lib.resendSettlementNotices('q1')).rejects.toEqual({ message: `${table} down` });
+  });
+
+  it('copes with no winner rows at all', async () => {
+    settled();
+    adminDb.setTable('QuizWinner', { data: null });
+    adminDb.setTable('Notification', { data: [] });
+    expect(await lib.resendSettlementNotices('q1')).toEqual({ ok: true, notified: true });
+    expect(createNotification).not.toHaveBeenCalled();
   });
 });

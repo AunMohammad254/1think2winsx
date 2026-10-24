@@ -102,6 +102,10 @@ export type SettleResult =
 
 type QuizRow = { id: string; title: string; status: string; quizType: string | null; pushedAt: string | null; duration: number | null };
 
+/** A PostgREST to-one join: an object, a one-row array or null, depending on how the relation is read. */
+type Joined<T> = T | T[] | null;
+const one = <T,>(v: Joined<T>): T | null => (Array.isArray(v) ? v[0] ?? null : v);
+
 export function parseOptions(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map(String);
   try {
@@ -253,8 +257,6 @@ export async function getSettlementDetail(quizId: string, nowMs: number): Promis
       .eq('quizId', quizId)
       .order('rank', { ascending: true });
     if (error) throw error;
-    type Joined<T> = T | T[] | null;
-    const one = <T,>(v: Joined<T>): T | null => (Array.isArray(v) ? v[0] ?? null : v);
     winners = ((data || []) as Array<{
       rank: number; userId: string; score: number; selectionMethod: string; pointsAwarded: number; prizeId: string | null;
       User: Joined<{ name: string | null; email: string | null }>; Prize: Joined<{ name: string; category: string }>;
@@ -366,61 +368,163 @@ export function settleResultForBrowser(result: Extract<SettleResult, { success: 
 
 const PLACE = ['', '1st', '2nd', '3rd'];
 
+/** The notices sent in batches, by title and link: a resend asks which players already have one. */
+const resultsNotice = (quizId: string) => ({ title: '🏅 Results are in', link: `/quiz/${quizId}/results` });
+// The quiz in the link tells one quiz's bonus notice from another's; the profile page ignores it
+const bonusNotice = (quizId: string) => ({ title: '🎁 Bonus points', link: `/profile?quiz=${encodeURIComponent(quizId)}` });
+
+/** What a settlement's notices need: the winners (and whether each was told), and who got pool points. */
+interface SettlementNotices {
+  quizId: string;
+  quizTitle: string;
+  winners: Array<Pick<SettledWinner, 'rank' | 'userId' | 'points' | 'prizeName'> & { notificationSent?: boolean }>;
+  poolRecipientIds: string[];
+}
+
+// Player ids per lookup: a list well inside the request URL and PostgREST's 1,000-row cap
+const NOTIFIED_LOOKUP_CHUNK = 200;
+
+/** Of these players, the ones who already have this notice. Notifications are indexed by player, not by link. */
+async function alreadyNotified(userIds: string[], notice: { title: string; link: string }): Promise<Set<string>> {
+  const db = getAdminDb();
+  const told = new Set<string>();
+  for (let i = 0; i < userIds.length; i += NOTIFIED_LOOKUP_CHUNK) {
+    const { data, error } = await db.from('Notification').select('userId')
+      .in('userId', userIds.slice(i, i + NOTIFIED_LOOKUP_CHUNK))
+      .eq('title', notice.title)
+      .eq('link', notice.link);
+    if (error) throw error;
+    for (const row of (data || []) as Array<{ userId: string }>) told.add(row.userId);
+  }
+  return told;
+}
+
 /**
  * Tell each winner what they won (only they see a bumper prize's name) and everyone else that the
  * results are in. Best effort: the settlement already happened, so a failure here is only logged.
+ * `resend`: skip every player who already has their notice, so sending again never doubles one.
  */
-export async function notifySettlement(result: Extract<SettleResult, { success: true }>): Promise<boolean> {
+async function sendNotices(n: SettlementNotices, resend: boolean): Promise<boolean> {
   try {
     const db = getAdminDb();
-    for (const w of result.winners) {
+    for (const w of n.winners) {
+      if (w.notificationSent) continue;
       const reward = w.prizeName ? w.prizeName : `${w.points} points`;
       await notificationDb.create(w.userId, {
         title: `🏆 You placed ${PLACE[w.rank]}!`,
         message: w.prizeName
-          ? `You won ${reward} in "${result.quizTitle}". Our team will contact you about delivery.`
-          : `You won ${reward} in "${result.quizTitle}".`,
+          ? `You won ${reward} in "${n.quizTitle}". Our team will contact you about delivery.`
+          : `You won ${reward} in "${n.quizTitle}".`,
         type: 'prize_won',
         link: '/profile',
       });
-    }
-    if (result.winners.length > 0) {
+      // One winner at a time: a failure part-way leaves only the ones not yet told to a resend
       const { error } = await db.from('QuizWinner')
         .update({ notificationSent: true, updatedAt: new Date().toISOString() })
-        .eq('quizId', result.quizId)
-        .in('userId', result.winners.map((w) => w.userId));
+        .eq('quizId', n.quizId)
+        .eq('userId', w.userId);
       if (error) throw error;
     }
 
     const attempts = await fetchAllByKeyset<{ id: string; userId: string }>(
       (after, limit) => {
-        let q = db.from('QuizAttempt').select('id, userId').eq('quizId', result.quizId).eq('isCompleted', true);
+        let q = db.from('QuizAttempt').select('id, userId').eq('quizId', n.quizId).eq('isCompleted', true);
         if (after) q = q.gt('id', after);
         return q.order('id', { ascending: true }).limit(limit);
       },
       (a) => a.id,
     );
+    const notYetTold = async (userIds: string[], notice: { title: string; link: string }) => {
+      if (!resend) return userIds;
+      const told = await alreadyNotified(userIds, notice);
+      return userIds.filter((id) => !told.has(id));
+    };
     // Pool shares differ per player, so one message for all of them points to the profile for the amount
-    const poolIds = new Set(result.pool?.recipientIds ?? []);
-    if (poolIds.size > 0) {
-      await notificationDb.createBatchForUsers([...poolIds], {
-        title: '🎁 Bonus points',
-        message: `You received bonus points in "${result.quizTitle}". See your profile for your points.`,
+    const poolIds = new Set(n.poolRecipientIds);
+    const bonus = bonusNotice(n.quizId);
+    const bonusTo = await notYetTold([...poolIds], bonus);
+    if (bonusTo.length > 0) {
+      await notificationDb.createBatchForUsers(bonusTo, {
+        title: bonus.title,
+        message: `You received bonus points in "${n.quizTitle}". See your profile for your points.`,
         type: 'prize_won',
-        link: '/profile',
+        link: bonus.link,
       });
     }
-    const winnerIds = new Set(result.winners.map((w) => w.userId));
-    const others = [...new Set(attempts.map((a) => a.userId))].filter((id) => !winnerIds.has(id) && !poolIds.has(id));
+    const winnerIds = new Set(n.winners.map((w) => w.userId));
+    const results = resultsNotice(n.quizId);
+    const others = await notYetTold(
+      [...new Set(attempts.map((a) => a.userId))].filter((id) => !winnerIds.has(id) && !poolIds.has(id)),
+      results,
+    );
     await notificationDb.createBatchForUsers(others, {
-      title: '🏅 Results are in',
-      message: `Results for "${result.quizTitle}" are in. See how you did.`,
+      title: results.title,
+      message: `Results for "${n.quizTitle}" are in. See how you did.`,
       type: 'general',
-      link: `/quiz/${result.quizId}/results`,
+      link: results.link,
     });
     return true;
   } catch (error) {
     console.error('[quiz-settlement] Notifying players failed:', error);
     return false;
   }
+}
+
+/** Notify everyone right after settle_quiz paid out. */
+export function notifySettlement(result: Extract<SettleResult, { success: true }>): Promise<boolean> {
+  return sendNotices({
+    quizId: result.quizId,
+    quizTitle: result.quizTitle,
+    winners: result.winners,
+    poolRecipientIds: result.pool?.recipientIds ?? [],
+  }, false);
+}
+
+export type ResendOutcome = { ok: true; notified: boolean } | { ok: false; status: number; code: string; error: string };
+
+/**
+ * Send a settled quiz's notices again (the settle screen's "Send notices again", for when settling
+ * reported that notifying failed). Only players who don't have theirs yet get one: a winner whose
+ * QuizWinner.notificationSent is still false, and pool recipients or entrants without the bonus or
+ * results-are-in notice. The winners and pool shares are read back from the settlement itself.
+ */
+export async function resendSettlementNotices(quizId: string): Promise<ResendOutcome> {
+  const db = getAdminDb();
+  const [quizRes, settlementRes, winnersRes] = await Promise.all([
+    db.from('Quiz').select('id, title').eq('id', quizId).maybeSingle(),
+    db.from('QuizSettlement').select('quizId').eq('quizId', quizId).maybeSingle(),
+    db.from('QuizWinner').select('rank, userId, pointsAwarded, notificationSent, Prize:prizeId (name)')
+      .eq('quizId', quizId)
+      .order('rank', { ascending: true }),
+  ]);
+  if (quizRes.error) throw quizRes.error;
+  if (settlementRes.error) throw settlementRes.error;
+  if (winnersRes.error) throw winnersRes.error;
+  if (!quizRes.data) return { ok: false, status: 404, code: 'not_found', error: 'Quiz not found' };
+  if (!settlementRes.data) return { ok: false, status: 409, code: 'not_settled', error: 'This quiz has not been settled yet' };
+
+  const pool = await fetchAllByKeyset<{ userId: string }>(
+    (after, limit) => {
+      let q = db.from('QuizPoolShare').select('userId').eq('quizId', quizId);
+      if (after) q = q.gt('userId', after);
+      return q.order('userId', { ascending: true }).limit(limit);
+    },
+    (row) => row.userId,
+  );
+  const winners = ((winnersRes.data || []) as Array<{
+    rank: number; userId: string; pointsAwarded: number; notificationSent: boolean; Prize: Joined<{ name: string }>;
+  }>).map((w) => ({
+    rank: w.rank,
+    userId: w.userId,
+    points: w.pointsAwarded > 0 ? w.pointsAwarded : null,
+    prizeName: one(w.Prize)?.name ?? null,
+    notificationSent: w.notificationSent,
+  }));
+  const notified = await sendNotices({
+    quizId,
+    quizTitle: (quizRes.data as { title: string }).title,
+    winners,
+    poolRecipientIds: pool.map((p) => p.userId),
+  }, true);
+  return { ok: true, notified };
 }
