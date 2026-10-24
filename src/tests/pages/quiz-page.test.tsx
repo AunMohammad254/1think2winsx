@@ -224,6 +224,20 @@ describe('quiz page: answering', () => {
     expect(body).toEqual({ answers: [{ questionId: 'a', selectedOption: 0 }] });
   });
 
+  it('sends every answered question when time runs out with one left', async () => {
+    render(<QuizPage />);
+    await start();
+    choose('Pakistan');
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    choose('Lee');
+    act(() => h.onExpire!());
+    expect(screen.getByText(/submit the 2 questions you answered/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View Results' }));
+    await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/quiz/q1/results'));
+    const body = JSON.parse(h.fetchWithRetry.mock.calls.find(([u]) => u.endsWith('/submit'))![1].body);
+    expect(body).toEqual({ answers: [{ questionId: 'a', selectedOption: 0 }, { questionId: 'b', selectedOption: 1 }] });
+  });
+
   it('sends nothing when time runs out before any answer, and goes back to the quizzes', async () => {
     render(<QuizPage />);
     await start();

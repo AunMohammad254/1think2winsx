@@ -142,12 +142,9 @@ export default function QuizPage() {
     }
 
     setShowUnansweredWarning(false);
-    // Time ran out with questions left: send the answered ones (an unanswered one would get them all refused)
+    // Time ran out with questions left: send the answered ones (an unanswered one would get them all refused).
+    // Never empty here: a time-out with nothing answered stops in handleTimeExpiredClose.
     const toSend = answeredOnly(answers);
-    if (toSend.length === 0) {
-      setSubmitError('Answer at least one question before submitting.');
-      return false;
-    }
     setIsSubmitting(true);
     setSubmitError(null);
     try {

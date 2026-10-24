@@ -438,9 +438,10 @@ export async function PUT(
       ];
       const answered = risky.length > 0 ? await answeredQuestionIds(risky) : new Set<string>();
       if (answered.size > 0) {
-        const first = existingById.get([...answered][0]);
+        // Every id checked is one of the quiz's existing questions
+        const first = existingById.get([...answered][0])!;
         return NextResponse.json(
-          { error: answeredQuestionError(first?.text || 'a question', answered.size - 1), code: 'QUESTION_ANSWERED' },
+          { error: answeredQuestionError(first.text, answered.size - 1), code: 'QUESTION_ANSWERED' },
           { status: 409 }
         );
       }

@@ -330,8 +330,9 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     // every question is answered and while a submit is in flight. `atDeadline`: time is up, and the
     // effect below locks in the questions answered so far (the server's grace period still takes them).
     const send = useCallback(async (atDeadline: boolean) => {
-        const loaded = quiz;
-        if (!loaded) return;
+        // Loaded: the button only shows for a loaded quiz, and the deadline lock-in is only set up for one
+        // (startFresh, the only thing that unloads it, also cancels that lock-in)
+        const loaded = quiz!;
         // The countdown reads "Time's up": say so instead of sending a submit the server refuses
         const timeUp = () => isWindowClosed(live?.endsAtMs ?? null, Date.now());
         if (!atDeadline && timeUp()) {

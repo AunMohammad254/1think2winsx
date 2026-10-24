@@ -160,8 +160,8 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
         // would delete or re-map players' answers (lib/question-guard)
         const currentQuestions = await questionDb.findByQuizId(quizId!);
         const keptIds = new Set(questions.filter(q => q.id).map(q => q.id as string));
-        const currentById = new Map<string, { id: string; text?: string; options?: unknown }>(
-            currentQuestions.map((q: { id: string; text?: string; options?: unknown }) => [q.id, q])
+        const currentById = new Map<string, { id: string; text: string; options?: unknown }>(
+            currentQuestions.map((q: { id: string; text: string; options?: unknown }) => [q.id, q])
         );
         const optionsChanged = (q: (typeof questions)[number]) =>
             !!q.id && currentById.has(q.id) && !sameOptions(currentById.get(q.id)!.options, q.options.map(opt => opt.text));
@@ -171,8 +171,9 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
         ];
         const answered = risky.length > 0 ? await answeredQuestionIds(risky) : new Set<string>();
         if (answered.size > 0) {
-            const first = currentById.get([...answered][0]);
-            return { success: false, error: answeredQuestionError(first?.text || 'a question', answered.size - 1), code: 'QUESTION_ANSWERED' };
+            // Every id checked is one of the quiz's current questions
+            const first = currentById.get([...answered][0])!;
+            return { success: false, error: answeredQuestionError(first.text, answered.size - 1), code: 'QUESTION_ANSWERED' };
         }
 
         // Update quiz basic info
