@@ -53,6 +53,7 @@ let details: Record<string, unknown>;
 let onResult: Handler;
 let onPreview: Handler;
 let onSettle: Handler;
+let onNotify: Handler;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -61,6 +62,7 @@ beforeEach(() => {
   onResult = () => jsonResponse({ ok: true });
   onPreview = () => jsonResponse({ result: previewResult() });
   onSettle = () => jsonResponse({ result: previewResult({ preview: undefined }), notified: true });
+  onNotify = () => jsonResponse({ notified: true });
   fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     if (url === '/api/admin/quiz-settlement' && !init) return jsonResponse({ quizzes: QUIZZES, prizes: PRIZES });
@@ -70,6 +72,7 @@ beforeEach(() => {
     }
     if (url === '/api/admin/quiz-settlement/result') return onResult(body);
     if (url === '/api/admin/quiz-settlement/preview') return onPreview(body);
+    if (url === '/api/admin/quiz-settlement/notify') return onNotify(body);
     if (url === '/api/admin/quiz-settlement') return onSettle(body);
     throw new Error(`unexpected ${url}`);
   });
@@ -320,6 +323,31 @@ describe('settled and upcoming quizzes', () => {
     const section = await open('Quiz settled');
     expect(within(section).getByText(/ties: odd/)).toBeInTheDocument();
     expect(within(section).queryByText(/Draw seed/)).toBeNull();
+  });
+
+  it('sends the notices again for a settled quiz, saying whether that worked', async () => {
+    details.settled = detailOf(QUIZZES[4], { settlement: { settledAt: '2026-10-19T11:00:00Z', settledBy: 'admin', tieRule: 'random', seed: SEED, winners: [], pool: NO_POOL_SETTLED } });
+    let release!: (r: Response) => void;
+    onNotify = () => new Promise<Response>((r) => { release = r; });
+    const section = await open('Quiz settled');
+    const button = within(section).getByRole('button', { name: 'Send notices again' });
+    fireEvent.click(button);
+    await waitFor(() => expect(button).toBeDisabled());
+    release(jsonResponse({ notified: true }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Notices sent to every player who did not have one yet.');
+    expect(bodyOf(posts('/api/admin/quiz-settlement/notify')[0])).toEqual({ quizId: 'settled' });
+    expect(button).toBeEnabled();
+
+    onNotify = () => jsonResponse({ notified: false });
+    fireEvent.click(button);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sending the notices failed again. Try again in a few minutes.');
+
+    onNotify = () => jsonResponse({ error: 'This quiz has not been settled yet' }, 409);
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('This quiz has not been settled yet'));
+    onNotify = () => jsonResponse({}, 500);
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Failed to send the notices'));
   });
 
   it('cannot settle a quiz before it runs', async () => {

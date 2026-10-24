@@ -197,6 +197,22 @@ export default function QuizSettlementManager() {
     }
   };
 
+  // Notifying runs after the payout and can fail on its own; this reaches only the players not told yet
+  const resendNotices = async (quiz: SettlementQuiz) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const data = await postJson('/api/admin/quiz-settlement/notify', { quizId: quiz.id }, 'Failed to send the notices');
+      setMessage(data.notified
+        ? { type: 'success', text: 'Notices sent to every player who did not have one yet.' }
+        : { type: 'error', text: 'Sending the notices failed again. Try again in a few minutes.' });
+    } catch (e) {
+      setMessage({ type: 'error', text: errorText(e, 'Failed to send the notices') });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const visible = filter === 'all' ? quizzes : quizzes.filter((q) => q.stage === filter);
   const quiz = detail?.quiz;
   const allAnswered = !!detail && detail.questions.every((q) => answers[q.id] !== undefined);
@@ -406,6 +422,13 @@ export default function QuizSettlementManager() {
               {detail.settlement.seed && (
                 <p className="break-all font-mono text-xs text-gray-500">Draw seed: {detail.settlement.seed}</p>
               )}
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" disabled={busy} onClick={() => resendNotices(quiz)}
+                  className="rounded-lg border border-white/15 bg-white/5 px-4 py-2 text-sm text-gray-200 hover:bg-white/10 disabled:opacity-50">
+                  Send notices again
+                </button>
+                <span className="text-xs text-gray-500">Only players who did not get theirs are sent one.</span>
+              </div>
             </div>
           )}
         </section>

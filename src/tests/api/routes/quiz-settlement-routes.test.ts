@@ -9,6 +9,7 @@ const detail = vi.fn();
 const save = vi.fn();
 const run = vi.fn();
 const notify = vi.fn();
+const resend = vi.fn();
 
 vi.mock('@/lib/admin-api-guard', () => ({ adminApiGuard: (...a: unknown[]) => guard(...a) }));
 vi.mock('@/lib/quiz-settlement', async () => ({
@@ -19,12 +20,14 @@ vi.mock('@/lib/quiz-settlement', async () => ({
   saveQuizResult: (...a: unknown[]) => save(...a),
   runSettlement: (...a: unknown[]) => run(...a),
   notifySettlement: (...a: unknown[]) => notify(...a),
+  resendSettlementNotices: (...a: unknown[]) => resend(...a),
 }));
 vi.mock('@/lib/logger', () => ({ default: { log: vi.fn() } }));
 
 const main = await import('@/app/api/admin/quiz-settlement/route');
 const preview = await import('@/app/api/admin/quiz-settlement/preview/route');
 const result = await import('@/app/api/admin/quiz-settlement/result/route');
+const notices = await import('@/app/api/admin/quiz-settlement/notify/route');
 const { rewardsSchema, settleErrorStatus } = await import('@/app/api/admin/quiz-settlement/schema');
 
 const ADMIN = { id: 'admin-user', email: 'admin@1think2win.com' };
@@ -34,7 +37,7 @@ const ok = { success: true, quizId: 'q1', quizTitle: 'Agli ball', winners: [{ ra
 const okInBrowser = { ...ok, pool: POOL };
 
 beforeEach(() => {
-  for (const fn of [guard, list, detail, save, run, notify]) fn.mockReset();
+  for (const fn of [guard, list, detail, save, run, notify, resend]) fn.mockReset();
   guard.mockResolvedValue(ADMIN);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -181,6 +184,32 @@ describe('POST /api/admin/quiz-settlement/result', () => {
     expect((await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: {} })).status).toBe(500);
     guard.mockResolvedValue(NextResponse.json({}, { status: 403 }));
     expect((await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: {} })).status).toBe(403);
+  });
+});
+
+describe('POST /api/admin/quiz-settlement/notify', () => {
+  it('sends the notices again and says whether that worked, for a writing admin', async () => {
+    resend.mockResolvedValueOnce({ ok: true, notified: true }).mockResolvedValueOnce({ ok: true, notified: false });
+    const res = await post(notices, '/api/admin/quiz-settlement/notify', { quizId: 'q1' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ notified: true });
+    expect(resend).toHaveBeenCalledWith('q1');
+    expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/quiz-settlement/notify', { write: true });
+    expect(await (await post(notices, '/api/admin/quiz-settlement/notify', { quizId: 'q1' })).json()).toEqual({ notified: false });
+  });
+
+  it('passes on a refusal, rejects bad input, and answers 500 on errors', async () => {
+    resend.mockResolvedValueOnce({ ok: false, status: 409, code: 'not_settled', error: 'This quiz has not been settled yet' });
+    const refused = await post(notices, '/api/admin/quiz-settlement/notify', { quizId: 'q1' });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: 'This quiz has not been settled yet', code: 'not_settled' });
+    expect((await post(notices, '/api/admin/quiz-settlement/notify', { quizId: '' })).status).toBe(400);
+    expect((await post(notices, '/api/admin/quiz-settlement/notify', undefined, '')).status).toBe(400);
+    resend.mockRejectedValueOnce(new Error('boom'));
+    expect((await post(notices, '/api/admin/quiz-settlement/notify', { quizId: 'q1' })).status).toBe(500);
+    expect(console.error).toHaveBeenCalledWith('[quiz-settlement] Sending the notices again failed:', expect.any(Error));
+    guard.mockResolvedValue(NextResponse.json({}, { status: 403 }));
+    expect((await post(notices, '/api/admin/quiz-settlement/notify', { quizId: 'q1' })).status).toBe(403);
   });
 });
 
