@@ -238,12 +238,18 @@ function slideLeft(track: HTMLElement, i: number) {
   return slide.offsetLeft > 0 ? slide.offsetLeft : i * track.clientWidth;
 }
 
-export default function LiveQuiz() {
-  const { user } = useAuth();
-  const isLoggedIn = !!user;
+// ⚡ Bolt Performance Optimization:
+// Extracted high-frequency hooks (`useNow`, `useAnimatedCounter`, `setInterval`) and carousel state
+// into a dedicated `LiveQuizCarousel` component.
+// Why: `LiveQuiz` was re-rendering on every `useNow` tick (every second) and `useAnimatedCounter`
+// frame, needlessly reconciling the entire Section and its grid structure despite the left column
+// (`LiveQuizIntro`) being memoized.
+// Impact: Significantly reduces React rendering work on the main thread by isolating the re-renders
+// to just the dynamic carousel right column.
+
+function LiveQuizCarousel({ isLoggedIn, isVisible }: { isLoggedIn: boolean; isVisible: boolean }) {
   const [active, setActive] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
-  const { ref, isVisible } = useScrollReveal({ threshold: 0.1, once: false });
   const carouselRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const startX = useRef(0);
@@ -336,77 +342,87 @@ export default function LiveQuiz() {
   );
 
   return (
+    <div className="relative">
+      <Reveal variant="scale" delay={200}>
+        {count === 0 ? (
+          <EmptyCard isLoggedIn={isLoggedIn} />
+        ) : (
+          <>
+            <div
+              ref={carouselRef}
+              onMouseDown={onMouseDown}
+              onMouseUp={onMouseUp}
+              onMouseMove={onMouseMove}
+              onMouseLeave={() => {
+                setIsHovered(false);
+                if (isDragging) onMouseUp();
+              }}
+              onMouseEnter={() => setIsHovered(true)}
+              onFocus={() => setIsHovered(true)}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget)) {
+                  setIsHovered(false);
+                }
+              }}
+              onTouchStart={onTouchStart}
+              onTouchEnd={onTouchEnd}
+              className="flex snap-x snap-mandatory gap-6 overflow-x-auto scrollbar-none lg:overflow-hidden"
+              style={{ cursor: isDragging ? "grabbing" : "grab" }}
+            >
+              {quizzes
+                ? quizzes.map((quiz, i) => (
+                    <RealQuizCard
+                      key={quiz.id}
+                      quiz={quiz}
+                      now={now}
+                      accent={QUIZ_DATA[i % QUIZ_DATA.length].accent}
+                      isActive={i === current}
+                      isLoggedIn={isLoggedIn}
+                    />
+                  ))
+                : QUIZ_DATA.map((q, i) => (
+                    <QuizCarouselCard
+                      key={q.title}
+                      q={q}
+                      isActive={i === current}
+                      livePlayers={i === current ? livePlayers : q.players}
+                      isLoggedIn={isLoggedIn}
+                    />
+                  ))}
+            </div>
+            {count > 1 && (
+              <div className="mt-8 flex justify-center gap-[18px]">
+                {Array.from({ length: count }, (_, i) => (
+                  // The ::after box turns each 6px dot into a 24px tap target (WCAG 2.5.8) without changing its look
+                  <button
+                    key={i}
+                    aria-label={`Show quiz ${i + 1}`}
+                    aria-current={i === current ? "true" : undefined}
+                    onClick={() => handleDotClick(i)}
+                    className={`relative h-1.5 rounded-full transition-all duration-500 after:absolute after:-inset-x-[9px] after:-inset-y-[9px] after:content-[''] ${
+                      i === current ? "w-8 bg-emerald-400" : "w-1.5 bg-white/20 hover:bg-white/40"
+                    }`}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </Reveal>
+    </div>
+  );
+}
+
+export default function LiveQuiz() {
+  const { user } = useAuth();
+  const isLoggedIn = !!user;
+  const { ref, isVisible } = useScrollReveal({ threshold: 0.1, once: false });
+
+  return (
     <Section ref={ref as React.RefObject<HTMLDivElement>} className="relative overflow-hidden">
       <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2">
         <LiveQuizIntro isLoggedIn={isLoggedIn} />
-        <div className="relative">
-          <Reveal variant="scale" delay={200}>
-            {count === 0 ? (
-              <EmptyCard isLoggedIn={isLoggedIn} />
-            ) : (
-              <>
-                <div
-                  ref={carouselRef}
-                  onMouseDown={onMouseDown}
-                  onMouseUp={onMouseUp}
-                  onMouseMove={onMouseMove}
-                  onMouseLeave={() => {
-                    setIsHovered(false);
-                    if (isDragging) onMouseUp();
-                  }}
-                  onMouseEnter={() => setIsHovered(true)}
-                  onFocus={() => setIsHovered(true)}
-                  onBlur={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget)) {
-                      setIsHovered(false);
-                    }
-                  }}
-                  onTouchStart={onTouchStart}
-                  onTouchEnd={onTouchEnd}
-                  className="flex snap-x snap-mandatory gap-6 overflow-x-auto scrollbar-none lg:overflow-hidden"
-                  style={{ cursor: isDragging ? "grabbing" : "grab" }}
-                >
-                  {quizzes
-                    ? quizzes.map((quiz, i) => (
-                        <RealQuizCard
-                          key={quiz.id}
-                          quiz={quiz}
-                          now={now}
-                          accent={QUIZ_DATA[i % QUIZ_DATA.length].accent}
-                          isActive={i === current}
-                          isLoggedIn={isLoggedIn}
-                        />
-                      ))
-                    : QUIZ_DATA.map((q, i) => (
-                        <QuizCarouselCard
-                          key={q.title}
-                          q={q}
-                          isActive={i === current}
-                          livePlayers={i === current ? livePlayers : q.players}
-                          isLoggedIn={isLoggedIn}
-                        />
-                      ))}
-                </div>
-                {count > 1 && (
-                  <div className="mt-8 flex justify-center gap-[18px]">
-                    {Array.from({ length: count }, (_, i) => (
-                      // The ::after box turns each 6px dot into a 24px tap target (WCAG 2.5.8) without changing its look
-                      <button
-                        key={i}
-                        aria-label={`Show quiz ${i + 1}`}
-                        aria-current={i === current ? "true" : undefined}
-                        onClick={() => handleDotClick(i)}
-                        className={`relative h-1.5 rounded-full transition-all duration-500 after:absolute after:-inset-x-[9px] after:-inset-y-[9px] after:content-[''] ${
-                          i === current ? "w-8 bg-emerald-400" : "w-1.5 bg-white/20 hover:bg-white/40"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </Reveal>
-        </div>
+        <LiveQuizCarousel isLoggedIn={isLoggedIn} isVisible={isVisible} />
       </div>
     </Section>
   );
