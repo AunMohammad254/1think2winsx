@@ -1,4 +1,4 @@
--- NOT YET APPLIED TO PRODUCTION. The app works before and after it: the quiz catalogue reads
+-- Applied to production on 2026-10-23 as migration 20261023134725. The app works before and after it: the quiz catalogue reads
 -- `select *`, so until the column exists announced quizzes just don't show on the stream, and
 -- setting it on announcement only logs an error.
 --

@@ -1,9 +1,10 @@
 -- =============================================================================
 -- Protect players' answers and quiz winners from admin edits and deletes
 --
--- NOT applied to production yet. The app already refuses the same changes on its own
--- (src/lib/question-guard.ts and deletePrize in src/actions/prizes.ts), so the code can deploy first;
--- this is the safety net under every path, the SQL editor and future code included.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-24 as migration 20261024055458, owner-approved,
+-- after the code that works with it (PR #58, build 6920684) went live. The app refuses the same changes on its
+-- own (src/lib/question-guard.ts and deletePrize in src/actions/prizes.ts); this is the safety net under
+-- every path, the SQL editor and future code included.
 --
 -- 1. A question that players answered can't be deleted, and its options can't change. Answers are
 --    stored as option numbers and cascade with their question, so either change silently deleted or
