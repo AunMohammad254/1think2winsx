@@ -266,12 +266,13 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
 
+      # .github/ci/playwright-install.sh: 5 minutes a try, 3 tries (apt-get sometimes crawls)
       - name: Install Playwright Chromium
-        run: bunx playwright install chromium --with-deps
+        run: bash .github/ci/playwright-install.sh install chromium --with-deps
         if: steps.playwright-cache.outputs.cache-hit != 'true'
 
       - name: Install Playwright system deps
-        run: bunx playwright install-deps chromium
+        run: bash .github/ci/playwright-install.sh install-deps chromium
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
       - name: Build application
@@ -352,11 +353,11 @@ jobs:
           key: ${{ runner.os }}-playwright-firefox-${{ hashFiles('bun.lock') }}
 
       - name: Install Playwright Firefox
-        run: bunx playwright install firefox --with-deps
+        run: bash .github/ci/playwright-install.sh install firefox --with-deps
         if: steps.playwright-cache.outputs.cache-hit != 'true'
 
       - name: Install Playwright system deps
-        run: bunx playwright install-deps firefox
+        run: bash .github/ci/playwright-install.sh install-deps firefox
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
       - name: Build application
@@ -429,11 +430,11 @@ jobs:
           key: ${{ runner.os }}-playwright-webkit-${{ hashFiles('bun.lock') }}
 
       - name: Install Playwright WebKit
-        run: bunx playwright install webkit --with-deps
+        run: bash .github/ci/playwright-install.sh install webkit --with-deps
         if: steps.playwright-cache.outputs.cache-hit != 'true'
 
       - name: Install Playwright system deps
-        run: bunx playwright install-deps webkit
+        run: bash .github/ci/playwright-install.sh install-deps webkit
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
       - name: Build application
@@ -498,8 +499,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-mobile-${{ hashFiles('bun.lock') }}
+
       - name: Install Playwright mobile browsers
-        run: bunx playwright install chromium webkit --with-deps
+        run: bash .github/ci/playwright-install.sh install chromium webkit --with-deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+
+      - name: Install Playwright system deps
+        run: bash .github/ci/playwright-install.sh install-deps chromium webkit
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
 
       - name: Build application
         run: bun run build
