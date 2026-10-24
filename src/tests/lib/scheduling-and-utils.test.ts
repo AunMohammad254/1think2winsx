@@ -138,12 +138,20 @@ describe('runScheduledJobs', () => {
     expect(console.error).toHaveBeenCalledWith('[QuizScheduler] Could not mark quiz q1 as announced:', { message: 'column "announcedAt" does not exist' });
   });
 
-  it('pauses active quizzes whose answering window is over', async () => {
+  it('pauses active quizzes whose answering window is over, grace period included', async () => {
     world({
       Quiz: (call) => {
         if (isClaim(call)) return { data: [{ id: 'old' }] };
         if (eqValue(call, 'status') === 'active') {
-          return { data: [{ id: 'old', pushedAt: minutesAgo(31), duration: 30 }, { id: 'running', pushedAt: minutesAgo(5), duration: 30 }, { id: 'never-pushed', pushedAt: null, duration: 30 }, { id: 'no-duration', pushedAt: minutesAgo(99), duration: 0 }] };
+          return { data: [
+            { id: 'old', pushedAt: minutesAgo(31), duration: 30 },
+            { id: 'running', pushedAt: minutesAgo(5), duration: 30 },
+            // 10 s past the deadline: the database still takes the answers players' screens lock in
+            // now, for 30 s; pausing here refused them
+            { id: 'in-grace', pushedAt: minutesAgo(30 + 10 / 60), duration: 30 },
+            { id: 'never-pushed', pushedAt: null, duration: 30 },
+            { id: 'no-duration', pushedAt: minutesAgo(99), duration: 0 },
+          ] };
         }
         return { data: [] };
       },
