@@ -143,3 +143,10 @@ deploy/private/
 # My Skills: begin
 # CLAUDE.md
 # My Skills: end
+
+# End-to-end quiz test: the local Supabase stack's generated migrations, keys and CLI state
+e2e/stack/.env.e2e
+e2e/stack/supabase/migrations/
+e2e/stack/supabase/.temp/
+e2e/stack/supabase/.branches/
+supabase/.temp/
