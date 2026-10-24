@@ -13,6 +13,10 @@ const createBroadcast = vi.fn();
 vi.mock('@/lib/supabase/db', () => ({ quizDb, questionDb, notificationDb: { createBroadcast: (...a: unknown[]) => createBroadcast(...a) }, getAdminDb: () => adminDb.client }));
 vi.mock('@/lib/admin-guard', () => ({ adminActionGuard: (...a: unknown[]) => adminActionGuard(...a) }));
 vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => revalidatePath(...a) }));
+// after() runs its callback once the response is sent: here, when a test calls afterResponse()
+const afterQueue: Array<() => unknown> = [];
+vi.mock('next/server', () => ({ after: (cb: () => unknown) => { afterQueue.push(cb); } }));
+const afterResponse = async () => { while (afterQueue.length) await afterQueue.shift()!(); };
 vi.mock('@/lib/quiz-cache', () => ({ clearQuizListCache: (...a: unknown[]) => clearQuizListCache(...a) }));
 
 const actions = await import('@/actions/quiz-actions');
@@ -25,6 +29,7 @@ const inAnHour = () => new Date(Date.now() + 3_600_000).toISOString();
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
+  afterQueue.length = 0;
   for (const fn of [adminActionGuard, revalidatePath, clearQuizListCache, createBroadcast, ...Object.values(quizDb), ...Object.values(questionDb)]) fn.mockReset();
   adminActionGuard.mockResolvedValue(null);
   quizDb.create.mockImplementation(async (d: Record<string, unknown>) => ({ id: 'quiz-1', ...d }));
@@ -77,13 +82,19 @@ describe('createQuiz', () => {
     expect(questionDb.create).toHaveBeenCalledWith(expect.objectContaining({ correctOption: null, hasCorrectAnswer: false }));
   });
 
-  it('announces an active quiz, surviving a failed broadcast', async () => {
+  it('announces an active quiz after the response, surviving a failed broadcast', async () => {
     await actions.createQuiz(quizInput({ status: 'active', isBumperPrize: true }) as never);
+    // The admin's click doesn't wait for one notification per user
+    expect(createBroadcast).not.toHaveBeenCalled();
+    expect(clearQuizListCache).toHaveBeenCalled();
+    await afterResponse();
     expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ title: '🎮 New Quiz Published!', link: '/quizzes?openQuiz=quiz-1' }));
     quizDb.create.mockResolvedValueOnce({ id: 'quiz-2', title: null });
     createBroadcast.mockRejectedValueOnce(new Error('push'));
     expect((await actions.createQuiz(quizInput({ status: 'active' }) as never)).success).toBe(true);
+    await afterResponse();
     expect(createBroadcast).toHaveBeenLastCalledWith(expect.objectContaining({ message: expect.stringContaining('"Challenge"') }));
+    expect(console.error).toHaveBeenCalledWith('Failed to send quiz publication broadcast notification:', expect.any(Error));
   });
 
   it('validates the input, including a start time for scheduled quizzes', async () => {
@@ -219,14 +230,17 @@ describe('delete, publish, pause and push', () => {
     questionDb.findByQuizId.mockResolvedValue([{ id: 'x' }]);
     expect((await actions.publishQuiz('q')).success).toBe(true);
     expect(quizDb.update).toHaveBeenCalledWith('q', { status: 'active' });
+    await afterResponse();
     expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('"Cricket night"') }));
 
     quizDb.update.mockResolvedValueOnce({ id: 'q', title: '' });
     createBroadcast.mockRejectedValueOnce(new Error('push'));
     expect((await actions.publishQuiz('q')).success).toBe(true);
+    await afterResponse();
     quizDb.update.mockResolvedValueOnce(null);
     createBroadcast.mockClear();
     await actions.publishQuiz('q');
+    await afterResponse();
     expect(createBroadcast).not.toHaveBeenCalled();
     questionDb.findByQuizId.mockRejectedValueOnce(new Error('x'));
     expect((await actions.publishQuiz('q')).success).toBe(false);
@@ -247,11 +261,17 @@ describe('delete, publish, pause and push', () => {
     quizDb.findById.mockResolvedValue({ id: 'q', status: 'active' });
     expect(await actions.pushQuizLive('q')).toEqual({ success: true, message: 'Pushed to live viewers!' });
     expect(quizDb.update.mock.calls[0][1]).toEqual({ pushedAt: expect.any(String) });
+    // Players see the push at once: the catalogue is refreshed before the broadcast even starts
+    expect(clearQuizListCache).toHaveBeenCalled();
+    expect(createBroadcast).not.toHaveBeenCalled();
+    await afterResponse();
     expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ title: '🔴 Live now' }));
 
     quizDb.update.mockResolvedValueOnce({ id: 'q', title: null });
     createBroadcast.mockRejectedValueOnce(new Error('push'));
     expect((await actions.pushQuizLive('q')).success).toBe(true);
+    await afterResponse();
+    expect(console.error).toHaveBeenCalledWith('Failed to send quiz push broadcast notification:', expect.any(Error));
     quizDb.update.mockResolvedValueOnce(null);
     expect((await actions.pushQuizLive('q')).success).toBe(true);
     quizDb.findById.mockRejectedValueOnce(new Error('x'));
