@@ -21,6 +21,8 @@ const list = await import('@/app/api/admin/questions/route');
 const one = await import('@/app/api/admin/questions/[id]/route');
 
 const P = routeParams({ id: 'q1' });
+/** What the admin action log recorded (lib/admin-action-log writes through the mocked admin client). */
+const logged = () => adminDb.callsTo('AdminActionLog', 'insert').map((c) => argOf(c, 'insert'));
 const isHead = (call: { ops: { op: string; args: unknown[] }[] }) => call.ops.some((o) => o.op === 'select' && (o.args[1] as { head?: boolean } | undefined)?.head);
 const row = (over: Record<string, unknown> = {}) => ({ id: 'q1', quizId: 'quiz-1', text: 'Toss?', options: '["A","B","C"]', correctOption: 1, hasCorrectAnswer: true, status: 'active', Quiz: [{ id: 'quiz-1', title: 'T' }], ...over });
 
@@ -57,6 +59,9 @@ describe('POST /api/admin/questions', () => {
     expect((await res.json()).question.options).toEqual(['A', 'B']);
     // Players see the new question now, not when the shared catalogue's cache runs out
     expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    expect(logged()).toEqual([{
+      quizId: 'quiz-1', quizTitle: 'T', action: 'question_added', adminEmail: 'player@example.test', details: { questionId: 'gen-q', text: 'Toss?' },
+    }]);
   });
 
   it('creates a prediction question without an answer yet', async () => {
@@ -209,6 +214,10 @@ describe('PATCH /api/admin/questions/[id]', () => {
     await patch({});
     expect(Object.keys(argOf(adminDb.callsTo('Question', 'update')[1], 'update') as object)).toEqual(['updatedAt']);
     expect(clearQuizListCache).toHaveBeenCalledTimes(2);
+    expect(logged()[0]).toEqual({
+      quizId: 'quiz-1', quizTitle: null, action: 'question_edited', adminEmail: 'player@example.test',
+      details: { questionId: 'q1', changes: { text: 'New', options: ['A', 'B'], correctOption: 0, status: 'paused' } },
+    });
   });
 
   it("refuses new options for a question players answered, but saves its wording and doesn't rewrite the same options", async () => {
@@ -260,6 +269,9 @@ describe('DELETE /api/admin/questions/[id]', () => {
     expect(adminDb.calls.filter((c) => hasOp(c, 'delete')).map((c) => c.table)).toEqual(['Question']);
     expect(recordSecurityEvent).toHaveBeenCalledWith('SUSPICIOUS_ACTIVITY', expect.anything(), 'admin-1', expect.objectContaining({ quizTitle: 'T' }));
     expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    expect(logged()).toEqual([{
+      quizId: 'quiz-1', quizTitle: null, action: 'question_deleted', adminEmail: 'player@example.test', details: { questionId: 'q1', text: 'Toss?' },
+    }]);
   });
 
   it('refuses to delete a question with answers, and deletes nothing', async () => {

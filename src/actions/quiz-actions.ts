@@ -1,6 +1,7 @@
 'use server';
 
-import { adminActionGuard } from '@/lib/admin-guard';
+import { adminActionEmail, ADMIN_REQUIRED } from '@/lib/admin-guard';
+import { logQuizAction } from '@/lib/admin-action-log';
 
 import { quizDb, questionDb, notificationDb, getAdminDb, generateId } from '@/lib/supabase/db';
 import { UPCOMING_NOTICE_TITLE, upcomingQuizLink, markQuizAnnounced } from '@/lib/quiz-scheduler';
@@ -104,8 +105,8 @@ function quizRow(data: { title: string; description?: string | null; duration: n
  * Create a new quiz with questions
  */
 export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{ id: string }>> {
-    const denied = await adminActionGuard();
-    if (denied) return denied as any;
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
         // Validate input
         const validationResult = CreateQuizInputSchema.safeParse(input);
@@ -130,6 +131,10 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             options: JSON.stringify(question.options.map(opt => opt.text)),
         })), { maxEntries: quizData.maxEntries, pointsPool: quizData.pointsPool });
         if (refused) return refused as ActionResult<{ id: string }>;
+        await logQuizAction({
+            quizId, quizTitle: quiz.title, action: 'quiz_created', adminEmail: admin,
+            details: { status: quiz.status, questions: questions.length },
+        });
 
         if (quizData.status === 'active') {
             broadcastAfterResponse({
@@ -158,8 +163,8 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
  * Update an existing quiz
  */
 export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> {
-    const denied = await adminActionGuard();
-    if (denied) return denied as any;
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
         if (!input.id) {
             return { success: false, error: 'Quiz ID is required' };
@@ -205,6 +210,10 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
             return { id: question.id, ...row, ...(optionsChanged(question) ? { options } : {}) };
         }), { maxEntries: quizData.maxEntries, pointsPool: quizData.pointsPool });
         if (refused) return refused;
+        await logQuizAction({
+            quizId: quizId!, quizTitle: quizData.title, action: 'quiz_edited', adminEmail: admin,
+            details: { status: quizData.status, questions: questions.length },
+        });
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
@@ -222,14 +231,15 @@ export async function updateQuiz(input: UpdateQuizInput): Promise<ActionResult> 
  * Delete a quiz
  */
 export async function deleteQuiz(id: string): Promise<ActionResult> {
-    const denied = await adminActionGuard();
-    if (denied) return denied as any;
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
         // Its winners, settlement and pool shares would cascade away while the paid points stay (lib/quiz-history)
         if (await hasPayoutHistory(id)) {
             return { success: false, error: SETTLED_QUIZ_DELETE_ERROR, code: 'QUIZ_SETTLED' };
         }
         await quizDb.delete(id);
+        await logQuizAction({ quizId: id, action: 'quiz_deleted', adminEmail: admin });
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
@@ -246,8 +256,8 @@ export async function deleteQuiz(id: string): Promise<ActionResult> {
  * Publish a quiz (change status from draft to active)
  */
 export async function publishQuiz(id: string): Promise<ActionResult> {
-    const denied = await adminActionGuard();
-    if (denied) return denied as any;
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
         // Check if quiz has at least one question
         const questions = await questionDb.findByQuizId(id);
@@ -257,6 +267,7 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
         }
 
         const updatedQuiz = await quizDb.update(id, { status: 'active' });
+        await logQuizAction({ quizId: id, quizTitle: updatedQuiz?.title, action: 'quiz_published', adminEmail: admin });
 
         if (updatedQuiz) {
             broadcastAfterResponse({
@@ -282,10 +293,11 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
  * Pause a quiz
  */
 export async function pauseQuiz(id: string): Promise<ActionResult> {
-    const denied = await adminActionGuard();
-    if (denied) return denied as any;
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
         await quizDb.update(id, { status: 'paused' });
+        await logQuizAction({ quizId: id, action: 'quiz_paused', adminEmail: admin });
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
@@ -310,8 +322,8 @@ export async function pauseQuiz(id: string): Promise<ActionResult> {
  * it runs after the response, so the push reaches players at once.
  */
 export async function pushQuizLive(id: string): Promise<ActionResult> {
-    const denied = await adminActionGuard();
-    if (denied) return denied as any;
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
         const quiz = await quizDb.findById(id);
         if (!quiz) return { success: false, error: 'Quiz not found' };
@@ -320,6 +332,7 @@ export async function pushQuizLive(id: string): Promise<ActionResult> {
         }
 
         const updatedQuiz = await quizDb.update(id, { pushedAt: new Date().toISOString() } as any);
+        await logQuizAction({ quizId: id, quizTitle: quiz.title, action: 'quiz_pushed_live', adminEmail: admin });
 
         if (updatedQuiz) {
             broadcastAfterResponse({
@@ -351,8 +364,8 @@ export async function pushQuizLive(id: string): Promise<ActionResult> {
  * 'ALREADY_NOTIFIED' unless `force` is set, so a double click can't spam everyone.
  */
 export async function notifyUpcomingQuiz(id: string, force = false): Promise<ActionResult> {
-    const denied = await adminActionGuard();
-    if (denied) return denied as any;
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
         const quiz = await quizDb.findById(id);
         if (!quiz) return { success: false, error: 'Quiz not found' };
@@ -390,6 +403,7 @@ export async function notifyUpcomingQuiz(id: string, force = false): Promise<Act
         });
         // After the broadcast, so the bell already holds the notice when the stream pops it up
         await markQuizAnnounced(id);
+        await logQuizAction({ quizId: id, quizTitle: quiz.title, action: 'quiz_announced', adminEmail: admin, details: { resent: force } });
         clearQuizListCache();
 
         return { success: true, message: 'Users notified about the upcoming quiz. The quiz is still scheduled.' };
