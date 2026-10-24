@@ -1,5 +1,5 @@
 import { securityLogger } from './security-logger';
-import { getDb, getAdminDb, answerDb, quizAttemptDb, questionAttemptDb, dailyPaymentDb, userDb, generateId } from './supabase/db';
+import { getDb, getAdminDb, quizAttemptDb, questionAttemptDb, dailyPaymentDb, userDb, generateId } from './supabase/db';
 
 /**
  * Supabase-based Transaction Manager
@@ -255,4 +255,4 @@ export const executeTransaction = TransactionManager.executeTransaction.bind(Tra
 export const executeCriticalTransaction = TransactionManager.executeCriticalTransaction.bind(TransactionManager);
 
 // Re-export db utilities for quiz submission
-export { answerDb, quizAttemptDb, questionAttemptDb, dailyPaymentDb, userDb, generateId, getDb };
+export { quizAttemptDb, questionAttemptDb, dailyPaymentDb, userDb, generateId, getDb };

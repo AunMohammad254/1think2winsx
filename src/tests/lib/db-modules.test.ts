@@ -16,7 +16,7 @@ vi.mock('@/lib/supabase/db-modules/shared', async () => {
 vi.mock('web-push', () => ({ default: { sendNotification: (...a: unknown[]) => sendNotification(...a), setVapidDetails: (...a: unknown[]) => setVapidDetails(...a) } }));
 vi.mock('@/lib/logger', () => ({ default: { log: (...a: unknown[]) => loggerLog(...a) } }));
 
-const { quizDb, questionDb, quizAttemptDb, answerDb, questionAttemptDb } = await import('@/lib/supabase/db-modules/quiz.db');
+const { quizDb, questionDb, quizAttemptDb, questionAttemptDb } = await import('@/lib/supabase/db-modules/quiz.db');
 const { prizeDb, prizeRedemptionDb } = await import('@/lib/supabase/db-modules/prize.db');
 const { userDb } = await import('@/lib/supabase/db-modules/user.db');
 const { newsletterDb } = await import('@/lib/supabase/db-modules/newsletter.db');
@@ -67,9 +67,6 @@ const simple: [string, () => Promise<unknown>, unknown][] = [
   ['quizAttemptDb.create', () => quizAttemptDb.create({} as never), ROW],
   ['quizAttemptDb.update', () => quizAttemptDb.update('a', {} as never), ROW],
   ['quizAttemptDb.complete', () => quizAttemptDb.complete('a', 80, 8), ROW],
-  ['answerDb.findByAttemptId', () => answerDb.findByAttemptId('a'), ROW],
-  ['answerDb.create', () => answerDb.create({} as never), ROW],
-  ['answerDb.createMany', () => answerDb.createMany([{} as never]), ROW],
   ['questionAttemptDb.findByUserAndQuiz', () => questionAttemptDb.findByUserAndQuiz('u', 'q'), ROW],
   ['questionAttemptDb.createMany', () => questionAttemptDb.createMany([{ userId: 'u', questionId: 'x', quizId: 'q', selectedOption: 1, isCorrect: true, attemptedAt: new Date(0) }]), ROW],
   ['prizeDb.findMany', () => prizeDb.findMany(), ROW],
@@ -177,7 +174,6 @@ describe('quiz.db specifics', () => {
     both({ data: null });
     expect(await questionDb.findByQuizId('q')).toEqual([]);
     expect(await questionDb.createMany([{ quizId: 'q' } as never])).toEqual([]);
-    expect(await answerDb.createMany([{ quizAttemptId: 'a' } as never])).toEqual([]);
     expect(await questionAttemptDb.findByUserAndQuiz('u', 'q')).toEqual([]);
   });
 
@@ -210,19 +206,11 @@ describe('quiz.db specifics', () => {
     both({ data: [] });
     await questionDb.createMany([{ text: 'a' } as never, { text: 'b' } as never]);
     expect((argOf(lastCall(), 'insert') as { id: string }[]).map((q) => q.id)).toEqual(['id-1', 'id-2']);
-    expect(await answerDb.createMany([{} as never])).toEqual([]);
     both({ data: {} });
     await questionDb.setCorrectAnswer('x', 3);
     expect(argOf(lastCall(), 'update')).toMatchObject({ correctOption: 3, hasCorrectAnswer: true });
     await quizAttemptDb.complete('a', 70, 7);
     expect(argOf(lastCall(), 'update')).toMatchObject({ score: 70, points: 7, isCompleted: true });
-  });
-
-  it('updateCorrectness grades every answer in one RPC', async () => {
-    await answerDb.updateCorrectness('x', 2);
-    expect(adminDb.rpcCalls).toEqual([{ fn: 'evaluate_question', args: { p_question_id: 'x', p_correct_option: 2 } }]);
-    adminDb.setRpc('evaluate_question', { error: { message: 'x' } });
-    await expect(answerDb.updateCorrectness('x', 2)).rejects.toEqual({ message: 'x' });
   });
 
   it('questionAttemptDb.createMany serialises the attempt time', async () => {

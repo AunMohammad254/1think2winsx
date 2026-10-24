@@ -331,62 +331,6 @@ export const quizAttemptDb = {
 }
 
 // ============================================================================
-// ANSWER OPERATIONS
-// ============================================================================
-
-export const answerDb = {
-    async findByAttemptId(quizAttemptId: string) {
-        const supabase = await getDb()
-        const { data, error } = await supabase
-            .from('Answer')
-            .select('*')
-            .eq('quizAttemptId', quizAttemptId)
-
-        if (error) throw error
-        return data || []
-    },
-
-    async create(answerData: Insertable<'Answer'>) {
-        const supabase = getAdminDb()
-        const { data, error } = await supabase
-            .from('Answer')
-            .insert({ id: generateId(), ...answerData })
-            .select()
-            .single()
-
-        if (error) throw error
-        return data
-    },
-
-    async createMany(answers: Insertable<'Answer'>[]) {
-        const supabase = getAdminDb()
-        const answersWithIds = answers.map(a => ({ id: generateId(), ...a }))
-
-        const { data, error } = await supabase
-            .from('Answer')
-            .insert(answersWithIds)
-            .select()
-
-        if (error) throw error
-        return data || []
-    },
-
-    /**
-     * Mark every answer to a question correct/incorrect in ONE set-based statement
-     * (previously: fetch all answer ids, then two `IN (...)` updates, which break
-     * beyond a few thousand rows).
-     */
-    async updateCorrectness(questionId: string, correctOption: number) {
-        const supabase = getAdminDb()
-        const { error } = await supabase.rpc('evaluate_question', {
-            p_question_id: questionId,
-            p_correct_option: correctOption,
-        })
-        if (error) throw error
-    },
-}
-
-// ============================================================================
 // QUESTION ATTEMPT OPERATIONS
 // ============================================================================
 

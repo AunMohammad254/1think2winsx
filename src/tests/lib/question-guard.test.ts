@@ -30,10 +30,11 @@ describe('sameOptions', () => {
 });
 
 describe('answeredQuestionIds', () => {
-  it('finds questions with an answer in either table', async () => {
-    adminDb.setTable('QuestionAttempt', (call) => ({ data: eqValue(call, 'questionId') === 'q1' ? [{ id: 'qa' }] : [] }));
-    adminDb.setTable('Answer', (call) => ({ data: eqValue(call, 'questionId') === 'q2' ? [{ id: 'a' }] : null }));
-    expect(await answeredQuestionIds(['q1', 'q2', 'q3'])).toEqual(new Set(['q1', 'q2']));
+  it('finds questions with an answer', async () => {
+    adminDb.setTable('QuestionAttempt', (call) => ({ data: ({ q1: [{ id: 'qa' }], q2: [] } as Record<string, unknown[]>)[eqValue(call, 'questionId') as string] ?? null }));
+    expect(await answeredQuestionIds(['q1', 'q2', 'q3'])).toEqual(new Set(['q1']));
+    // Answers are read from one table now: "Answer" is no longer written
+    expect(adminDb.callsTo('Answer')).toHaveLength(0);
   });
 
   it('asks nothing for no questions, and at most 20 questions at a time', async () => {
@@ -42,15 +43,11 @@ describe('answeredQuestionIds', () => {
     const ids = Array.from({ length: 45 }, (_, i) => `q${i}`);
     expect((await answeredQuestionIds(ids)).size).toBe(0);
     expect(adminDb.callsTo('QuestionAttempt')).toHaveLength(45);
-    expect(adminDb.callsTo('Answer')).toHaveLength(45);
   });
 
   it('throws when a lookup fails, so an edit is never let through unchecked', async () => {
     adminDb.setTable('QuestionAttempt', { error: { message: 'timeout' } });
     await expect(answeredQuestionIds(['q1'])).rejects.toEqual({ message: 'timeout' });
-    adminDb.setTable('QuestionAttempt', { data: [] });
-    adminDb.setTable('Answer', { error: { message: 'down' } });
-    await expect(answeredQuestionIds(['q1'])).rejects.toEqual({ message: 'down' });
   });
 });
 
