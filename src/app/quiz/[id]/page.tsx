@@ -7,6 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import { useQuizCountdown } from '@/hooks/useQuizCountdown';
+import { answeredOnly } from '@/lib/quiz-answers';
 import QuizResults from '@/components/QuizResults';
 import LazyStreamPlayer from '@/components/LazyStreamPlayer';
 
@@ -141,12 +142,15 @@ export default function QuizPage() {
     }
 
     setShowUnansweredWarning(false);
+    // Time ran out with questions left: send the answered ones (an unanswered one would get them all refused).
+    // Never empty here: a time-out with nothing answered stops in handleTimeExpiredClose.
+    const toSend = answeredOnly(answers);
     setIsSubmitting(true);
     setSubmitError(null);
     try {
       // Check online status
       if (typeof window !== 'undefined' && !navigator.onLine) {
-        localStorage.setItem(`pending_submit_${quizId}_${user!.id}`, JSON.stringify({ quizId, answers }));
+        localStorage.setItem(`pending_submit_${quizId}_${user!.id}`, JSON.stringify({ quizId, answers: toSend }));
         setSubmitError('You are currently offline. Your predictions have been saved locally. They will be submitted automatically when your internet connection is restored.');
         setIsSubmitting(false);
         return false;
@@ -166,7 +170,7 @@ export default function QuizPage() {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken, // checked above
         },
-        body: JSON.stringify({ answers }),
+        body: JSON.stringify({ answers: toSend }),
       }, { retries: 4, retryOn: [502, 503, 504] });
 
       if (!response.ok) {
@@ -223,7 +227,8 @@ export default function QuizPage() {
               'Content-Type': 'application/json',
               'X-CSRF-Token': csrfToken,
             },
-            body: JSON.stringify({ answers: pendingData.answers }),
+            // Saved before the fix, it may still hold unanswered questions
+            body: JSON.stringify({ answers: answeredOnly(pendingData.answers) }),
           });
 
           if (!response.ok) {
@@ -273,10 +278,14 @@ export default function QuizPage() {
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  // Handle time expired - submit and redirect to results (force submit even if incomplete).
-  // If the submit fails, the dialog stays open with the error so the player can retry;
-  // the Submit button would refuse an incomplete quiz.
+  // Handle time expired - submit the answered questions and redirect to results (force submit even if
+  // incomplete). If the submit fails, the dialog stays open with the error so the player can retry;
+  // the Submit button would refuse an incomplete quiz. With nothing answered there is nothing to send.
   const handleTimeExpiredClose = async () => {
+    if (getAnsweredCount() === 0) {
+      router.push('/quizzes');
+      return;
+    }
     if (await handleSubmitQuiz(true)) {
       router.push(`/quiz/${quizId}/results`);
     }
@@ -682,7 +691,9 @@ export default function QuizPage() {
                   <div className="text-6xl mb-6">⏰</div>
                   <h2 className="text-2xl font-bold text-white mb-4">Your Quiz Time is Over!</h2>
                   <p className="text-gray-300 mb-6">
-                    Your time has expired. We&apos;ll submit your answers and take you to the results page.
+                    {getAnsweredCount() === 0
+                      ? 'Your time has expired before you answered any question, so there is nothing to submit.'
+                      : <>Your time has expired. We&apos;ll submit the {getAnsweredCount()} question{getAnsweredCount() === 1 ? '' : 's'} you answered and take you to the results page.</>}
                   </p>
                   {submitError && !isSubmitting && (
                     <p role="alert" className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-yellow-200 text-sm">
@@ -694,7 +705,7 @@ export default function QuizPage() {
                     disabled={isSubmitting}
                     className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-purple-500 text-white text-lg font-bold rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-200 disabled:opacity-50"
                   >
-                    {isSubmitting ? 'Submitting...' : submitError ? 'Try Again' : 'View Results'}
+                    {isSubmitting ? 'Submitting...' : getAnsweredCount() === 0 ? 'Back to Quizzes' : submitError ? 'Try Again' : 'View Results'}
                   </button>
                 </div>
               </div>

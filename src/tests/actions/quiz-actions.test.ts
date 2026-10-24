@@ -144,6 +144,36 @@ describe('updateQuiz', () => {
     expect(questionDb.update).toHaveBeenCalledWith('open', expect.objectContaining({ correctOption: null, hasCorrectAnswer: false }));
   });
 
+  it('refuses, before saving anything, to remove an answered question or change its options', async () => {
+    // Removing the question used to delete every player's answer to it; new options re-mapped them
+    questionDb.findByQuizId.mockResolvedValue([{ id: 'keep', text: 'Who wins?', options: '["A","B"]' }, { id: 'drop', text: 'Toss winner?', options: '["A","B"]' }]);
+    adminDb.setTable('Answer', (call) => ({ data: eqValue(call, 'questionId') === 'drop' ? [{ id: 'ans-1' }] : [] }));
+    const removed = await actions.updateQuiz({ id: 'quiz-1', ...quizInput({ questions: [question({ id: 'keep' })] }) } as never);
+    expect(removed).toEqual({
+      success: false,
+      code: 'QUESTION_ANSWERED',
+      error: 'Players have already answered "Toss winner?", so it can\'t be removed and its options can\'t change. You can still edit its wording.',
+    });
+    const reordered = await actions.updateQuiz({ id: 'quiz-1', ...quizInput({ questions: [
+      question({ id: 'keep' }),
+      question({ id: 'drop', options: [{ text: 'B', isCorrect: true }, { text: 'A' }] }),
+    ] }) } as never);
+    expect(reordered.success).toBe(false);
+    for (const fn of [quizDb.update, questionDb.update, questionDb.delete, questionDb.create]) expect(fn).not.toHaveBeenCalled();
+
+    // New wording is fine, and the unchanged options are not rewritten
+    expect((await actions.updateQuiz({ id: 'quiz-1', ...quizInput({ questions: [question({ id: 'keep' }), question({ id: 'drop', text: 'Who won the toss?' })] }) } as never)).success).toBe(true);
+    expect(questionDb.update).toHaveBeenCalledWith('drop', expect.not.objectContaining({ options: expect.anything() }));
+    expect(questionDb.update).toHaveBeenCalledWith('drop', expect.objectContaining({ text: 'Who won the toss?' }));
+  });
+
+  it('names how many more answered questions an edit would hit', async () => {
+    questionDb.findByQuizId.mockResolvedValue([{ id: 'a', text: 'First?' }, { id: 'b', text: 'Second?' }, { id: 'c', text: 'Third?' }]);
+    adminDb.setTable('QuestionAttempt', { data: [{ id: 'qa' }] });
+    const res = await actions.updateQuiz({ id: 'quiz-1', ...quizInput() } as never);
+    expect(res).toMatchObject({ success: false, error: expect.stringContaining('"First?" (and 2 more)') });
+  });
+
   it('stores prediction questions without a key and needs an id', async () => {
     questionDb.findByQuizId.mockResolvedValue([{ id: 'q1' }]);
     await actions.updateQuiz({ id: 'quiz-1', ...quizInput({ quizType: 'predictable', questions: [question({ id: 'q1', correctOption: null })] }) } as never);

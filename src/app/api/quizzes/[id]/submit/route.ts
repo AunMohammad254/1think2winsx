@@ -6,6 +6,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { UNANSWERED } from '@/lib/quiz-answers';
 
 const submitQuizSchema = z.object({
   answers: z.array(z.object({
@@ -67,11 +68,21 @@ export async function POST(
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
+    // A page loaded before the fix sends unanswered questions as -1 when time runs out: drop them, so the
+    // answered ones are saved instead of the whole submission being refused
+    const sent = (body as { answers?: unknown } | null)?.answers;
+    if (Array.isArray(sent)) {
+      const answered = sent.filter((a) => (a as { selectedOption?: unknown } | null)?.selectedOption !== UNANSWERED);
+      if (sent.length > 0 && answered.length === 0) {
+        return NextResponse.json({ error: 'Answer at least one question before submitting' }, { status: 400 });
+      }
+      body = { ...(body as object), answers: answered };
+    }
     const validation = submitQuizSchema.safeParse(body);
     if (!validation.success) {
       recordSecurityEvent('INVALID_INPUT', request, userId, { endpoint: '/api/quizzes/[id]/submit' });
       return NextResponse.json(
-        { error: 'All questions must be answered before submitting', details: validation.error.issues },
+        { error: 'Invalid answers', details: validation.error.issues },
         { status: 400 }
       );
     }

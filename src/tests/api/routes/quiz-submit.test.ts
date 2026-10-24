@@ -93,11 +93,30 @@ describe('POST /api/quizzes/[id]/submit', () => {
     ['an out-of-range option', { answers: [{ questionId: 'q1', selectedOption: 10 }] }],
     ['a fractional option', { answers: [{ questionId: 'q1', selectedOption: 1.5 }] }],
     ['an empty question id', { answers: [{ questionId: '', selectedOption: 1 }] }],
+    ['a negative option other than the unanswered marker', { answers: [{ questionId: 'q1', selectedOption: -2 }] }],
     ['a missing answers field', {}],
   ])('rejects %s', async (_label, body) => {
     const res = await submit(body);
     expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Invalid answers');
     expect(recordSecurityEvent).toHaveBeenCalledWith('INVALID_INPUT', expect.anything(), 'user-1', expect.anything());
+    expect(db.rpcCalls).toHaveLength(0);
+  });
+
+  it('saves the answered questions of a time-out submit that still sends the rest as -1', async () => {
+    // A quiz page loaded before the fix: one -1 used to get every answer refused
+    db.setRpc('submit_quiz_attempt', { data: { success: true, attemptId: 'att-1', answersSubmitted: 1, totalQuestions: 3 } });
+    const res = await submit({ answers: [{ questionId: 'q1', selectedOption: 2 }, { questionId: 'q2', selectedOption: -1 }, { questionId: 'q3', selectedOption: -1 }] });
+    expect(res.status).toBe(200);
+    expect(db.rpcCalls[0].args.p_answers).toEqual([{ questionId: 'q1', selectedOption: 2 }]);
+    expect(recordSecurityEvent).not.toHaveBeenCalledWith('INVALID_INPUT', expect.anything(), expect.anything(), expect.anything());
+  });
+
+  it('asks for an answer when time ran out before any, without logging a security event', async () => {
+    const res = await submit({ answers: [{ questionId: 'q1', selectedOption: -1 }, { questionId: 'q2', selectedOption: -1 }] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Answer at least one question before submitting');
+    expect(recordSecurityEvent).not.toHaveBeenCalled();
     expect(db.rpcCalls).toHaveLength(0);
   });
 

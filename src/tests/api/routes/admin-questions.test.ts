@@ -194,6 +194,23 @@ describe('PATCH /api/admin/questions/[id]', () => {
     expect(Object.keys(argOf(adminDb.callsTo('Question', 'update')[1], 'update') as object)).toEqual(['updatedAt']);
   });
 
+  it("refuses new options for a question players answered, but saves its wording and doesn't rewrite the same options", async () => {
+    adminDb.setTable('Question', (call) => (hasOp(call, 'update') ? { data: row() } : { data: row() }));
+    adminDb.setTable('QuestionAttempt', { data: [{ id: 'qa-1' }] });
+    const refused = await patch({ options: ['C', 'B', 'A'] });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      error: 'Players have already answered "Toss?", so it can\'t be removed and its options can\'t change. You can still edit its wording.',
+      code: 'QUESTION_ANSWERED',
+    });
+    expect(adminDb.callsTo('Question', 'update')).toHaveLength(0);
+
+    expect((await patch({ text: 'Toss winner?', options: ['A', 'B', 'C'] })).status).toBe(200);
+    const update = argOf(adminDb.callsTo('Question', 'update')[0], 'update') as Record<string, unknown>;
+    expect(update).toMatchObject({ text: 'Toss winner?' });
+    expect(update).not.toHaveProperty('options');
+  });
+
   it('checks the answer index against new or current options', async () => {
     adminDb.setTable('Question', { data: row() });
     expect((await (await patch({ options: ['A', 'B'], correctOption: 2 })).json()).error).toBe('Invalid correct option index');
@@ -218,18 +235,29 @@ describe('PATCH /api/admin/questions/[id]', () => {
 describe('DELETE /api/admin/questions/[id]', () => {
   const del = () => one.DELETE(makeRequest('/api/admin/questions/q1', { method: 'DELETE' }), P);
 
-  it('deletes the answers, then the question', async () => {
+  it('deletes a question nobody answered', async () => {
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row() }));
-    adminDb.setTable('Answer', { count: 6 });
+    adminDb.setTable('Answer', { data: [] });
+    adminDb.setTable('QuestionAttempt', { data: [] });
     const body = await (await del()).json();
     expect(body).toEqual({ message: 'Question deleted successfully', deletedQuestion: { id: 'q1', text: 'Toss?', quiz: { id: 'quiz-1', title: 'T' } } });
-    expect(adminDb.calls.filter((c) => hasOp(c, 'delete')).map((c) => c.table)).toEqual(['Answer', 'Question']);
-    expect(recordSecurityEvent).toHaveBeenCalledWith('SUSPICIOUS_ACTIVITY', expect.anything(), 'admin-1', expect.objectContaining({ quizTitle: 'T', answerCount: 6 }));
+    expect(adminDb.calls.filter((c) => hasOp(c, 'delete')).map((c) => c.table)).toEqual(['Question']);
+    expect(recordSecurityEvent).toHaveBeenCalledWith('SUSPICIOUS_ACTIVITY', expect.anything(), 'admin-1', expect.objectContaining({ quizTitle: 'T' }));
+  });
+
+  it.each(['Answer', 'QuestionAttempt'])('refuses to delete a question with answers in "%s", and deletes nothing', async (table) => {
+    // Deleting the question used to delete every player's answer to it
+    adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row() }));
+    adminDb.setTable(table, { data: [{ id: 'a-1' }] });
+    const res = await del();
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('QUESTION_ANSWERED');
+    expect(adminDb.calls.filter((c) => hasOp(c, 'delete'))).toHaveLength(0);
   });
 
   it('handles an object quiz join and no answers', async () => {
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row({ Quiz: { id: 'quiz-1', title: 'Obj' } }) }));
-    adminDb.setTable('Answer', { count: null });
+    adminDb.setTable('Answer', { data: null });
     expect((await (await del()).json()).deletedQuestion.quiz.title).toBe('Obj');
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row({ Quiz: null }) }));
     expect((await del()).status).toBe(200);

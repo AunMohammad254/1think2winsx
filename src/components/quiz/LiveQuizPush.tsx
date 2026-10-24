@@ -81,6 +81,12 @@ const BANNER_MS = 8000;
 /** Toast for a "Lock in" after the countdown reads "Time's up". */
 const TIME_UP_MESSAGE = 'The time is up for the quiz. You cannot lock in answer.';
 
+/**
+ * At the deadline the viewer's answers are locked in after a random wait of up to this long, inside the
+ * server's 30 s grace period, so a crowd whose countdowns all reach zero together doesn't submit at once.
+ */
+const AUTO_LOCK_SPREAD_MS = 15_000;
+
 const parseMs = (iso: string | null | undefined) => {
     const ms = iso ? Date.parse(iso) : NaN;
     return Number.isFinite(ms) ? ms : null;
@@ -136,16 +142,24 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const [answers, setAnswers] = useState<Record<string, number>>({});
     const [locked, setLocked] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    // Time is up and the answers given are about to be locked in (see AUTO_LOCK_SPREAD_MS)
+    const [autoLocking, setAutoLocking] = useState(false);
     const [now, setNow] = useState(() => Date.now());
     const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    useEffect(() => () => clearTimeout(bannerTimerRef.current!), []);
+    const autoLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // The answering window (quiz and end time) whose answers were already handed to the deadline lock-in
+    const autoLockKeyRef = useRef<string | null>(null);
+    useEffect(() => () => {
+        clearTimeout(bannerTimerRef.current!);
+        clearTimeout(autoLockTimerRef.current!);
+    }, []);
 
     // Latest state for the handle, which the page calls from its live check. A layout effect, so it is
     // current as soon as a render commits (a push right after "Lock in" must see the lock)
-    const stateRef = useRef({ panel, banner, live, next, quiz, locked, answers });
+    const stateRef = useRef({ panel, banner, live, next, quiz, locked, answers, submitting });
     useLayoutEffect(() => {
-        stateRef.current = { panel, banner, live, next, quiz, locked, answers };
-    }, [panel, banner, live, next, quiz, locked, answers]);
+        stateRef.current = { panel, banner, live, next, quiz, locked, answers, submitting };
+    }, [panel, banner, live, next, quiz, locked, answers, submitting]);
 
     // One tick a second while something counts down
     const counting = live?.endsAtMs != null || upcoming !== null;
@@ -218,6 +232,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         setAnswers({});
         setLocked(false);
         setLoadError(null);
+        clearTimeout(autoLockTimerRef.current!);
+        setAutoLocking(false);
     }, []);
 
     const notify = useCallback((quizId: string, quizTitle: string, endsAt: string | null = null, durationMinutes = 0) => {
@@ -302,7 +318,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const toggleSplit = useCallback(() => setPanel((v) => (v === 'split' ? 'popup' : 'split')), []);
 
     const pick = (questionId: string, optionIndex: number) => {
-        if (locked) return;
+        // Once time is up the answers are final: what was picked by then is what gets locked in
+        if (locked || isWindowClosed(live?.endsAtMs ?? null, Date.now())) return;
         setAnswers((prev) => ({ ...prev, [questionId]: optionIndex }));
     };
 
@@ -310,12 +327,15 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const allAnswered = !!quiz && answeredCount === quiz.questions.length && quiz.questions.length > 0;
 
     // The submit button only shows for a loaded, unlocked quiz, and stays disabled until
-    // every question is answered and while a submit is in flight
-    const submit = useCallback(async () => {
+    // every question is answered and while a submit is in flight. `atDeadline`: time is up, and the
+    // effect below locks in the questions answered so far (the server's grace period still takes them).
+    const send = useCallback(async (atDeadline: boolean) => {
+        // Loaded: the button only shows for a loaded quiz, and the deadline lock-in is only set up for one
+        // (startFresh, the only thing that unloads it, also cancels that lock-in)
         const loaded = quiz!;
         // The countdown reads "Time's up": say so instead of sending a submit the server refuses
         const timeUp = () => isWindowClosed(live?.endsAtMs ?? null, Date.now());
-        if (timeUp()) {
+        if (!atDeadline && timeUp()) {
             toast.error(TIME_UP_MESSAGE);
             return;
         }
@@ -324,6 +344,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             toast.error(ENTRIES_CLOSED_MESSAGE);
             return;
         }
+        // Every question for a Lock in; at the deadline, those answered (an unanswered one was never sent)
+        const picked = loaded.questions.filter((q) => answers[q.id] !== undefined);
         setSubmitting(true);
         try {
             const csrfToken = await getCSRFToken();
@@ -334,20 +356,21 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
                 body: JSON.stringify({
-                    answers: loaded.questions.map((q) => ({ questionId: q.id, selectedOption: answers[q.id] })),
+                    answers: picked.map((q) => ({ questionId: q.id, selectedOption: answers[q.id] })),
                 }),
             }, { retries: 4, retryOn: [502, 503, 504] });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 // Locked in on the last second and refused: the window closed while it was on its way
-                toast.error(timeUp() ? TIME_UP_MESSAGE : data.error || 'Failed to submit');
+                toast.error(!atDeadline && timeUp() ? TIME_UP_MESSAGE : data.error || 'Failed to submit');
                 return;
             }
             // They are one of its players now: questions added later stay open to them even once it is full
             enteredRef.current.add(loaded.id);
             closedEntriesRef.current.delete(loaded.id);
             setLocked(true);
-            toast.success('Answer locked in!');
+            const n = picked.length;
+            toast.success(atDeadline ? `Time's up: your ${n} answer${n === 1 ? ' was' : 's were'} locked in.` : 'Answer locked in!');
             onAnswered?.();
         } catch (err) {
             toast.error(err instanceof Error ? err.message : 'Failed to submit your answer');
@@ -355,11 +378,38 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             setSubmitting(false);
         }
     }, [quiz, answers, live, onAnswered]);
+    const submit = useCallback(() => send(false), [send]);
+    // The deadline lock-in runs from a timer: it must use the answers as they are when it fires
+    const sendRef = useRef(send);
+    useLayoutEffect(() => {
+        sendRef.current = send;
+    }, [send]);
 
     // Countdowns. `liveLeft` null: the live quiz has no answering window (or there is none).
     const liveLeft = live?.endsAtMs != null ? live.endsAtMs - now : null;
     const liveFraction = liveLeft !== null && live!.windowMs ? Math.min(1, Math.max(0, liveLeft / live!.windowMs)) : 1;
     const upcomingOn = upcoming !== null && (upcoming.startsAtMs === null || upcoming.startsAtMs > now);
+
+    // Time is up: lock in what the viewer answered, even with the panel closed. Lock in needs every
+    // question and refuses once time is up, so a half-answered quiz used to save nothing. Once per
+    // answering window (a push that gives the quiz a new window gets its own).
+    const timeIsUp = liveLeft !== null && liveLeft <= 0;
+    const deadlineKey = live?.endsAtMs != null ? `${live.id}@${live.endsAtMs}` : null;
+    useEffect(() => {
+        if (!timeIsUp || !deadlineKey || autoLockKeyRef.current === deadlineKey) return;
+        autoLockKeyRef.current = deadlineKey;
+        const s = stateRef.current;
+        // A Lock in already on its way covers it, and so does one already done
+        if (!s.quiz || s.locked || s.submitting || !s.quiz.questions.some((q) => s.answers[q.id] !== undefined)) return;
+        setAutoLocking(true);
+        autoLockTimerRef.current = setTimeout(async () => {
+            try {
+                await sendRef.current(true);
+            } finally {
+                setAutoLocking(false);
+            }
+        }, Math.random() * AUTO_LOCK_SPREAD_MS);
+    }, [timeIsUp, deadlineKey]);
 
     // Pills under the stream (over it, in fullscreen) for what the banners announced
     const livePill = panel === 'hidden' && banner !== 'live' && !locked && liveLeft !== null && liveLeft > 0;
@@ -501,9 +551,9 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                         <button
                                             className="qp-submit"
                                             onClick={submit}
-                                            disabled={!allAnswered || submitting}
+                                            disabled={!allAnswered || submitting || autoLocking}
                                         >
-                                            {submitting ? 'Submitting...' : (allAnswered ? 'Lock in answer' : `Answer all ${quiz.questions.length} questions`)}
+                                            {submitting || autoLocking ? 'Submitting...' : (allAnswered ? 'Lock in answer' : `Answer all ${quiz.questions.length} questions`)}
                                         </button>
                                     )}
                                 </>

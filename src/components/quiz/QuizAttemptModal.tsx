@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import { useQuizCountdown } from '@/hooks/useQuizCountdown';
+import { answeredOnly } from '@/lib/quiz-answers';
 import { useAuth } from '@/contexts/AuthContext';
 import { X, Clock, HelpCircle, Target, AlertTriangle, Play, ChevronLeft, ChevronRight, Check, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import QuizResults from '@/components/QuizResults';
@@ -168,6 +169,12 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
         }
 
         setShowUnansweredWarning(false);
+        // Time ran out with questions left: send the answered ones (an unanswered one would get them all refused)
+        const toSend = answeredOnly(answers);
+        if (toSend.length === 0) {
+            setError('Time ran out before you answered any question, so nothing was submitted.');
+            return;
+        }
         setIsSubmitting(true);
         setError(null);
         try {
@@ -184,7 +191,7 @@ export default function QuizAttemptModal({ quizId, isOpen, onClose, onQuizComple
                     'Content-Type': 'application/json',
                     'X-CSRF-Token': csrfToken, // checked above
                 },
-                body: JSON.stringify({ answers }),
+                body: JSON.stringify({ answers: toSend }),
             }, { retries: 4, retryOn: [502, 503, 504] });
 
             if (!response.ok) {

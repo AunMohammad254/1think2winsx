@@ -239,11 +239,11 @@ describe('PUT /api/admin/quizzes/[id] (full edit)', () => {
 
   beforeEach(() => {
     adminDb.setTable('Quiz', { data: { id: 'quiz-1', title: 'T' } });
-    adminDb.setTable('Question', (call) => (hasOp(call, 'update') || hasOp(call, 'insert') || hasOp(call, 'delete') ? { data: null } : { data: [{ id: 'keep' }, { id: 'drop' }] }));
+    adminDb.setTable('Question', (call) => (hasOp(call, 'update') || hasOp(call, 'insert') || hasOp(call, 'delete') ? { data: null } : { data: [{ id: 'keep', text: 'Kept?', options: '["a","b"]' }, { id: 'drop', text: 'Dropped?', options: '["a","b"]' }] }));
     adminDb.setTable('QuizAttempt', { count: 2 });
   });
 
-  it('updates, inserts and deletes questions, and DELETES the answers players gave to removed questions', async () => {
+  it('updates, inserts and deletes questions nobody answered', async () => {
     const res = await put({ title: 'T', status: 'active', duration: 20, timeUpDuration: 30, passingScore: 60, questions: [question({ id: 'keep' }), question({ id: 'temp-1', isActive: false }), question()] });
     expect(res.status).toBe(200);
 
@@ -254,7 +254,26 @@ describe('PUT /api/admin/quizzes/[id] (full edit)', () => {
     const inserts = adminDb.callsTo('Question', 'insert').map((c) => argOf(c, 'insert') as Record<string, unknown>);
     expect(inserts.map((q) => [q.id, q.status, q.correctOption, q.hasCorrectAnswer])).toEqual([['gen-1', 'paused', 1, false], ['gen-2', 'active', 1, false]]);
     expect(argOf(adminDb.callsTo('Question', 'update')[0], 'update')).toMatchObject({ correctOption: 1, hasCorrectAnswer: false });
+    // Options unchanged: not rewritten (the database refuses an options write to an answered question)
+    expect(argOf(adminDb.callsTo('Question', 'update')[0], 'update')).not.toHaveProperty('options');
     expect((await res.json()).quiz.stats).toEqual({ totalQuestions: 2, totalAttempts: 2 });
+  });
+
+  it('refuses, before saving anything, to remove an answered question or change its options', async () => {
+    // Removing the question used to delete every player's answer to it; new options re-mapped them
+    adminDb.setTable('QuestionAttempt', (call) => ({ data: eqValue(call, 'questionId') === 'drop' ? [{ id: 'qa-1' }] : [] }));
+    const removed = await put({ title: 'T', questions: [question({ id: 'keep' })] });
+    expect(removed.status).toBe(409);
+    expect(await removed.json()).toEqual({
+      error: 'Players have already answered "Dropped?", so it can\'t be removed and its options can\'t change. You can still edit its wording.',
+      code: 'QUESTION_ANSWERED',
+    });
+    const reordered = await put({ title: 'T', questions: [question({ id: 'keep' }), question({ id: 'drop', options: ['b', 'a'] })] });
+    expect(reordered.status).toBe(409);
+    expect(adminDb.calls.filter((c) => ['update', 'insert', 'delete'].some((op) => hasOp(c, op)))).toHaveLength(0);
+
+    // New wording for the answered question is fine
+    expect((await put({ title: 'T', questions: [question({ id: 'keep' }), question({ id: 'drop', text: 'Dropped catch?' })] })).status).toBe(200);
   });
 
   it("keeps a question's saved result: the key typed here never closes or reopens a question", async () => {

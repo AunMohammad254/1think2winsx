@@ -298,11 +298,13 @@ describe('admin prize actions', () => {
   });
 
   it('deletePrize refuses prizes with redemptions and cleans up the image otherwise', async () => {
-    db.setTable('PrizeRedemption', { count: 4 });
+    // Counted with the server client: the visitor's client is filtered by row-level security
+    adminDb.setTable('PrizeRedemption', { count: 4 });
     expect(await actions.deletePrize('prize-1')).toEqual({ success: false, error: 'Cannot delete prize with 4 redemptions. Deactivate instead.' });
     expect(prizeDb.delete).not.toHaveBeenCalled();
+    expect(db.calls).toHaveLength(0);
 
-    db.setTable('PrizeRedemption', { count: 0 });
+    adminDb.setTable('PrizeRedemption', { count: 0 });
     prizeDb.findByIdAdmin.mockResolvedValue(prize());
     expect(await actions.deletePrize('prize-1')).toEqual({ success: true });
     expect(prizeDb.delete).toHaveBeenCalledWith('prize-1');
@@ -314,6 +316,22 @@ describe('admin prize actions', () => {
     expect(schedulePrizeImageDeletion).not.toHaveBeenCalled();
     prizeDb.delete.mockRejectedValue(new Error('x'));
     expect(await actions.deletePrize('prize-3')).toEqual({ success: false, error: 'Failed to delete prize' });
+  });
+
+  it('deletePrize refuses a prize won in a quiz, which would delete its winner records', async () => {
+    adminDb.setTable('QuizWinner', (call) => ({ count: eqValue(call, 'prizeId') === 'prize-1' ? 1 : 3 }));
+    expect(await actions.deletePrize('prize-1')).toEqual({ success: false, error: 'Cannot delete a prize that was won in a quiz. Deactivate instead.' });
+    expect(await actions.deletePrize('prize-2')).toEqual({ success: false, error: 'Cannot delete a prize that was won in 3 quizzes. Deactivate instead.' });
+    expect(prizeDb.delete).not.toHaveBeenCalled();
+  });
+
+  it('deletePrize stops when it cannot count claims or wins', async () => {
+    adminDb.setTable('QuizWinner', { error: { message: 'permission denied' } });
+    expect(await actions.deletePrize('prize-1')).toEqual({ success: false, error: 'Failed to delete prize' });
+    adminDb.setTable('QuizWinner', { count: 0 });
+    adminDb.setTable('PrizeRedemption', { error: { message: 'timeout' } });
+    expect(await actions.deletePrize('prize-1')).toEqual({ success: false, error: 'Failed to delete prize' });
+    expect(prizeDb.delete).not.toHaveBeenCalled();
   });
 
   it('toggles status and active state', async () => {

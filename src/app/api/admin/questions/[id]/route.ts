@@ -6,6 +6,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 
 const updateQuestionSchema = z.object({
   text: z.string().min(1).max(1000).optional(),
@@ -255,12 +256,22 @@ export async function PATCH(
       }
     }
 
+    // New options for a question players answered would re-map their answers (lib/question-guard)
+    const optionsChanged = !!updateData.options && !sameOptions(existingQuestion.options, updateData.options);
+    if (optionsChanged && (await answeredQuestionIds([questionId])).size > 0) {
+      return NextResponse.json(
+        { error: answeredQuestionError(existingQuestion.text), code: 'QUESTION_ANSWERED' },
+        { status: 409 }
+      );
+    }
+
     // Prepare update data
     const finalUpdateData: QuestionUpdateData = {
       updatedAt: new Date().toISOString()
     };
     if (updateData.text) finalUpdateData.text = updateData.text;
-    if (updateData.options) finalUpdateData.options = JSON.stringify(updateData.options);
+    // Unchanged options are not rewritten: the database refuses any options write to an answered question
+    if (optionsChanged) finalUpdateData.options = JSON.stringify(updateData.options);
     if (updateData.status) finalUpdateData.status = updateData.status;
     // The answer key only. Marking the question answered (hasCorrectAnswer) closes it to players, and
     // the result is saved, with the answers scored, in Settle Quizzes
@@ -365,19 +376,15 @@ export async function DELETE(
       );
     }
 
-    // Get answer count
-    const { count: answerCount } = await supabase
-      .from('Answer')
-      .select('*', { count: 'exact', head: true })
-      .eq('questionId', questionId);
+    // Deleting a question deletes every answer to it: refused once players answered it (lib/question-guard)
+    if ((await answeredQuestionIds([questionId])).size > 0) {
+      return NextResponse.json(
+        { error: answeredQuestionError(existingQuestion.text), code: 'QUESTION_ANSWERED' },
+        { status: 409 }
+      );
+    }
 
-    // Delete answers first (cascade)
-    await supabase
-      .from('Answer')
-      .delete()
-      .eq('questionId', questionId);
-
-    // Delete question
+    // Delete question (it has no answers: checked above)
     const { error: deleteError } = await supabase
       .from('Question')
       .delete()
@@ -389,7 +396,6 @@ export async function DELETE(
       questionId: existingQuestion.id,
       quizId: existingQuestion.quizId,
       quizTitle: (Array.isArray(existingQuestion.Quiz) ? existingQuestion.Quiz[0] : existingQuestion.Quiz)?.title,
-      answerCount: answerCount || 0,
     });
 
     return createSecureJsonResponse({

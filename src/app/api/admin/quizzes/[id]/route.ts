@@ -8,6 +8,7 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings } from '@/lib/quiz-admin-settings';
+import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 
 const updateQuizSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -421,8 +422,30 @@ export async function PUT(
     // Get existing questions
     const { data: existingQuestions } = await supabase
       .from('Question')
-      .select('id, hasCorrectAnswer')
+      .select('id, text, options, hasCorrectAnswer')
       .eq('quizId', quizId);
+
+    // Before anything is saved: refuse to remove an answered question or change its options, which
+    // would delete or re-map players' answers (lib/question-guard)
+    const existingById = new Map((existingQuestions || []).map(q => [q.id, q]));
+    const isExisting = (qid?: string): qid is string => !!qid && !qid.startsWith('temp-') && existingById.has(qid);
+    const optionsChanged = (q: { id?: string; options: string[] }) => isExisting(q.id) && !sameOptions(existingById.get(q.id)!.options, q.options);
+    if (updateData.questions && updateData.questions.length > 0) {
+      const keptIds = new Set(updateData.questions.map(q => q.id).filter(isExisting));
+      const risky = [
+        ...(existingQuestions || []).filter(q => !keptIds.has(q.id)).map(q => q.id),
+        ...updateData.questions.filter(optionsChanged).map(q => q.id as string),
+      ];
+      const answered = risky.length > 0 ? await answeredQuestionIds(risky) : new Set<string>();
+      if (answered.size > 0) {
+        // Every id checked is one of the quiz's existing questions
+        const first = existingById.get([...answered][0])!;
+        return NextResponse.json(
+          { error: answeredQuestionError(first.text, answered.size - 1), code: 'QUESTION_ANSWERED' },
+          { status: 409 }
+        );
+      }
+    }
 
     // Update quiz basic info
     const quizUpdateData: Record<string, any> = {
@@ -468,19 +491,21 @@ export async function PUT(
       // a result is closed to answers, and only Settle Quizzes saves results. A saved result is kept.
       const resultSaved = new Set((existingQuestions || []).filter(q => q.hasCorrectAnswer).map(q => q.id));
       for (const questionData of updateData.questions) {
+        const options = JSON.stringify(questionData.options);
         const content = {
           text: questionData.text,
-          options: JSON.stringify(questionData.options),
           status: questionData.isActive !== false ? 'active' : 'paused',
           updatedAt: new Date().toISOString()
         };
-        const questionUpdateData = { ...content, correctOption: questionData.correctAnswer, hasCorrectAnswer: false };
+        const key = { correctOption: questionData.correctAnswer, hasCorrectAnswer: false };
 
         if (questionData.id && !questionData.id.startsWith('temp-')) {
-          // Update existing question
+          // Update existing question. Unchanged options are not rewritten: the database refuses any
+          // options write to an answered question, even one that only re-spaces the JSON
+          const changes = { ...content, ...(optionsChanged(questionData) || !isExisting(questionData.id) ? { options } : {}) };
           await supabase
             .from('Question')
-            .update(resultSaved.has(questionData.id) ? content : questionUpdateData)
+            .update(resultSaved.has(questionData.id) ? changes : { ...changes, ...key })
             .eq('id', questionData.id);
         } else {
           // Create new question
@@ -489,7 +514,9 @@ export async function PUT(
             .insert({
               id: generateId(),
               quizId: quizId,
-              ...questionUpdateData,
+              ...content,
+              options,
+              ...key,
               createdAt: new Date().toISOString()
             });
         }

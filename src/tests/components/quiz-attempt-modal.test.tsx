@@ -260,8 +260,21 @@ describe('QuizAttemptModal: running out of time', () => {
     expect(await screen.findByText('Your Quiz Time is Over!')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Submit & View Results' }));
     expect(await screen.findByText('Locked in!')).toBeInTheDocument();
+    // Only the answered question: the server refuses option -1, and one used to sink the whole submission
     const body = JSON.parse(fetchMock.mock.calls.find(([u]) => u.endsWith('/submit'))![1].body);
-    expect(body.answers.filter((a: { selectedOption: number }) => a.selectedOption === -1)).toHaveLength(2);
+    expect(body.answers).toHaveLength(1);
+    expect(body.answers[0].selectedOption).toBeGreaterThanOrEqual(0);
+  });
+
+  it('sends nothing when time runs out before any answer', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal('fetch', (fetchMock = routes({ get: () => jsonResponse({ quiz: quiz({ duration: 1 }) }) })));
+    open();
+    await start();
+    await act(async () => { await vi.advanceTimersByTimeAsync(61_000); });
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit & View Results' }));
+    expect(await screen.findByText('Time ran out before you answered any question, so nothing was submitted.')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([u]) => u.endsWith('/submit'))).toBe(false);
   });
 
   it('shows the submit in progress when time runs out mid-submit', async () => {
