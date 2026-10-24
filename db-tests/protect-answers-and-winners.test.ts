@@ -13,6 +13,7 @@ import {
   createQuiz,
   createUser,
   errorAs,
+  insertOlderAnswers,
   player,
   queryAs,
   resetData,
@@ -48,7 +49,6 @@ describe('answered questions', () => {
     const error = await refusal(`DELETE FROM "Question" WHERE id = $1`, [answered]);
     expect(error.code).toBe('23001'); // restrict_violation
     expect(error.message).toContain('already answered');
-    expect(await countRows(pool, 'Answer')).toBe(1);
     expect(await countRows(pool, 'QuestionAttempt')).toBe(1);
   });
 
@@ -71,7 +71,8 @@ describe('answered questions', () => {
   });
 
   it('still protects a question whose answers are only in "Answer" (older rows)', async () => {
-    const { answered } = await quizWithOneAnswered();
+    const { quizId, answered, user } = await quizWithOneAnswered();
+    await insertOlderAnswers(pool, user.id, quizId);
     await pool.query(`DELETE FROM "QuestionAttempt"`);
     expect((await refusal(`DELETE FROM "Question" WHERE id = $1`, [answered])).code).toBe('23001');
   });

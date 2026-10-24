@@ -74,7 +74,7 @@ describe('GET /api/profile', () => {
       if (call.ops.find((o) => o.op === 'order')?.args[0] === 'score') return { data: [{ id: 'b1', score: 90, Quiz: [{ id: 'qz', title: 'T' }] }, { id: 'b2', score: 80, Quiz: null }] };
       return { data: [{ id: 'a1', score: 70, Quiz: { id: 'qz', title: 'T' } }, { id: 'a2', score: 10, Quiz: [{ id: 'qz2', title: 'U' }] }, { id: 'orphan', Quiz: null }] };
     });
-    db.setTable('Answer', { data: [{ id: 'x', quizAttemptId: 'a1', isCorrect: true }, { id: 'y', quizAttemptId: 'a1', isCorrect: false }] });
+    db.setTable('QuestionAttempt', { data: [{ id: 'x', quizId: 'qz', isCorrect: true }, { id: 'y', quizId: 'qz', isCorrect: false }] });
     db.setTable('Question', { data: [{ quizId: 'qz' }, { quizId: 'qz' }, { quizId: 'qz2' }] });
     db.setTable('Winning', (call) =>
       call.ops.some((o) => o.op === 'select' && (o.args[1] as { head?: boolean } | undefined)?.head)
@@ -92,6 +92,9 @@ describe('GET /api/profile', () => {
     expect(body.quizHistory[0].quiz._count.questions).toBe(2);
     expect(body.quizHistory[0].answers).toHaveLength(2);
     expect(body.quizHistory[1]).toMatchObject({ quiz: { id: 'qz2', _count: { questions: 1 } }, answers: [] });
+    // The player's own answers, from the one table they are written to
+    expect(eqValue(db.callsTo('QuestionAttempt')[0], 'userId')).toBe('user-1');
+    expect(db.callsTo('Answer')).toHaveLength(0);
     expect(body.bestScores).toEqual([{ id: 'b1', score: 90, Quiz: [{ id: 'qz', title: 'T' }], quiz: { id: 'qz', title: 'T' } }]);
     expect(body.recentWinnings.map((p: { id: string; status: string }) => [p.id, p.status])).toEqual([['r1', 'pending'], ['w2', 'claimed'], ['w1', 'unclaimed'], ['r2', 'approved']]);
   });
@@ -103,7 +106,7 @@ describe('GET /api/profile', () => {
       if (call.ops.find((o) => o.op === 'order')?.args[0] === 'score') return { data: [{ id: 'b1', score: 60, Quiz: { id: 'qz', title: 'T' } }] };
       return { data: [{ id: 'a1', score: 60, Quiz: { id: 'qz', title: 'T' } }] };
     });
-    db.setTable('Answer', { data: null });
+    db.setTable('QuestionAttempt', { data: null });
     db.setTable('Question', { data: null });
     const body = await (await profile.GET()).json();
     expect(body.quizHistory[0]).toMatchObject({ quiz: { id: 'qz', _count: { questions: 0 } }, answers: [] });

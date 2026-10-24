@@ -33,6 +33,8 @@ export interface Claim {
     notes: string | null;
     user: UserData;
     prize: Prize;
+    /** The quiz the prize was won in (a delivery claim, 0 points); missing or null for one bought with points */
+    quiz?: { id: string; title: string } | null;
 }
 
 export type ClaimStatus = 'pending' | 'approved' | 'rejected' | 'fulfilled';

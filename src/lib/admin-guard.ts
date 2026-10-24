@@ -25,12 +25,19 @@ export async function assertAdmin(): Promise<string> {
     return session.email;
 }
 
+/** What an admin action returns without an admin session. */
+export const ADMIN_REQUIRED = { success: false as const, error: 'Unauthorized: admin session required' };
+
 /** Non-throwing variant: returns `null` when authorised, or an error result to return. */
 export async function adminActionGuard(): Promise<{ success: false; error: string } | null> {
+    return (await adminActionEmail()) ? null : { ...ADMIN_REQUIRED };
+}
+
+/** For actions that record who acted (lib/admin-action-log): the admin's email, or null without a session. */
+export async function adminActionEmail(): Promise<string | null> {
     try {
-        await assertAdmin();
-        return null;
+        return await assertAdmin();
     } catch {
-        return { success: false, error: 'Unauthorized: admin session required' };
+        return null;
     }
 }

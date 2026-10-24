@@ -358,12 +358,14 @@ describe('admin-guard', () => {
     adminDb.setTable('AdminSession', { data: { email: 'boss@example.test' } });
     expect(await guard.assertAdmin()).toBe('boss@example.test');
     expect(await guard.adminActionGuard()).toBeNull();
+    expect(await guard.adminActionEmail()).toBe('boss@example.test');
 
     adminDb.setTable('AdminSession', { data: { email: '' } });
     const err = await guard.assertAdmin().catch((e) => e);
     expect(err).toBeInstanceOf(guard.AdminAuthError);
     expect(err.name).toBe('AdminAuthError');
     expect(await guard.adminActionGuard()).toEqual({ success: false, error: 'Unauthorized: admin session required' });
+    expect(await guard.adminActionEmail()).toBeNull();
   });
 });
 

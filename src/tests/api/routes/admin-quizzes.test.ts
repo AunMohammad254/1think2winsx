@@ -9,23 +9,27 @@ const requireAuth = vi.fn();
 const requireCSRFToken = vi.fn();
 const applyRateLimit = vi.fn();
 const recordSecurityEvent = vi.fn();
+const clearQuizListCache = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, generateId: () => `gen-${++ids}` }));
 vi.mock('@/lib/auth-middleware', () => ({ requireAuth: (...a: unknown[]) => requireAuth(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { admin: 'admin' }, applyRateLimit: (...a: unknown[]) => applyRateLimit(...a) }));
 vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: (...a: unknown[]) => recordSecurityEvent(...a) }));
+vi.mock('@/lib/quiz-cache', () => ({ clearQuizListCache: () => clearQuizListCache() }));
 
 const list = await import('@/app/api/admin/quizzes/route');
 const one = await import('@/app/api/admin/quizzes/[id]/route');
 
 const P = routeParams({ id: 'quiz-1' });
+/** What the admin action log recorded (lib/admin-action-log writes through the mocked admin client). */
+const logged = () => adminDb.callsTo('AdminActionLog', 'insert').map((c) => argOf(c, 'insert'));
 const isHead = (call: { ops: { op: string; args: unknown[] }[] }) => call.ops.some((o) => o.op === 'select' && (o.args[1] as { head?: boolean } | undefined)?.head);
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
   ids = 0;
-  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent]) fn.mockReset();
+  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, clearQuizListCache]) fn.mockReset();
   requireAuth.mockResolvedValue(authOk('admin-1'));
   requireCSRFToken.mockResolvedValue(null);
   applyRateLimit.mockResolvedValue(null);
@@ -97,6 +101,11 @@ describe('POST /api/admin/quizzes', () => {
     // The key is stored, but the questions stay open: a saved result closes a question to answers
     expect(questions.map((q) => [q.quizId, q.options, q.correctOption, q.hasCorrectAnswer, q.status])).toEqual([['gen-1', '["a","b"]', 1, false, 'active'], ['gen-1', '["c","d"]', 0, false, 'paused']]);
     expect(body.quiz.stats).toMatchObject({ totalQuestions: 2, activeQuestions: 1, questionsWithAnswers: 2 });
+    // Players see the new quiz now, not when the shared catalogue's cache runs out
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    expect(logged()).toEqual([{
+      quizId: 'gen-1', quizTitle: 'Final', action: 'quiz_created', adminEmail: 'player@example.test', details: { questions: 2 },
+    }]);
   });
 
   it('uses the explicit status, or paused for an inactive quiz, and skips empty question lists', async () => {
@@ -208,11 +217,19 @@ describe('PATCH /api/admin/quizzes/[id]', () => {
 
     expect(argOf(adminDb.callsTo('Quiz', 'update')[0], 'update')).toMatchObject({ title: 'New', status: 'paused' });
     expect(body.quiz).toMatchObject({ title: 'New', stats: { totalQuestions: 1, totalAttempts: 5 } });
+    // Pausing here used to leave players on the old state until the catalogue's cache ran out
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    expect(logged()).toEqual([{
+      quizId: 'quiz-1', quizTitle: 'New', action: 'quiz_status_changed', adminEmail: 'player@example.test',
+      details: { changes: { title: 'New', status: 'paused' } },
+    }]);
   });
 
   it('handles missing counts', async () => {
     adminDb.setTable('Quiz', [{ data: { id: 'quiz-1' } }, { data: { id: 'quiz-1' } }]);
     expect((await (await patch({ title: 'X' })).json()).quiz.stats).toEqual({ totalQuestions: 0, totalAttempts: 0 });
+    // No status sent: an edit
+    expect(logged()).toEqual([expect.objectContaining({ action: 'quiz_edited', details: { changes: { title: 'X' } } })]);
   });
 
   it('validates, 404s, guards and reports errors', async () => {
@@ -248,7 +265,8 @@ describe('PUT /api/admin/quizzes/[id] (full edit)', () => {
     expect(res.status).toBe(200);
 
     expect(argOf(adminDb.callsTo('Quiz', 'update')[0], 'update')).toMatchObject({ title: 'T', status: 'active', duration: 20, timeUpDuration: 30, passingScore: 60 });
-    expect(adminDb.callsTo('Answer', 'delete')[0].ops.find((o) => o.op === 'in')?.args).toEqual(['questionId', ['drop']]);
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    expect(adminDb.callsTo('Answer')).toHaveLength(0);
     expect(adminDb.callsTo('Question', 'delete')[0].ops.find((o) => o.op === 'in')?.args).toEqual(['id', ['drop']]);
     expect(eqValue(adminDb.callsTo('Question', 'update')[0], 'id')).toBe('keep');
     const inserts = adminDb.callsTo('Question', 'insert').map((c) => argOf(c, 'insert') as Record<string, unknown>);
@@ -257,6 +275,9 @@ describe('PUT /api/admin/quizzes/[id] (full edit)', () => {
     // Options unchanged: not rewritten (the database refuses an options write to an answered question)
     expect(argOf(adminDb.callsTo('Question', 'update')[0], 'update')).not.toHaveProperty('options');
     expect((await res.json()).quiz.stats).toEqual({ totalQuestions: 2, totalAttempts: 2 });
+    expect(logged()).toEqual([{
+      quizId: 'quiz-1', quizTitle: 'T', action: 'quiz_edited', adminEmail: 'player@example.test', details: { status: 'active', questions: 3 },
+    }]);
   });
 
   it('refuses, before saving anything, to remove an answered question or change its options', async () => {
@@ -271,6 +292,8 @@ describe('PUT /api/admin/quizzes/[id] (full edit)', () => {
     const reordered = await put({ title: 'T', questions: [question({ id: 'keep' }), question({ id: 'drop', options: ['b', 'a'] })] });
     expect(reordered.status).toBe(409);
     expect(adminDb.calls.filter((c) => ['update', 'insert', 'delete'].some((op) => hasOp(c, op)))).toHaveLength(0);
+    // Nothing changed, so nothing to refresh
+    expect(clearQuizListCache).not.toHaveBeenCalled();
 
     // New wording for the answered question is fine
     expect((await put({ title: 'T', questions: [question({ id: 'keep' }), question({ id: 'drop', text: 'Dropped catch?' })] })).status).toBe(200);
@@ -336,6 +359,11 @@ describe('DELETE /api/admin/quizzes/[id]', () => {
     const order = adminDb.calls.filter((c) => hasOp(c, 'delete')).map((c) => c.table);
     expect(order).toEqual(['Answer', 'QuestionAttempt', 'Question', 'Answer', 'QuestionAttempt', 'QuizAttempt', 'Winning', 'Quiz']);
     expect(recordSecurityEvent).toHaveBeenCalledWith('ADMIN_QUIZ_DELETED', expect.anything(), 'admin-1', { quizId: 'quiz-1', title: 'T', attemptCount: 3 });
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    // Kept after the quiz is gone: no foreign key ties the record to it
+    expect(logged()).toEqual([{
+      quizId: 'quiz-1', quizTitle: 'T', action: 'quiz_deleted', adminEmail: 'player@example.test', details: { attempts: 3 },
+    }]);
   });
 
   it.each(['QuizSettlement', 'QuizWinner'])('refuses to delete a quiz with %s rows, deleting nothing', async (table) => {

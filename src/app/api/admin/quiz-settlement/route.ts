@@ -6,6 +6,7 @@ import { createSecureJsonResponse } from '@/lib/security-headers';
 import { getSettlementDetail, listSettlementQuizzes, notifySettlement, runSettlement, settleResultForBrowser } from '@/lib/quiz-settlement';
 import { poolPercentSchema, rewardsSchema, settleErrorStatus } from './schema';
 import logger from '@/lib/logger';
+import { logQuizAction } from '@/lib/admin-action-log';
 
 const ENDPOINT = '/api/admin/quiz-settlement';
 
@@ -55,6 +56,10 @@ export async function POST(request: NextRequest) {
     }
     logger.log(`[quiz-settlement] ${result.quizId} settled by ${admin.email}: ${result.winners.length} winner(s), ` +
       `${result.pool?.paid ?? 0} pool points to ${result.pool?.recipients ?? 0} player(s)`);
+    await logQuizAction({
+      quizId: result.quizId, quizTitle: result.quizTitle, action: 'quiz_settled', adminEmail: admin.email,
+      details: { winners: result.winners.map((w) => ({ rank: w.rank, userId: w.userId, points: w.points, prizeId: w.prizeId })), unfilled: result.unfilled },
+    });
     const notified = await notifySettlement(result);
     return createSecureJsonResponse({ result: settleResultForBrowser(result), notified }, { status: 200 });
   } catch (error) {

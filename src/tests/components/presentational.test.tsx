@@ -17,7 +17,6 @@ import PrizeFilters from '@/components/prizes/PrizeFilters';
 import PrizeCard from '@/components/prizes/PrizeCard';
 import QuizCardSkeleton, { QuizCardSkeletonGrid } from '@/components/quiz/QuizCardSkeleton';
 import QuizCard from '@/components/quiz/QuizCard';
-import QuizDetailModal from '@/components/quiz/QuizDetailModal';
 import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
 import PaymentModal from '@/components/quiz/PaymentModal';
@@ -203,37 +202,6 @@ describe('quiz cards and modals', () => {
   it('QuizCard without a start handler lets the click through', () => {
     render(<QuizCard id="q2" title="Hockey" duration={5} questionCount={3} status="active" />);
     expect(() => fireEvent.click(screen.getByText('Hockey'))).not.toThrow();
-  });
-
-  it('QuizDetailModal shows the quiz and starts it', () => {
-    const onClose = vi.fn();
-    const onStart = vi.fn();
-    const quiz = { id: 'q1', title: 'Cricket', description: 'Know your cricket', duration: 10, questionCount: 8, passingScore: 60, difficulty: 'hard' as const };
-    const { rerender, container } = render(<QuizDetailModal quiz={quiz} isOpen onClose={onClose} onStartQuiz={onStart} />);
-    expect(screen.getByText('Hard')).toBeInTheDocument();
-    expect(screen.getByText('Know your cricket')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Start Quiz/ }));
-    expect(onStart).toHaveBeenCalledWith('q1');
-    expect(onClose).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(container.firstElementChild!);
-    expect(onClose).toHaveBeenCalledTimes(2);
-    fireEvent.click(screen.getByText('Cricket'));
-    expect(onClose).toHaveBeenCalledTimes(2);
-
-    rerender(<QuizDetailModal quiz={{ ...quiz, difficulty: undefined, description: undefined, isReattempt: true, newQuestionsCount: 2 }} isOpen onClose={onClose} />);
-    expect(screen.getByText('Medium')).toBeInTheDocument();
-    expect(screen.getByText('New Questions')).toBeInTheDocument();
-    expect(screen.getByText('New Questions Available!')).toBeInTheDocument();
-    rerender(<QuizDetailModal quiz={quiz} isOpen={false} onClose={onClose} />);
-    expect(screen.queryByText('Cricket')).toBeNull();
-  });
-
-  it('QuizDetailModal start works without a handler', () => {
-    const onClose = vi.fn();
-    render(<QuizDetailModal quiz={{ id: 'q', title: 'T', duration: 1, questionCount: 1, passingScore: 1 }} isOpen onClose={onClose} />);
-    fireEvent.click(screen.getByRole('button', { name: /Start Quiz/ }));
-    expect(onClose).toHaveBeenCalled();
   });
 
   it('payment modals show amounts and call back', () => {

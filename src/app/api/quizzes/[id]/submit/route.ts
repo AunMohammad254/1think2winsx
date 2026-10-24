@@ -7,6 +7,7 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { UNANSWERED } from '@/lib/quiz-answers';
+import { QUIZ_ENDED_MESSAGE } from '@/lib/quiz-catalog';
 
 const submitQuizSchema = z.object({
   answers: z.array(z.object({
@@ -31,6 +32,16 @@ const RPC_ERROR_STATUS: Record<string, number> = {
 
 // Late or full: normal player behaviour, not a security event
 const EXPECTED_REFUSALS = new Set(['closed', 'entries_closed']);
+
+const SOME_CLOSED_MESSAGE =
+  'Some of these questions already have their result, so they no longer take answers. Reopen the quiz to answer the rest.';
+
+/** How many of the submitted questions of this quiz already have their result saved (closed to answers). */
+async function closedQuestions(supabase: Awaited<ReturnType<typeof getDb>>, quizId: string, questionIds: string[]): Promise<number> {
+  const { data } = await supabase.from('Question').select('id')
+    .eq('quizId', quizId).eq('hasCorrectAnswer', true).in('id', questionIds);
+  return (data || []).length;
+}
 
 /**
  * POST /api/quizzes/[id]/submit — Submit quiz answers
@@ -107,6 +118,18 @@ export async function POST(
     };
 
     if (!r.success) {
+      // "invalid" also covers a question whose result was saved while the player answered: say so, as
+      // normal late-player behaviour rather than a security event
+      if (r.code === 'invalid') {
+        const closed = await closedQuestions(supabase, quizId, validation.data.answers.map((a) => a.questionId));
+        if (closed > 0) {
+          const all = closed === validation.data.answers.length;
+          return NextResponse.json({
+            error: all ? QUIZ_ENDED_MESSAGE : SOME_CLOSED_MESSAGE,
+            code: all ? 'quiz_ended' : 'questions_closed',
+          }, { status: 409 });
+        }
+      }
       const status = RPC_ERROR_STATUS[r.code || ''] ?? 500;
       // 400 and 403 only come from a known code, so r.code is set here
       if ((status === 400 || status === 403) && !EXPECTED_REFUSALS.has(r.code as string)) {

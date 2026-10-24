@@ -43,7 +43,7 @@ async function attemptRow(userId: string, quizId: string) {
 }
 
 describe('first submission', () => {
-  it('saves one completed QuizAttempt plus one QuestionAttempt and one Answer per answer', async () => {
+  it('saves one completed QuizAttempt plus one QuestionAttempt per answer, and nothing in "Answer"', async () => {
     const quizId = await createQuiz(pool);
     const questionIds = await createQuestions(pool, quizId, 3);
 
@@ -78,15 +78,8 @@ describe('first submission', () => {
       { questionId: questionIds[2], quizId, selectedOption: 9, isCorrect: false },
     ]);
 
-    const { rows: answers } = await pool.query(
-      `SELECT "questionId", "quizAttemptId", "selectedOption" FROM "Answer" WHERE "userId" = $1 ORDER BY "selectedOption"`,
-      [user.id],
-    );
-    expect(answers).toEqual([
-      { questionId: questionIds[0], quizAttemptId: r.attemptId, selectedOption: 0 },
-      { questionId: questionIds[1], quizAttemptId: r.attemptId, selectedOption: 2 },
-      { questionId: questionIds[2], quizAttemptId: r.attemptId, selectedOption: 9 },
-    ]);
+    // Each answer is written once: the copy in "Answer" was 40-70% of a submit's cost
+    expect(await countRows(pool, 'Answer', user.id)).toBe(0);
   });
 
   it('accepts a subset of the questions and reports the quiz total', async () => {
@@ -96,7 +89,7 @@ describe('first submission', () => {
     const r = await submitAs(user.id, quizId, answersFor(questionIds.slice(0, 2)));
 
     expect(r).toMatchObject({ success: true, answersSubmitted: 2, totalQuestions: 4 });
-    expect(await countRows(pool, 'Answer', user.id)).toBe(2);
+    expect(await countRows(pool, 'QuestionAttempt', user.id)).toBe(2);
   });
 
   it('accepts a quiz that was never pushed (no answering window)', async () => {
@@ -120,8 +113,7 @@ describe('resubmission and re-attempts', () => {
     expect(again).toMatchObject({ success: true, attemptId: first.attemptId, answersSubmitted: 0, isReattempt: true });
     expect(await countRows(pool, 'QuizAttempt', user.id)).toBe(1);
     expect(await countRows(pool, 'QuestionAttempt', user.id)).toBe(2);
-    expect(await countRows(pool, 'Answer', user.id)).toBe(2);
-    const { rows: picks } = await pool.query(`SELECT DISTINCT "selectedOption" FROM "Answer" WHERE "userId" = $1`, [user.id]);
+    const { rows: picks } = await pool.query(`SELECT DISTINCT "selectedOption" FROM "QuestionAttempt" WHERE "userId" = $1`, [user.id]);
     expect(picks).toEqual([{ selectedOption: 1 }]);
     // Nothing inserted, so the attempt is left exactly as it was
     const [after] = await attemptRow(user.id, quizId);
@@ -160,11 +152,11 @@ describe('resubmission and re-attempts', () => {
     expect(fresh).toEqual([{ fresh: true }]);
 
     const { rows: answers } = await pool.query(
-      `SELECT "questionId", "quizAttemptId", "selectedOption" FROM "Answer" WHERE "userId" = $1`,
+      `SELECT "questionId", "quizId", "selectedOption" FROM "QuestionAttempt" WHERE "userId" = $1`,
       [user.id],
     );
     expect(answers).toHaveLength(4);
-    expect(new Set(answers.map((a) => a.quizAttemptId))).toEqual(new Set([first.attemptId]));
+    expect(new Set(answers.map((a) => a.quizId))).toEqual(new Set([quizId]));
     // Old predictions kept their original pick
     expect(answers.find((a) => a.questionId === q1)?.selectedOption).toBe(1);
     expect(answers.find((a) => a.questionId === q3)?.selectedOption).toBe(2);
@@ -183,7 +175,6 @@ describe('resubmission and re-attempts', () => {
     expect(results.map((r) => r.answersSubmitted).sort()).toEqual([0, 3]);
     expect(await countRows(pool, 'QuizAttempt', user.id)).toBe(1);
     expect(await countRows(pool, 'QuestionAttempt', user.id)).toBe(3);
-    expect(await countRows(pool, 'Answer', user.id)).toBe(3);
   });
 
   it('keeps players separate', async () => {
@@ -196,7 +187,7 @@ describe('resubmission and re-attempts', () => {
 
     expect(r).toMatchObject({ success: true, answersSubmitted: 2, isReattempt: false });
     expect(await countRows(pool, 'QuizAttempt')).toBe(2);
-    expect(await countRows(pool, 'Answer')).toBe(4);
+    expect(await countRows(pool, 'QuestionAttempt')).toBe(4);
   });
 });
 
@@ -229,7 +220,7 @@ describe('rejected submissions save nothing', () => {
     const r = await submitAs(user.id, quizId, answersFor([...questionIds, added]));
 
     expect(r).toMatchObject({ success: false, code: 'invalid', error: 'Invalid or closed question IDs in submission' });
-    expect(await countRows(pool, 'Answer', user.id)).toBe(2);
+    expect(await countRows(pool, 'QuestionAttempt', user.id)).toBe(2);
   });
 
   it("rejects an answer after pushedAt + duration + 30 s grace ('closed')", async () => {
@@ -423,7 +414,7 @@ describe('payment (AppSettings.wallet_enabled)', () => {
 });
 
 describe('what the player sees afterwards', () => {
-  it('can read back their own attempt, question attempts and answers through RLS', async () => {
+  it('can read back their own attempt and answers through RLS', async () => {
     const quizId = await createQuiz(pool);
     const questionIds = await createQuestions(pool, quizId, 2);
     const r = await submitAs(user.id, quizId, answersFor(questionIds));
@@ -431,6 +422,5 @@ describe('what the player sees afterwards', () => {
     const me = player(user.id);
     expect(await queryAs(pool, me, `SELECT id FROM "QuizAttempt"`)).toEqual([{ id: r.attemptId }]);
     expect(await queryAs(pool, me, `SELECT id FROM "QuestionAttempt"`)).toHaveLength(2);
-    expect(await queryAs(pool, me, `SELECT id FROM "Answer"`)).toHaveLength(2);
   });
 });

@@ -7,6 +7,8 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { clearQuizListCache } from '@/lib/quiz-cache';
+import { adminName, logQuizAction } from '@/lib/admin-action-log';
 import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings } from '@/lib/quiz-admin-settings';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 import { hasPayoutHistory, SETTLED_QUIZ_DELETE_ERROR } from '@/lib/quiz-history';
@@ -311,6 +313,13 @@ export async function PATCH(
       .select('*', { count: 'exact', head: true })
       .eq('quizId', quizId);
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
+    await logQuizAction({
+      quizId: updatedQuiz.id, quizTitle: updatedQuiz.title, adminEmail: adminName(session.user),
+      action: updateData.status !== undefined ? 'quiz_status_changed' : 'quiz_edited',
+      details: { changes: updateData },
+    });
     recordSecurityEvent('ADMIN_QUIZ_UPDATED', request, session.user.id, {
       quizId: updatedQuiz.id,
       title: updatedQuiz.title,
@@ -473,15 +482,9 @@ export async function PUT(
         .filter(q => q.id && !q.id.startsWith('temp-'))
         .map(q => q.id!);
 
-      // Delete questions that are no longer in the update
+      // Delete questions that are no longer in the update (none of them has answers: checked above)
       const questionsToDelete = existingQuestionIds.filter(id => !updatedQuestionIds.includes(id));
       if (questionsToDelete.length > 0) {
-        // Delete answers first
-        await supabase
-          .from('Answer')
-          .delete()
-          .in('questionId', questionsToDelete);
-
         await supabase
           .from('Question')
           .delete()
@@ -542,6 +545,12 @@ export async function PUT(
       .select('*', { count: 'exact', head: true })
       .eq('quizId', quizId);
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
+    await logQuizAction({
+      quizId: resultQuiz!.id, quizTitle: resultQuiz!.title, action: 'quiz_edited', adminEmail: adminName(session.user),
+      details: { status: quizUpdateData.status, questions: updateData.questions?.length || 0 },
+    });
     recordSecurityEvent('ADMIN_QUIZ_COMPLETE_UPDATE', request, session.user.id, {
       quizId: resultQuiz!.id,
       title: resultQuiz!.title,
@@ -678,6 +687,12 @@ export async function DELETE(
 
     if (deleteError) throw deleteError;
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
+    await logQuizAction({
+      quizId: existingQuiz.id, quizTitle: existingQuiz.title, action: 'quiz_deleted', adminEmail: adminName(session.user),
+      details: { attempts: attemptCount || 0 },
+    });
     recordSecurityEvent('ADMIN_QUIZ_DELETED', request, session.user.id, {
       quizId: existingQuiz.id,
       title: existingQuiz.title,

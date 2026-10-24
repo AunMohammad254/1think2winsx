@@ -6,6 +6,8 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { clearQuizListCache } from '@/lib/quiz-cache';
+import { adminName, logQuizAction } from '@/lib/admin-action-log';
 
 const createQuestionSchema = z.object({
   quizId: z.string(),
@@ -109,6 +111,12 @@ export async function POST(request: NextRequest) {
 
     if (createError) throw createError;
 
+    // Players see the change now, not when the shared quiz catalogue's cache runs out
+    clearQuizListCache();
+    await logQuizAction({
+      quizId: quiz.id, quizTitle: quiz.title, action: 'question_added', adminEmail: adminName(session.user),
+      details: { questionId: question.id, text: question.text },
+    });
     recordSecurityEvent('ADMIN_QUESTION_CREATED', request, session.user.id, {
       questionId: question.id,
       quizId: quiz.id,
@@ -202,7 +210,7 @@ export async function GET(request: NextRequest) {
     const formattedQuestions = await Promise.all(
       (questions || []).map(async (question: any) => {
         const { count: answerCount } = await supabase
-          .from('Answer')
+          .from('QuestionAttempt')
           .select('*', { count: 'exact', head: true })
           .eq('questionId', question.id);
 

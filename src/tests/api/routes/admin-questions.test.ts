@@ -8,23 +8,27 @@ const requireAuth = vi.fn();
 const requireCSRFToken = vi.fn();
 const applyRateLimit = vi.fn();
 const recordSecurityEvent = vi.fn();
+const clearQuizListCache = vi.fn();
 
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, generateId: () => 'gen-q' }));
 vi.mock('@/lib/auth-middleware', () => ({ requireAuth: (...a: unknown[]) => requireAuth(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { admin: 'admin' }, applyRateLimit: (...a: unknown[]) => applyRateLimit(...a) }));
 vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: (...a: unknown[]) => recordSecurityEvent(...a) }));
+vi.mock('@/lib/quiz-cache', () => ({ clearQuizListCache: () => clearQuizListCache() }));
 
 const list = await import('@/app/api/admin/questions/route');
 const one = await import('@/app/api/admin/questions/[id]/route');
 
 const P = routeParams({ id: 'q1' });
+/** What the admin action log recorded (lib/admin-action-log writes through the mocked admin client). */
+const logged = () => adminDb.callsTo('AdminActionLog', 'insert').map((c) => argOf(c, 'insert'));
 const isHead = (call: { ops: { op: string; args: unknown[] }[] }) => call.ops.some((o) => o.op === 'select' && (o.args[1] as { head?: boolean } | undefined)?.head);
 const row = (over: Record<string, unknown> = {}) => ({ id: 'q1', quizId: 'quiz-1', text: 'Toss?', options: '["A","B","C"]', correctOption: 1, hasCorrectAnswer: true, status: 'active', Quiz: [{ id: 'quiz-1', title: 'T' }], ...over });
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent]) fn.mockReset();
+  for (const fn of [requireAuth, requireCSRFToken, applyRateLimit, recordSecurityEvent, clearQuizListCache]) fn.mockReset();
   requireAuth.mockResolvedValue(authOk('admin-1'));
   requireCSRFToken.mockResolvedValue(null);
   applyRateLimit.mockResolvedValue(null);
@@ -53,6 +57,11 @@ describe('POST /api/admin/questions', () => {
     expect(res.status).toBe(201);
     expect(argOf(adminDb.callsTo('Question')[0], 'insert')).toMatchObject({ id: 'gen-q', options: '["A","B"]', correctOption: 1, hasCorrectAnswer: false, status: 'active' });
     expect((await res.json()).question.options).toEqual(['A', 'B']);
+    // Players see the new question now, not when the shared catalogue's cache runs out
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    expect(logged()).toEqual([{
+      quizId: 'quiz-1', quizTitle: 'T', action: 'question_added', adminEmail: 'player@example.test', details: { questionId: 'gen-q', text: 'Toss?' },
+    }]);
   });
 
   it('creates a prediction question without an answer yet', async () => {
@@ -89,7 +98,7 @@ describe('GET /api/admin/questions', () => {
 
   it('pages questions with an answer count each', async () => {
     adminDb.setTable('Question', { data: [row(), row({ id: 'q2', Quiz: { id: 'quiz-2' } })], count: 45 });
-    adminDb.setTable('Answer', (call) => ({ count: eqValue(call, 'questionId') === 'q1' ? 12 : null }));
+    adminDb.setTable('QuestionAttempt', (call) => ({ count: eqValue(call, 'questionId') === 'q1' ? 12 : null }));
 
     const body = await (await get('?quizId=quiz-1&status=active&page=2&limit=20')).json();
 
@@ -122,13 +131,17 @@ describe('GET /api/admin/questions/[id]', () => {
 
   it('returns the question, recent answers and stats', async () => {
     adminDb.setTable('Question', { data: row() });
-    adminDb.setTable('Answer', (call) => {
-      if (isHead(call)) return { count: eqValue(call, 'isCorrect') ? 1 : 4 };
+    adminDb.setTable('QuestionAttempt', (call) => {
+      if (isHead(call)) {
+        if (eqValue(call, 'isCorrect')) return { count: 1 };
+        const option = eqValue(call, 'selectedOption') as number | undefined;
+        return { count: option === undefined ? 4 : [2, 1, 0][option] };
+      }
       return {
         data: [
-          { id: 'a1', selectedOption: 1, isCorrect: true, QuizAttempt: [{ User: [{ name: 'Ali' }] }] },
-          { id: 'a2', selectedOption: 0, isCorrect: false, QuizAttempt: { User: { name: 'Sara' } } },
-          { id: 'a3', selectedOption: 0, isCorrect: false, QuizAttempt: null },
+          { id: 'a1', selectedOption: 1, isCorrect: true, User: [{ name: 'Ali' }] },
+          { id: 'a2', selectedOption: 0, isCorrect: false, User: { name: 'Sara' } },
+          { id: 'a3', selectedOption: 0, isCorrect: false, User: null },
         ],
       };
     });
@@ -151,17 +164,25 @@ describe('GET /api/admin/questions/[id]', () => {
     expect(recordSecurityEvent).toHaveBeenCalledWith('SUSPICIOUS_ACTIVITY', expect.anything(), 'admin-1', { questionId: 'q1', quizId: 'quiz-1' });
   });
 
-  it('computes the distribution from only the last 20 answers but divides by the total', async () => {
+  it('counts the distribution over every answer, not just the 20 shown', async () => {
+    // It used to count the latest 20 answers and divide by the total: 20 of 1,000 showed as 2%
     adminDb.setTable('Question', { data: row({ Quiz: { id: 'quiz-1' } }) });
-    adminDb.setTable('Answer', (call) => (isHead(call) ? { count: eqValue(call, 'isCorrect') ? null : 1000 } : { data: Array.from({ length: 20 }, (_, i) => ({ id: `a${i}`, selectedOption: 0 })) }));
+    adminDb.setTable('QuestionAttempt', (call) => {
+      if (!isHead(call)) return { data: Array.from({ length: 20 }, (_, i) => ({ id: `a${i}`, selectedOption: 0 })) };
+      if (eqValue(call, 'isCorrect')) return { count: null };
+      const option = eqValue(call, 'selectedOption') as number | undefined;
+      return { count: option === undefined ? 1000 : [700, 300, null][option] };
+    });
     const { question } = await (await get()).json();
-    expect(question.stats.answerDistribution[0]).toMatchObject({ count: 20, percentage: 2 });
+    expect(question.stats.answerDistribution.map((d: { count: number; percentage: number }) => [d.count, d.percentage])).toEqual([[700, 70], [300, 30], [0, 0]]);
     expect(question.stats.correctAnswerCount).toBe(0);
+    expect(question.recentAnswers).toHaveLength(20);
+    expect(adminDb.callsTo('Answer')).toHaveLength(0);
   });
 
   it('handles a question with no answers', async () => {
     adminDb.setTable('Question', { data: row() });
-    adminDb.setTable('Answer', { data: null, count: null });
+    adminDb.setTable('QuestionAttempt', { data: null, count: null });
     const { question } = await (await get()).json();
     expect(question.stats).toMatchObject({ totalAnswers: 0, correctAnswerRate: 0 });
     expect(question.recentAnswers).toEqual([]);
@@ -192,6 +213,11 @@ describe('PATCH /api/admin/questions/[id]', () => {
     expect(body.question).toMatchObject({ text: 'New', quiz: { id: 'quiz-1' } });
     await patch({});
     expect(Object.keys(argOf(adminDb.callsTo('Question', 'update')[1], 'update') as object)).toEqual(['updatedAt']);
+    expect(clearQuizListCache).toHaveBeenCalledTimes(2);
+    expect(logged()[0]).toEqual({
+      quizId: 'quiz-1', quizTitle: null, action: 'question_edited', adminEmail: 'player@example.test',
+      details: { questionId: 'q1', changes: { text: 'New', options: ['A', 'B'], correctOption: 0, status: 'paused' } },
+    });
   });
 
   it("refuses new options for a question players answered, but saves its wording and doesn't rewrite the same options", async () => {
@@ -237,27 +263,31 @@ describe('DELETE /api/admin/questions/[id]', () => {
 
   it('deletes a question nobody answered', async () => {
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row() }));
-    adminDb.setTable('Answer', { data: [] });
     adminDb.setTable('QuestionAttempt', { data: [] });
     const body = await (await del()).json();
     expect(body).toEqual({ message: 'Question deleted successfully', deletedQuestion: { id: 'q1', text: 'Toss?', quiz: { id: 'quiz-1', title: 'T' } } });
     expect(adminDb.calls.filter((c) => hasOp(c, 'delete')).map((c) => c.table)).toEqual(['Question']);
     expect(recordSecurityEvent).toHaveBeenCalledWith('SUSPICIOUS_ACTIVITY', expect.anything(), 'admin-1', expect.objectContaining({ quizTitle: 'T' }));
+    expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    expect(logged()).toEqual([{
+      quizId: 'quiz-1', quizTitle: null, action: 'question_deleted', adminEmail: 'player@example.test', details: { questionId: 'q1', text: 'Toss?' },
+    }]);
   });
 
-  it.each(['Answer', 'QuestionAttempt'])('refuses to delete a question with answers in "%s", and deletes nothing', async (table) => {
+  it('refuses to delete a question with answers, and deletes nothing', async () => {
     // Deleting the question used to delete every player's answer to it
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row() }));
-    adminDb.setTable(table, { data: [{ id: 'a-1' }] });
+    adminDb.setTable('QuestionAttempt', { data: [{ id: 'a-1' }] });
     const res = await del();
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe('QUESTION_ANSWERED');
     expect(adminDb.calls.filter((c) => hasOp(c, 'delete'))).toHaveLength(0);
+    expect(clearQuizListCache).not.toHaveBeenCalled();
   });
 
   it('handles an object quiz join and no answers', async () => {
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row({ Quiz: { id: 'quiz-1', title: 'Obj' } }) }));
-    adminDb.setTable('Answer', { data: null });
+    adminDb.setTable('QuestionAttempt', { data: null });
     expect((await (await del()).json()).deletedQuestion.quiz.title).toBe('Obj');
     adminDb.setTable('Question', (call) => (hasOp(call, 'delete') ? { error: null } : { data: row({ Quiz: null }) }));
     expect((await del()).status).toBe(200);

@@ -141,6 +141,19 @@ describe('PlayerClaims sub-components', () => {
             expect(screen.getByText('Pending Review')).toBeInTheDocument();
         });
 
+        it('names the quiz for a prize won in one, instead of 0 points', () => {
+            render(
+                <ClaimCard
+                    claim={{ ...mockClaim, pointsUsed: 0, quiz: { id: 'quiz-1', title: 'Cricket night' } }}
+                    updating={null}
+                    onViewDetails={mockOnViewDetails}
+                    onUpdateStatus={mockOnUpdateStatus}
+                />
+            );
+            expect(screen.getByText(/Won in “Cricket night”/)).toBeInTheDocument();
+            expect(screen.queryByText(/0\s*points/)).not.toBeInTheDocument();
+        });
+
         it('shows action buttons for pending status', () => {
             render(
                 <ClaimCard 
