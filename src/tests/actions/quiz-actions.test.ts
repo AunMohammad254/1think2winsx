@@ -197,6 +197,23 @@ describe('delete, publish, pause and push', () => {
     expect((await actions.deleteQuiz('q')).success).toBe(false);
   });
 
+  it('deleteQuiz refuses a settled quiz, which would erase its winners and payouts', async () => {
+    adminDb.setTable('QuizSettlement', { count: 1 });
+    expect(await actions.deleteQuiz('q')).toEqual({
+      success: false,
+      code: 'QUIZ_SETTLED',
+      error: 'This quiz has been settled: deleting it would erase who won and what was paid. Pause it instead.',
+    });
+    // Winners from before settlements existed count too
+    adminDb.setTable('QuizSettlement', { count: 0 });
+    adminDb.setTable('QuizWinner', { count: 2 });
+    expect((await actions.deleteQuiz('q')).success).toBe(false);
+    // And a failed check never lets the delete through
+    adminDb.setTable('QuizWinner', { error: { message: 'timeout' } });
+    expect(await actions.deleteQuiz('q')).toEqual({ success: false, error: 'Failed to delete quiz. Please try again.' });
+    expect(quizDb.delete).not.toHaveBeenCalled();
+  });
+
   it('publishQuiz needs questions and announces the quiz', async () => {
     expect(await actions.publishQuiz('q')).toEqual({ success: false, error: 'Cannot publish quiz without questions' });
     questionDb.findByQuizId.mockResolvedValue([{ id: 'x' }]);

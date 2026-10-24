@@ -9,6 +9,7 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings } from '@/lib/quiz-admin-settings';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
+import { hasPayoutHistory, SETTLED_QUIZ_DELETE_ERROR } from '@/lib/quiz-history';
 
 const updateQuizSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -628,6 +629,11 @@ export async function DELETE(
         { error: 'Quiz not found' },
         { status: 404 }
       );
+    }
+
+    // Its winners, settlement and pool shares would be deleted while the paid points stay (lib/quiz-history)
+    if (await hasPayoutHistory(quizId)) {
+      return NextResponse.json({ error: SETTLED_QUIZ_DELETE_ERROR, code: 'QUIZ_SETTLED' }, { status: 409 });
     }
 
     // Get attempt count

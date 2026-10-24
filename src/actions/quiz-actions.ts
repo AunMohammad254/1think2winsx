@@ -9,6 +9,7 @@ import { revalidatePath } from 'next/cache';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import { saveQuizAdminSettings } from '@/lib/quiz-admin-settings';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
+import { hasPayoutHistory, SETTLED_QUIZ_DELETE_ERROR } from '@/lib/quiz-history';
 import {
     QuizFormSchema,
     CreateQuizInputSchema,
@@ -243,6 +244,10 @@ export async function deleteQuiz(id: string): Promise<ActionResult> {
     const denied = await adminActionGuard();
     if (denied) return denied as any;
     try {
+        // Its winners, settlement and pool shares would cascade away while the paid points stay (lib/quiz-history)
+        if (await hasPayoutHistory(id)) {
+            return { success: false, error: SETTLED_QUIZ_DELETE_ERROR, code: 'QUIZ_SETTLED' };
+        }
         await quizDb.delete(id);
 
         revalidatePath('/admin/quiz');
