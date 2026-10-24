@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextResponse } from 'next/server';
-import { createSupabaseMock, makeRequest, routeParams, authOk, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { createSupabaseMock, makeRequest, routeParams, authOk, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let db: SupabaseMock;
 const requireAuth = vi.fn();
@@ -155,6 +155,40 @@ describe('POST /api/quizzes/[id]/submit', () => {
     const res = await submit();
     expect((await res.json()).error).toBe('Failed to submit quiz');
     expect(recordSecurityEvent).not.toHaveBeenCalled();
+  });
+
+  it('says the quiz has ended when every submitted question already has its result, without a security event', async () => {
+    db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'invalid', error: 'Invalid or closed question IDs in submission' } });
+    db.setTable('Question', { data: [{ id: 'q1' }, { id: 'q2' }] });
+    const res = await submit();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'This quiz has ended: its results are already in.', code: 'quiz_ended' });
+    // Only this quiz's questions, only closed ones, only those submitted
+    const lookup = db.callsTo('Question')[0];
+    expect(eqValue(lookup, 'quizId')).toBe('quiz-1');
+    expect(eqValue(lookup, 'hasCorrectAnswer')).toBe(true);
+    expect(lookup.ops.find((o) => o.op === 'in')?.args).toEqual(['id', ['q1', 'q2']]);
+    expect(recordSecurityEvent).not.toHaveBeenCalled();
+  });
+
+  it('says which part closed when only some submitted questions have their result', async () => {
+    db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'invalid' } });
+    db.setTable('Question', { data: [{ id: 'q2' }] });
+    const res = await submit();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'Some of these questions already have their result, so they no longer take answers. Reopen the quiz to answer the rest.',
+      code: 'questions_closed',
+    });
+    expect(recordSecurityEvent).not.toHaveBeenCalled();
+  });
+
+  it('still treats an invalid submit with no closed question as invalid input', async () => {
+    db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'invalid', error: 'Invalid or closed question IDs in submission' } });
+    db.setTable('Question', { data: null });
+    const res = await submit();
+    expect(res.status).toBe(400);
+    expect(recordSecurityEvent).toHaveBeenCalledWith('INVALID_INPUT', expect.anything(), 'user-1', expect.objectContaining({ code: 'invalid' }));
   });
 
   it('tells a player who comes after the entry limit that entries have closed, without a security event', async () => {

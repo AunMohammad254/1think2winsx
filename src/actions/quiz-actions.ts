@@ -6,6 +6,7 @@ import { quizDb, questionDb, notificationDb, getAdminDb } from '@/lib/supabase/d
 import { UPCOMING_NOTICE_TITLE, upcomingQuizLink, markQuizAnnounced } from '@/lib/quiz-scheduler';
 import { toUtcIso, formatBusinessTime } from '@/lib/schedule-time';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import { saveQuizAdminSettings } from '@/lib/quiz-admin-settings';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
@@ -35,6 +36,21 @@ function answerKey(quizType: string, options: Array<{ isCorrect?: boolean }>): n
     if (quizType !== 'normal') return null;
     const index = options.findIndex(opt => opt.isCorrect);
     return index === -1 ? null : index;
+}
+
+/**
+ * A broadcast inserts one notification per registered user, which takes a while on a big user base. It
+ * runs after the response (next/server `after`), so the admin's click returns and the catalogue refresh
+ * that shows players the change isn't held up behind it. A failure is only logged, as before.
+ */
+function broadcastAfterResponse(notice: { title: string; message: string; type: string; link: string }, failure: string) {
+    after(async () => {
+        try {
+            await notificationDb.createBroadcast(notice);
+        } catch (error) {
+            console.error(failure, error);
+        }
+    });
 }
 
 /**
@@ -106,16 +122,12 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
         const settingsWarning = await saveSettingsOrWarn(quiz.id, quizData.maxEntries, quizData.pointsPool);
 
         if (quizData.status === 'active') {
-            try {
-                await notificationDb.createBroadcast({
-                    title: '🎮 New Quiz Published!',
-                    message: `"${quiz.title || 'Challenge'}" is now active. Play now and score points!`,
-                    type: 'quiz_deadline',
-                    link: `/quizzes?openQuiz=${quiz.id}`
-                });
-            } catch (notifErr) {
-                console.error('Failed to send quiz publication broadcast notification:', notifErr);
-            }
+            broadcastAfterResponse({
+                title: '🎮 New Quiz Published!',
+                message: `"${quiz.title || 'Challenge'}" is now active. Play now and score points!`,
+                type: 'quiz_deadline',
+                link: `/quizzes?openQuiz=${quiz.id}`
+            }, 'Failed to send quiz publication broadcast notification:');
         }
 
         revalidatePath('/admin/quiz');
@@ -278,16 +290,12 @@ export async function publishQuiz(id: string): Promise<ActionResult> {
         const updatedQuiz = await quizDb.update(id, { status: 'active' });
 
         if (updatedQuiz) {
-            try {
-                await notificationDb.createBroadcast({
-                    title: '🎮 New Quiz Published!',
-                    message: `"${updatedQuiz.title || 'Challenge'}" is now active. Play now and score points!`,
-                    type: 'quiz_deadline',
-                    link: `/quizzes?openQuiz=${id}`
-                });
-            } catch (notifErr) {
-                console.error('Failed to send quiz publication broadcast notification:', notifErr);
-            }
+            broadcastAfterResponse({
+                title: '🎮 New Quiz Published!',
+                message: `"${updatedQuiz.title || 'Challenge'}" is now active. Play now and score points!`,
+                type: 'quiz_deadline',
+                link: `/quizzes?openQuiz=${id}`
+            }, 'Failed to send quiz publication broadcast notification:');
         }
 
         revalidatePath('/admin/quiz');
@@ -325,11 +333,12 @@ export async function pauseQuiz(id: string): Promise<ActionResult> {
  * Push an already-published quiz to everyone currently on the live stream.
  *
  * Sets Quiz.pushedAt, which the client picks up two ways with no new
- * infrastructure: (1) the quizzes page's existing Realtime subscription on
- * Quiz UPDATE events sees pushedAt change and shows the live toast/popup,
+ * infrastructure: (1) the quizzes page's live check (GET /api/live, every few
+ * seconds) sees pushedAt change and shows the live banner and popup,
  * (2) the "Today's quizzes" cards read pushedAt (via /api/quizzes) to show
  * the Active/Answered/Missed badge. Also fires the same broadcast
- * notification publishQuiz() sends, for anyone not currently on the page.
+ * notification publishQuiz() sends, for anyone not currently on the page;
+ * it runs after the response, so the push reaches players at once.
  */
 export async function pushQuizLive(id: string): Promise<ActionResult> {
     const denied = await adminActionGuard();
@@ -344,16 +353,12 @@ export async function pushQuizLive(id: string): Promise<ActionResult> {
         const updatedQuiz = await quizDb.update(id, { pushedAt: new Date().toISOString() } as any);
 
         if (updatedQuiz) {
-            try {
-                await notificationDb.createBroadcast({
-                    title: '🔴 Live now',
-                    message: `"${updatedQuiz.title || 'Quiz'}" was just pushed during the stream — jump in now!`,
-                    type: 'quiz_deadline',
-                    link: `/quizzes?openQuiz=${id}`
-                });
-            } catch (notifErr) {
-                console.error('Failed to send quiz push broadcast notification:', notifErr);
-            }
+            broadcastAfterResponse({
+                title: '🔴 Live now',
+                message: `"${updatedQuiz.title || 'Quiz'}" was just pushed during the stream — jump in now!`,
+                type: 'quiz_deadline',
+                link: `/quizzes?openQuiz=${id}`
+            }, 'Failed to send quiz push broadcast notification:');
         }
 
         revalidatePath('/admin/quiz');
