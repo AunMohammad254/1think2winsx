@@ -98,8 +98,7 @@ export async function GET() {
       .order('createdAt', { ascending: false })
       .limit(20);
 
-    // Collect attempt IDs and quiz IDs for batch fetching
-    const attemptIds = (rawQuizHistory || []).filter((a: any) => a.Quiz).map((a: any) => a.id);
+    // Collect quiz IDs for batch fetching
     const quizIdsInHistory = [...new Set(
       (rawQuizHistory || []).filter((a: any) => a.Quiz).map((a: any) => {
         const q = Array.isArray(a.Quiz) ? a.Quiz[0] : a.Quiz;
@@ -109,19 +108,19 @@ export async function GET() {
 
     // Batch fetch answers and question counts in parallel (replaces N+1 loop)
     const [{ data: allAnswers }, { data: questionCounts }] = await Promise.all([
-      attemptIds.length > 0
-        ? supabase.from('Answer').select('id, isCorrect, questionId, quizAttemptId').in('quizAttemptId', attemptIds)
+      quizIdsInHistory.length > 0
+        ? supabase.from('QuestionAttempt').select('id, isCorrect, questionId, quizId').eq('userId', userId).in('quizId', quizIdsInHistory)
         : Promise.resolve({ data: [] }),
       quizIdsInHistory.length > 0
         ? supabase.from('Question').select('quizId').in('quizId', quizIdsInHistory)
         : Promise.resolve({ data: [] }),
     ]);
 
-    // Build lookup maps
-    const answersByAttempt = new Map<string, any[]>();
+    // Build lookup maps. A player has one attempt per quiz, so answers are filed by quiz
+    const answersByQuiz = new Map<string, any[]>();
     for (const ans of (allAnswers || [])) {
-      if (!answersByAttempt.has(ans.quizAttemptId)) answersByAttempt.set(ans.quizAttemptId, []);
-      answersByAttempt.get(ans.quizAttemptId)!.push(ans);
+      if (!answersByQuiz.has(ans.quizId)) answersByQuiz.set(ans.quizId, []);
+      answersByQuiz.get(ans.quizId)!.push(ans);
     }
     const questionCountByQuiz = new Map<string, number>();
     for (const q of (questionCounts || [])) {
@@ -135,7 +134,7 @@ export async function GET() {
         return {
           ...attempt,
           quiz: { ...quiz, _count: { questions: questionCountByQuiz.get(quiz?.id) || 0 } },
-          answers: answersByAttempt.get(attempt.id) || [],
+          answers: answersByQuiz.get(quiz?.id) || [],
         };
       });
 

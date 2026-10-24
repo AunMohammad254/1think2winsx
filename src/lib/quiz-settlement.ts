@@ -90,7 +90,8 @@ export type SettleResult =
       questions: number;
       tieRule: TieRule;
       seed: string;
-      winners: Array<SettledWinner & { tiedWith: number }>;
+      /** Places are ranked by correctAnswers (the rounded score can tie above 100 questions) */
+      winners: Array<SettledWinner & { tiedWith: number; correctAnswers?: number }>;
       unfilled: number[];
       /**
        * recipientIds: every player who got a share (for notifying them); never sent to the browser.
@@ -326,13 +327,13 @@ export async function saveQuizResult(quizId: string, answers: Record<string, num
     }
   }
 
-  const db = getAdminDb();
-  for (const q of detail.questions) {
-    const { data, error } = await db.rpc('evaluate_question', { p_question_id: q.id, p_correct_option: answers[q.id] });
-    if (error || !(data as { success?: boolean } | null)?.success) throw error || new Error(`evaluate_question failed for ${q.id}`);
+  // Every question's result and the scores in one transaction (save_quiz_result, migration 20261024150000):
+  // saving them one question at a time closed only some questions when a step failed
+  const result = Object.fromEntries(detail.questions.map((q) => [q.id, answers[q.id]]));
+  const { data, error } = await getAdminDb().rpc('save_quiz_result', { p_quiz_id: quizId, p_answers: result });
+  if (error || !(data as { success?: boolean } | null)?.success) {
+    throw error || new Error(`save_quiz_result refused: ${(data as { error?: string } | null)?.error ?? 'no answer'}`);
   }
-  const { data, error } = await db.rpc('finalize_quiz_scores', { p_quiz_id: quizId });
-  if (error || !(data as { success?: boolean } | null)?.success) throw error || new Error('finalize_quiz_scores failed');
   // The closed questions leave the players' catalogue now, not when its cache next expires
   invalidateQuizCatalog();
   return { ok: true };

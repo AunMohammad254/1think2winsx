@@ -527,8 +527,13 @@ describe('quizzes page: live updates', () => {
     h.fetchWithRetry.mockImplementation(async () => ok({ quizzes: [quiz('a', { title: 'Cricket Classics' }), quiz('soon', { status: 'upcoming', startsAt: new Date(NOW + 60_000).toISOString() })] }));
     const { unmount } = render(<QuizzesPage />);
     await loaded();
-    const goLive = timers.mock.calls.find(([, ms]) => ms === 61_000);
-    expect(goLive).toBeDefined();
+    // The effect that sets the timer runs after the list renders: wait for it rather than checking once
+    // (checking once failed when the machine was busy)
+    let goLive: (typeof timers.mock.calls)[number] | undefined;
+    await waitFor(() => {
+      goLive = timers.mock.calls.find(([, ms]) => ms === 61_000);
+      expect(goLive).toBeDefined();
+    });
     const personalCalls = h.fetchWithRetry.mock.calls.length;
     (goLive![0] as () => void)();
     // The cached public snapshot, not a personal request from every player at the same moment
