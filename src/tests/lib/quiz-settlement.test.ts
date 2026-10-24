@@ -370,7 +370,7 @@ describe('notifySettlement', () => {
     ]))).toBe(true);
 
     expect(createNotification).toHaveBeenNthCalledWith(1, 'u1', {
-      title: '🏆 You placed 1st!', message: 'You won Mystery bike in "Agli ball". Our team will contact you about delivery.', type: 'prize_won', link: '/profile',
+      title: '🏆 You placed 1st!', message: 'You won Mystery bike in "Agli ball". Add your delivery details on your profile so we can send it.', type: 'prize_won', link: '/profile',
     });
     expect(createNotification).toHaveBeenNthCalledWith(2, 'u2', {
       title: '🏆 You placed 2nd!', message: 'You won 500 points in "Agli ball".', type: 'prize_won', link: '/profile',

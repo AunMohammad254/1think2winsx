@@ -414,7 +414,7 @@ async function sendNotices(n: SettlementNotices, resend: boolean): Promise<boole
       await notificationDb.create(w.userId, {
         title: `🏆 You placed ${PLACE[w.rank]}!`,
         message: w.prizeName
-          ? `You won ${reward} in "${n.quizTitle}". Our team will contact you about delivery.`
+          ? `You won ${reward} in "${n.quizTitle}". Add your delivery details on your profile so we can send it.`
           : `You won ${reward} in "${n.quizTitle}".`,
         type: 'prize_won',
         link: '/profile',
