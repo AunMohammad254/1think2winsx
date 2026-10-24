@@ -18,6 +18,14 @@ const QuizManagement = dynamic(
   }
 );
 
+const QuizHistory = dynamic(
+  () => import('@/components/admin/QuizHistory'),
+  {
+    loading: () => <div className="h-48 bg-white/5 rounded-xl animate-pulse" />,
+    ssr: false
+  }
+);
+
 const QuestionManagement = dynamic(
   () => import('@/components/admin/questions/QuestionManagement'),
   {
@@ -209,6 +217,12 @@ export default function QuizManagementPage() {
             >
               Question Management
             </TabsTrigger>
+            <TabsTrigger
+              value="history"
+              className="data-[state=active]:glass-card-blue data-[state=active]:glass-border-blue"
+            >
+              History
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -248,6 +262,20 @@ export default function QuizManagementPage() {
                     }}
                   />
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="history" className="space-y-6">
+            <Card className="glass-card glass-border">
+              <CardHeader>
+                <CardTitle className="text-white">History</CardTitle>
+                <CardDescription className="text-gray-300">
+                  Who created, edited, published, pushed, settled or deleted this quiz, and when
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {quiz && <QuizHistory quizId={quiz.id} />}
               </CardContent>
             </Card>
           </TabsContent>

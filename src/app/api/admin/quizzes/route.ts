@@ -8,6 +8,7 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { clearQuizListCache } from '@/lib/quiz-cache';
+import { adminName, logQuizAction } from '@/lib/admin-action-log';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -285,6 +286,10 @@ export async function POST(request: NextRequest) {
 
     // Players see the change now, not when the shared quiz catalogue's cache runs out
     clearQuizListCache();
+    await logQuizAction({
+      quizId: createdQuiz.id, quizTitle: createdQuiz.title, action: 'quiz_created', adminEmail: adminName(session.user),
+      details: { questions: createdQuestions.length },
+    });
     recordSecurityEvent('ADMIN_QUIZ_CREATED', request, session.user.id, {
       quizId: createdQuiz.id,
       title: createdQuiz.title,

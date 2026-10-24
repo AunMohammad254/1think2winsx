@@ -10,6 +10,7 @@ const save = vi.fn();
 const run = vi.fn();
 const notify = vi.fn();
 const resend = vi.fn();
+const logQuizAction = vi.fn();
 
 vi.mock('@/lib/admin-api-guard', () => ({ adminApiGuard: (...a: unknown[]) => guard(...a) }));
 vi.mock('@/lib/quiz-settlement', async () => ({
@@ -23,6 +24,7 @@ vi.mock('@/lib/quiz-settlement', async () => ({
   resendSettlementNotices: (...a: unknown[]) => resend(...a),
 }));
 vi.mock('@/lib/logger', () => ({ default: { log: vi.fn() } }));
+vi.mock('@/lib/admin-action-log', () => ({ logQuizAction: (...a: unknown[]) => logQuizAction(...a) }));
 
 const main = await import('@/app/api/admin/quiz-settlement/route');
 const preview = await import('@/app/api/admin/quiz-settlement/preview/route');
@@ -37,7 +39,7 @@ const ok = { success: true, quizId: 'q1', quizTitle: 'Agli ball', winners: [{ ra
 const okInBrowser = { ...ok, pool: POOL };
 
 beforeEach(() => {
-  for (const fn of [guard, list, detail, save, run, notify, resend]) fn.mockReset();
+  for (const fn of [guard, list, detail, save, run, notify, resend, logQuizAction]) fn.mockReset();
   guard.mockResolvedValue(ADMIN);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -81,6 +83,11 @@ describe('POST /api/admin/quiz-settlement (settle)', () => {
     expect(run).toHaveBeenCalledWith({ ...body, poolPercent: 0, settledBy: 'admin@1think2win.com', dryRun: false });
     expect(notify).toHaveBeenCalledWith(ok);
     expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/quiz-settlement', { write: true });
+    // The quiz's History tab: who settled it, and whom it paid
+    expect(logQuizAction).toHaveBeenCalledWith({
+      quizId: 'q1', quizTitle: 'Agli ball', action: 'quiz_settled', adminEmail: 'admin@1think2win.com',
+      details: { winners: [{ rank: 1, userId: undefined, points: undefined, prizeId: undefined }], unfilled: undefined },
+    });
   });
 
   it('passes a share of the points pool through, and copes with a database that has no pool yet', async () => {
@@ -171,6 +178,10 @@ describe('POST /api/admin/quiz-settlement/result', () => {
     expect(save).toHaveBeenLastCalledWith('q1', { a: 1 }, false, expect.any(Number));
     await post(result, '/api/admin/quiz-settlement/result', { quizId: 'q1', answers: { a: 1 }, endNow: true });
     expect(save).toHaveBeenLastCalledWith('q1', { a: 1 }, true, expect.any(Number));
+    expect(logQuizAction.mock.calls.map((c) => c[0])).toEqual([
+      { quizId: 'q1', action: 'result_saved', adminEmail: 'admin@1think2win.com', details: { answers: { a: 1 }, endedNow: false } },
+      { quizId: 'q1', action: 'result_saved', adminEmail: 'admin@1think2win.com', details: { answers: { a: 1 }, endedNow: true } },
+    ]);
   });
 
   it('passes on a refusal, rejects bad input, and answers 500 on errors', async () => {
@@ -196,6 +207,7 @@ describe('POST /api/admin/quiz-settlement/notify', () => {
     expect(resend).toHaveBeenCalledWith('q1');
     expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/quiz-settlement/notify', { write: true });
     expect(await (await post(notices, '/api/admin/quiz-settlement/notify', { quizId: 'q1' })).json()).toEqual({ notified: false });
+    expect(logQuizAction).toHaveBeenCalledWith({ quizId: 'q1', action: 'notices_resent', adminEmail: 'admin@1think2win.com', details: { notified: true } });
   });
 
   it('passes on a refusal, rejects bad input, and answers 500 on errors', async () => {

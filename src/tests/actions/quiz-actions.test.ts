@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
-const adminActionGuard = vi.fn();
+const adminActionEmail = vi.fn();
+const logQuizAction = vi.fn();
 const revalidatePath = vi.fn();
 const clearQuizListCache = vi.fn();
 const quizDb = { create: vi.fn(), update: vi.fn(), delete: vi.fn(), findById: vi.fn() };
@@ -15,7 +16,11 @@ vi.mock('@/lib/supabase/db', () => ({
   quizDb, questionDb, notificationDb: { createBroadcast: (...a: unknown[]) => createBroadcast(...a) }, getAdminDb: () => adminDb.client,
   generateId: () => `id-${++nextId}`,
 }));
-vi.mock('@/lib/admin-guard', () => ({ adminActionGuard: (...a: unknown[]) => adminActionGuard(...a) }));
+vi.mock('@/lib/admin-guard', () => ({
+  ADMIN_REQUIRED: { success: false, error: 'Unauthorized: admin session required' },
+  adminActionEmail: (...a: unknown[]) => adminActionEmail(...a),
+}));
+vi.mock('@/lib/admin-action-log', () => ({ logQuizAction: (...a: unknown[]) => logQuizAction(...a) }));
 vi.mock('next/cache', () => ({ revalidatePath: (...a: unknown[]) => revalidatePath(...a) }));
 // after() runs its callback once the response is sent: here, when a test calls afterResponse()
 const afterQueue: Array<() => unknown> = [];
@@ -39,8 +44,9 @@ beforeEach(() => {
   adminDb = createSupabaseMock({ rpc: { save_quiz: { data: { success: true } } } });
   afterQueue.length = 0;
   nextId = 0;
-  for (const fn of [adminActionGuard, revalidatePath, clearQuizListCache, createBroadcast, ...Object.values(quizDb), ...Object.values(questionDb)]) fn.mockReset();
-  adminActionGuard.mockResolvedValue(null);
+  for (const fn of [adminActionEmail, logQuizAction, revalidatePath, clearQuizListCache, createBroadcast, ...Object.values(quizDb), ...Object.values(questionDb)]) fn.mockReset();
+  adminActionEmail.mockResolvedValue('boss@example.test');
+  logQuizAction.mockResolvedValue(undefined);
   quizDb.create.mockImplementation(async (d: Record<string, unknown>) => ({ id: 'quiz-1', ...d }));
   quizDb.update.mockImplementation(async (id: string, d: Record<string, unknown>) => ({ id, title: 'Cricket night', ...d }));
   questionDb.findByQuizId.mockResolvedValue([]);
@@ -51,7 +57,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe('every admin quiz action', () => {
   it('refuses without an admin session', async () => {
-    adminActionGuard.mockResolvedValue(DENIED);
+    adminActionEmail.mockResolvedValue(null);
     for (const result of [
       await actions.createQuiz(quizInput() as never), await actions.updateQuiz({ id: 'q', ...quizInput() } as never), await actions.deleteQuiz('q'),
       await actions.publishQuiz('q'), await actions.pauseQuiz('q'), await actions.pushQuizLive('q'), await actions.notifyUpcomingQuiz('q'),
@@ -79,6 +85,10 @@ describe('createQuiz', () => {
     });
     expect(createBroadcast).not.toHaveBeenCalled();
     expect(clearQuizListCache).toHaveBeenCalled();
+    // Who created it, for the quiz's History tab
+    expect(logQuizAction).toHaveBeenCalledWith({
+      quizId: 'id-1', quizTitle: 'Cricket night', action: 'quiz_created', adminEmail: 'boss@example.test', details: { status: 'draft', questions: 1 },
+    });
   });
 
   it('never saves the access price (or difficulty) from the form', async () => {
@@ -136,6 +146,7 @@ describe('createQuiz', () => {
     expect(createBroadcast).not.toHaveBeenCalled();
     expect(clearQuizListCache).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(logQuizAction).not.toHaveBeenCalled();
   });
 
   it('relays database errors', async () => {
@@ -170,6 +181,9 @@ describe('updateQuiz', () => {
     ]);
     expect(revalidatePath).toHaveBeenCalledWith('/quiz/quiz-1');
     expect(clearQuizListCache).toHaveBeenCalled();
+    expect(logQuizAction).toHaveBeenCalledWith({
+      quizId: 'quiz-1', quizTitle: 'Cricket night', action: 'quiz_edited', adminEmail: 'boss@example.test', details: { status: 'draft', questions: 3 },
+    });
   });
 
   it('refuses, before saving anything, to remove an answered question or change its options', async () => {
@@ -238,6 +252,7 @@ describe('updateQuiz', () => {
 describe('delete, publish, pause and push', () => {
   it('deleteQuiz', async () => {
     expect(await actions.deleteQuiz('q')).toEqual({ success: true, message: 'Quiz deleted successfully!' });
+    expect(logQuizAction).toHaveBeenCalledWith({ quizId: 'q', action: 'quiz_deleted', adminEmail: 'boss@example.test' });
     quizDb.delete.mockRejectedValueOnce(new Error('fk'));
     expect((await actions.deleteQuiz('q')).success).toBe(false);
   });
@@ -264,6 +279,7 @@ describe('delete, publish, pause and push', () => {
     questionDb.findByQuizId.mockResolvedValue([{ id: 'x' }]);
     expect((await actions.publishQuiz('q')).success).toBe(true);
     expect(quizDb.update).toHaveBeenCalledWith('q', { status: 'active' });
+    expect(logQuizAction).toHaveBeenCalledWith({ quizId: 'q', quizTitle: 'Cricket night', action: 'quiz_published', adminEmail: 'boss@example.test' });
     await afterResponse();
     expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('"Cricket night"') }));
 
@@ -283,6 +299,7 @@ describe('delete, publish, pause and push', () => {
   it('pauseQuiz', async () => {
     expect(await actions.pauseQuiz('q')).toEqual({ success: true, message: 'Quiz paused successfully!' });
     expect(quizDb.update).toHaveBeenCalledWith('q', { status: 'paused' });
+    expect(logQuizAction).toHaveBeenCalledWith({ quizId: 'q', action: 'quiz_paused', adminEmail: 'boss@example.test' });
     quizDb.update.mockRejectedValueOnce(new Error('x'));
     expect((await actions.pauseQuiz('q')).success).toBe(false);
   });
@@ -292,9 +309,10 @@ describe('delete, publish, pause and push', () => {
     expect(await actions.pushQuizLive('q')).toEqual({ success: false, error: 'Quiz not found' });
     quizDb.findById.mockResolvedValue({ id: 'q', status: 'draft' });
     expect(await actions.pushQuizLive('q')).toEqual({ success: false, error: 'Publish the quiz before pushing it live' });
-    quizDb.findById.mockResolvedValue({ id: 'q', status: 'active' });
+    quizDb.findById.mockResolvedValue({ id: 'q', title: 'Final', status: 'active' });
     expect(await actions.pushQuizLive('q')).toEqual({ success: true, message: 'Pushed to live viewers!' });
     expect(quizDb.update.mock.calls[0][1]).toEqual({ pushedAt: expect.any(String) });
+    expect(logQuizAction).toHaveBeenCalledWith({ quizId: 'q', quizTitle: 'Final', action: 'quiz_pushed_live', adminEmail: 'boss@example.test' });
     // Players see the push at once: the catalogue is refreshed before the broadcast even starts
     expect(clearQuizListCache).toHaveBeenCalled();
     expect(createBroadcast).not.toHaveBeenCalled();
@@ -328,11 +346,13 @@ describe('notifyUpcomingQuiz', () => {
     expect(eqValue(mark, 'id')).toBe('q');
     expect(createBroadcast.mock.invocationCallOrder[0]).toBeLessThan(clearQuizListCache.mock.invocationCallOrder[0]);
     expect(clearQuizListCache).toHaveBeenCalledTimes(1);
+    expect(logQuizAction).toHaveBeenCalledWith({ quizId: 'q', quizTitle: 'Final', action: 'quiz_announced', adminEmail: 'boss@example.test', details: { resent: false } });
 
     adminDb.setTable('Notification', { data: [{ id: 'sent' }] });
     expect(await actions.notifyUpcomingQuiz('q')).toEqual({ success: false, error: 'Users were already notified about this quiz.', code: 'ALREADY_NOTIFIED' });
     expect((await actions.notifyUpcomingQuiz('q', true)).success).toBe(true);
     expect(adminDb.callsTo('Notification')).toHaveLength(2);
+    expect(logQuizAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'quiz_announced', details: { resent: true } }));
   });
 
   it('accepts the legacy "upcoming" status and an unknown title', async () => {

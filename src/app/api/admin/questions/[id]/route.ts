@@ -7,6 +7,7 @@ import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { clearQuizListCache } from '@/lib/quiz-cache';
+import { adminName, logQuizAction } from '@/lib/admin-action-log';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 
 const updateQuestionSchema = z.object({
@@ -283,6 +284,10 @@ export async function PATCH(
 
     // Players see the change now, not when the shared quiz catalogue's cache runs out
     clearQuizListCache();
+    await logQuizAction({
+      quizId: updatedQuestion.quizId, action: 'question_edited', adminEmail: adminName(session.user),
+      details: { questionId: updatedQuestion.id, changes: updateData },
+    });
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: updatedQuestion.id,
       quizId: updatedQuestion.quizId,
@@ -388,6 +393,10 @@ export async function DELETE(
 
     // Players see the change now, not when the shared quiz catalogue's cache runs out
     clearQuizListCache();
+    await logQuizAction({
+      quizId: existingQuestion.quizId, action: 'question_deleted', adminEmail: adminName(session.user),
+      details: { questionId: existingQuestion.id, text: existingQuestion.text },
+    });
     recordSecurityEvent('SUSPICIOUS_ACTIVITY', request, session.user.id, {
       questionId: existingQuestion.id,
       quizId: existingQuestion.quizId,
