@@ -5,7 +5,8 @@ import { DEFAULT_MAX_ENTRIES } from '@/lib/quiz-entries';
  * A quiz's admin-only settings ("QuizAdminSettings"): how many players it admits, first come first
  * served, and the points pool settlement can share. Server-only: players can read every column of
  * "Quiz", so these live in a table only the service role can reach. A quiz without a row has the
- * defaults (the same ones submit_quiz_attempt and settle_quiz use).
+ * defaults (the same ones submit_quiz_attempt and settle_quiz use). The quiz form saves them together
+ * with the quiz, in one transaction (save_quiz, see createQuiz/updateQuiz).
  */
 export interface QuizAdminSettings { maxEntries: number; pointsPool: number }
 
@@ -35,11 +36,4 @@ export async function getQuizAdminSettings(quizIds: string[]): Promise<Map<strin
     settings.set(row.quizId, { maxEntries: row.maxEntries, pointsPool: row.pointsPool });
   }
   return settings;
-}
-
-export async function saveQuizAdminSettings(quizId: string, settings: QuizAdminSettings): Promise<void> {
-  const { error } = await getAdminDb()
-    .from('QuizAdminSettings')
-    .upsert({ quizId, ...settings, updatedAt: new Date().toISOString() }, { onConflict: 'quizId' });
-  if (error) throw error;
 }

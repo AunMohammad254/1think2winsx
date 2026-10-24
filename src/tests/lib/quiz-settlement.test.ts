@@ -259,17 +259,16 @@ describe('saveQuizResult', () => {
     adminDb.setTable('Question', { data: qs });
     adminDb.setTable('QuizSettlement', { data: settled ? { settledAt: 't', settledBy: 'a', tieRule: 'random', seed: 's' } : null });
     adminDb.setTable('QuizWinner', { data: [] });
-    adminDb.setRpc('evaluate_question', { data: { success: true } });
-    adminDb.setRpc('finalize_quiz_scores', { data: { success: true, evaluatedAttempts: 3 } });
+    adminDb.setRpc('save_quiz_result', { data: { success: true } });
   };
 
-  it('saves the correct option of every question, then scores the attempts', async () => {
+  it('saves the correct option of every question and scores the attempts in one database call', async () => {
     setup();
-    expect(await lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).toEqual({ ok: true });
+    // An extra key for a question the quiz no longer has is left out: only this quiz's active questions
+    expect(await lib.saveQuizResult('q1', { a: 1, b: 0, gone: 1 }, false, NOW)).toEqual({ ok: true });
+    // One transaction: saving question by question closed only some questions when a step failed
     expect(adminDb.rpcCalls.filter((c) => c.fn !== 'get_quiz_attempt_counts_by_quiz')).toEqual([
-      { fn: 'evaluate_question', args: { p_question_id: 'a', p_correct_option: 1 } },
-      { fn: 'evaluate_question', args: { p_question_id: 'b', p_correct_option: 0 } },
-      { fn: 'finalize_quiz_scores', args: { p_quiz_id: 'q1' } },
+      { fn: 'save_quiz_result', args: { p_quiz_id: 'q1', p_answers: { a: 1, b: 0 } } },
     ]);
     // Players stop being offered the now-closed questions at once, not when the catalogue's cache expires
     expect(invalidateQuizCatalog).toHaveBeenCalledTimes(1);
@@ -304,17 +303,15 @@ describe('saveQuizResult', () => {
     expect(await lib.saveQuizResult('q1', { a: 1 }, false, NOW)).toMatchObject({ error: 'Choose the correct option for: Wicket?' });
   });
 
-  it('throws when the database refuses', async () => {
+  it('throws when the database refuses, without refreshing the catalogue', async () => {
     setup();
-    adminDb.setRpc('evaluate_question', { data: { success: false } });
-    await expect(lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).rejects.toThrow('evaluate_question failed for a');
-    adminDb.setRpc('evaluate_question', { error: { message: 'rls' } });
+    adminDb.setRpc('save_quiz_result', { data: { success: false, code: 'invalid', error: 'The result must give the correct option of every question' } });
+    await expect(lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).rejects.toThrow('save_quiz_result refused: The result must give the correct option of every question');
+    adminDb.setRpc('save_quiz_result', { data: null });
+    await expect(lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).rejects.toThrow('save_quiz_result refused: no answer');
+    adminDb.setRpc('save_quiz_result', { error: { message: 'rls' } });
     await expect(lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).rejects.toEqual({ message: 'rls' });
-    adminDb.setRpc('evaluate_question', { data: { success: true } });
-    adminDb.setRpc('finalize_quiz_scores', { data: null });
-    await expect(lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).rejects.toThrow('finalize_quiz_scores failed');
-    adminDb.setRpc('finalize_quiz_scores', { error: { message: 'x' } });
-    await expect(lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).rejects.toEqual({ message: 'x' });
+    expect(invalidateQuizCatalog).not.toHaveBeenCalled();
   });
 });
 
