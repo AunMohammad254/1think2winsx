@@ -22,3 +22,7 @@
 ## 2026-10-23 - [React.memo ineffective with object recreation during array shuffle]
 **Learning:** Adding `React.memo` to a list item component (e.g. `PlayerRow`) is ineffective if the parent component recreates the props passed to it during state updates. For instance, when shuffling an array of `leaders`, if the parent maps over the array and creates a new object for each item (`...p, rank: i+1`), `React.memo`'s default shallow equality check will always fail, causing unnecessary re-renders despite the memoization.
 **Action:** When extracting high-frequency state updates, avoid wrapping children in `React.memo` if their props are constantly recreated objects, as this just adds shallow comparison overhead without preventing re-renders. Instead, focus on pushing the dynamic state (like the `setInterval` loop) down into a dedicated child component to shield the static outer parent elements.
+
+## 2026-10-25 - [Prevent whole-page re-renders on timer updates]
+**Learning:** Found that `QuizzesPageInner` contained a `setInterval` hook that updated a `timeRemaining` state every second to show a 24-hour access expiration timer. Because this state was stored at the root of the page component, it caused the entire page (including the search bar, filter tabs, and the large list of quiz cards) to needlessly re-render every second.
+**Action:** Extract small, highly dynamic UI elements (like countdown timers) into their own child components to isolate re-renders and shield large, static parent components.
