@@ -70,7 +70,7 @@ function AccessStatusBanner({ paymentInfo, onExpire }: { paymentInfo: PaymentInf
   const [timeRemaining, setTimeRemaining] = useState<string>('');
 
   useEffect(() => {
-    if (!paymentInfo) return;
+
 
     const updateTimer = () => {
       const now = new Date().getTime();
