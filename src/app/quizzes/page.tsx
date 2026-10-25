@@ -66,12 +66,15 @@ export default function QuizzesPage() {
   );
 }
 
+/**
+ * The day pass countdown. Its own component so that the tick every second re-renders only this
+ * banner, not the whole page (search, filters, quiz grid). `onExpire` must be stable: a new one
+ * restarts the countdown.
+ */
 function AccessStatusBanner({ paymentInfo, onExpire }: { paymentInfo: PaymentInfo; onExpire: () => void }) {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
 
   useEffect(() => {
-
-
     const updateTimer = () => {
       const now = new Date().getTime();
       const expiry = new Date(paymentInfo.expiresAt).getTime();
@@ -117,11 +120,6 @@ function AccessStatusBanner({ paymentInfo, onExpire }: { paymentInfo: PaymentInf
     </div>
   );
 }
-
-// ⚡ Bolt Performance Optimization:
-// Extracted the `timeRemaining` state and its `setInterval` into a new `AccessStatusBanner` component.
-// Why: Prevents the parent `QuizzesPageInner` component and all of its complex descendants
-// (quiz grid, search, filters) from re-rendering every second when the timer ticks.
 
 function QuizzesPageInner() {
   const { user, isLoading } = useAuth();
@@ -392,6 +390,12 @@ function QuizzesPageInner() {
 
   // Throwback behavior removed as requested.
 
+  // The day pass ran out (stable, so the banner's countdown is not restarted by every page render)
+  const expireAccess = useCallback(() => {
+    setHasAccess(false);
+    setPaymentInfo(null);
+  }, []);
+
   // Legacy fetchQuizzes alias for components that call it
   const fetchQuizzes = fetchQuizzesData;
 
@@ -563,13 +567,7 @@ function QuizzesPageInner() {
 
         {/* Access Status Banner */}
         {hasAccess && paymentInfo && (
-          <AccessStatusBanner
-            paymentInfo={paymentInfo}
-            onExpire={() => {
-              setHasAccess(false);
-              setPaymentInfo(null);
-            }}
-          />
+          <AccessStatusBanner paymentInfo={paymentInfo} onExpire={expireAccess} />
         )}
 
         {/* Live Stream Section — everything push/banner/split-related is scoped
