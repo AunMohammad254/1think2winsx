@@ -58,7 +58,70 @@ interface PaymentInfo {
 
 type FilterTab = 'all' | 'available' | 'completed' | 'new';
 
+
+// ⚡ Bolt Performance Optimization:
+// Extracted `timeRemaining` state and `setInterval` loop into a separate `AccessStatusBanner` component.
+// Why: `setInterval` in `QuizzesPage` caused the entire page (including the massive quiz grid and
+// stream container) to re-render every second when a user had an active pass.
+// Impact: Isolates the high-frequency state updates to this small component, reducing React
+// reconciliation overhead on the main thread and preventing the entire page from re-rendering constantly.
+function AccessStatusBanner({
+  paymentInfo,
+  onExpire
+}: {
+  paymentInfo: PaymentInfo,
+  onExpire: () => void
+}) {
+  const [timeRemaining, setTimeRemaining] = useState<string>('');
+
+  useEffect(() => {
+    const updateTimer = () => {
+      const now = new Date().getTime();
+      const expiry = new Date(paymentInfo.expiresAt).getTime();
+      const remaining = expiry - now;
+
+      if (remaining <= 0) {
+        setTimeRemaining('Expired');
+        onExpire();
+        return;
+      }
+
+      const hours = Math.floor(remaining / (1000 * 60 * 60));
+      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+      setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [paymentInfo, onExpire]);
+
+  return (
+    <div className="mb-8 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+            <CheckCircle className="w-5 h-5 text-green-400" />
+          </div>
+          <div>
+            <p className="text-green-200 font-semibold">Full Access Active</p>
+            <p className="text-green-300/70 text-sm">Unlimited quizzes for 24 hours</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/20">
+          <Clock className="w-4 h-4 text-green-400" />
+          <span className="font-mono text-green-300 font-medium">{timeRemaining}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function QuizzesPage() {
+
   return (
     <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 py-12 px-4"><div className="max-w-7xl mx-auto"><QuizCardSkeletonGrid count={6} /></div></div>}>
       <QuizzesPageInner />
@@ -86,7 +149,6 @@ function QuizzesPageInner() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [accessPrice, setAccessPrice] = useState<number>(2);
-  const [timeRemaining, setTimeRemaining] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null); // null = loading
@@ -336,35 +398,6 @@ function QuizzesPageInner() {
 
   // Throwback behavior removed as requested.
 
-  // Update time remaining every second
-  useEffect(() => {
-    if (!paymentInfo) return;
-
-    const updateTimer = () => {
-      const now = new Date().getTime();
-      const expiry = new Date(paymentInfo.expiresAt).getTime();
-      const remaining = expiry - now;
-
-      if (remaining <= 0) {
-        setTimeRemaining('Expired');
-        setHasAccess(false);
-        setPaymentInfo(null);
-        toast.warning('Your 24-hour access has expired');
-        return;
-      }
-
-      const hours = Math.floor(remaining / (1000 * 60 * 60));
-      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
-
-      setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-
-    return () => clearInterval(interval);
-  }, [paymentInfo]);
 
   // Legacy fetchQuizzes alias for components that call it
   const fetchQuizzes = fetchQuizzesData;
@@ -537,23 +570,14 @@ function QuizzesPageInner() {
 
         {/* Access Status Banner */}
         {hasAccess && paymentInfo && (
-          <div className="mb-8 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                  <CheckCircle className="w-5 h-5 text-green-400" />
-                </div>
-                <div>
-                  <p className="text-green-200 font-semibold">Full Access Active</p>
-                  <p className="text-green-300/70 text-sm">Unlimited quizzes for 24 hours</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/20">
-                <Clock className="w-4 h-4 text-green-400" />
-                <span className="font-mono text-green-300 font-medium">{timeRemaining}</span>
-              </div>
-            </div>
-          </div>
+          <AccessStatusBanner
+            paymentInfo={paymentInfo}
+            onExpire={() => {
+              setHasAccess(false);
+              setPaymentInfo(null);
+              toast.warning('Your 24-hour access has expired');
+            }}
+          />
         )}
 
         {/* Live Stream Section — everything push/banner/split-related is scoped
