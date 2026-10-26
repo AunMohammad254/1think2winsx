@@ -151,7 +151,7 @@ jobs:
 
       - name: Start production server
         run: |
-          bun run start &
+          node .next/standalone/server.js &
           echo "Waiting for server..."
           for i in $(seq 1 60); do
             if curl -sf http://localhost:3000 > /dev/null; then echo "Server ready"; exit 0; fi

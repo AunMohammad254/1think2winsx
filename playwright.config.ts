@@ -66,7 +66,7 @@ export default defineConfig({
     /* Run your local dev server before starting the tests */
     /* CI workflows already run `bun run build` in a prior step, so only start the server there */
     webServer: {
-        command: process.env.CI ? 'bun run start' : 'bun run build && bun run start',
+        command: process.env.CI ? 'node .next/standalone/server.js' : 'bun run build && node .next/standalone/server.js',
         url: 'http://localhost:3000',
         reuseExistingServer: !process.env.CI,
         timeout: (process.env.CI ? 120 : 300) * 1000,

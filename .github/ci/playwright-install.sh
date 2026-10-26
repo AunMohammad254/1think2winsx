@@ -15,6 +15,8 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
     exit 0
   fi
   echo "::warning::playwright $* failed or ran past ${LIMIT_SECONDS}s (attempt $attempt of $ATTEMPTS)"
+  # Kill any lingering apt-get or dpkg processes that might be holding the lock
+  sudo killall -9 apt-get apt dpkg || true
   # A stopped dpkg leaves packages half-configured, which makes the next apt-get refuse to run
   sudo dpkg --configure -a || true
   sleep 10
