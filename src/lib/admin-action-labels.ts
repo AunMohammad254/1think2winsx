@@ -10,6 +10,7 @@ export const QUIZ_ACTION_LABELS = {
   quiz_published: 'Published',
   quiz_paused: 'Paused',
   quiz_pushed_live: 'Pushed live',
+  quiz_scheduled: 'Scheduled',
   quiz_announced: 'Announced as upcoming',
   quiz_deleted: 'Deleted the quiz',
   question_added: 'Added a question',

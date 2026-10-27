@@ -7,7 +7,7 @@ import type { Reward, SettlementDetail, SettlementPrize, SettlementQuiz, SettleR
 import { StageBadge } from '@/components/quiz-settlement/StageBadge';
 import { ResultForm } from '@/components/quiz-settlement/ResultForm';
 import { EMPTY_REWARD, RewardsEditor, toRewards, type RewardDraft } from '@/components/quiz-settlement/RewardsEditor';
-import { NO_POOL, PoolEditor, toPoolPercent, type PoolDraft } from '@/components/quiz-settlement/PoolEditor';
+import { NO_POOL, PoolEditor, poolPlaces, toPoolShare, type PoolDraft } from '@/components/quiz-settlement/PoolEditor';
 import { WinnersTable } from '@/components/quiz-settlement/WinnersTable';
 import { formatCount } from '@/lib/numbers';
 
@@ -23,11 +23,22 @@ const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.mes
 const fmt = formatCount;
 const entries = (q: SettlementQuiz) => `${fmt(q.attempts)} / ${fmt(q.maxEntries)} players${q.attempts >= q.maxEntries ? ' · entries closed' : ''}`;
 
-/** "50,000 pool points shared at random among the first 400 players who scored (20% of 2,000 entrants), 1 to 260 points each." */
+const pointsEach = (each: number) => `${fmt(each)} ${each === 1 ? 'point' : 'points'} each`;
+
+/**
+ * "50,000 pool points shared at random among the first 400 players who scored (20% of 2,000 entrants), 1 to 260 points each."
+ * or, with points each, "100 pool points, 1 point each, for the first 100 players who scored (20% of 2,000 entrants, as many as the pool covers)."
+ */
 function poolLine(result: Preview): string | null {
   const pool = result.pool;
   if (!pool || pool.percent <= 0) return null;
   if (pool.paid === 0) return `Points pool (first ${pool.percent}%): no entrant scored, so nothing is shared.`;
+  const each = pool.each ?? 0;
+  if (each > 0) {
+    const capped = pool.places < poolPlaces(result.participants, pool.percent) ? ', as many as the pool covers' : '';
+    return `${fmt(pool.paid)} pool points, ${pointsEach(each)}, for the first ${fmt(pool.recipients)} players who scored ` +
+      `(${pool.percent}% of ${fmt(result.participants)} entrants${capped}).`;
+  }
   return `${fmt(pool.paid)} pool points shared at random among the first ${fmt(pool.recipients)} players who scored ` +
     `(${pool.percent}% of ${fmt(result.participants)} entrants), ${fmt(pool.min)} to ${fmt(pool.max)} points each.`;
 }
@@ -72,7 +83,7 @@ export default function QuizSettlementManager() {
   const [drafts, setDrafts] = useState<RewardDraft[]>(NO_REWARDS);
   const [tieRule, setTieRule] = useState<TieRule>('random');
   const [pool, setPool] = useState<PoolDraft>(NO_POOL);
-  const [preview, setPreview] = useState<{ result: Preview; rewards: Reward[]; poolPercent: number; key: string } | null>(null);
+  const [preview, setPreview] = useState<{ result: Preview; rewards: Reward[]; poolPercent: number; poolEach: number; key: string } | null>(null);
   const [confirmSettle, setConfirmSettle] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
@@ -151,7 +162,7 @@ export default function QuizSettlementManager() {
       setMessage({ type: 'error', text: parsed.error });
       return;
     }
-    const share = quiz.pointsPool > 0 ? toPoolPercent(pool) : { percent: 0 };
+    const share = quiz.pointsPool > 0 ? toPoolShare(pool, quiz.pointsPool) : { percent: 0, each: 0 };
     if ('error' in share) {
       setMessage({ type: 'error', text: share.error });
       return;
@@ -162,9 +173,9 @@ export default function QuizSettlementManager() {
     try {
       // Reusing the seed keeps a random tie-break and the pool shares the same while the admin edits rewards
       const data = await postJson('/api/admin/quiz-settlement/preview',
-        { quizId: quiz.id, rewards: parsed.rewards, tieRule, seed: preview?.result.seed, poolPercent: share.percent },
+        { quizId: quiz.id, rewards: parsed.rewards, tieRule, seed: preview?.result.seed, poolPercent: share.percent, poolEach: share.each },
         'Failed to preview the winners');
-      setPreview({ result: data.result, rewards: parsed.rewards, poolPercent: share.percent, key: rewardsKey });
+      setPreview({ result: data.result, rewards: parsed.rewards, poolPercent: share.percent, poolEach: share.each, key: rewardsKey });
     } catch (e) {
       setMessage({ type: 'error', text: errorText(e, 'Failed to preview the winners') });
     } finally {
@@ -172,12 +183,12 @@ export default function QuizSettlementManager() {
     }
   };
 
-  const settle = async (quiz: SettlementQuiz, fresh: { result: Preview; rewards: Reward[]; poolPercent: number }) => {
+  const settle = async (quiz: SettlementQuiz, fresh: { result: Preview; rewards: Reward[]; poolPercent: number; poolEach: number }) => {
     setBusy(true);
     setMessage(null);
     try {
       const data = await postJson('/api/admin/quiz-settlement',
-        { quizId: quiz.id, rewards: fresh.rewards, tieRule, seed: fresh.result.seed, poolPercent: fresh.poolPercent },
+        { quizId: quiz.id, rewards: fresh.rewards, tieRule, seed: fresh.result.seed, poolPercent: fresh.poolPercent, poolEach: fresh.poolEach },
         'Failed to settle the quiz');
       setPreview(null);
       setConfirmSettle(false);
@@ -186,7 +197,8 @@ export default function QuizSettlementManager() {
       setMessage({
         type: 'success',
         text: `Settled: ${paid} ${paid === 1 ? 'winner' : 'winners'} paid` +
-          (poolPaid > 0 ? `, and ${fmt(poolPaid)} pool points shared among ${fmt(data.result.pool.recipients)} players` : '') +
+          (poolPaid > 0 ? `, and ${fmt(poolPaid)} pool points shared among ${fmt(data.result.pool.recipients)} players` +
+            (fresh.poolEach > 0 ? ` (${pointsEach(fresh.poolEach)})` : '') : '') +
           `. ${data.notified ? 'Players have been notified.' : 'Notifying players failed, but the rewards are paid.'}`,
       });
       await refresh(quiz.id);
@@ -416,7 +428,10 @@ export default function QuizSettlementManager() {
               <WinnersTable winners={detail.settlement.winners} />
               {detail.settlement.pool.percent > 0 && (
                 <p className="text-sm text-gray-300">
-                  Points pool (first {detail.settlement.pool.percent}% of entrants): {fmt(detail.settlement.pool.points)} points shared at random among {fmt(detail.settlement.pool.recipients)} players.
+                  Points pool (first {detail.settlement.pool.percent}% of entrants): {fmt(detail.settlement.pool.points)} points{' '}
+                  {detail.settlement.pool.each > 0
+                    ? `paid ${pointsEach(detail.settlement.pool.each)} to ${fmt(detail.settlement.pool.recipients)} players.`
+                    : `shared at random among ${fmt(detail.settlement.pool.recipients)} players.`}
                 </p>
               )}
               {detail.settlement.seed && (

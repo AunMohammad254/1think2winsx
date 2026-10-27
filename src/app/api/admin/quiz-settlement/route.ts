@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { adminApiGuard } from '@/lib/admin-api-guard';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { getSettlementDetail, listSettlementQuizzes, notifySettlement, runSettlement, settleResultForBrowser } from '@/lib/quiz-settlement';
-import { poolPercentSchema, rewardsSchema, settleErrorStatus } from './schema';
+import { poolEachSchema, poolPercentSchema, rewardsSchema, settleErrorStatus } from './schema';
 import logger from '@/lib/logger';
 import { logQuizAction } from '@/lib/admin-action-log';
 
@@ -17,6 +17,7 @@ const settleSchema = z.object({
   // The seed the preview was made with, so the settled winners and pool shares are the previewed ones
   seed: z.string().min(16).max(128),
   poolPercent: poolPercentSchema,
+  poolEach: poolEachSchema,
 });
 
 /**
@@ -55,10 +56,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error, code: result.code }, { status: settleErrorStatus(result.code) });
     }
     logger.log(`[quiz-settlement] ${result.quizId} settled by ${admin.email}: ${result.winners.length} winner(s), ` +
-      `${result.pool?.paid ?? 0} pool points to ${result.pool?.recipients ?? 0} player(s)`);
+      `${result.pool?.paid ?? 0} pool points to ${result.pool?.recipients ?? 0} player(s)` +
+      (parsed.data.poolEach > 0 ? `, ${parsed.data.poolEach} each` : ''));
     await logQuizAction({
       quizId: result.quizId, quizTitle: result.quizTitle, action: 'quiz_settled', adminEmail: admin.email,
-      details: { winners: result.winners.map((w) => ({ rank: w.rank, userId: w.userId, points: w.points, prizeId: w.prizeId })), unfilled: result.unfilled },
+      details: {
+        winners: result.winners.map((w) => ({ rank: w.rank, userId: w.userId, points: w.points, prizeId: w.prizeId })),
+        unfilled: result.unfilled,
+        pool: { percent: parsed.data.poolPercent, each: parsed.data.poolEach, paid: result.pool?.paid ?? 0, recipients: result.pool?.recipients ?? 0 },
+      },
     });
     const notified = await notifySettlement(result);
     return createSecureJsonResponse({ result: settleResultForBrowser(result), notified }, { status: 200 });

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { argOf, createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
 const adminActionEmail = vi.fn();
@@ -39,6 +39,9 @@ type SaveQuizArgs = { p_quiz_id: string; p_create: boolean; p_quiz: Record<strin
 const saveCalls = () => adminDb.rpcCalls.filter((c) => c.fn === 'save_quiz');
 /** The arguments of the i-th save_quiz call (the quiz, its questions and settings, saved as one). */
 const saved = (i = 0) => saveCalls()[i].args as SaveQuizArgs;
+/** The quiz an action reads with the service role (the admin session is not a Supabase sign-in). */
+const quizIs = (row: Record<string, unknown> | null) => adminDb.setTable('Quiz', { data: row });
+const quizReadFails = () => adminDb.setTable('Quiz', { error: { message: 'x' } });
 
 beforeEach(() => {
   adminDb = createSupabaseMock({ rpc: { save_quiz: { data: { success: true } } } });
@@ -61,6 +64,7 @@ describe('every admin quiz action', () => {
     for (const result of [
       await actions.createQuiz(quizInput() as never), await actions.updateQuiz({ id: 'q', ...quizInput() } as never), await actions.deleteQuiz('q'),
       await actions.publishQuiz('q'), await actions.pauseQuiz('q'), await actions.pushQuizLive('q'), await actions.notifyUpcomingQuiz('q'),
+      await actions.goLiveNow('q'), await actions.scheduleQuiz('q', inAnHour()), await actions.createQuiz(quizInput() as never, { goLive: true }),
     ]) expect(result).toEqual(DENIED);
     expect(quizDb.create).not.toHaveBeenCalled();
   });
@@ -120,6 +124,27 @@ describe('createQuiz', () => {
     expect((await actions.createQuiz(quizInput({ status: 'active' }) as never)).success).toBe(true);
     await afterResponse();
     expect(console.error).toHaveBeenCalledWith('Failed to send quiz publication broadcast notification:', expect.any(Error));
+  });
+
+  it('goes live at once when asked: published and pushed, with only the "Live now" broadcast', async () => {
+    const res = await actions.createQuiz(quizInput({ status: 'scheduled', startsAt: inAnHour() }) as never, { goLive: true });
+    expect(res).toEqual({ success: true, data: { id: 'id-1', pushedAt: expect.any(String) }, message: 'Quiz created and pushed to live viewers!' });
+    expect(saved().p_quiz).toMatchObject({ status: 'active', startsAt: null });
+    expect(quizDb.update).toHaveBeenCalledWith('id-1', { pushedAt: (res as { data: { pushedAt: string } }).data.pushedAt });
+    expect(logQuizAction.mock.calls.map((c) => c[0].action)).toEqual(['quiz_created', 'quiz_pushed_live']);
+    await afterResponse();
+    expect(createBroadcast).toHaveBeenCalledTimes(1);
+    expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ title: '🔴 Live now', link: '/quizzes?openQuiz=id-1' }));
+  });
+
+  it('keeps a created quiz when only its push fails, and says to push it from the list', async () => {
+    quizDb.update.mockRejectedValueOnce(new Error('timeout'));
+    const res = await actions.createQuiz(quizInput() as never, { goLive: true });
+    expect(res).toEqual({ success: true, data: { id: 'id-1' }, message: 'Quiz created and published, but pushing it live failed. Push it from the list.' });
+    expect(console.error).toHaveBeenCalledWith('Push new quiz error:', expect.any(Error));
+    expect(clearQuizListCache).toHaveBeenCalled();
+    await afterResponse();
+    expect(createBroadcast).not.toHaveBeenCalled();
   });
 
   it('validates the input, including a start time for scheduled quizzes', async () => {
@@ -305,12 +330,12 @@ describe('delete, publish, pause and push', () => {
   });
 
   it('pushQuizLive stamps pushedAt on an active quiz and announces it', async () => {
-    quizDb.findById.mockResolvedValue(null);
+    quizIs(null);
     expect(await actions.pushQuizLive('q')).toEqual({ success: false, error: 'Quiz not found' });
-    quizDb.findById.mockResolvedValue({ id: 'q', status: 'draft' });
+    quizIs({ id: 'q', status: 'draft' });
     expect(await actions.pushQuizLive('q')).toEqual({ success: false, error: 'Publish the quiz before pushing it live' });
-    quizDb.findById.mockResolvedValue({ id: 'q', title: 'Final', status: 'active' });
-    expect(await actions.pushQuizLive('q')).toEqual({ success: true, message: 'Pushed to live viewers!' });
+    quizIs({ id: 'q', title: 'Final', status: 'active' });
+    expect(await actions.pushQuizLive('q')).toEqual({ success: true, data: { pushedAt: expect.any(String) }, message: 'Pushed to live viewers!' });
     expect(quizDb.update.mock.calls[0][1]).toEqual({ pushedAt: expect.any(String) });
     expect(logQuizAction).toHaveBeenCalledWith({ quizId: 'q', quizTitle: 'Final', action: 'quiz_pushed_live', adminEmail: 'boss@example.test' });
     // Players see the push at once: the catalogue is refreshed before the broadcast even starts
@@ -326,8 +351,87 @@ describe('delete, publish, pause and push', () => {
     expect(console.error).toHaveBeenCalledWith('Failed to send quiz push broadcast notification:', expect.any(Error));
     quizDb.update.mockResolvedValueOnce(null);
     expect((await actions.pushQuizLive('q')).success).toBe(true);
-    quizDb.findById.mockRejectedValueOnce(new Error('x'));
+    quizReadFails();
     expect((await actions.pushQuizLive('q')).success).toBe(false);
+  });
+
+  it('goLiveNow publishes a quiz that has questions and pushes it, with one broadcast', async () => {
+    quizIs(null);
+    expect(await actions.goLiveNow('q')).toEqual({ success: false, error: 'Quiz not found' });
+    quizIs({ id: 'q', title: 'Final', status: 'draft' });
+    expect(await actions.goLiveNow('q')).toEqual({ success: false, error: 'Cannot publish quiz without questions' });
+    expect(quizDb.update).not.toHaveBeenCalled();
+
+    // Read with the service role: as the (anonymous) player client it found no quiz for an admin
+    const read = adminDb.callsTo('Quiz')[0];
+    expect(argOf(read, 'select')).toBe('id, title, status, startsAt');
+    expect(eqValue(read, 'id')).toBe('q');
+
+    questionDb.findByQuizId.mockResolvedValue([{ id: 'x' }]);
+    const res = await actions.goLiveNow('q');
+    expect(res).toEqual({ success: true, data: { pushedAt: expect.any(String) }, message: 'Published and pushed to live viewers!' });
+    expect(quizDb.update).toHaveBeenCalledWith('q', { status: 'active', pushedAt: (res as { data: { pushedAt: string } }).data.pushedAt });
+    expect(logQuizAction.mock.calls.map((c) => c[0].action)).toEqual(['quiz_published', 'quiz_pushed_live']);
+    expect(clearQuizListCache).toHaveBeenCalled();
+    await afterResponse();
+    expect(createBroadcast).toHaveBeenCalledTimes(1);
+    expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ title: '🔴 Live now', message: expect.stringContaining('"Cricket night"') }));
+
+    // A quiz that is live already is pushed again, as pushQuizLive does
+    logQuizAction.mockClear();
+    quizIs({ id: 'q', title: 'Final', status: 'active' });
+    expect((await actions.goLiveNow('q') as { message: string }).message).toBe('Pushed to live viewers!');
+    expect(quizDb.update).toHaveBeenLastCalledWith('q', { pushedAt: expect.any(String) });
+    expect(logQuizAction.mock.calls.map((c) => c[0].action)).toEqual(['quiz_pushed_live']);
+  });
+
+  it('never takes a settled quiz live again, now or on a schedule', async () => {
+    // Its questions are closed: every user would be sent "Live now" for a quiz nobody can answer
+    const settled = { success: false, code: 'QUIZ_SETTLED', error: "This quiz has been settled, so it can't go live again. Use Reuse Quiz to run a copy." };
+    questionDb.findByQuizId.mockResolvedValue([{ id: 'x' }]);
+    adminDb.setTable('QuizSettlement', { count: 1 });
+    quizIs({ id: 'q', title: 'Final', status: 'paused' });
+    expect(await actions.goLiveNow('q')).toEqual(settled);
+    expect(await actions.scheduleQuiz('q', inAnHour())).toEqual(settled);
+    quizIs({ id: 'q', title: 'Final', status: 'active' });
+    expect(await actions.pushQuizLive('q')).toEqual(settled);
+    expect(quizDb.update).not.toHaveBeenCalled();
+    expect(logQuizAction).not.toHaveBeenCalled();
+    await afterResponse();
+    expect(createBroadcast).not.toHaveBeenCalled();
+  });
+});
+
+describe('scheduleQuiz', () => {
+  it('schedules a quiz that has questions for a time to come', async () => {
+    quizIs({ id: 'q', title: 'Final', status: 'draft' });
+    questionDb.findByQuizId.mockResolvedValue([{ id: 'x' }]);
+    const at = inAnHour();
+    const res = await actions.scheduleQuiz('q', at);
+    expect(res).toEqual({ success: true, data: { startsAt: at }, message: expect.stringMatching(/^Scheduled for .+\. It goes live on its own then\.$/) });
+    expect(quizDb.update).toHaveBeenCalledWith('q', { status: 'scheduled', startsAt: at });
+    expect(logQuizAction).toHaveBeenCalledWith({ quizId: 'q', quizTitle: 'Final', action: 'quiz_scheduled', adminEmail: 'boss@example.test', details: { startsAt: at } });
+    expect(clearQuizListCache).toHaveBeenCalled();
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/quiz');
+    // Nobody is told yet: the scheduler announces it when it goes live
+    await afterResponse();
+    expect(createBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bad or past time, a missing or live quiz, and a quiz without questions', async () => {
+    expect(await actions.scheduleQuiz('q', 'soon')).toEqual({ success: false, error: 'Pick a valid date and time for the schedule' });
+    expect(await actions.scheduleQuiz('q', new Date(Date.now() - 60_000).toISOString())).toEqual({ success: false, error: 'Pick a time in the future' });
+    quizIs(null);
+    expect(await actions.scheduleQuiz('q', inAnHour())).toEqual({ success: false, error: 'Quiz not found' });
+    quizIs({ id: 'q', status: 'active' });
+    expect(await actions.scheduleQuiz('q', inAnHour())).toEqual({ success: false, error: 'This quiz is live. Pause it before scheduling it.' });
+    quizIs({ id: 'q', status: 'paused' });
+    expect(await actions.scheduleQuiz('q', inAnHour())).toEqual({ success: false, error: 'Add questions before scheduling the quiz' });
+    expect(quizDb.update).not.toHaveBeenCalled();
+    questionDb.findByQuizId.mockResolvedValue([{ id: 'x' }]);
+    quizDb.update.mockRejectedValueOnce(new Error('x'));
+    expect(await actions.scheduleQuiz('q', inAnHour())).toEqual({ success: false, error: 'Failed to schedule the quiz. Please try again.' });
+    expect(console.error).toHaveBeenCalledWith('Schedule quiz error:', expect.any(Error));
   });
 });
 
@@ -335,7 +439,7 @@ describe('notifyUpcomingQuiz', () => {
   beforeEach(() => vi.stubEnv('BUSINESS_TIMEZONE', 'Asia/Karachi'));
 
   it('announces a scheduled quiz once, unless forced', async () => {
-    quizDb.findById.mockResolvedValue({ id: 'q', title: 'Final', status: 'scheduled', startsAt: inAnHour() });
+    quizIs({ id: 'q', title: 'Final', status: 'scheduled', startsAt: inAnHour() });
     adminDb.setTable('Notification', { data: [] });
     expect(await actions.notifyUpcomingQuiz('q')).toEqual({ success: true, message: 'Users notified about the upcoming quiz. The quiz is still scheduled.' });
     expect(createBroadcast).toHaveBeenCalledWith(expect.objectContaining({ title: UPCOMING_NOTICE_TITLE, link: '/quizzes?upcoming=q', message: expect.stringMatching(/^"Final" goes live /) }));
@@ -356,22 +460,22 @@ describe('notifyUpcomingQuiz', () => {
   });
 
   it('accepts the legacy "upcoming" status and an unknown title', async () => {
-    quizDb.findById.mockResolvedValue({ id: 'q', title: null, status: 'upcoming', startsAt: inAnHour() });
+    quizIs({ id: 'q', title: null, status: 'upcoming', startsAt: inAnHour() });
     adminDb.setTable('Notification', { data: null });
     await actions.notifyUpcomingQuiz('q');
     expect(createBroadcast.mock.calls[0][0].message).toMatch(/^"Quiz" goes live/);
   });
 
   it('refuses quizzes that cannot be announced', async () => {
-    quizDb.findById.mockResolvedValue(null);
+    quizIs(null);
     expect((await actions.notifyUpcomingQuiz('q') as { error: string }).error).toBe('Quiz not found');
-    quizDb.findById.mockResolvedValue({ status: 'active' });
+    quizIs({ status: 'active' });
     expect((await actions.notifyUpcomingQuiz('q') as { error: string }).error).toBe('Only scheduled quizzes can be announced as upcoming');
-    quizDb.findById.mockResolvedValue({ status: 'scheduled', startsAt: null });
+    quizIs({ status: 'scheduled', startsAt: null });
     expect((await actions.notifyUpcomingQuiz('q') as { error: string }).error).toMatch(/Set a schedule date/);
-    quizDb.findById.mockResolvedValue({ status: 'scheduled', startsAt: new Date(Date.now() - 1000).toISOString() });
+    quizIs({ status: 'scheduled', startsAt: new Date(Date.now() - 1000).toISOString() });
     expect((await actions.notifyUpcomingQuiz('q') as { error: string }).error).toMatch(/due to start already/);
-    quizDb.findById.mockRejectedValue(new Error('x'));
+    quizReadFails();
     expect((await actions.notifyUpcomingQuiz('q') as { error: string }).error).toBe('Failed to notify users. Please try again.');
   });
 });

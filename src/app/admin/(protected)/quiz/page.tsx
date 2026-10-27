@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import {
@@ -21,9 +21,16 @@ import {
     ChevronRight,
     ArrowUpDown,
     RefreshCw,
+    Loader2,
 } from 'lucide-react';
-import { DynamicQuizFormBuilder } from '@/components/admin/DynamicAdminComponents';
-import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive, notifyUpcomingQuiz } from '@/actions/quiz-actions';
+import {
+    DynamicQuizFormBuilder,
+    DynamicQuickQuizPanel,
+    preloadQuizFormBuilder,
+    preloadQuickQuizPanel,
+} from '@/components/admin/DynamicAdminComponents';
+import { publishQuiz, pauseQuiz, deleteQuiz, pushQuizLive, notifyUpcomingQuiz, goLiveNow, scheduleQuiz } from '@/actions/quiz-actions';
+import DateTimePicker from '@/components/ui/DateTimePicker';
 import { createClient } from '@/lib/supabase/client';
 import { DEFAULT_MAX_ENTRIES } from '@/lib/quiz-entries';
 
@@ -81,6 +88,22 @@ const statusConfig = {
 const questionCountOf = (quiz: Quiz) => quiz._count?.questions || quiz.stats?.totalQuestions || 0;
 const attemptCountOf = (quiz: Quiz) => quiz._count?.attempts || quiz.stats?.totalAttempts || 0;
 
+// Every quiz with its counts in one light read (GET /api/admin/quizzes?view=summary)
+const LIST_URL = '/api/admin/quizzes?view=summary';
+
+// The Quiz columns a realtime UPDATE carries that the list shows; counts stay until the refetch
+const LIVE_FIELDS = ['title', 'description', 'duration', 'status', 'startsAt', 'pushedAt', 'updatedAt'] as const;
+
+/** An instant as the date picker's local "YYYY-MM-DDTHH:mm", or '' when it has passed or is missing. */
+function pickerValue(iso: string | null | undefined): string {
+    if (!iso || new Date(iso).getTime() <= Date.now()) return '';
+    const date = new Date(iso);
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
+const shortTime = (iso: string) =>
+    new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+
 // ============================================
 // Component
 // ============================================
@@ -96,6 +119,14 @@ export default function AdminQuizManagementPage() {
     const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
     const [selectedQuizzes, setSelectedQuizzes] = useState<string[]>([]);
     const [actionMenuOpen, setActionMenuOpen] = useState<string | null>(null);
+    // The quiz an action is running for (one at a time): its buttons wait, so a double click can't broadcast twice
+    const [busyId, setBusyId] = useState<string | null>(null);
+    const busyRef = useRef<string | null>(null);
+    // The quiz whose schedule picker is open, and the time picked (the picker's local time)
+    const [scheduling, setScheduling] = useState<{ id: string; startsAt: string } | null>(null);
+    // The Quick quiz panel: mounted on first open, then kept, so what was typed survives closing it
+    const [quickOpen, setQuickOpen] = useState(false);
+    const [quickMounted, setQuickMounted] = useState(false);
 
     // Filter/Search state
     const [searchQuery, setSearchQuery] = useState('');
@@ -115,7 +146,7 @@ export default function AdminQuizManagementPage() {
     const fetchQuizzes = useCallback(async (silent = false) => {
         try {
             if (!silent) setLoading(true);
-            const response = await fetch('/api/admin/quizzes');
+            const response = await fetch(LIST_URL);
 
             if (!response.ok) {
                 if (response.status === 403) {
@@ -150,6 +181,11 @@ export default function AdminQuizManagementPage() {
         fetchQuizzes();
     }, [fetchQuizzes]);
 
+    // Show a change at once, before the refetch or the realtime event confirms it
+    const patchQuiz = useCallback((id: string, patch: Partial<Quiz>) => {
+        setQuizzes(prev => prev.map(q => (q.id === id ? { ...q, ...patch } : q)));
+    }, []);
+
     // ============================================
     // Realtime Subscription
     // ============================================
@@ -167,7 +203,14 @@ export default function AdminQuizManagementPage() {
             )
             .on('postgres_changes',
                 { event: 'UPDATE', schema: 'public', table: 'Quiz' },
-                () => {
+                (payload) => {
+                    // Another admin's change shows now; the refetch brings the counts
+                    const row = payload.new as Partial<Quiz> | undefined;
+                    if (row?.id) {
+                        const patch: Partial<Quiz> = {};
+                        for (const key of LIVE_FIELDS) if (key in row) Object.assign(patch, { [key]: row[key] });
+                        patchQuiz(row.id, patch);
+                    }
                     debouncedSilentFetch();
                 }
             )
@@ -187,33 +230,92 @@ export default function AdminQuizManagementPage() {
                 clearTimeout(realtimeDebounceRef.current);
             }
         };
-    }, [debouncedSilentFetch]);
+    }, [debouncedSilentFetch, patchQuiz]);
 
     // ============================================
     // Actions
     // ============================================
-    const handlePublish = async (id: string) => {
-        const result = await publishQuiz(id);
-        if (result.success) {
-            toast.success(result.message);
-            // Realtime UPDATE event will trigger re-fetch
-        } else {
-            toast.error(result.error);
+
+    /**
+     * Take the page's one-action-at-a-time lock for a quiz: a ref, not the state, since two clicks in one
+     * render would both see the state still empty. Another click on the same quiz is a double click and is
+     * dropped; a click on another quiz is told why nothing happens.
+     */
+    const claimQuiz = (id: string) => {
+        if (busyRef.current) {
+            if (busyRef.current !== id) toast.info('Another quiz action is still running. Try again when it finishes.');
+            return false;
         }
-        setActionMenuOpen(null);
+        busyRef.current = id;
+        setBusyId(id);
+        return true;
     };
 
-    const handlePush = async (id: string) => {
-        const result = await pushQuizLive(id);
-        if (result.success) {
-            toast.success(result.message);
-            // Realtime UPDATE event will trigger re-fetch here; on /quizzes it
-            // triggers the live toast/popup for anyone watching the stream.
-        } else {
-            toast.error(result.error);
-        }
-        setActionMenuOpen(null);
+    const releaseQuiz = () => {
+        busyRef.current = null;
+        setBusyId(null);
     };
+
+    /**
+     * Run one quiz's action with its buttons waiting, toast the outcome, and show a success at once
+     * (`onSuccess`) rather than after the realtime event or a refetch. `ask` is a confirmation, asked only
+     * once the action can run; declining it leaves the menu open.
+     */
+    const runQuizAction = async <T,>(
+        id: string,
+        action: () => Promise<{ success: true; data?: T; message?: string } | { success: false; error: string }>,
+        onSuccess?: (data: T | undefined) => void,
+        ask?: string,
+    ) => {
+        if (!claimQuiz(id)) {
+            setActionMenuOpen(null);
+            return;
+        }
+        try {
+            if (ask && !window.confirm(ask)) return;
+            setActionMenuOpen(null);
+            const result = await action();
+            if (result.success) {
+                toast.success(result.message);
+                onSuccess?.(result.data);
+            } else {
+                toast.error(result.error);
+            }
+        } catch {
+            toast.error('Something went wrong. Check your connection and try again.');
+        } finally {
+            releaseQuiz();
+        }
+    };
+
+    const handlePublish = (id: string) => runQuizAction(id, () => publishQuiz(id), () => patchQuiz(id, { status: 'active' }));
+
+    // Pushing again restarts the answering window, so a quiz that was pushed already asks first, from the
+    // row's button or the menu, and whatever its status now: a paused quiz that ran is asked about too
+    const repushQuestion = (quiz: Quiz) => (quiz.pushedAt
+        ? `"${quiz.title}" was pushed ${shortTime(quiz.pushedAt)}. Push it again? Its answering time starts over.`
+        : undefined);
+
+    // On /quizzes the new pushedAt triggers the live toast/popup for anyone watching the stream
+    const handlePush = (quiz: Quiz) =>
+        runQuizAction(quiz.id, () => pushQuizLive(quiz.id), (data) => patchQuiz(quiz.id, { pushedAt: data?.pushedAt }), repushQuestion(quiz));
+
+    // One click: published if it isn't yet, and pushed to live viewers
+    const handleGoLive = (quiz: Quiz) =>
+        runQuizAction(quiz.id, () => goLiveNow(quiz.id), (data) => patchQuiz(quiz.id, { status: 'active', pushedAt: data?.pushedAt }),
+            repushQuestion(quiz));
+
+    const openSchedule = (quiz: Quiz) => {
+        setActionMenuOpen(null);
+        setScheduling({ id: quiz.id, startsAt: pickerValue(quiz.startsAt) });
+    };
+
+    // The picker gives the admin's local time; the action needs the absolute instant (lib/schedule-time)
+    const handleSchedule = (id: string, startsAt: string) =>
+        runQuizAction(id, () => scheduleQuiz(id, new Date(startsAt).toISOString()), (data) => {
+            patchQuiz(id, { status: 'scheduled', startsAt: data?.startsAt });
+            setScheduling(null);
+        });
 
     // Sends the "upcoming quiz" notification only; the quiz itself stays scheduled.
     const handleNotifyUpcoming = async (id: string) => {
@@ -230,31 +332,11 @@ export default function AdminQuizManagementPage() {
         }
     };
 
-    const handlePause = async (id: string) => {
-        const result = await pauseQuiz(id);
-        if (result.success) {
-            toast.success(result.message);
-            // Realtime UPDATE event will trigger re-fetch
-        } else {
-            toast.error(result.error);
-        }
-        setActionMenuOpen(null);
-    };
+    const handlePause = (id: string) => runQuizAction(id, () => pauseQuiz(id), () => patchQuiz(id, { status: 'paused' }));
 
-    const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this quiz? This action cannot be undone.')) {
-            return;
-        }
-
-        const result = await deleteQuiz(id);
-        if (result.success) {
-            toast.success(result.message);
-            // Realtime DELETE event will remove from state
-        } else {
-            toast.error(result.error);
-        }
-        setActionMenuOpen(null);
-    };
+    const handleDelete = (id: string) =>
+        runQuizAction(id, () => deleteQuiz(id), () => setQuizzes(prev => prev.filter(q => q.id !== id)),
+            'Are you sure you want to delete this quiz? This action cannot be undone.');
 
     // Only offered while at least one quiz is selected
     const handleBulkDelete = async () => {
@@ -275,9 +357,11 @@ export default function AdminQuizManagementPage() {
         // Realtime DELETE events will remove from state
     };
 
+    // While a quiz's details load, its row shows a spinner and the list stays on screen
     const handleEdit = async (quiz: Quiz) => {
+        setActionMenuOpen(null);
+        if (!claimQuiz(quiz.id)) return;
         try {
-            setLoading(true);
             const response = await fetch(`/api/admin/quizzes/${quiz.id}`);
 
             if (!response.ok) throw new Error('Failed to load quiz details');
@@ -320,15 +404,16 @@ export default function AdminQuizManagementPage() {
             toast.error('Failed to load quiz details');
             console.error(err);
         } finally {
-            setLoading(false);
+            releaseQuiz();
         }
     };
 
     const handleReuse = async (quiz: Quiz) => {
+        setActionMenuOpen(null);
+        if (!claimQuiz(quiz.id)) return;
         // Outside the try so a failure can replace the loading toast instead of leaving it spinning
         const toastId = toast.loading('Loading quiz details to copy...');
         try {
-            setLoading(true);
             const response = await fetch(`/api/admin/quizzes/${quiz.id}`);
 
             if (!response.ok) throw new Error('Failed to load quiz details');
@@ -369,7 +454,8 @@ export default function AdminQuizManagementPage() {
 
             if (result.success) {
                 toast.success('Quiz duplicated and saved to draft!', { id: toastId });
-                // We let the Realtime INSERT event trigger the state update
+                // The copy has its own counts, so the list is read again rather than patched
+                fetchQuizzes(true);
             } else {
                 toast.error(result.error || 'Failed to duplicate quiz', { id: toastId });
             }
@@ -377,21 +463,27 @@ export default function AdminQuizManagementPage() {
             toast.error('An unexpected error occurred while duplicating', { id: toastId });
             console.error(err);
         } finally {
-            setLoading(false);
-            setActionMenuOpen(null);
+            releaseQuiz();
         }
     };
 
     const handleFormSuccess = () => {
         setShowForm(false);
         setEditingQuiz(null);
-        fetchQuizzes();
+        // Silent: the list stays on screen while it refreshes
+        fetchQuizzes(true);
+    };
+
+    const openQuickQuiz = () => {
+        setQuickMounted(true);
+        setQuickOpen(true);
     };
 
     // ============================================
     // Filtering & Sorting
     // ============================================
-    const filteredQuizzes = quizzes
+    // Memoised: a menu toggle or a busy spinner re-renders the page, and the list can be 500 quizzes
+    const filteredQuizzes = useMemo(() => quizzes
         .filter(quiz => {
             // Search filter
             if (searchQuery) {
@@ -435,7 +527,14 @@ export default function AdminQuizManagementPage() {
             }
 
             return sortOrder === 'asc' ? comparison : -comparison;
-        });
+        }), [quizzes, searchQuery, statusFilter, sortField, sortOrder]);
+
+    const stats = useMemo(() => [
+        { label: 'Total Quizzes', value: quizzes.length, icon: HelpCircle, color: 'text-purple-400' },
+        { label: 'Published', value: quizzes.filter(q => q.status === 'active').length, icon: Play, color: 'text-green-400' },
+        { label: 'Scheduled', value: quizzes.filter(q => q.status === 'scheduled' || q.status === 'upcoming').length, icon: Clock, color: 'text-blue-400' },
+        { label: 'Drafts/Paused', value: quizzes.filter(q => q.status === 'draft' || q.status === 'paused').length, icon: Pause, color: 'text-yellow-400' },
+    ], [quizzes]);
 
     // Pagination
     const totalPages = Math.ceil(filteredQuizzes.length / pageSize);
@@ -519,16 +618,30 @@ export default function AdminQuizManagementPage() {
                         <p className="text-gray-400">Create, edit, and manage your quizzes</p>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                         <button
                             onClick={() => fetchQuizzes()}
                             disabled={loading}
+                            aria-label="Refresh quizzes"
+                            title="Refresh quizzes"
                             className="p-2 rounded-lg bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
                         >
                             <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                         </button>
                         <button
+                            onClick={openQuickQuiz}
+                            onMouseEnter={preloadQuickQuizPanel}
+                            onFocus={preloadQuickQuizPanel}
+                            title="Write a quiz and go live, schedule it or save a draft in one step"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-pink-500/40 bg-pink-500/10 text-pink-200 font-medium hover:bg-pink-500/20 transition-colors"
+                        >
+                            <Zap className="w-5 h-5" />
+                            Quick Quiz
+                        </button>
+                        <button
                             onClick={() => setShowForm(true)}
+                            onMouseEnter={preloadQuizFormBuilder}
+                            onFocus={preloadQuizFormBuilder}
                             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 text-white font-medium hover:from-purple-500 hover:to-blue-500 transition-all"
                         >
                             <Plus className="w-5 h-5" />
@@ -612,7 +725,7 @@ export default function AdminQuizManagementPage() {
                         </div>
                         <button
                             onClick={() => toggleSort('title')}
-                            className="col-span-6 md:col-span-4 flex items-center gap-2 hover:text-white transition-colors text-left"
+                            className="col-span-6 md:col-span-3 flex items-center gap-2 hover:text-white transition-colors text-left"
                         >
                             Title
                             <ArrowUpDown className="w-4 h-4" />
@@ -643,7 +756,7 @@ export default function AdminQuizManagementPage() {
                             Created
                             <ArrowUpDown className="w-4 h-4" />
                         </button>
-                        <div className="col-span-2 md:col-span-1 text-right">Actions</div>
+                        <div className="col-span-2 text-right">Actions</div>
                     </div>
 
                     {/* Table Body */}
@@ -677,6 +790,7 @@ export default function AdminQuizManagementPage() {
                                 const status = statusConfig[quiz.status] || statusConfig.draft;
                                 const questionCount = questionCountOf(quiz);
                                 const attemptCount = attemptCountOf(quiz);
+                                const busy = busyId === quiz.id;
 
                                 return (
                                     <div
@@ -700,7 +814,7 @@ export default function AdminQuizManagementPage() {
                                         </div>
 
                                         {/* Title */}
-                                        <div className="col-span-6 md:col-span-4 min-w-0">
+                                        <div className="col-span-6 md:col-span-3 min-w-0">
                                             <h3 className="font-medium text-white truncate">{quiz.title}</h3>
                                             {quiz.description && (
                                                 <p className="text-sm text-gray-500 truncate">{quiz.description}</p>
@@ -713,7 +827,7 @@ export default function AdminQuizManagementPage() {
                                                 {status.label}
                                                 {(quiz.status === 'scheduled' || quiz.status === 'upcoming') && quiz.startsAt && (
                                                     <span className="opacity-80 ml-1">
-                                                        ({new Date(quiz.startsAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })})
+                                                        ({shortTime(quiz.startsAt)})
                                                     </span>
                                                 )}
                                             </span>
@@ -734,10 +848,33 @@ export default function AdminQuizManagementPage() {
                                             {new Date(quiz.createdAt).toLocaleDateString()}
                                         </div>
 
-                                        {/* Actions */}
-                                        <div className="col-span-2 md:col-span-1 flex justify-end relative">
+                                        {/* Actions: one click to go live or schedule, the rest in the menu */}
+                                        <div className="col-span-2 flex items-center justify-end gap-1 relative">
+                                            {busy && <Loader2 aria-label={`Working on ${quiz.title}`} className="w-4 h-4 text-gray-400 animate-spin" />}
+                                            <button
+                                                onClick={() => handleGoLive(quiz)}
+                                                disabled={busy}
+                                                aria-label={`${quiz.status === 'active' ? 'Push to live viewers' : 'Go live now'}: ${quiz.title}`}
+                                                title={quiz.status === 'active' ? 'Push to live viewers' : 'Go live now: publish and push to live viewers'}
+                                                className="hidden md:inline-flex p-2 rounded-lg text-pink-400 hover:text-pink-300 hover:bg-pink-500/10 transition-colors disabled:opacity-40"
+                                            >
+                                                <Zap className="w-4 h-4" />
+                                            </button>
+                                            {quiz.status !== 'active' && (
+                                                <button
+                                                    onClick={() => openSchedule(quiz)}
+                                                    disabled={busy}
+                                                    aria-label={`Schedule: ${quiz.title}`}
+                                                    title="Schedule: goes live on its own at the time you pick"
+                                                    className="hidden md:inline-flex p-2 rounded-lg text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 transition-colors disabled:opacity-40"
+                                                >
+                                                    <Clock className="w-4 h-4" />
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => setActionMenuOpen(actionMenuOpen === quiz.id ? null : quiz.id)}
+                                                aria-label={`More actions: ${quiz.title}`}
+                                                aria-expanded={actionMenuOpen === quiz.id}
                                                 className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
                                             >
                                                 <MoreVertical className="w-5 h-5" />
@@ -751,8 +888,28 @@ export default function AdminQuizManagementPage() {
                                                         onClick={() => setActionMenuOpen(null)}
                                                     />
                                                     <div className="absolute right-0 top-full mt-2 z-[1000] w-48 bg-gray-900 border border-white/10 rounded-xl shadow-xl py-1">
+                                                        {quiz.status !== 'active' && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handleGoLive(quiz)}
+                                                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-pink-400 hover:bg-white/10 transition-colors"
+                                                                >
+                                                                    <Zap className="w-4 h-4" />
+                                                                    Go live now
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => openSchedule(quiz)}
+                                                                    className="w-full flex items-center gap-3 px-4 py-2 text-sm text-blue-400 hover:bg-white/10 transition-colors"
+                                                                >
+                                                                    <Clock className="w-4 h-4" />
+                                                                    Schedule…
+                                                                </button>
+                                                                <div className="border-t border-white/10 my-1" />
+                                                            </>
+                                                        )}
                                                         <button
                                                             onClick={() => handleEdit(quiz)}
+                                                            onMouseEnter={preloadQuizFormBuilder}
                                                             className="w-full flex items-center gap-3 px-4 py-2 text-sm text-gray-300 hover:bg-white/10 transition-colors"
                                                         >
                                                             <Edit className="w-4 h-4" />
@@ -795,7 +952,7 @@ export default function AdminQuizManagementPage() {
                                                         ) : (
                                                             <>
                                                                 <button
-                                                                    onClick={() => handlePush(quiz.id)}
+                                                                    onClick={() => handlePush(quiz)}
                                                                     className="w-full flex items-center gap-3 px-4 py-2 text-sm text-pink-400 hover:bg-white/10 transition-colors"
                                                                 >
                                                                     <Zap className="w-4 h-4" />
@@ -822,6 +979,35 @@ export default function AdminQuizManagementPage() {
                                                 </>
                                             )}
                                         </div>
+
+                                        {/* Schedule: the quiz goes live on its own at the time picked */}
+                                        {scheduling?.id === quiz.id && (
+                                            <div role="group" aria-label={`Schedule ${quiz.title}`}
+                                                className="col-span-12 flex flex-wrap items-center gap-3 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3">
+                                                <span className="text-sm text-blue-200">Goes live on its own at</span>
+                                                <div className="min-w-[16rem] flex-1 sm:flex-none">
+                                                    <DateTimePicker
+                                                        id={`schedule-${quiz.id}`}
+                                                        value={scheduling.startsAt}
+                                                        onChange={(startsAt) => setScheduling({ id: quiz.id, startsAt })}
+                                                        placeholder="Pick the start time"
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={() => handleSchedule(quiz.id, scheduling.startsAt)}
+                                                    disabled={!scheduling.startsAt || busy}
+                                                    className="px-4 py-2 rounded-lg bg-blue-600 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+                                                >
+                                                    {busy ? 'Scheduling…' : 'Schedule'}
+                                                </button>
+                                                <button
+                                                    onClick={() => setScheduling(null)}
+                                                    className="px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-white/10 transition-colors"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -880,12 +1066,7 @@ export default function AdminQuizManagementPage() {
 
                 {/* Quick Stats */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                    {[
-                        { label: 'Total Quizzes', value: quizzes.length, icon: HelpCircle, color: 'text-purple-400' },
-                        { label: 'Published', value: quizzes.filter(q => q.status === 'active').length, icon: Play, color: 'text-green-400' },
-                        { label: 'Scheduled', value: quizzes.filter(q => q.status === 'scheduled' || q.status === 'upcoming').length, icon: Clock, color: 'text-blue-400' },
-                        { label: 'Drafts/Paused', value: quizzes.filter(q => q.status === 'draft' || q.status === 'paused').length, icon: Pause, color: 'text-yellow-400' },
-                    ].map((stat) => (
+                    {stats.map((stat) => (
                         <div
                             key={stat.label}
                             className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-xl border border-white/10 p-4"
@@ -901,6 +1082,10 @@ export default function AdminQuizManagementPage() {
                     ))}
                 </div>
             </div>
+
+            {quickMounted && (
+                <DynamicQuickQuizPanel open={quickOpen} onOpenChange={setQuickOpen} onSaved={() => fetchQuizzes(true)} />
+            )}
         </div>
     );
 }

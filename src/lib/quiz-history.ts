@@ -9,6 +9,13 @@ import { getAdminDb } from '@/lib/supabase/db';
 export const SETTLED_QUIZ_DELETE_ERROR =
   'This quiz has been settled: deleting it would erase who won and what was paid. Pause it instead.';
 
+/**
+ * A settled quiz's questions are closed and its rewards paid, so it never goes live again: a push would
+ * send every user a "Live now" notice for a quiz nobody can answer. Reuse Quiz makes a fresh copy.
+ */
+export const SETTLED_QUIZ_LIVE_ERROR =
+  "This quiz has been settled, so it can't go live again. Use Reuse Quiz to run a copy.";
+
 /** True when the quiz has a settlement, or winners recorded before settlements existed. */
 export async function hasPayoutHistory(quizId: string): Promise<boolean> {
   const db = getAdminDb();

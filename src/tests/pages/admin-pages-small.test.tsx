@@ -153,20 +153,13 @@ describe('client-checked admin pages', () => {
     expect(redirect).toHaveBeenCalledWith('/admin/quiz-evaluation');
   });
 
-  it('settle quizzes: lets admins in and sends others to the admin login', async () => {
-    const { unmount } = render(<QuizEvaluationPage />);
-    expect(await screen.findByText('Settle Quizzes')).toBeInTheDocument();
-    unmount();
-    for (const response of [() => jsonResponse({}, 401), () => jsonResponse({}, 403), () => { throw new Error('x'); }]) {
-      h.router.push.mockClear();
-      fetchMock.mockImplementationOnce(async () => response());
-      const r = render(<QuizEvaluationPage />);
-      await waitFor(() => expect(h.router.push).toHaveBeenLastCalledWith('/admin/login'));
-      expect(screen.queryByText('Settle Quizzes')).toBeNull();
-      r.unmount();
-    }
-    expect(h.router.push).not.toHaveBeenCalledWith('/login');
-    expect(console.error).toHaveBeenCalledWith('Admin check failed:', expect.any(Error));
+  it('settle quizzes: shows the settlement screen at once, leaving the admin check to the layout', () => {
+    render(<QuizEvaluationPage />);
+    expect(screen.getByRole('heading', { name: 'Settle Quizzes' })).toBeInTheDocument();
+    expect(screen.getByText('lazy:admin')).toBeInTheDocument(); // the lazy settlement screen
+    // No request of its own: the admin quiz list was fetched only to check access
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(h.router.push).not.toHaveBeenCalled();
   });
 
   it('renders the lazy managers with their loading skeletons', async () => {

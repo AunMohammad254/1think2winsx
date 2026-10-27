@@ -226,7 +226,7 @@ describe('a quiz ready to settle', () => {
     fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
     expect(await within(section).findByRole('heading', { name: 'Preview: 4 players' })).toBeInTheDocument();
     expect(bodyOf(posts('/api/admin/quiz-settlement/preview')[0])).toEqual({
-      quizId: 'ready', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p-bumper' }], tieRule: 'random', poolPercent: 0,
+      quizId: 'ready', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p-bumper' }], tieRule: 'random', poolPercent: 0, poolEach: 0,
     });
     expect(posts('/api/admin/quiz-settlement/preview')[0][1].headers).toMatchObject({ 'X-CSRF-Token': '' });
     expect(within(section).getByText('500 points')).toBeInTheDocument();
@@ -252,7 +252,7 @@ describe('a quiz ready to settle', () => {
     fireEvent.click(within(section).getByRole('button', { name: 'Yes, settle now' }));
     expect(await screen.findByRole('status')).toHaveTextContent('Settled: 2 winners paid. Players have been notified.');
     expect(bodyOf(posts('/api/admin/quiz-settlement')[0])).toEqual({
-      quizId: 'ready', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p-bumper' }], tieRule: 'earliest', seed: SEED, poolPercent: 0,
+      quizId: 'ready', rewards: [{ rank: 1, points: 500 }, { rank: 2, prizeId: 'p-bumper' }], tieRule: 'earliest', seed: SEED, poolPercent: 0, poolEach: 0,
     });
     expect(await within(panel()).findByText(/Settled .* by admin@x · ties: Earliest submission/)).toBeInTheDocument();
   });
@@ -443,6 +443,61 @@ describe('entry limit and points pool', () => {
     expect(bodyOf(posts('/api/admin/quiz-settlement')[0])).toMatchObject({ poolPercent: 10, seed: SEED });
   });
 
+  it('gives the first players a fixed number of points each, as many as the pool covers', async () => {
+    details.ready = detailOf({ ...QUIZZES[3], attempts: 2000, maxEntries: 2000, pointsPool: 100 });
+    const each = { poolSize: 100, eligible: 1800, min: 5, max: 5 };
+    onPreview = (body) => jsonResponse({ result: previewResult({ participants: 2000,
+      pool: { ...each, percent: body.poolPercent, each: body.poolEach, target: 100, places: 20, paid: 100, recipients: 20 } }) });
+    onSettle = (body) => jsonResponse({ result: previewResult({ preview: undefined, participants: 2000,
+      pool: { ...each, percent: body.poolPercent, each: body.poolEach, target: 100, places: 20, paid: 100, recipients: 20 } }), notified: true });
+    const section = await open('Quiz ready');
+    // How much each gets is asked once somebody gets the pool
+    expect(within(section).queryByRole('radiogroup', { name: 'How much each player gets' })).toBeNull();
+    fireEvent.click(within(section).getByRole('radio', { name: 'First 20%' }));
+    expect(within(section).getByRole('radio', { name: 'Share the whole pool at random' })).toBeChecked();
+
+    // 1 point each: 20% is 400 places, but a 100-point pool covers 100 of them
+    fireEvent.click(within(section).getByRole('radio', { name: '1 point each' }));
+    expect(within(section).getByText('The first 100 of 2,000 players who got in get 1 point each: 100 of the 100 pool points. ' +
+      "The pool covers 100 of the 400 places at 1 point each. Players who scored 0 don't take a place.")).toBeInTheDocument();
+
+    // Custom points each: whole points, 1 up to the pool
+    fireEvent.click(within(section).getByRole('radio', { name: 'Custom points each' }));
+    const input = within(section).getByRole('spinbutton', { name: 'Points each player gets' });
+    for (const value of ['', '0', '2.5', '101']) {
+      fireEvent.change(input, { target: { value } });
+      fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Points pool: enter whole points each, 1 to 100');
+    }
+    expect(posts('/api/admin/quiz-settlement/preview')).toHaveLength(0);
+    fireEvent.change(input, { target: { value: '5' } });
+    expect(within(section).getByText(/^The first 20 of 2,000 players who got in get 5 points each: 100 of the 100 pool points\. The pool covers 20 of the 400 places/)).toBeInTheDocument();
+
+    fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+    expect(await within(section).findByText(
+      '100 pool points, 5 points each, for the first 20 players who scored (20% of 2,000 entrants, as many as the pool covers).')).toBeInTheDocument();
+    expect(bodyOf(posts('/api/admin/quiz-settlement/preview')[0])).toMatchObject({ poolPercent: 20, poolEach: 5 });
+
+    fireEvent.click(await within(section).findByRole('button', { name: 'Settle quiz' }));
+    fireEvent.click(within(section).getByRole('button', { name: 'Yes, settle now' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Settled: 2 winners paid, and 100 pool points shared among 20 players (5 points each). Players have been notified.');
+    expect(bodyOf(posts('/api/admin/quiz-settlement')[0])).toMatchObject({ poolPercent: 20, poolEach: 5, seed: SEED });
+  });
+
+  it('says nothing about the pool cap when the pool covers every place', async () => {
+    details.ready = detailOf({ ...QUIZZES[3], attempts: 2000, maxEntries: 2000, pointsPool: 1000 });
+    onPreview = (body) => jsonResponse({ result: previewResult({ participants: 2000,
+      pool: { poolSize: 1000, percent: body.poolPercent, each: body.poolEach, target: 400, places: 400, paid: 400, eligible: 1800, recipients: 400, min: 1, max: 1 } }) });
+    const section = await open('Quiz ready');
+    fireEvent.click(within(section).getByRole('radio', { name: 'First 20%' }));
+    fireEvent.click(within(section).getByRole('radio', { name: '1 point each' }));
+    expect(within(section).getByText("The first 400 of 2,000 players who got in get 1 point each: 400 of the 1,000 pool points. Players who scored 0 don't take a place.")).toBeInTheDocument();
+    fireEvent.click(within(section).getByRole('button', { name: 'Preview winners' }));
+    expect(await within(section).findByText('400 pool points, 1 point each, for the first 400 players who scored (20% of 2,000 entrants).')).toBeInTheDocument();
+    expect(bodyOf(posts('/api/admin/quiz-settlement/preview')[0])).toMatchObject({ poolPercent: 20, poolEach: 1 });
+  });
+
   it('says how to add a pool when a quiz has none, when nobody has got in, and when no entrant scored', async () => {
     onPreview = () => jsonResponse({ result: previewResult({ pool: { ...POOL, percent: 10, paid: 0, recipients: 0 } }) });
     const section = await open('Quiz ready');
@@ -476,5 +531,14 @@ describe('entry limit and points pool', () => {
     });
     const section = await open('Quiz settled');
     expect(within(section).getByText('Points pool (first 12.5% of entrants): 6,250 points shared at random among 250 players.')).toBeInTheDocument();
+  });
+
+  it('shows the points each a settled quiz paid', async () => {
+    details.settled = detailOf(QUIZZES[4], {
+      settlement: { settledAt: '2026-10-19T11:00:00Z', settledBy: 'admin@x', tieRule: 'random', seed: SEED, winners: [],
+        pool: { percent: 20, points: 100, recipients: 100, each: 1 } },
+    });
+    const section = await open('Quiz settled');
+    expect(within(section).getByText('Points pool (first 20% of entrants): 100 points paid 1 point each to 100 players.')).toBeInTheDocument();
   });
 });

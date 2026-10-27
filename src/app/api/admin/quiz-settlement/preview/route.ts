@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { adminApiGuard } from '@/lib/admin-api-guard';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { runSettlement, settleResultForBrowser } from '@/lib/quiz-settlement';
-import { poolPercentSchema, rewardsSchema, settleErrorStatus } from '../schema';
+import { poolEachSchema, poolPercentSchema, rewardsSchema, settleErrorStatus } from '../schema';
 
 const previewSchema = z.object({
   quizId: z.string().min(1),
@@ -14,6 +14,7 @@ const previewSchema = z.object({
   // Reuse the seed of an earlier preview to keep a random tie-break (and the pool shares) stable while editing
   seed: z.string().min(16).max(128).optional(),
   poolPercent: poolPercentSchema,
+  poolEach: poolEachSchema,
 });
 
 /**

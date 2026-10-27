@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { hasAtMostTwoDecimals } from '@/lib/numbers';
+import { MAX_POINTS_POOL } from '@/lib/quiz-entries';
 
 /** Up to one reward per place 1-3: points (1 to 100,000) or one prize. settle_quiz checks the same. */
 export const rewardsSchema = z
@@ -23,6 +24,18 @@ export const poolPercentSchema = z
   .min(0, 'The pool percentage must be 0 to 100')
   .max(100, 'The pool percentage must be 0 to 100')
   .refine(hasAtMostTwoDecimals, { message: 'The pool percentage can have at most two decimals' })
+  .default(0);
+
+/**
+ * Points each of those entrants gets, instead of random shares: a whole number, at most the quiz's
+ * pool, which also caps how many are paid. 0 (the default) splits the whole pool at random.
+ * settle_quiz checks the same, and that the pool covers it.
+ */
+export const poolEachSchema = z
+  .number()
+  .int('Points each must be a whole number')
+  .min(0, 'Points each must be 0 or more')
+  .max(MAX_POINTS_POOL, `Points each cannot exceed ${MAX_POINTS_POOL.toLocaleString('en-US')}`)
   .default(0);
 
 const STATUS: Record<string, number> = {

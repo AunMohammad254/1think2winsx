@@ -30,6 +30,10 @@ wrong SQL. Covered so far:
   a result back, `email_log_totals`, the daily limit following `AppSettings.email_provider` (Brevo
   299, SES 199 by default), the guard that stops on a changed `email_quota_settings()`, and that
   only the service role can reach any of it
+- Points pool paid as points each (migration `06-20261027120000`): the earliest scorers filling the
+  places get the same points, the pool caps how many are paid, the preview matches the settle, the
+  refusals (no percentage, more than the pool, below 0), the older seven-argument call keeps the random
+  split through the single `settle_quiz`, and the guard stops a second run
 - Signing up again (migration `06-20261025120000`): every foreign key to `"User"(id)` cascades an id
   change, so production's `on_auth_user_created` trigger hands a returning player their old `"User"`
   row (with its notifications) and they can lock in answers; the migration's repair of accounts left
