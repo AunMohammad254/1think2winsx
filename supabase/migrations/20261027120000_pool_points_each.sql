@@ -1,9 +1,11 @@
 -- =============================================================================
 -- Points pool: a fixed number of points for each player, as well as random shares
 --
--- NOT applied to production yet. Apply it BEFORE deploying the code that offers "points each" on the
--- Settle screen. The live code keeps working with it: its settle call (seven named arguments) reaches
--- settle_quiz, whose new eighth argument has a default that keeps the random split. The new code sends
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-27 as migration 20261027134433, owner-approved,
+-- BEFORE the code that offers "points each" on the Settle screen (PR #74) was deployed. Checked after: one
+-- settle_quiz (8 arguments, body md5 6d8565bd69ee9d244494d140d21ff085), service role only, "poolEach" 0 on
+-- the 5 earlier settlements, and the live code's seven-argument call answered as before. That call reaches
+-- settle_quiz through the new eighth argument's default, which keeps the random split; the new code sends
 -- p_pool_each only for a fixed amount, so it settles the old way on a database without this migration.
 --
 -- Why: settlement could pay a quiz's points pool only as the whole pool in random amounts. The admin
