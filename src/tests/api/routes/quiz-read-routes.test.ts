@@ -126,7 +126,6 @@ describe('GET /api/quizzes', () => {
     expect(res.status).toBe(200);
     expect(body).toMatchObject({ hasAccess: true, walletEnabled: true, accessError: null, paymentInfo: { id: 'pay-1' }, unreadNotifications: 4 });
     expect(getUnreadCount).toHaveBeenCalledWith('user-1');
-    expect(body.paymentInfo.timeRemaining).toBeGreaterThan(3500);
     expect(byId.live).toMatchObject({ pushStatus: 'unanswered', isCompleted: false, questionCount: 2, questions: [], hasAccess: true });
     expect(byId.done).toMatchObject({ pushStatus: 'answered', isCompleted: true, hasNewQuestions: false, newQuestionsCount: 0, lastAttemptDate: '2026-10-10T10:00:00.000Z' });
     expect(byId.paused.pushStatus).toBe('time-up');
@@ -189,7 +188,6 @@ describe('GET /api/quizzes', () => {
   });
 
   it('answers 304 when the ETag matches', async () => {
-    // paymentInfo.timeRemaining is part of the body, so the clock must not tick between calls
     vi.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
     try {
       getActiveQuizCatalog.mockResolvedValue([catalogQuiz()]);
@@ -202,14 +200,14 @@ describe('GET /api/quizzes', () => {
     }
   });
 
-  it("changes a paying player's ETag every second, because timeRemaining is in the body", async () => {
+  it("does not change a paying player's ETag every second, because timeRemaining is no longer in the body", async () => {
     vi.useFakeTimers({ now: Date.now(), toFake: ['Date'] });
     try {
       getActiveQuizCatalog.mockResolvedValue([catalogQuiz()]);
       const first = await list();
       vi.setSystemTime(Date.now() + 1000);
       const second = await list({ 'if-none-match': first.headers.get('ETag')! });
-      expect(second.status).toBe(200);
+      expect(second.status).toBe(304);
     } finally {
       vi.useRealTimers();
     }

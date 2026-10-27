@@ -91,7 +91,7 @@ export const GET = withLoadShed(async function GET(request: NextRequest) {
     // Wallet disabled => quizzes are free for everyone, regardless of payment state.
     const hasAccess = !walletEnabled || (!!payment && expiresAt > now);
     const paymentInfo = payment && expiresAt > now
-      ? { id: payment.id, expiresAt: new Date(expiresAt), timeRemaining: Math.floor((expiresAt - now) / 1000) }
+      ? { id: payment.id, expiresAt: new Date(expiresAt) }
       : null;
 
     const attemptByQuiz = new Map<string, { completedAt: string | null }>();

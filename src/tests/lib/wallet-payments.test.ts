@@ -139,7 +139,6 @@ describe('payment middleware', () => {
     dailyPaymentDb.findFirstActive.mockResolvedValue({ id: 'pay-1', expiresAt });
     const res = await payment.checkPaymentAccess('user-1');
     expect(res).toMatchObject({ hasAccess: true, payment: { id: 'pay-1', expiresAt: new Date(expiresAt) } });
-    expect(res.payment!.timeRemaining).toBeGreaterThan(3590);
   });
 
   it('denies and logs when there is no payment or it has expired', async () => {
@@ -270,7 +269,6 @@ describe('payment routes', () => {
     dailyPaymentDb.findMany.mockResolvedValue([{ id: 'pay-1' }]);
     const body = await (await paymentsRoute.GET(req())).json();
     expect(body).toMatchObject({ hasAccess: true, currentPayment: { id: 'pay-1', amount: 2 }, paymentHistory: [{ id: 'pay-1' }] });
-    expect(body.currentPayment.timeRemaining).toBeGreaterThan(3590);
     expect(dailyPaymentDb.findMany).toHaveBeenCalledWith('user-1', 10);
 
     dailyPaymentDb.findFirstActive.mockResolvedValue(null);

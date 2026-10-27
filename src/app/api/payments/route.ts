@@ -42,8 +42,6 @@ export async function GET(request: NextRequest) {
       return rateLimitResponse;
     }
 
-    const now = new Date();
-
     // Get current valid payment
     const currentPayment = await dailyPaymentDb.findFirstActive(userId);
 
@@ -51,9 +49,6 @@ export async function GET(request: NextRequest) {
     const paymentHistory = await dailyPaymentDb.findMany(userId, 10);
 
     const hasAccess = !!currentPayment;
-    const timeRemaining = currentPayment
-      ? Math.max(0, new Date(currentPayment.expiresAt).getTime() - now.getTime())
-      : 0;
 
     return createSecureJsonResponse({
       hasAccess,
@@ -61,7 +56,6 @@ export async function GET(request: NextRequest) {
         id: currentPayment.id,
         amount: currentPayment.amount,
         expiresAt: currentPayment.expiresAt,
-        timeRemaining: Math.floor(timeRemaining / 1000),
       } : null,
       paymentHistory
     }, { status: 200 });
