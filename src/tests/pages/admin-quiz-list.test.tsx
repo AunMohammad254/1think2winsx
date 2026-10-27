@@ -379,12 +379,49 @@ describe('admin quiz list page', () => {
     expect(h.actions.goLiveNow).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText('Working on Paused One')).toBeInTheDocument();
     expect(goLive).toBeDisabled();
-    // Another quiz waits too: one broadcast at a time
+    // Its menu waits too, without a word: that is the same click again
+    openMenu('Paused One');
+    click('Go live now');
+    expect(h.toast.info).not.toHaveBeenCalled();
+    // Another quiz waits too, one broadcast at a time, and the admin is told why nothing happens
     click('Go live now: History Quiz');
     expect(h.actions.goLiveNow).toHaveBeenCalledTimes(1);
+    expect(h.toast.info).toHaveBeenCalledWith('Another quiz action is still running. Try again when it finishes.');
+    // So do Edit and Reuse, which would otherwise clear a spinner that is not theirs, and a delete asks nothing yet
+    openMenu('Cricket Basics');
+    click('Edit Quiz');
+    openMenu('Cricket Basics');
+    click('Reuse Quiz');
+    openMenu('Cricket Basics');
+    click('Delete');
+    expect(fetchMock).toHaveBeenCalledTimes(1); // the list only
+    expect(h.toast.loading).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(h.toast.info).toHaveBeenCalledTimes(4);
+    expect(screen.getByLabelText('Working on Paused One')).toBeInTheDocument();
     await act(async () => finish({ success: true, message: 'Live' }));
     expect(screen.queryByLabelText('Working on Paused One')).toBeNull();
     expect(within(row('Paused One')).getByText('Published')).toBeInTheDocument();
+  });
+
+  it('asks before pushing any quiz that was pushed before, from its row or its menu', async () => {
+    vi.stubGlobal('fetch', routes(() => jsonResponse({ quizzes: [
+      quiz('r1', 'Ran Yesterday', 1, { status: 'paused', pushedAt: '2026-10-20T10:00:00Z' }),
+      quiz('r2', 'On Air', 2, { status: 'active', pushedAt: '2026-10-27T09:00:00Z' }),
+    ] })));
+    vi.mocked(confirm).mockReturnValue(false);
+    render(<AdminQuizManagementPage />);
+    await loaded('Ran Yesterday');
+    // Paused after it ran: going live again restarts its answering time all the same
+    click('Go live now: Ran Yesterday');
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringMatching(/^"Ran Yesterday" was pushed .+\. Push it again\? Its answering time starts over\.$/));
+    openMenu('On Air');
+    click('Push to live viewers');
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringMatching(/^"On Air" was pushed .+\. Push it again\?/));
+    // Declined, so nothing ran, and the menu stays open
+    expect(h.actions.goLiveNow).not.toHaveBeenCalled();
+    expect(h.actions.pushQuizLive).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Push to live viewers' })).toBeInTheDocument();
   });
 
   it('reports an action that throws, and frees its buttons', async () => {

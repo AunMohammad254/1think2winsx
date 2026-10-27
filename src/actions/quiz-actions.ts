@@ -10,7 +10,7 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
-import { hasPayoutHistory, SETTLED_QUIZ_DELETE_ERROR } from '@/lib/quiz-history';
+import { hasPayoutHistory, SETTLED_QUIZ_DELETE_ERROR, SETTLED_QUIZ_LIVE_ERROR } from '@/lib/quiz-history';
 import {
     QuizFormSchema,
     CreateQuizInputSchema,
@@ -394,6 +394,8 @@ async function pushLive(id: string, admin: string, publish: boolean): Promise<Ac
         if (publishing && (await questionDb.findByQuizId(id)).length === 0) {
             return { success: false, error: 'Cannot publish quiz without questions' };
         }
+        // Every row of the quiz list has a Go live button, settled quizzes' rows included
+        if (await hasPayoutHistory(id)) return { success: false, error: SETTLED_QUIZ_LIVE_ERROR, code: 'QUIZ_SETTLED' };
 
         const pushedAt = new Date().toISOString();
         const updatedQuiz = await quizDb.update(id, (publishing ? { status: 'active', pushedAt } : { pushedAt }) as any);
@@ -434,6 +436,8 @@ export async function scheduleQuiz(id: string, startsAt: string): Promise<Action
         if ((await questionDb.findByQuizId(id)).length === 0) {
             return { success: false, error: 'Add questions before scheduling the quiz' };
         }
+        // The scheduler would push it at startsAt, as Go live would now
+        if (await hasPayoutHistory(id)) return { success: false, error: SETTLED_QUIZ_LIVE_ERROR, code: 'QUIZ_SETTLED' };
 
         await quizDb.update(id, { status: 'scheduled', startsAt: at });
         await logQuizAction({ quizId: id, quizTitle: quiz.title, action: 'quiz_scheduled', adminEmail: admin, details: { startsAt: at } });

@@ -384,6 +384,22 @@ describe('delete, publish, pause and push', () => {
     expect(quizDb.update).toHaveBeenLastCalledWith('q', { pushedAt: expect.any(String) });
     expect(logQuizAction.mock.calls.map((c) => c[0].action)).toEqual(['quiz_pushed_live']);
   });
+
+  it('never takes a settled quiz live again, now or on a schedule', async () => {
+    // Its questions are closed: every user would be sent "Live now" for a quiz nobody can answer
+    const settled = { success: false, code: 'QUIZ_SETTLED', error: "This quiz has been settled, so it can't go live again. Use Reuse Quiz to run a copy." };
+    questionDb.findByQuizId.mockResolvedValue([{ id: 'x' }]);
+    adminDb.setTable('QuizSettlement', { count: 1 });
+    quizIs({ id: 'q', title: 'Final', status: 'paused' });
+    expect(await actions.goLiveNow('q')).toEqual(settled);
+    expect(await actions.scheduleQuiz('q', inAnHour())).toEqual(settled);
+    quizIs({ id: 'q', title: 'Final', status: 'active' });
+    expect(await actions.pushQuizLive('q')).toEqual(settled);
+    expect(quizDb.update).not.toHaveBeenCalled();
+    expect(logQuizAction).not.toHaveBeenCalled();
+    await afterResponse();
+    expect(createBroadcast).not.toHaveBeenCalled();
+  });
 });
 
 describe('scheduleQuiz', () => {

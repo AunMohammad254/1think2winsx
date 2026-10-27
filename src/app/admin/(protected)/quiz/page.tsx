@@ -119,7 +119,7 @@ export default function AdminQuizManagementPage() {
     const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
     const [selectedQuizzes, setSelectedQuizzes] = useState<string[]>([]);
     const [actionMenuOpen, setActionMenuOpen] = useState<string | null>(null);
-    // The quiz a one-click action is running for: its buttons wait, so a double click can't broadcast twice
+    // The quiz an action is running for (one at a time): its buttons wait, so a double click can't broadcast twice
     const [busyId, setBusyId] = useState<string | null>(null);
     const busyRef = useRef<string | null>(null);
     // The quiz whose schedule picker is open, and the time picked (the picker's local time)
@@ -237,20 +237,43 @@ export default function AdminQuizManagementPage() {
     // ============================================
 
     /**
+     * Take the page's one-action-at-a-time lock for a quiz: a ref, not the state, since two clicks in one
+     * render would both see the state still empty. Another click on the same quiz is a double click and is
+     * dropped; a click on another quiz is told why nothing happens.
+     */
+    const claimQuiz = (id: string) => {
+        if (busyRef.current) {
+            if (busyRef.current !== id) toast.info('Another quiz action is still running. Try again when it finishes.');
+            return false;
+        }
+        busyRef.current = id;
+        setBusyId(id);
+        return true;
+    };
+
+    const releaseQuiz = () => {
+        busyRef.current = null;
+        setBusyId(null);
+    };
+
+    /**
      * Run one quiz's action with its buttons waiting, toast the outcome, and show a success at once
-     * (`onSuccess`) rather than after the realtime event or a refetch.
+     * (`onSuccess`) rather than after the realtime event or a refetch. `ask` is a confirmation, asked only
+     * once the action can run; declining it leaves the menu open.
      */
     const runQuizAction = async <T,>(
         id: string,
         action: () => Promise<{ success: true; data?: T; message?: string } | { success: false; error: string }>,
         onSuccess?: (data: T | undefined) => void,
+        ask?: string,
     ) => {
-        setActionMenuOpen(null);
-        // A ref, not the state: two clicks in one render would both see the state still empty
-        if (busyRef.current) return;
-        busyRef.current = id;
-        setBusyId(id);
+        if (!claimQuiz(id)) {
+            setActionMenuOpen(null);
+            return;
+        }
         try {
+            if (ask && !window.confirm(ask)) return;
+            setActionMenuOpen(null);
             const result = await action();
             if (result.success) {
                 toast.success(result.message);
@@ -261,26 +284,26 @@ export default function AdminQuizManagementPage() {
         } catch {
             toast.error('Something went wrong. Check your connection and try again.');
         } finally {
-            busyRef.current = null;
-            setBusyId(null);
+            releaseQuiz();
         }
     };
 
     const handlePublish = (id: string) => runQuizAction(id, () => publishQuiz(id), () => patchQuiz(id, { status: 'active' }));
 
-    // On /quizzes the new pushedAt triggers the live toast/popup for anyone watching the stream
-    const handlePush = (id: string) =>
-        runQuizAction(id, () => pushQuizLive(id), (data) => patchQuiz(id, { pushedAt: data?.pushedAt }));
+    // Pushing again restarts the answering window, so a quiz that was pushed already asks first, from the
+    // row's button or the menu, and whatever its status now: a paused quiz that ran is asked about too
+    const repushQuestion = (quiz: Quiz) => (quiz.pushedAt
+        ? `"${quiz.title}" was pushed ${shortTime(quiz.pushedAt)}. Push it again? Its answering time starts over.`
+        : undefined);
 
-    // One click: published if it isn't yet, and pushed to live viewers. Pushing again restarts the
-    // answering window, so a quiz that was pushed already asks first.
-    const handleGoLive = (quiz: Quiz) => {
-        if (quiz.status === 'active' && quiz.pushedAt
-            && !window.confirm(`"${quiz.title}" was pushed ${shortTime(quiz.pushedAt)}. Push it again? Its answering time starts over.`)) {
-            return;
-        }
-        return runQuizAction(quiz.id, () => goLiveNow(quiz.id), (data) => patchQuiz(quiz.id, { status: 'active', pushedAt: data?.pushedAt }));
-    };
+    // On /quizzes the new pushedAt triggers the live toast/popup for anyone watching the stream
+    const handlePush = (quiz: Quiz) =>
+        runQuizAction(quiz.id, () => pushQuizLive(quiz.id), (data) => patchQuiz(quiz.id, { pushedAt: data?.pushedAt }), repushQuestion(quiz));
+
+    // One click: published if it isn't yet, and pushed to live viewers
+    const handleGoLive = (quiz: Quiz) =>
+        runQuizAction(quiz.id, () => goLiveNow(quiz.id), (data) => patchQuiz(quiz.id, { status: 'active', pushedAt: data?.pushedAt }),
+            repushQuestion(quiz));
 
     const openSchedule = (quiz: Quiz) => {
         setActionMenuOpen(null);
@@ -311,12 +334,9 @@ export default function AdminQuizManagementPage() {
 
     const handlePause = (id: string) => runQuizAction(id, () => pauseQuiz(id), () => patchQuiz(id, { status: 'paused' }));
 
-    const handleDelete = (id: string) => {
-        if (!confirm('Are you sure you want to delete this quiz? This action cannot be undone.')) {
-            return;
-        }
-        return runQuizAction(id, () => deleteQuiz(id), () => setQuizzes(prev => prev.filter(q => q.id !== id)));
-    };
+    const handleDelete = (id: string) =>
+        runQuizAction(id, () => deleteQuiz(id), () => setQuizzes(prev => prev.filter(q => q.id !== id)),
+            'Are you sure you want to delete this quiz? This action cannot be undone.');
 
     // Only offered while at least one quiz is selected
     const handleBulkDelete = async () => {
@@ -340,8 +360,8 @@ export default function AdminQuizManagementPage() {
     // While a quiz's details load, its row shows a spinner and the list stays on screen
     const handleEdit = async (quiz: Quiz) => {
         setActionMenuOpen(null);
+        if (!claimQuiz(quiz.id)) return;
         try {
-            setBusyId(quiz.id);
             const response = await fetch(`/api/admin/quizzes/${quiz.id}`);
 
             if (!response.ok) throw new Error('Failed to load quiz details');
@@ -384,16 +404,16 @@ export default function AdminQuizManagementPage() {
             toast.error('Failed to load quiz details');
             console.error(err);
         } finally {
-            setBusyId(null);
+            releaseQuiz();
         }
     };
 
     const handleReuse = async (quiz: Quiz) => {
         setActionMenuOpen(null);
+        if (!claimQuiz(quiz.id)) return;
         // Outside the try so a failure can replace the loading toast instead of leaving it spinning
         const toastId = toast.loading('Loading quiz details to copy...');
         try {
-            setBusyId(quiz.id);
             const response = await fetch(`/api/admin/quizzes/${quiz.id}`);
 
             if (!response.ok) throw new Error('Failed to load quiz details');
@@ -443,7 +463,7 @@ export default function AdminQuizManagementPage() {
             toast.error('An unexpected error occurred while duplicating', { id: toastId });
             console.error(err);
         } finally {
-            setBusyId(null);
+            releaseQuiz();
         }
     };
 
@@ -932,7 +952,7 @@ export default function AdminQuizManagementPage() {
                                                         ) : (
                                                             <>
                                                                 <button
-                                                                    onClick={() => handlePush(quiz.id)}
+                                                                    onClick={() => handlePush(quiz)}
                                                                     className="w-full flex items-center gap-3 px-4 py-2 text-sm text-pink-400 hover:bg-white/10 transition-colors"
                                                                 >
                                                                     <Zap className="w-4 h-4" />
