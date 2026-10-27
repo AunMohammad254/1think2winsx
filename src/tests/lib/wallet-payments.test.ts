@@ -270,7 +270,7 @@ describe('payment routes', () => {
     dailyPaymentDb.findMany.mockResolvedValue([{ id: 'pay-1' }]);
     const body = await (await paymentsRoute.GET(req())).json();
     expect(body).toMatchObject({ hasAccess: true, currentPayment: { id: 'pay-1', amount: 2 }, paymentHistory: [{ id: 'pay-1' }] });
-    expect(body.currentPayment.timeRemaining).toBeGreaterThan(3590);
+    expect(body.currentPayment).toEqual({ id: 'pay-1', amount: 2, expiresAt: expect.any(String) });
     expect(dailyPaymentDb.findMany).toHaveBeenCalledWith('user-1', 10);
 
     dailyPaymentDb.findFirstActive.mockResolvedValue(null);

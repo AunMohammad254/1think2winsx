@@ -4,7 +4,6 @@ import { invalidateQuizCatalog } from '@/lib/quiz-catalog';
 interface PaymentInfo {
   id: string;
   expiresAt: Date;
-  timeRemaining: number;
 }
 
 /** Shape of each quiz entry returned by /api/quizzes and cached in memory */
