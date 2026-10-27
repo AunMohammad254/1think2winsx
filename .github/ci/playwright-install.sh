@@ -3,7 +3,9 @@
 #
 # These steps normally take 12-120 s, but on some runs apt-get crawls for 10-30 minutes. With no limit
 # that used up the job's 30 minutes and the run was cancelled, failing the PR through no fault of its
-# own. A fresh attempt usually downloads at normal speed.
+# own. The crawl sticks to one runner's path to the Azure apt mirror (other jobs fetched the same
+# packages at 10+ MB/s that minute, while one runner crawled at 40 KB/s on all three tries), so
+# retries skip that mirror.
 #
 # Playwright runs apt-get through sudo, so timeout's signal stops bunx but not apt-get: the runner
 # user may not signal a root process, and sudo doesn't pass on a signal sent from its own process
@@ -35,6 +37,17 @@ stop_leftover_apt() {
   wait_for_apt 20 || echo "::warning::apt-get/dpkg still running, the next attempt may find the dpkg lock held"
 }
 
+# The runner image lists its apt mirrors here, Azure first, then archive.ubuntu.com and
+# security.ubuntu.com. apt only moves past a mirror when a download fails, never when it crawls.
+skip_azure_mirror() {
+  local list=/etc/apt/apt-mirrors.txt
+  # Leave the list alone unless it has the Azure mirror and another one to fall back to
+  if grep -q 'azure\.archive' "$list" 2>/dev/null && grep -v 'azure\.archive' "$list" | grep -q .; then
+    sudo sed -i '/azure\.archive/d' "$list"
+    echo "Retrying without the Azure apt mirror: $(tr '\n' ' ' < "$list")"
+  fi
+}
+
 for attempt in $(seq 1 "$ATTEMPTS"); do
   if timeout --kill-after=15 "$LIMIT_SECONDS" bunx playwright "$@"; then
     exit 0
@@ -44,6 +57,7 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
   stop_leftover_apt
   # A stopped dpkg leaves packages half-configured, which makes the next apt-get refuse to run
   sudo dpkg --configure -a || true
+  skip_azure_mirror
   sleep 10
 done
 
