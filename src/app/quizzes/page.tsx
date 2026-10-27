@@ -53,7 +53,6 @@ interface Quiz {
 interface PaymentInfo {
   id: string;
   expiresAt: string;
-  timeRemaining: number;
 }
 
 type FilterTab = 'all' | 'available' | 'completed' | 'new';
@@ -68,9 +67,9 @@ function AccessStatusBanner({
   setHasAccess,
   setPaymentInfo
 }: {
-  paymentInfo: { id: string; expiresAt: string } | null;
+  paymentInfo: PaymentInfo | null;
   setHasAccess: (access: boolean) => void;
-  setPaymentInfo: (info: { id: string; expiresAt: string } | null) => void;
+  setPaymentInfo: React.Dispatch<React.SetStateAction<PaymentInfo | null>>;
 }) {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
 
