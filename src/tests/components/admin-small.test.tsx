@@ -498,8 +498,8 @@ describe('WalletFeatureToggle', () => {
 
 describe('DynamicAdminComponents', () => {
   it('lazy-loads each admin manager with a skeleton', async () => {
-    expect(Object.keys(DynamicAdmin)).toHaveLength(5);
-    expect(h.dynamics).toHaveLength(5);
+    expect(Object.keys(DynamicAdmin)).toHaveLength(8);
+    expect(h.dynamics).toHaveLength(6);
     for (const d of h.dynamics) {
       await expect(d.loader()).resolves.toBeTruthy();
       const { container, unmount } = render(<>{d.opts.loading()}</>);
@@ -507,5 +507,10 @@ describe('DynamicAdminComponents', () => {
       unmount();
     }
     await act(async () => {});
+  });
+
+  it('preloads the quiz forms before they open', async () => {
+    expect((await DynamicAdmin.preloadQuizFormBuilder()).default).toBeTypeOf('function');
+    expect((await DynamicAdmin.preloadQuickQuizPanel()).default).toBeTypeOf('function');
   });
 });

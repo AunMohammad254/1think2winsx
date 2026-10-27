@@ -35,6 +35,8 @@ describe('QuizHistory', () => {
         entry('15', 'quiz_announced', { resent: false }),
         entry('16', 'quiz_paused'),
         entry('17', 'something_new'),
+        entry('18', 'quiz_scheduled', { startsAt: '2026-11-01T13:00:00Z' }),
+        entry('19', 'quiz_scheduled', {}),
       ],
     }));
     render(<QuizHistory quizId="q 1" />);
@@ -59,6 +61,8 @@ describe('QuizHistory', () => {
       ['boss@example.test', 'Announced as upcoming', ''],
       ['boss@example.test', 'Paused', ''],
       ['boss@example.test', 'something_new', ''],
+      ['boss@example.test', 'Scheduled', 'For 1 Nov 2026, 18:00'],
+      ['boss@example.test', 'Scheduled', ''],
     ]);
     // Times in Pakistan time, as the column says
     expect(within(rows[0]).getAllByRole('cell')[0]).toHaveTextContent('24 Oct 2026, 15:00');

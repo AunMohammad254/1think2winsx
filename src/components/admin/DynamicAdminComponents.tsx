@@ -57,6 +57,22 @@ export const DynamicQuizFormBuilder = dynamic(
     }
 );
 
+export const DynamicQuickQuizPanel = dynamic(
+    () => import('@/components/admin/QuickQuizPanel'),
+    {
+        loading: () => (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                <div className="h-96 w-full max-w-2xl rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
+            </div>
+        ),
+        ssr: false
+    }
+);
+
+// Fetch a form's code when the admin points at its button, so it opens without waiting for it
+export const preloadQuizFormBuilder = () => import('@/components/admin/QuizFormBuilder');
+export const preloadQuickQuizPanel = () => import('@/components/admin/QuickQuizPanel');
+
 export const DynamicPrizeRedemption = dynamic(
     () => import('@/components/PrizeRedemption'),
     {

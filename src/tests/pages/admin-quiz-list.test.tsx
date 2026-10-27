@@ -13,9 +13,13 @@ const h = vi.hoisted(() => ({
     pushQuizLive: vi.fn(),
     notifyUpcomingQuiz: vi.fn(),
     createQuiz: vi.fn(),
+    goLiveNow: vi.fn(),
+    scheduleQuiz: vi.fn(),
   },
   handlers: {} as Record<string, Handler>,
   removeChannel: vi.fn(),
+  preloadQuizFormBuilder: vi.fn(),
+  preloadQuickQuizPanel: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
 vi.mock('@/actions/quiz-actions', () => h.actions);
@@ -33,6 +37,21 @@ vi.mock('@/components/admin/DynamicAdminComponents', () => ({
       <button onClick={onSuccess}>Form saved</button>
       <button onClick={onCancel}>Form cancelled</button>
     </div>
+  ),
+  DynamicQuickQuizPanel: ({ open, onOpenChange, onSaved }: { open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) => (
+    open ? (
+      <div role="dialog" aria-label="Quick quiz">
+        <button onClick={() => { onSaved(); onOpenChange(false); }}>Quick quiz saved</button>
+        <button onClick={() => onOpenChange(false)}>Quick quiz closed</button>
+      </div>
+    ) : null
+  ),
+  preloadQuizFormBuilder: h.preloadQuizFormBuilder,
+  preloadQuickQuizPanel: h.preloadQuickQuizPanel,
+}));
+vi.mock('@/components/ui/DateTimePicker', () => ({
+  default: ({ id, value, onChange }: { id?: string; value?: string; onChange: (v: string) => void }) => (
+    <input aria-label="Start time" id={id} value={value} onChange={(e) => onChange(e.target.value)} />
   ),
 }));
 
@@ -53,11 +72,12 @@ const quizzes = [
 const many = (n: number) => Array.from({ length: n }, (_, i) => quiz(`m${i + 1}`, `Quiz ${String(i + 1).padStart(2, '0')}`, 1, { createdAt: new Date(Date.UTC(2026, 0, i + 1)).toISOString() }));
 
 let fetchMock: ReturnType<typeof vi.fn>;
+const LIST = '/api/admin/quizzes?view=summary';
 const routes = (list: () => Response | Promise<Response> = () => jsonResponse({ quizzes }), detail: () => Response = () => jsonResponse({})) =>
-  vi.fn(async (url: string) => (url === '/api/admin/quizzes' ? list() : detail()));
+  vi.fn(async (url: string) => (url === LIST ? list() : detail()));
 
 beforeEach(() => {
-  for (const fn of [...Object.values(h.toast), ...Object.values(h.actions), h.removeChannel]) fn.mockClear();
+  for (const fn of [...Object.values(h.toast), ...Object.values(h.actions), h.removeChannel, h.preloadQuizFormBuilder, h.preloadQuickQuizPanel]) fn.mockClear();
   for (const fn of Object.values(h.actions)) fn.mockReset().mockResolvedValue({ success: true, message: 'Done' });
   h.handlers = {};
   fetchMock = routes();
@@ -73,7 +93,7 @@ afterEach(() => {
 const loaded = (title = 'Cricket Basics') => screen.findByRole('heading', { name: title });
 const titles = () => screen.getAllByRole('heading', { level: 3 }).map((el) => el.textContent);
 const row = (title: string) => screen.getByRole('heading', { name: title }).closest('.grid') as HTMLElement;
-const openMenu = (title: string) => fireEvent.click(within(row(title)).getAllByRole('button')[0]);
+const openMenu = (title: string) => fireEvent.click(screen.getByRole('button', { name: `More actions: ${title}` }));
 const click = (name: string | RegExp) => fireEvent.click(screen.getByRole('button', { name }));
 const headerButtons = () => within(screen.getByRole('button', { name: /^Title/ }).parentElement!).getAllByRole('button');
 const stat = (label: string) => screen.getByText(label, { selector: 'p.text-sm' }).previousElementSibling!.textContent;
@@ -275,12 +295,17 @@ describe('admin quiz list page', () => {
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Done'));
     expect(h.actions.publishQuiz).toHaveBeenCalledWith('q2');
     expect(screen.queryByRole('button', { name: 'Publish' })).toBeNull();
+    // Shown as published at once, not after the realtime event or a refetch
+    expect(within(row('History Quiz')).getByText('Published')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     h.actions.publishQuiz.mockResolvedValueOnce({ success: false, error: 'No questions' });
-    openMenu('History Quiz');
+    openMenu('Paused One');
     click('Publish');
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('No questions'));
+    expect(within(row('Paused One')).getByText('Paused')).toBeInTheDocument();
 
+    h.actions.pushQuizLive.mockResolvedValueOnce({ success: true, message: 'Pushed', data: { pushedAt: '2026-10-27T10:00:00Z' } });
     openMenu('Cricket Basics');
     click('Push to live viewers');
     await waitFor(() => expect(h.actions.pushQuizLive).toHaveBeenCalledWith('q1'));
@@ -289,24 +314,146 @@ describe('admin quiz list page', () => {
     click('Push to live viewers');
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Not live'));
 
-    openMenu('Cricket Basics');
-    click('Pause');
-    await waitFor(() => expect(h.actions.pauseQuiz).toHaveBeenCalledWith('q1'));
     h.actions.pauseQuiz.mockResolvedValueOnce({ success: false, error: 'Already paused' });
     openMenu('Cricket Basics');
     click('Pause');
     await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Already paused'));
+    openMenu('Cricket Basics');
+    click('Pause');
+    await waitFor(() => expect(h.actions.pauseQuiz).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(row('Cricket Basics')).getByText('Paused')).toBeInTheDocument());
 
+    h.actions.deleteQuiz.mockResolvedValueOnce({ success: false, error: 'Has attempts' });
     openMenu('Legacy');
     vi.mocked(confirm).mockReturnValueOnce(false);
     click('Delete');
     expect(h.actions.deleteQuiz).not.toHaveBeenCalled();
     click('Delete');
-    await waitFor(() => expect(h.actions.deleteQuiz).toHaveBeenCalledWith('q6'));
-    h.actions.deleteQuiz.mockResolvedValueOnce({ success: false, error: 'Has attempts' });
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Has attempts'));
     openMenu('Legacy');
     click('Delete');
-    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Has attempts'));
+    await waitFor(() => expect(h.actions.deleteQuiz).toHaveBeenCalledTimes(2));
+    expect(h.actions.deleteQuiz).toHaveBeenLastCalledWith('q6');
+    // Gone from the list at once
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Legacy' })).toBeNull());
+  });
+
+  it('goes live in one click: publishes a draft and pushes it, asking before pushing a pushed quiz again', async () => {
+    h.actions.goLiveNow.mockResolvedValue({ success: true, message: 'Published and pushed to live viewers!', data: { pushedAt: '2026-10-27T10:00:00Z' } });
+    render(<AdminQuizManagementPage />);
+    await loaded();
+    expect(screen.getByRole('button', { name: 'Push to live viewers: Cricket Basics' })).toBeInTheDocument();
+    // A live quiz can't be scheduled
+    expect(screen.queryByRole('button', { name: 'Schedule: Cricket Basics' })).toBeNull();
+
+    click('Go live now: History Quiz');
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Published and pushed to live viewers!'));
+    expect(h.actions.goLiveNow).toHaveBeenCalledWith('q2');
+    expect(within(row('History Quiz')).getByText('Published')).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+
+    // Pushed a moment ago, so pushing again restarts its answering time: it asks
+    vi.mocked(confirm).mockReturnValueOnce(false);
+    click('Push to live viewers: History Quiz');
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/^"History Quiz" was pushed .+\. Push it again\? Its answering time starts over\.$/));
+    expect(h.actions.goLiveNow).toHaveBeenCalledTimes(1);
+    click('Push to live viewers: History Quiz');
+    await waitFor(() => expect(h.actions.goLiveNow).toHaveBeenCalledTimes(2));
+
+    // From the menu, and a refusal
+    h.actions.goLiveNow.mockResolvedValueOnce({ success: false, error: 'Cannot publish quiz without questions' });
+    openMenu('Science');
+    click('Go live now');
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Cannot publish quiz without questions'));
+    expect(within(row('Science')).getByText('Scheduled')).toBeInTheDocument();
+  });
+
+  it('runs one action per quiz at a time, so a double click sends one push', async () => {
+    let finish: (r: unknown) => void = () => {};
+    h.actions.goLiveNow.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    render(<AdminQuizManagementPage />);
+    await loaded();
+    const goLive = screen.getByRole('button', { name: 'Go live now: Paused One' });
+    fireEvent.click(goLive);
+    fireEvent.click(goLive);
+    expect(h.actions.goLiveNow).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Working on Paused One')).toBeInTheDocument();
+    expect(goLive).toBeDisabled();
+    // Another quiz waits too: one broadcast at a time
+    click('Go live now: History Quiz');
+    expect(h.actions.goLiveNow).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ success: true, message: 'Live' }));
+    expect(screen.queryByLabelText('Working on Paused One')).toBeNull();
+    expect(within(row('Paused One')).getByText('Published')).toBeInTheDocument();
+  });
+
+  it('reports an action that throws, and frees its buttons', async () => {
+    h.actions.goLiveNow.mockRejectedValueOnce(new Error('offline'));
+    render(<AdminQuizManagementPage />);
+    await loaded();
+    click('Go live now: Paused One');
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Something went wrong. Check your connection and try again.'));
+    expect(screen.getByRole('button', { name: 'Go live now: Paused One' })).not.toBeDisabled();
+  });
+
+  it('schedules a quiz from its row, starting from its current start time', async () => {
+    h.actions.scheduleQuiz.mockResolvedValueOnce({ success: false, error: 'Pick a time in the future' })
+      .mockResolvedValueOnce({ success: true, message: 'Scheduled', data: { startsAt: '2099-01-02T10:30:00.000Z' } });
+    const future = quiz('q8', 'Future Cup', 8, { status: 'scheduled', startsAt: '2099-01-01T10:00:00Z' });
+    vi.stubGlobal('fetch', routes(() => jsonResponse({ quizzes: [...quizzes, future] })));
+    render(<AdminQuizManagementPage />);
+    await loaded();
+
+    // A start time that has passed is not offered again
+    click('Schedule: Paused One');
+    const picker = () => within(screen.getByRole('group', { name: 'Schedule Paused One' })).getByLabelText('Start time') as HTMLInputElement;
+    expect(picker().value).toBe('');
+    expect(within(screen.getByRole('group', { name: 'Schedule Paused One' })).getByRole('button', { name: 'Schedule' })).toBeDisabled();
+    click('Cancel');
+    expect(screen.queryByRole('group', { name: 'Schedule Paused One' })).toBeNull();
+
+    // A time still to come is: shown in the admin's own time
+    openMenu('Future Cup');
+    click('Schedule…');
+    const local = (iso: string) => { const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+    const group = () => screen.getByRole('group', { name: 'Schedule Future Cup' });
+    expect((within(group()).getByLabelText('Start time') as HTMLInputElement).value).toBe(local('2099-01-01T10:00:00Z'));
+
+    fireEvent.change(within(group()).getByLabelText('Start time'), { target: { value: local('2099-01-02T10:30:00Z') } });
+    fireEvent.click(within(group()).getByRole('button', { name: 'Schedule' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Pick a time in the future'));
+    // The picker's local time goes as the instant it means
+    expect(h.actions.scheduleQuiz).toHaveBeenCalledWith('q8', '2099-01-02T10:30:00.000Z');
+    expect(group()).toBeInTheDocument();
+
+    fireEvent.click(within(group()).getByRole('button', { name: 'Schedule' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Scheduled'));
+    expect(screen.queryByRole('group', { name: 'Schedule Future Cup' })).toBeNull();
+    expect(within(row('Future Cup')).getByText(/^\(.+\)$/).textContent).toContain(
+      new Date('2099-01-02T10:30:00.000Z').toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }));
+
+    // A quiz without a start time opens an empty picker
+    click('Schedule: Later');
+    expect((within(screen.getByRole('group', { name: 'Schedule Later' })).getByLabelText('Start time') as HTMLInputElement).value).toBe('');
+  });
+
+  it('opens the Quick quiz panel, keeps it after closing, and refreshes the list when a quiz is saved', async () => {
+    render(<AdminQuizManagementPage />);
+    await loaded();
+    // Its code is fetched when the admin points at the button
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Quick Quiz/ }));
+    expect(h.preloadQuickQuizPanel).toHaveBeenCalled();
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /Create Quiz/ }));
+    expect(h.preloadQuizFormBuilder).toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Quick quiz' })).toBeNull();
+
+    click(/Quick Quiz/);
+    click('Quick quiz closed');
+    expect(screen.queryByRole('dialog', { name: 'Quick quiz' })).toBeNull();
+    click(/Quick Quiz/);
+    click('Quick quiz saved');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('Loading quizzes...')).toBeNull(); // silent refetch
   });
 
   it('toggles and dismisses the action menu', async () => {
@@ -398,7 +545,7 @@ describe('admin quiz list page', () => {
       id: 'q2', title: '', description: '', duration: 30, timeUpDuration: 60, passingScore: 70, accessPrice: 0, difficulty: 'medium',
       status: 'draft', startsAt: null, prizeId: null, isBumperPrize: false, quizType: 'normal', maxEntries: 2000, pointsPool: 0, questions: [],
     });
-    const listCalls = () => fetchMock.mock.calls.filter(([u]) => u === '/api/admin/quizzes').length;
+    const listCalls = () => fetchMock.mock.calls.filter(([u]) => u === LIST).length;
     const before = listCalls();
     click('Form saved');
     await loaded();
@@ -497,8 +644,7 @@ describe('admin quiz list page', () => {
     vi.stubGlobal('fetch', routes(() => results.shift()!));
     render(<AdminQuizManagementPage />);
     await screen.findByText('Failed to fetch quizzes');
-    const refresh = screen.getAllByRole('button', { name: /Create Quiz/ })[0].previousElementSibling as HTMLElement;
-    fireEvent.click(refresh);
+    click('Refresh quizzes');
     await loaded();
     expect(screen.queryByText('Failed to fetch quizzes')).toBeNull();
   });
@@ -510,6 +656,9 @@ describe('admin quiz list page', () => {
     realtime('INSERT', { new: { title: 'Fresh Quiz' } });
     realtime('UPDATE');
     expect(h.toast.success).toHaveBeenCalledWith('New quiz "Fresh Quiz" added');
+    // Another admin's change shows at once, with the fields the list shows; the counts wait for the refetch
+    realtime('UPDATE', { new: { id: 'q5', title: 'Paused One', status: 'active', questionsSecret: 'x' } });
+    expect(within(row('Paused One')).getByText('Published')).toBeInTheDocument();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 2000 });
     expect(screen.queryByText('Loading quizzes...')).toBeNull(); // silent refetch
 

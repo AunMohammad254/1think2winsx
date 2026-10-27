@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { getAdminDb, generateId } from '@/lib/supabase/db';
+import { getAdminDb, generateId, fetchAllByKeyset } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { toUtcIso } from '@/lib/schedule-time';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
@@ -26,6 +26,48 @@ const createQuizSchema = z.object({
     isActive: z.boolean().default(true),
   })).default([]),
 });
+
+// The newest quizzes the admin list shows (the Settle screen reads as many)
+const SUMMARY_LIMIT = 500;
+
+/**
+ * The admin quiz list (?view=summary): the newest quizzes with their question and attempt counts, in
+ * three light reads. The paged view sends 10 quizzes with every question's text and counts attempts
+ * from their rows, which PostgREST cuts off at 1,000; the list then showed only those 10 quizzes.
+ */
+async function quizSummaries(supabase: ReturnType<typeof getAdminDb>) {
+  const { data, error } = await supabase
+    .from('Quiz')
+    .select('id, title, description, duration, status, startsAt, pushedAt, quizType, createdAt, updatedAt')
+    .order('createdAt', { ascending: false })
+    .limit(SUMMARY_LIMIT);
+  if (error) throw error;
+  const quizzes = (data || []) as Array<{ id: string } & Record<string, unknown>>;
+  if (quizzes.length === 0) return [];
+
+  const ids = quizzes.map((q) => q.id);
+  const [questions, attempts] = await Promise.all([
+    fetchAllByKeyset<{ id: string; quizId: string }>(
+      (after, limit) => {
+        let q = supabase.from('Question').select('id, quizId').in('quizId', ids);
+        if (after) q = q.gt('id', after);
+        return q.order('id', { ascending: true }).limit(limit);
+      },
+      (row) => row.id,
+    ),
+    supabase.rpc('get_quiz_attempt_counts_by_quiz', { quiz_ids: ids }),
+  ]);
+  if (attempts.error) throw attempts.error;
+
+  const questionCounts = new Map<string, number>();
+  for (const q of questions) questionCounts.set(q.quizId, (questionCounts.get(q.quizId) || 0) + 1);
+  const attemptCounts = new Map(((attempts.data || []) as Array<{ quiz_id: string; attempt_count: number | string }>)
+    .map((row) => [row.quiz_id, Number(row.attempt_count) || 0]));
+  return quizzes.map((quiz) => ({
+    ...quiz,
+    _count: { questions: questionCounts.get(quiz.id) || 0, attempts: attemptCounts.get(quiz.id) || 0 },
+  }));
+}
 
 // GET /api/admin/quizzes - Get all quizzes with admin details
 export async function GET(request: NextRequest) {
@@ -58,6 +100,9 @@ export async function GET(request: NextRequest) {
 
     // Parse query parameters
     const url = new URL(request.url);
+    if (url.searchParams.get('view') === 'summary') {
+      return createSecureJsonResponse({ quizzes: await quizSummaries(getAdminDb()) }, { status: 200 });
+    }
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '10'), 50);
     const status = url.searchParams.get('status');

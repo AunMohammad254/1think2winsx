@@ -11,7 +11,22 @@ const applyRateLimit = vi.fn();
 const recordSecurityEvent = vi.fn();
 const clearQuizListCache = vi.fn();
 
-vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, generateId: () => `gen-${++ids}` }));
+vi.mock('@/lib/supabase/db', () => ({
+  getAdminDb: () => adminDb.client,
+  generateId: () => `gen-${++ids}`,
+  // Asks for the page after the first, as the real walk does, but keeps only the first: the mock answers
+  // every page alike, so walking until an empty page would never end
+  fetchAllByKeyset: async (
+    page: (after: string | null, limit: number) => PromiseLike<{ data: unknown[] | null; error: unknown }>,
+    keyOf: (row: unknown) => string,
+  ) => {
+    const { data, error } = await page(null, 1000);
+    if (error) throw error;
+    const rows = data ?? [];
+    if (rows.length > 0) await page(keyOf(rows[rows.length - 1]), 1000);
+    return rows;
+  },
+}));
 vi.mock('@/lib/auth-middleware', () => ({ requireAuth: (...a: unknown[]) => requireAuth(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { admin: 'admin' }, applyRateLimit: (...a: unknown[]) => applyRateLimit(...a) }));
@@ -67,6 +82,48 @@ describe('GET /api/admin/quizzes', () => {
     adminDb.setTable('Question', { data: null });
     adminDb.setTable('QuizAttempt', { data: null });
     expect((await (await get()).json()).quizzes[0]._count).toEqual({ questions: 0, attempts: 0 });
+  });
+
+  it('lists the newest quizzes with their counts for the admin list, without question texts or attempt rows', async () => {
+    adminDb.setTable('Quiz', { data: [{ id: 'a', title: 'A', status: 'active', pushedAt: '2026-10-27T10:00:00Z' }, { id: 'b', title: 'B', status: 'draft' }] });
+    adminDb.setTable('Question', { data: [{ id: 'q1', quizId: 'a' }, { id: 'q2', quizId: 'a' }, { id: 'q3', quizId: 'b' }] });
+    adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { data: [{ quiz_id: 'a', attempt_count: '2500' }] });
+
+    const res = await get('?view=summary');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ quizzes: [
+      { id: 'a', title: 'A', status: 'active', pushedAt: '2026-10-27T10:00:00Z', _count: { questions: 2, attempts: 2500 } },
+      { id: 'b', title: 'B', status: 'draft', _count: { questions: 1, attempts: 0 } },
+    ] });
+    const q = adminDb.callsTo('Quiz')[0];
+    expect(argOf(q, 'select')).toBe('id, title, description, duration, status, startsAt, pushedAt, quizType, createdAt, updatedAt');
+    expect(argOf(q, 'limit')).toBe(500);
+    expect(argOf(adminDb.callsTo('Question')[0], 'select')).toBe('id, quizId');
+    // Questions are read page by page in id order, past PostgREST's 1,000-row cap
+    expect(adminDb.callsTo('Question')[1].ops.find((o) => o.op === 'gt')?.args).toEqual(['id', 'q3']);
+    expect(adminDb.rpcCalls).toEqual([{ fn: 'get_quiz_attempt_counts_by_quiz', args: { quiz_ids: ['a', 'b'] } }]);
+    expect(adminDb.callsTo('QuizAttempt')).toHaveLength(0);
+  });
+
+  it('reads no counts for an empty summary, tolerates missing ones, and fails on a read error', async () => {
+    adminDb.setTable('Quiz', { data: null });
+    expect(await (await get('?view=summary')).json()).toEqual({ quizzes: [] });
+    expect(adminDb.callsTo('Question')).toHaveLength(0);
+
+    adminDb.setTable('Quiz', { data: [{ id: 'a' }] });
+    adminDb.setTable('Question', { data: null });
+    adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { data: null });
+    expect((await (await get('?view=summary')).json()).quizzes[0]._count).toEqual({ questions: 0, attempts: 0 });
+    adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { data: [{ quiz_id: 'a', attempt_count: 'x' }] });
+    expect((await (await get('?view=summary')).json()).quizzes[0]._count).toEqual({ questions: 0, attempts: 0 });
+
+    adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { error: { message: 'rpc down' } });
+    expect((await get('?view=summary')).status).toBe(500);
+    adminDb.setRpc('get_quiz_attempt_counts_by_quiz', { data: [] });
+    adminDb.setTable('Question', { error: { message: 'questions down' } });
+    expect((await get('?view=summary')).status).toBe(500);
+    adminDb.setTable('Quiz', { error: { message: 'quizzes down' } });
+    expect((await get('?view=summary')).status).toBe(500);
   });
 
   it('guards and reports errors', async () => {

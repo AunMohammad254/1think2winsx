@@ -23,6 +23,8 @@ function summary(entry: QuizActionEntry): string {
       return typeof d.notified === 'number' ? `${d.notified} sent` : '';
     case 'quiz_announced':
       return d.resent ? 'Sent again' : '';
+    case 'quiz_scheduled':
+      return typeof d.startsAt === 'string' ? `For ${formatTime(d.startsAt)}` : '';
     default:
       return '';
   }

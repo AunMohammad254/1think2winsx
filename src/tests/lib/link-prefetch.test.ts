@@ -89,7 +89,9 @@ describe('no uncacheable prefetches in src/', () => {
       .filter((path) => path.endsWith('.tsx') || path.endsWith('.ts'))
       .flatMap((path) => uncachedPrefetches(path));
     expect(offenders).toEqual([]);
-  });
+    // It parses every source file with the TypeScript compiler: about 2 s, and close to the default 5 s
+    // limit under coverage on its own, so the full coverage run timed it out
+  }, 30_000);
 
   it.each([
     ['<Link href="/quizzes">Play</Link>', 1],

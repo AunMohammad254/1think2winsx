@@ -53,6 +53,27 @@ function broadcastAfterResponse(notice: { title: string; message: string; type: 
     });
 }
 
+/** The "Live now" notice a push sends to every user, for anyone not watching the stream. */
+function broadcastLiveNow(quizId: string, title: string | null | undefined) {
+    broadcastAfterResponse({
+        title: '🔴 Live now',
+        message: `"${title || 'Quiz'}" was just pushed during the stream — jump in now!`,
+        type: 'quiz_deadline',
+        link: `/quizzes?openQuiz=${quizId}`
+    }, 'Failed to send quiz push broadcast notification:');
+}
+
+/**
+ * The quiz an admin action works on, read with the service role. quizDb.findById reads as the signed-in
+ * player, and the admin session is not a Supabase sign-in, so for an admin it found no quiz ("Quiz not
+ * found") unless the same browser was also signed in as a player.
+ */
+async function findQuiz(id: string): Promise<{ id: string; title: string | null; status: string; startsAt: string | null } | null> {
+    const { data, error } = await getAdminDb().from('Quiz').select('id, title, status, startsAt').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data;
+}
+
 interface QuizRow {
     title: string; description: string | null; duration: number; timeUpDuration: number; passingScore: number;
     status: string; startsAt: string | null; prizeId: string | null; isBumperPrize: boolean; quizType: string;
@@ -102,9 +123,12 @@ function quizRow(data: { title: string; description?: string | null; duration: n
 // ============================================
 
 /**
- * Create a new quiz with questions
+ * Create a new quiz with questions. `goLive` (the Quick quiz panel's "Go live now") publishes it and
+ * pushes it to live viewers at once, whatever its status says, with the one "Live now" broadcast.
+ * `data.pushedAt` says the push happened: when only the push fails, the quiz is still created and
+ * published, and the message says to push it from the list.
  */
-export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{ id: string }>> {
+export async function createQuiz(input: CreateQuizInput, options: { goLive?: boolean } = {}): Promise<ActionResult<{ id: string; pushedAt?: string }>> {
     const admin = await adminActionEmail();
     if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
@@ -119,7 +143,8 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
 
         const { questions, ...quizData } = validationResult.data;
         const quizId = generateId();
-        const quiz = quizRow(quizData);
+        const goLive = options.goLive === true;
+        const quiz = quizRow(goLive ? { ...quizData, status: 'active', startsAt: null } : quizData);
 
         // New questions are open: see answerKey
         const refused = await saveQuizAtomically(quizId, true, quiz, questions.map((question) => ({
@@ -136,7 +161,19 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
             details: { status: quiz.status, questions: questions.length },
         });
 
-        if (quizData.status === 'active') {
+        let pushedAt: string | undefined;
+        if (goLive) {
+            try {
+                // save_quiz writes no pushedAt; the push starts the answering window now
+                const now = new Date().toISOString();
+                await quizDb.update(quizId, { pushedAt: now } as any);
+                pushedAt = now;
+                await logQuizAction({ quizId, quizTitle: quiz.title, action: 'quiz_pushed_live', adminEmail: admin });
+                broadcastLiveNow(quizId, quiz.title);
+            } catch (error) {
+                console.error('Push new quiz error:', error);
+            }
+        } else if (quizData.status === 'active') {
             broadcastAfterResponse({
                 title: '🎮 New Quiz Published!',
                 message: `"${quiz.title}" is now active. Play now and score points!`,
@@ -149,7 +186,14 @@ export async function createQuiz(input: CreateQuizInput): Promise<ActionResult<{
         revalidatePath('/quizzes');
         clearQuizListCache();
 
-        return { success: true, data: { id: quizId }, message: 'Quiz created successfully!' };
+        if (goLive && !pushedAt) {
+            return { success: true, data: { id: quizId }, message: 'Quiz created and published, but pushing it live failed. Push it from the list.' };
+        }
+        return {
+            success: true,
+            data: pushedAt ? { id: quizId, pushedAt } : { id: quizId },
+            message: pushedAt ? 'Quiz created and pushed to live viewers!' : 'Quiz created successfully!',
+        };
     } catch (error: any) {
         console.error('Create quiz error:', error);
         return {
@@ -317,40 +361,91 @@ export async function pauseQuiz(id: string): Promise<ActionResult> {
  * infrastructure: (1) the quizzes page's live check (GET /api/live, every few
  * seconds) sees pushedAt change and shows the live banner and popup,
  * (2) the "Today's quizzes" cards read pushedAt (via /api/quizzes) to show
- * the Active/Answered/Missed badge. Also fires the same broadcast
- * notification publishQuiz() sends, for anyone not currently on the page;
- * it runs after the response, so the push reaches players at once.
+ * the Active/Answered/Missed badge. Also sends a "Live now" broadcast
+ * notification for anyone not currently on the page; it runs after the
+ * response, so the push reaches players at once.
  */
-export async function pushQuizLive(id: string): Promise<ActionResult> {
+export async function pushQuizLive(id: string): Promise<ActionResult<{ pushedAt: string }>> {
     const admin = await adminActionEmail();
     if (!admin) return { ...ADMIN_REQUIRED } as any;
+    return pushLive(id, admin, false);
+}
+
+/**
+ * The quiz list's one-click "Go live": publish the quiz if it isn't yet, and push it to live viewers.
+ * One update and one "Live now" broadcast: publishing, then pushing, sent two broadcasts to every user.
+ * A scheduled quiz goes live now instead of at its start time.
+ */
+export async function goLiveNow(id: string): Promise<ActionResult<{ pushedAt: string }>> {
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
+    return pushLive(id, admin, true);
+}
+
+/** Push a quiz to live viewers (stamping pushedAt), publishing it first only when `publish` allows. */
+async function pushLive(id: string, admin: string, publish: boolean): Promise<ActionResult<{ pushedAt: string }>> {
     try {
-        const quiz = await quizDb.findById(id);
+        const quiz = await findQuiz(id);
         if (!quiz) return { success: false, error: 'Quiz not found' };
-        if (quiz.status !== 'active') {
+        const publishing = quiz.status !== 'active';
+        if (publishing && !publish) {
             return { success: false, error: 'Publish the quiz before pushing it live' };
         }
+        if (publishing && (await questionDb.findByQuizId(id)).length === 0) {
+            return { success: false, error: 'Cannot publish quiz without questions' };
+        }
 
-        const updatedQuiz = await quizDb.update(id, { pushedAt: new Date().toISOString() } as any);
+        const pushedAt = new Date().toISOString();
+        const updatedQuiz = await quizDb.update(id, (publishing ? { status: 'active', pushedAt } : { pushedAt }) as any);
+        if (publishing) await logQuizAction({ quizId: id, quizTitle: quiz.title, action: 'quiz_published', adminEmail: admin });
         await logQuizAction({ quizId: id, quizTitle: quiz.title, action: 'quiz_pushed_live', adminEmail: admin });
 
-        if (updatedQuiz) {
-            broadcastAfterResponse({
-                title: '🔴 Live now',
-                message: `"${updatedQuiz.title || 'Quiz'}" was just pushed during the stream — jump in now!`,
-                type: 'quiz_deadline',
-                link: `/quizzes?openQuiz=${id}`
-            }, 'Failed to send quiz push broadcast notification:');
-        }
+        if (updatedQuiz) broadcastLiveNow(id, updatedQuiz.title);
 
         revalidatePath('/admin/quiz');
         revalidatePath('/quizzes');
         clearQuizListCache();
 
-        return { success: true, message: 'Pushed to live viewers!' };
+        return { success: true, data: { pushedAt }, message: publishing ? 'Published and pushed to live viewers!' : 'Pushed to live viewers!' };
     } catch (error) {
         console.error('Push quiz error:', error);
         return { success: false, error: 'Failed to push quiz. Please try again.' };
+    }
+}
+
+/**
+ * The quiz list's one-click "Schedule": the quiz goes live on its own at `startsAt` (lib/quiz-scheduler
+ * publishes and pushes it then). `startsAt` must be an absolute instant: the admin's browser converts the
+ * picker's local time, as the quiz form does. A live quiz is refused, since scheduling it would take it
+ * away from players who may be answering.
+ */
+export async function scheduleQuiz(id: string, startsAt: string): Promise<ActionResult<{ startsAt: string }>> {
+    const admin = await adminActionEmail();
+    if (!admin) return { ...ADMIN_REQUIRED } as any;
+    const at = toUtcIso(startsAt);
+    if (!at) return { success: false, error: 'Pick a valid date and time for the schedule' };
+    if (new Date(at).getTime() <= Date.now()) return { success: false, error: 'Pick a time in the future' };
+    try {
+        const quiz = await findQuiz(id);
+        if (!quiz) return { success: false, error: 'Quiz not found' };
+        if (quiz.status === 'active') {
+            return { success: false, error: 'This quiz is live. Pause it before scheduling it.' };
+        }
+        if ((await questionDb.findByQuizId(id)).length === 0) {
+            return { success: false, error: 'Add questions before scheduling the quiz' };
+        }
+
+        await quizDb.update(id, { status: 'scheduled', startsAt: at });
+        await logQuizAction({ quizId: id, quizTitle: quiz.title, action: 'quiz_scheduled', adminEmail: admin, details: { startsAt: at } });
+
+        revalidatePath('/admin/quiz');
+        revalidatePath('/quizzes');
+        clearQuizListCache();
+
+        return { success: true, data: { startsAt: at }, message: `Scheduled for ${formatBusinessTime(at)}. It goes live on its own then.` };
+    } catch (error) {
+        console.error('Schedule quiz error:', error);
+        return { success: false, error: 'Failed to schedule the quiz. Please try again.' };
     }
 }
 
@@ -367,7 +462,7 @@ export async function notifyUpcomingQuiz(id: string, force = false): Promise<Act
     const admin = await adminActionEmail();
     if (!admin) return { ...ADMIN_REQUIRED } as any;
     try {
-        const quiz = await quizDb.findById(id);
+        const quiz = await findQuiz(id);
         if (!quiz) return { success: false, error: 'Quiz not found' };
         // 'upcoming' is the legacy status the old button used to set; still notifiable
         if (quiz.status !== 'scheduled' && quiz.status !== 'upcoming') {
