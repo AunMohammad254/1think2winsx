@@ -191,7 +191,7 @@ describe('quizzes page: access and payment', () => {
     // The countdown reads `new Date()`, which the Date.now mock doesn't reach, so the
     // expiry is set from the real clock.
     const expiresAt = new Date(new Date().valueOf() + 2 * 3600_000 + 5 * 60_000 + 7_000).toISOString();
-    h.fetchWithRetry.mockImplementation(async () => ok({ hasAccess: true, paymentInfo: { id: 'p', expiresAt, timeRemaining: 1 } }));
+    h.fetchWithRetry.mockImplementation(async () => ok({ hasAccess: true, paymentInfo: { id: 'p', expiresAt } }));
     render(<QuizzesPage />);
     expect(await screen.findByText('Full Access Active')).toBeInTheDocument();
     expect(screen.getByText(/You have full access/)).toBeInTheDocument();
@@ -200,7 +200,7 @@ describe('quizzes page: access and payment', () => {
   });
 
   it('expires access that has already run out', async () => {
-    h.fetchWithRetry.mockImplementation(async () => ok({ hasAccess: true, paymentInfo: { id: 'p', expiresAt: '2000-01-01T00:00:00Z', timeRemaining: 0 } }));
+    h.fetchWithRetry.mockImplementation(async () => ok({ hasAccess: true, paymentInfo: { id: 'p', expiresAt: '2000-01-01T00:00:00Z' } }));
     render(<QuizzesPage />);
     await waitFor(() => expect(h.toast.warning).toHaveBeenCalledWith('Your 24-hour access has expired'));
   });

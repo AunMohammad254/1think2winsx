@@ -53,7 +53,6 @@ interface Quiz {
 interface PaymentInfo {
   id: string;
   expiresAt: string;
-  timeRemaining: number;
 }
 
 type FilterTab = 'all' | 'available' | 'completed' | 'new';

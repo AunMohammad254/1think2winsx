@@ -30,6 +30,10 @@ wrong SQL. Covered so far:
   a result back, `email_log_totals`, the daily limit following `AppSettings.email_provider` (Brevo
   299, SES 199 by default), the guard that stops on a changed `email_quota_settings()`, and that
   only the service role can reach any of it
+- Signing up again (migration `06-20261025120000`): every foreign key to `"User"(id)` cascades an id
+  change, so production's `on_auth_user_created` trigger hands a returning player their old `"User"`
+  row (with its notifications) and they can lock in answers; the migration's repair of accounts left
+  without a row, and that it never takes a row from a live account
 
 ## Running locally
 
