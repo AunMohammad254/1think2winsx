@@ -80,14 +80,27 @@ describe('POST /api/admin/quiz-settlement (settle)', () => {
     const res = await post(main, '/api/admin/quiz-settlement', body);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ result: okInBrowser, notified: true });
-    expect(run).toHaveBeenCalledWith({ ...body, poolPercent: 0, settledBy: 'admin@1think2win.com', dryRun: false });
+    expect(run).toHaveBeenCalledWith({ ...body, poolPercent: 0, poolEach: 0, settledBy: 'admin@1think2win.com', dryRun: false });
     expect(notify).toHaveBeenCalledWith(ok);
     expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/quiz-settlement', { write: true });
     // The quiz's History tab: who settled it, and whom it paid
     expect(logQuizAction).toHaveBeenCalledWith({
       quizId: 'q1', quizTitle: 'Agli ball', action: 'quiz_settled', adminEmail: 'admin@1think2win.com',
-      details: { winners: [{ rank: 1, userId: undefined, points: undefined, prizeId: undefined }], unfilled: undefined },
+      details: {
+        winners: [{ rank: 1, userId: undefined, points: undefined, prizeId: undefined }], unfilled: undefined,
+        pool: { percent: 0, each: 0, paid: 100, recipients: 2 },
+      },
     });
+  });
+
+  it('passes the points each through, and records them', async () => {
+    run.mockResolvedValue(ok);
+    notify.mockResolvedValue(true);
+    await post(main, '/api/admin/quiz-settlement', { ...body, poolPercent: 20, poolEach: 1 });
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ poolPercent: 20, poolEach: 1 }));
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({
+      details: expect.objectContaining({ pool: { percent: 20, each: 1, paid: 100, recipients: 2 } }),
+    }));
   });
 
   it('passes a share of the points pool through, and copes with a database that has no pool yet', async () => {
@@ -100,6 +113,9 @@ describe('POST /api/admin/quiz-settlement (settle)', () => {
     run.mockResolvedValue(noPool);
     const res = await post(main, '/api/admin/quiz-settlement', body);
     expect(await res.json()).toEqual({ result: noPool, notified: true });
+    expect(logQuizAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      details: expect.objectContaining({ pool: { percent: 0, each: 0, paid: 0, recipients: 0 } }),
+    }));
   });
 
   it('maps a refusal from the database to its status', async () => {
@@ -124,6 +140,10 @@ describe('POST /api/admin/quiz-settlement (settle)', () => {
       { ...body, poolPercent: 100.5 },
       { ...body, poolPercent: 12.555 },
       { ...body, poolPercent: '10' },
+      { ...body, poolPercent: 10, poolEach: -1 },
+      { ...body, poolPercent: 10, poolEach: 1.5 },
+      { ...body, poolPercent: 10, poolEach: '1' },
+      { ...body, poolPercent: 10, poolEach: 10_000_001 },
     ]) {
       expect((await post(main, '/api/admin/quiz-settlement', bad)).status).toBe(400);
     }
@@ -154,6 +174,10 @@ describe('POST /api/admin/quiz-settlement/preview', () => {
 
     await post(preview, '/api/admin/quiz-settlement/preview', { ...body, seed: SEED });
     expect(run.mock.calls[1][0].seed).toBe(SEED);
+    expect(run.mock.calls[1][0]).toMatchObject({ poolPercent: 0, poolEach: 0 });
+
+    await post(preview, '/api/admin/quiz-settlement/preview', { ...body, poolPercent: 10, poolEach: 5 });
+    expect(run.mock.calls[2][0]).toMatchObject({ poolPercent: 10, poolEach: 5 });
   });
 
   it('maps refusals and bad input, and answers 500 on errors', async () => {

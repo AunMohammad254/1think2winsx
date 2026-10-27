@@ -8,6 +8,7 @@ import { getAdminDb, notificationDb, fetchAllByKeyset } from '@/lib/supabase/db'
 import { answeringClosesAt, quizStage, type QuizStage } from '@/lib/quiz-stage';
 import { invalidateQuizCatalog } from '@/lib/quiz-catalog';
 import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings, type QuizAdminSettings } from '@/lib/quiz-admin-settings';
+import { formatCount } from '@/lib/numbers';
 
 export type TieRule = 'random' | 'earliest';
 export interface Reward { rank: number; points?: number; prizeId?: string }
@@ -32,16 +33,24 @@ export interface SettlementQuiz {
 }
 
 /**
- * The points pool settle_quiz paid (or, in a preview, would pay): the quiz's whole pool, in random
- * amounts, to the earliest `percent` of the entrants who scored above 0.
+ * The points pool settle_quiz paid (or, in a preview, would pay) to the earliest `percent` of the
+ * entrants who scored above 0: the quiz's whole pool in random amounts, or `each` points apiece.
  */
 export interface PoolSummary {
   /** Percentage of the entrants who get a share (0: the pool is not paid) */
   percent: number;
+  /**
+   * Points each recipient gets, at most the pool; 0 shares the whole pool at random. Missing when
+   * settle_quiz is from before migration 20261027120000, which only shares at random.
+   */
+  each?: number;
   poolSize: number;
-  /** What was meant to be paid: the whole pool, or 0 without a percentage */
+  /** What was meant to be paid: the whole pool, places × each, or 0 without a percentage */
   target: number;
-  /** ceil(entrants × percent / 100): how many of the earliest scorers get a share */
+  /**
+   * ceil(entrants × percent / 100): how many of the earliest scorers get a share. With points each,
+   * never more than the pool covers (floor(poolSize / each)).
+   */
   places: number;
   /** What was actually paid: the target, or 0 when no entrant scored */
   paid: number;
@@ -74,8 +83,8 @@ export interface SettlementDetail {
   questions: SettlementQuestion[];
   settlement: {
     settledAt: string; settledBy: string; tieRule: string; seed: string; winners: SettledWinner[];
-    /** The pool share paid at settlement: percent, points and how many players got some */
-    pool: { percent: number; points: number; recipients: number };
+    /** The pool paid at settlement: percent, points, how many players got some, and points each (0: random shares) */
+    pool: { percent: number; points: number; recipients: number; each: number };
   } | null;
 }
 
@@ -243,6 +252,8 @@ export async function getSettlementDetail(quizId: string, nowMs: number): Promis
   const isNormalQuiz = (quizRes.data as QuizRow).quizType === 'normal';
   const settlement = settlementRes.data as {
     settledAt: string; settledBy: string; tieRule: string; seed: string; poolPercent?: number | string; poolPoints?: number;
+    /** From migration 20261027120000 on */
+    poolEach?: number;
   } | null;
 
   let winners: SettledWinner[] = [];
@@ -298,7 +309,12 @@ export async function getSettlementDetail(quizId: string, nowMs: number): Promis
           tieRule: settlement.tieRule,
           seed: settlement.seed,
           winners,
-          pool: { percent: Number(settlement.poolPercent) || 0, points: settlement.poolPoints ?? 0, recipients: poolRecipients },
+          pool: {
+            percent: Number(settlement.poolPercent) || 0,
+            points: settlement.poolPoints ?? 0,
+            recipients: poolRecipients,
+            each: settlement.poolEach ?? 0,
+          },
         }
       : null,
   };
@@ -341,10 +357,12 @@ export async function saveQuizResult(quizId: string, answers: Record<string, num
 
 /**
  * Run settle_quiz; with dryRun it returns the same winners and pool shares and changes nothing.
- * `poolPercent`: the share of the quiz's points pool to split at random among the entrants who scored.
+ * `poolPercent`: the share of the entrants who get some of the quiz's points pool (the earliest who scored).
+ * `poolEach`: the points each of them gets, or 0 to split the whole pool among them at random.
  */
 export async function runSettlement(input: {
-  quizId: string; rewards: Reward[]; tieRule: TieRule; seed: string; settledBy: string; dryRun: boolean; poolPercent: number;
+  quizId: string; rewards: Reward[]; tieRule: TieRule; seed: string; settledBy: string; dryRun: boolean;
+  poolPercent: number; poolEach: number;
 }): Promise<SettleResult> {
   const { data, error } = await getAdminDb().rpc('settle_quiz', {
     p_quiz_id: input.quizId,
@@ -354,6 +372,8 @@ export async function runSettlement(input: {
     p_settled_by: input.settledBy,
     p_dry_run: input.dryRun,
     p_pool_percent: input.poolPercent,
+    // Sent only for points each: a random split still reaches settle_quiz from before migration 20261027120000
+    ...(input.poolEach > 0 ? { p_pool_each: input.poolEach } : {}),
   });
   if (error) throw error;
   return data as SettleResult;
@@ -380,6 +400,8 @@ interface SettlementNotices {
   quizTitle: string;
   winners: Array<Pick<SettledWinner, 'rank' | 'userId' | 'points' | 'prizeName'> & { notificationSent?: boolean }>;
   poolRecipientIds: string[];
+  /** Points each pool recipient got, or 0 for random shares (the amounts differ) */
+  poolEach: number;
 }
 
 // Player ids per lookup: a list well inside the request URL and PostgREST's 1,000-row cap
@@ -440,14 +462,17 @@ async function sendNotices(n: SettlementNotices, resend: boolean): Promise<boole
       const told = await alreadyNotified(userIds, notice);
       return userIds.filter((id) => !told.has(id));
     };
-    // Pool shares differ per player, so one message for all of them points to the profile for the amount
+    // Random shares differ per player, so one message for all of them points to the profile for the
+    // amount; points each are the same for everyone, so the message says how many
     const poolIds = new Set(n.poolRecipientIds);
     const bonus = bonusNotice(n.quizId);
     const bonusTo = await notYetTold([...poolIds], bonus);
     if (bonusTo.length > 0) {
       await notificationDb.createBatchForUsers(bonusTo, {
         title: bonus.title,
-        message: `You received bonus points in "${n.quizTitle}". See your profile for your points.`,
+        message: n.poolEach > 0
+          ? `You received ${formatCount(n.poolEach)} bonus ${n.poolEach === 1 ? 'point' : 'points'} in "${n.quizTitle}".`
+          : `You received bonus points in "${n.quizTitle}". See your profile for your points.`,
         type: 'prize_won',
         link: bonus.link,
       });
@@ -478,6 +503,7 @@ export function notifySettlement(result: Extract<SettleResult, { success: true }
     quizTitle: result.quizTitle,
     winners: result.winners,
     poolRecipientIds: result.pool?.recipientIds ?? [],
+    poolEach: result.pool?.each ?? 0,
   }, false);
 }
 
@@ -493,7 +519,8 @@ export async function resendSettlementNotices(quizId: string): Promise<ResendOut
   const db = getAdminDb();
   const [quizRes, settlementRes, winnersRes] = await Promise.all([
     db.from('Quiz').select('id, title').eq('id', quizId).maybeSingle(),
-    db.from('QuizSettlement').select('quizId').eq('quizId', quizId).maybeSingle(),
+    // `*`: "poolEach" comes from a migration (20261027120000) and naming it before it is applied fails the read
+    db.from('QuizSettlement').select('*').eq('quizId', quizId).maybeSingle(),
     db.from('QuizWinner').select('rank, userId, pointsAwarded, notificationSent, Prize:prizeId (name)')
       .eq('quizId', quizId)
       .order('rank', { ascending: true }),
@@ -526,6 +553,7 @@ export async function resendSettlementNotices(quizId: string): Promise<ResendOut
     quizTitle: (quizRes.data as { title: string }).title,
     winners,
     poolRecipientIds: pool.map((p) => p.userId),
+    poolEach: (settlementRes.data as { poolEach?: number }).poolEach ?? 0,
   }, true);
   return { ok: true, notified };
 }

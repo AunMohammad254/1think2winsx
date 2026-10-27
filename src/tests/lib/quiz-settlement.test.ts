@@ -179,7 +179,7 @@ describe('getSettlementDetail', () => {
         { rank: 1, userId: 'u1', name: 'Ali', email: 'ali@x', score: 100, selectionMethod: 'ranked', points: null, prizeId: 'p1', prizeName: 'Bike', prizeCategory: 'bumper' },
         { rank: 2, userId: 'u2', name: null, email: null, score: 50, selectionMethod: 'ranked_random_tiebreak', points: 500, prizeId: null, prizeName: null, prizeCategory: null },
       ],
-      pool: { percent: 0, points: 0, recipients: 0 },
+      pool: { percent: 0, points: 0, recipients: 0, each: 0 },
     });
     expect(eqValue(adminDb.callsTo('QuizWinner')[0], 'quizId')).toBe('q1');
     // No pool was paid, so nobody's shares are counted
@@ -197,7 +197,18 @@ describe('getSettlementDetail', () => {
 
     const detail = await lib.getSettlementDetail('q1', NOW);
     expect(detail!.quiz).toMatchObject({ attempts: 3, maxEntries: 3, pointsPool: 50_000 });
-    expect(detail!.settlement!.pool).toEqual({ percent: 12.5, points: 6250, recipients: 840 });
+    // No "poolEach" before migration 20261027120000: the shares were random
+    expect(detail!.settlement!.pool).toEqual({ percent: 12.5, points: 6250, recipients: 840, each: 0 });
+  });
+
+  it('gives the points each a settlement paid from the pool', async () => {
+    adminDb.setTable('Quiz', { data: quizRow() });
+    adminDb.setTable('Question', { data: [] });
+    adminDb.setTable('QuizAdminSettings', { data: [{ quizId: 'q1', maxEntries: 2000, pointsPool: 100 }] });
+    adminDb.setTable('QuizSettlement', { data: { settledAt: 't', settledBy: 'a', tieRule: 'random', seed: 's', poolPercent: 20, poolPoints: 100, poolEach: 1 } });
+    adminDb.setTable('QuizPoolShare', { data: null, count: 100 });
+    adminDb.setTable('QuizWinner', { data: [] });
+    expect((await lib.getSettlementDetail('q1', NOW))!.settlement!.pool).toEqual({ percent: 20, points: 100, recipients: 100, each: 1 });
   });
 
   it('counts no pool recipients when the count is missing, and fails loudly when it cannot be read', async () => {
@@ -207,7 +218,7 @@ describe('getSettlementDetail', () => {
     adminDb.setTable('QuizSettlement', { data: { settledAt: 't', settledBy: 'a', tieRule: 'random', seed: 's', poolPercent: 10, poolPoints: 500 } });
     adminDb.setTable('QuizWinner', { data: [] });
     adminDb.setTable('QuizPoolShare', { data: null, count: null });
-    expect((await lib.getSettlementDetail('q1', NOW))!.settlement!.pool).toEqual({ percent: 10, points: 500, recipients: 0 });
+    expect((await lib.getSettlementDetail('q1', NOW))!.settlement!.pool).toEqual({ percent: 10, points: 500, recipients: 0, each: 0 });
     adminDb.setTable('QuizPoolShare', { error: { message: 'denied' } });
     await expect(lib.getSettlementDetail('q1', NOW)).rejects.toEqual({ message: 'denied' });
   });
@@ -319,17 +330,24 @@ describe('runSettlement', () => {
   it('calls settle_quiz with every argument and returns its answer', async () => {
     const answer = { success: true, winners: [] };
     adminDb.setRpc('settle_quiz', { data: answer });
-    const r = await lib.runSettlement({ quizId: 'q1', rewards: [{ rank: 1, points: 5 }], tieRule: 'earliest', seed: 's'.repeat(16), settledBy: 'admin@x', dryRun: true, poolPercent: 12.5 });
+    const r = await lib.runSettlement({ quizId: 'q1', rewards: [{ rank: 1, points: 5 }], tieRule: 'earliest', seed: 's'.repeat(16), settledBy: 'admin@x', dryRun: true, poolPercent: 12.5, poolEach: 0 });
     expect(r).toEqual(answer);
+    // A random split leaves out p_pool_each, so it also reaches settle_quiz from before migration 20261027120000
     expect(adminDb.rpcCalls[0]).toEqual({ fn: 'settle_quiz', args: {
       p_quiz_id: 'q1', p_rewards: [{ rank: 1, points: 5 }], p_tie_rule: 'earliest', p_seed: 's'.repeat(16), p_settled_by: 'admin@x', p_dry_run: true,
       p_pool_percent: 12.5,
     } });
   });
 
+  it('sends the points each when the pool is paid in fixed amounts', async () => {
+    adminDb.setRpc('settle_quiz', { data: { success: true, winners: [] } });
+    await lib.runSettlement({ quizId: 'q1', rewards: [], tieRule: 'random', seed: 's'.repeat(16), settledBy: 'a', dryRun: true, poolPercent: 20, poolEach: 1 });
+    expect(adminDb.rpcCalls[0].args).toMatchObject({ p_pool_percent: 20, p_pool_each: 1 });
+  });
+
   it('throws a database error', async () => {
     adminDb.setRpc('settle_quiz', { error: { message: 'boom' } });
-    await expect(lib.runSettlement({ quizId: 'q1', rewards: [], tieRule: 'random', seed: 'x', settledBy: 'a', dryRun: false, poolPercent: 0 })).rejects.toEqual({ message: 'boom' });
+    await expect(lib.runSettlement({ quizId: 'q1', rewards: [], tieRule: 'random', seed: 'x', settledBy: 'a', dryRun: false, poolPercent: 0, poolEach: 0 })).rejects.toEqual({ message: 'boom' });
   });
 });
 
@@ -358,6 +376,17 @@ describe('notifySettlement', () => {
     // Right after settling nobody has a notice yet, so nobody is looked up
     expect(adminDb.callsTo('Notification')).toHaveLength(0);
     expect(createBatchForUsers).toHaveBeenNthCalledWith(2, ['u3'], expect.objectContaining({ title: '🏅 Results are in' }));
+  });
+
+  it('says how many bonus points each recipient got when they all got the same', async () => {
+    adminDb.setTable('QuizAttempt', paged([{ id: 'a1', userId: 'u1' }]));
+    const one = result([], ['u1']);
+    expect(await lib.notifySettlement({ ...one, pool: { ...one.pool, each: 1 } })).toBe(true);
+    expect(createBatchForUsers).toHaveBeenNthCalledWith(1, ['u1'], expect.objectContaining({
+      title: '🎁 Bonus points', message: 'You received 1 bonus point in "Agli ball".' }));
+    createBatchForUsers.mockClear();
+    expect(await lib.notifySettlement({ ...one, pool: { ...one.pool, each: 2500 } })).toBe(true);
+    expect(createBatchForUsers).toHaveBeenNthCalledWith(1, ['u1'], expect.objectContaining({ message: 'You received 2,500 bonus points in "Agli ball".' }));
   });
 
   it('tells each winner what they won and everyone else that results are in', async () => {
@@ -456,6 +485,14 @@ describe('resendSettlementNotices', () => {
       ['🎁 Bonus points', '/profile?quiz=q1'],
       ['🏅 Results are in', '/quiz/q1/results'],
     ]);
+  });
+
+  it('says the points each again in a resent bonus notice', async () => {
+    settled({ settlement: { quizId: 'q1', poolEach: 3 } });
+    alreadyHave({});
+    expect((await lib.resendSettlementNotices('q1')).ok).toBe(true);
+    expect(createBatchForUsers).toHaveBeenNthCalledWith(1, ['u3', 'u4'], expect.objectContaining({
+      title: '🎁 Bonus points', message: 'You received 3 bonus points in "Agli ball".' }));
   });
 
   it("names a winner's prize from either shape of the join, and skips the bonus notice when everyone has it", async () => {
