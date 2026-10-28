@@ -1,6 +1,6 @@
 import '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { jsonResponse } from '@/tests/helpers/ui';
 
 const h = vi.hoisted(() => ({ toast: { success: vi.fn(), error: vi.fn() }, getCSRFToken: vi.fn() }));
@@ -41,7 +41,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const listUrl = () => fetchMock.mock.calls.filter(([, i]) => !i).at(-1)![0] as string;
+// The list's own requests (the details screen also loads a claim's timeline)
+const listUrl = () => fetchMock.mock.calls.filter(([url, i]) => !i && String(url).startsWith('/api/admin/claims?')).at(-1)![0] as string;
+/** Answers PUTs with `put` from now on, and everything else as usual */
+const answerPuts = (put: () => Response) =>
+  fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method === 'PUT' ? put() : listResponse()));
+const lastPut = () => JSON.parse(fetchMock.mock.calls.filter(([, i]) => i?.method === 'PUT').at(-1)![1].body);
 
 describe('PlayerClaimsManager', () => {
   it('loads pending claims and lists them with their actions', async () => {
@@ -49,7 +54,7 @@ describe('PlayerClaimsManager', () => {
     expect(await screen.findByText('Watch')).toBeInTheDocument();
     expect(listUrl()).toBe('/api/admin/claims?page=1&limit=20&status=pending');
     expect(screen.getAllByRole('button', { name: 'Approve' })).toHaveLength(1);
-    expect(screen.getAllByRole('button', { name: 'Mark Fulfilled' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Confirm Delivery' })).toHaveLength(1);
     expect(screen.getByText('?')).toBeInTheDocument(); // no name: placeholder initial
   });
 
@@ -65,13 +70,46 @@ describe('PlayerClaimsManager', () => {
   it('searches by player, email, prize or delivery name', async () => {
     render(<PlayerClaimsManager />);
     await screen.findByText('Watch');
-    const search = screen.getByPlaceholderText('Search by player name, email, or prize...');
+    const search = screen.getByPlaceholderText('Search by player, email, prize or tracking ID...');
     for (const [term, shown] of [['sara@', 'Phone'], ['mug', 'Mug'], ['kamran', 'Cap'], ['ali raza', 'Watch']] as const) {
       fireEvent.change(search, { target: { value: term } });
       expect(screen.getAllByText(shown).length).toBeGreaterThan(0);
     }
     fireEvent.change(search, { target: { value: 'nobody' } });
     expect(screen.getByText('No claims match "nobody".')).toBeInTheDocument();
+  });
+
+  it('looks a full tracking ID up on the server, whatever the status filter', async () => {
+    render(<PlayerClaimsManager />);
+    await screen.findByText('Watch');
+    fireEvent.change(screen.getByPlaceholderText('Search by player, email, prize or tracking ID...'), { target: { value: '1t2w 7k3m qx97' } });
+    await waitFor(() => expect(listUrl()).toBe('/api/admin/claims?page=1&limit=20&status=pending&tracking=1T2W-7K3M-QX97'));
+    // The server's answer is shown as is, not filtered again by the typed text
+    expect(screen.getByText('Watch')).toBeInTheDocument();
+  });
+
+  it('keeps the lookup when the list requested before it answers late', async () => {
+    let answerFirst!: () => void;
+    const first = new Promise<Response>((resolve) => { answerFirst = () => resolve(listResponse()); });
+    fetchMock.mockImplementationOnce(() => first);
+    render(<PlayerClaimsManager />);
+    fetchMock.mockImplementation(async (url: string) => (url.includes('tracking=') ? listResponse([claims[1]]) : listResponse()));
+    fireEvent.change(screen.getByPlaceholderText('Search by player, email, prize or tracking ID...'), { target: { value: '1T2W-7K3M-QX97' } });
+    expect(await screen.findByText('Phone')).toBeInTheDocument();
+
+    await act(async () => { answerFirst(); await first; });
+    expect(screen.getByText('Phone')).toBeInTheDocument();
+    expect(screen.queryByText('Watch')).toBeNull();
+  });
+
+  it("doesn't report a failure of a list request that a newer one replaced", async () => {
+    let failFirst!: () => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((_resolve, reject) => { failFirst = () => reject(new Error('offline')); }));
+    render(<PlayerClaimsManager />);
+    fireEvent.change(screen.getByPlaceholderText('Search by player, email, prize or tracking ID...'), { target: { value: '1T2W-7K3M-QX97' } });
+    expect(await screen.findByText('Watch')).toBeInTheDocument();
+    await act(async () => { failFirst(); });
+    expect(h.toast.error).not.toHaveBeenCalled();
   });
 
   it('explains empty lists for a status and for all claims', async () => {
@@ -117,8 +155,66 @@ describe('PlayerClaimsManager', () => {
     expect(JSON.parse(put[1].body)).toEqual({ claimId: 'c1', status: 'approved' });
     fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Claim rejected!'));
-    fireEvent.click(screen.getByRole('button', { name: 'Mark Fulfilled' }));
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Claim fulfilled!'));
+    // Delivery needs the winner's handover code, so the card opens the details
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Delivery' }));
+    fireEvent.change(screen.getByLabelText("Winner's handover code"), { target: { value: '482913' } });
+    fireEvent.click(within(screen.getByText('Claim Details').closest('.fixed') as HTMLElement).getByRole('button', { name: 'Confirm Delivery' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Claim delivered!'));
+    expect(lastPut()).toEqual({ claimId: 'c2', action: 'deliver', handoverCode: '482913' });
+  });
+
+  it('keeps the details open on a wrong handover code, showing the tries used, and resets the code', async () => {
+    render(<PlayerClaimsManager />);
+    await screen.findByText('Watch');
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Delivery' }));
+    answerPuts(() => jsonResponse({ message: 'Wrong handover code (3 of 5 tries used). Check it with the winner.', code: 'wrong_code', failures: 3 }, 400));
+    fireEvent.change(screen.getByLabelText("Winner's handover code"), { target: { value: '111 111' } });
+    fireEvent.click(within(screen.getByText('Claim Details').closest('.fixed') as HTMLElement).getByRole('button', { name: 'Confirm Delivery' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Wrong handover code (3 of 5 tries used). Check it with the winner.'));
+    expect(screen.getByText('Claim Details')).toBeInTheDocument();
+    expect(screen.getByText(/3 of 5 wrong tries used/)).toBeInTheDocument();
+
+    answerPuts(() => jsonResponse({ message: 'New handover code issued. The winner sees it on their profile.' }));
+    fireEvent.click(screen.getByText('Reset the handover code'));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('New handover code issued. The winner sees it on their profile.'));
+    expect(lastPut()).toEqual({ claimId: 'c2', action: 'reset_code' });
+
+    // A reply without a message still confirms it
+    answerPuts(() => new Response('', { status: 200 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Delivery' }));
+    fireEvent.click(screen.getByText('Reset the handover code'));
+    await waitFor(() => expect(h.toast.success).toHaveBeenLastCalledWith('New handover code issued'));
+  });
+
+  it('leaves the details closed when a wrong code is answered after they were closed', async () => {
+    render(<PlayerClaimsManager />);
+    await screen.findByText('Watch');
+    let answer!: () => void;
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => (init?.method === 'PUT'
+      ? new Promise<Response>((resolve) => { answer = () => resolve(jsonResponse({ message: 'Wrong handover code', failures: 1 }, 400)); })
+      : Promise.resolve(listResponse())));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Delivery' }));
+    fireEvent.change(screen.getByLabelText("Winner's handover code"), { target: { value: '111111' } });
+    fireEvent.click(within(screen.getByText('Claim Details').closest('.fixed') as HTMLElement).getByRole('button', { name: 'Confirm Delivery' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    // The request goes out once the CSRF token is in
+    await waitFor(() => expect(typeof answer).toBe('function'));
+    await act(async () => { answer(); });
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Wrong handover code'));
+    expect(screen.queryByText('Claim Details')).toBeNull();
+  });
+
+  it('approves a high-risk claim from its details with the reason', async () => {
+    const risky = { ...claims[0], trackingId: '1T2W-7K3M-QX97', risk: { score: 70, level: 'high', flags: [{ code: 'shared_phone', weight: 40 }] } };
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => (init?.method === 'PUT' ? jsonResponse({ ok: true }) : listResponse([risky])));
+    render(<PlayerClaimsManager />);
+    await screen.findByText('Watch');
+    // The card sends a high-risk approval to the details, which ask why
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.change(screen.getByLabelText(/Why approve despite the flags/), { target: { value: 'Brothers in one house, CNICs checked' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Claim' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Claim approved!'));
+    expect(lastPut()).toEqual({ claimId: 'c1', status: 'approved', notes: '', overrideReason: 'Brothers in one house, CNICs checked' });
   });
 
   it('reports update failures', async () => {
@@ -156,14 +252,17 @@ describe('PlayerClaimsManager', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[1]);
     expect(screen.getAllByText('Shipping soon').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: /Mark as Fulfilled/ }));
+    fireEvent.click(screen.getByText('Delivered without the code?'));
+    fireEvent.change(screen.getByLabelText(/Why there is no code/), { target: { value: 'Winner lost their phone' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mark Delivered Without Code' }));
     await waitFor(() => expect(screen.queryByText('Claim Details')).toBeNull());
+    expect(lastPut()).toEqual({ claimId: 'c2', action: 'deliver', overrideReason: 'Winner lost their phone' });
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[2]);
     const modal = screen.getByText('Claim Details').closest('.fixed') as HTMLElement;
     fireEvent.click(within(modal).getByText('Claim Details'));
     expect(screen.getByText('Claim Details')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Claim Details').parentElement!.querySelector('button')!);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByText('Claim Details')).toBeNull();
     fireEvent.click(screen.getAllByRole('button', { name: 'Details' })[3]);
     fireEvent.click(screen.getByText('Claim Details').closest('.fixed')!);
@@ -181,12 +280,12 @@ describe('PlayerClaimsManager', () => {
       return JSON.parse(fetchMock.mock.calls.filter(([, i]) => i?.method === 'PUT').at(-1)![1].body);
     };
 
-    fetchMock.mockImplementationOnce(async () => jsonResponse({ message: 'Claim reissued for re-delivery successfully' }));
+    answerPuts(() => jsonResponse({ message: 'Claim reissued for re-delivery successfully' }));
     expect(await reissue(/Reissue for Re-Delivery/)).toEqual({ claimId: 'c3', action: 'reissue', reissueMode: 'redelivery', notes: 'Courier lost it' });
     expect(h.toast.success).toHaveBeenLastCalledWith('Claim reissued for re-delivery successfully');
 
     // A reply without a message (or JSON) still confirms it
-    fetchMock.mockImplementationOnce(async () => new Response('', { status: 200 }));
+    answerPuts(() => new Response('', { status: 200 }));
     expect(await reissue(/Reissue & Allow Re-Claim/)).toEqual({ claimId: 'c3', action: 'reissue', reissueMode: 'reclaim', notes: 'Courier lost it' });
     expect(h.toast.success).toHaveBeenLastCalledWith('Claim reissued');
   });

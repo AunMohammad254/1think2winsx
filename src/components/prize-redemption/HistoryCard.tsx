@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { loaderFor } from '@/lib/cloudinary';
 import { getStatusColor, type RedemptionHistory } from './types';
+import { ClaimTracking } from './ClaimTracking';
 
 interface HistoryCardProps {
     redemption: RedemptionHistory;
@@ -54,6 +55,7 @@ export function HistoryCard({ redemption, onPreview }: HistoryCardProps) {
                     <p className="text-sm text-gray-300">{redemption.notes}</p>
                 </div>
             )}
+            <ClaimTracking trackingId={redemption.trackingId} handoverCode={redemption.handoverCode} timeline={redemption.timeline} />
         </div>
     );
 }

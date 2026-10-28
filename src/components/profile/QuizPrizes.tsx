@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getCSRFHeaders } from '@/lib/csrf';
 import type { QuizPrize } from '@/lib/quiz-prizes';
+import { ClaimTracking } from '@/components/prize-redemption/ClaimTracking';
 
 const PLACE = ['', '1st', '2nd', '3rd'];
 
@@ -104,6 +105,9 @@ export default function QuizPrizes() {
                 <p className="font-semibold text-white">{prize.prize.name}</p>
                 <p className="text-xs text-slate-400">{PLACE[prize.rank]} place in &ldquo;{prize.quizTitle}&rdquo;</p>
                 <p className={`mt-1 text-sm ${state.tone}`}>{state.text}</p>
+                {prize.claim && (
+                  <ClaimTracking trackingId={prize.claim.trackingId} handoverCode={prize.claim.handoverCode} timeline={prize.claim.timeline} />
+                )}
               </div>
               {state.canSend && (
                 <button

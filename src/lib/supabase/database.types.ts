@@ -428,6 +428,9 @@ export interface Database {
                     requestedAt: string
                     processedAt: string | null
                     notes: string | null
+                    trackingId: string
+                    handoverVersion: number
+                    handoverFailures: number
                     createdAt: string
                     updatedAt: string
                 }
@@ -443,6 +446,9 @@ export interface Database {
                     requestedAt?: string
                     processedAt?: string | null
                     notes?: string | null
+                    trackingId?: string
+                    handoverVersion?: number
+                    handoverFailures?: number
                     createdAt?: string
                     updatedAt?: string
                 }
@@ -458,6 +464,9 @@ export interface Database {
                     requestedAt?: string
                     processedAt?: string | null
                     notes?: string | null
+                    trackingId?: string
+                    handoverVersion?: number
+                    handoverFailures?: number
                     createdAt?: string
                     updatedAt?: string
                 }

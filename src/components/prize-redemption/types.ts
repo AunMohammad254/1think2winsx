@@ -1,5 +1,7 @@
 'use client';
 
+import type { PlayerClaimEvent } from '@/lib/claim-tracking-shared';
+
 // ============================================
 // Types for Prize Redemption
 // ============================================
@@ -19,11 +21,16 @@ export interface Prize {
 export interface RedemptionHistory {
     id: string;
     prizeId?: string;
+    /** 1T2W-XXXX-XXXX, what the winner quotes (migration 20261028120000_claim_tracking) */
+    trackingId?: string;
     pointsUsed: number;
     status: string;
     requestedAt: string;
     processedAt?: string;
     notes?: string;
+    /** Only while the claim is approved */
+    handoverCode?: string | null;
+    timeline?: PlayerClaimEvent[];
     prize: {
         name: string;
         description: string;

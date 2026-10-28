@@ -21,17 +21,25 @@ describe('listQuizPrizes', () => {
         { id: 'w1', quizId: 'q1', rank: 1, selectedAt: '2026-10-20', Quiz: { title: 'Final' }, Prize: WATCH, PrizeRedemption: null },
         {
           id: 'w2', quizId: 'q2', rank: 2, selectedAt: '2026-10-10', Quiz: [{ title: 'Semi' }], Prize: [WATCH],
-          PrizeRedemption: [{ id: 'c1', status: 'rejected', requestedAt: '2026-10-11', processedAt: '2026-10-12', notes: 'Wrong address' }],
+          PrizeRedemption: [{ id: 'c1', trackingId: '1T2W-7K3M-QX97', status: 'rejected', requestedAt: '2026-10-11', processedAt: '2026-10-12', notes: 'Wrong address', handoverVersion: 1 }],
         },
         { id: 'w3', quizId: 'q3', rank: 3, selectedAt: '2026-10-05', Quiz: null, Prize: WATCH, PrizeRedemption: [] },
         { id: 'gone', quizId: 'q4', rank: 1, selectedAt: '2026-10-01', Quiz: null, Prize: null, PrizeRedemption: null },
       ],
     });
+    adminDb.setTable('PrizeClaimEvent', { data: [
+      { claimId: 'c1', event: 'submitted', note: null, createdAt: '2026-10-11T09:00:00Z' },
+      { claimId: 'c1', event: 'rejected', note: 'Wrong address', createdAt: '2026-10-12T09:00:00Z' },
+    ] });
     expect(await listQuizPrizes('user-1')).toEqual([
       { winnerId: 'w1', quizId: 'q1', quizTitle: 'Final', rank: 1, wonAt: '2026-10-20', prize: WATCH, claim: null },
       {
         winnerId: 'w2', quizId: 'q2', quizTitle: 'Semi', rank: 2, wonAt: '2026-10-10', prize: WATCH,
-        claim: { id: 'c1', status: 'rejected', requestedAt: '2026-10-11', processedAt: '2026-10-12', notes: 'Wrong address' },
+        claim: {
+          id: 'c1', trackingId: '1T2W-7K3M-QX97', status: 'rejected', requestedAt: '2026-10-11', processedAt: '2026-10-12', notes: 'Wrong address',
+          handoverCode: null,
+          timeline: [{ event: 'submitted', at: '2026-10-11T09:00:00Z' }, { event: 'rejected', at: '2026-10-12T09:00:00Z', note: 'Wrong address' }],
+        },
       },
       { winnerId: 'w3', quizId: 'q3', quizTitle: 'Quiz', rank: 3, wonAt: '2026-10-05', prize: WATCH, claim: null },
     ]);
@@ -39,6 +47,20 @@ describe('listQuizPrizes', () => {
     expect(eqValue(call, 'userId')).toBe('user-1');
     // Places paid in points have nothing to deliver
     expect(call.ops.find((o) => o.op === 'not')?.args).toEqual(['prizeId', 'is', null]);
+  });
+
+  it('shows the handover code only while the claim is approved, and still lists prizes when the timeline fails', async () => {
+    vi.stubEnv('CLAIM_HANDOVER_SECRET', 'test-handover-secret');
+    const claim = { id: 'c1', trackingId: '1T2W-7K3M-QX97', status: 'approved', requestedAt: '2026-10-11', processedAt: '2026-10-12', notes: null, handoverVersion: 3 };
+    adminDb.setTable('QuizWinner', { data: [{ id: 'w1', quizId: 'q1', rank: 1, selectedAt: '2026-10-20', Quiz: { title: 'Final' }, Prize: WATCH, PrizeRedemption: claim }] });
+    adminDb.setTable('PrizeClaimEvent', { error: { message: 'relation "PrizeClaimEvent" does not exist' } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const [prize] = await listQuizPrizes('user-1');
+    const { handoverCode } = await import('@/lib/claim-tracking');
+    expect(prize.claim).toEqual({ ...claim, handoverVersion: undefined, handoverCode: handoverCode('c1', 3), timeline: [] });
+    expect(prize.claim).not.toHaveProperty('handoverVersion');
+    vi.unstubAllEnvs();
   });
 
   it('copes with no rows, and throws a failed read', async () => {

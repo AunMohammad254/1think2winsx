@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { loaderFor } from '@/lib/cloudinary';
 import {
@@ -15,9 +15,13 @@ import {
     Loader2,
     RotateCcw,
     RefreshCw,
+    ShieldAlert,
+    KeyRound,
+    History,
     X,
 } from 'lucide-react';
-import { statusConfig, formatDate, type Claim } from './types';
+import { RISK_FLAG_LABELS, PLAYER_EVENT_LABELS } from '@/lib/claim-tracking-shared';
+import { statusConfig, riskBadge, formatDate, type Claim, type DeliveryProof } from './types';
 
 interface ClaimDetailsModalProps {
     claim: Claim;
@@ -28,8 +32,76 @@ interface ClaimDetailsModalProps {
         status: string,
         notes?: string,
         action?: 'update' | 'reissue',
-        reissueMode?: 'redelivery' | 'reclaim'
+        reissueMode?: 'redelivery' | 'reclaim',
+        overrideReason?: string
     ) => void;
+    /** Mark an approved claim delivered, with the winner's handover code or a reason there is none */
+    onDeliver?: (claimId: string, proof: DeliveryProof) => void;
+    /** Give the winner a new handover code (the old one stops working) */
+    onResetCode?: (claimId: string) => void;
+}
+
+// decide_claim wants this many characters for an override reason
+const MIN_REASON = 10;
+const MAX_HANDOVER_FAILURES = 5;
+
+interface TimelineEvent {
+    id: string;
+    event: keyof typeof PLAYER_EVENT_LABELS;
+    actor: string;
+    note: string | null;
+    details: { origin?: { ip?: string }; handover?: string; reason?: string; overrideReason?: string; failures?: number };
+    createdAt: string;
+}
+
+/** One line of what a timeline entry's details say, for the admin */
+function eventDetail({ details }: TimelineEvent): string | null {
+    if (details.origin?.ip) return `From IP ${details.origin.ip}`;
+    if (details.handover === 'code') return "Winner's handover code checked";
+    if (details.handover === 'override') return `Without the code: ${details.reason}`;
+    if (details.overrideReason) return `Approved despite the risk flags: ${details.overrideReason}`;
+    if (details.failures) return `${details.failures} of ${MAX_HANDOVER_FAILURES} wrong tries`;
+    return null;
+}
+
+/** What happened to the claim, oldest first; reloads when the claim changes */
+function ClaimTimeline({ claim }: { claim: Claim }) {
+    const [events, setEvents] = useState<TimelineEvent[] | null>(null);
+    const { id, status } = claim;
+    const version = claim.handover?.version;
+    const failures = claim.handover?.failures;
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch(`/api/admin/claims/${encodeURIComponent(id)}/timeline`)
+            .then((response) => (response.ok ? response.json() : { events: [] }))
+            .then((data: { events?: TimelineEvent[] }) => { if (!cancelled) setEvents(data.events ?? []); })
+            .catch(() => { if (!cancelled) setEvents([]); });
+        return () => { cancelled = true; };
+    }, [id, status, version, failures]);
+
+    if (!events || events.length === 0) return null;
+    return (
+        <div className="p-4 bg-white/5 rounded-xl">
+            <h5 className="text-white font-medium flex items-center gap-2 mb-3">
+                <History className="w-4 h-4 text-gray-400" />
+                Timeline
+            </h5>
+            <ol className="space-y-2 text-sm">
+                {events.map((e) => (
+                    <li key={e.id} className="flex flex-col sm:flex-row sm:gap-3">
+                        <span className="text-gray-500 sm:w-40 shrink-0">{formatDate(e.createdAt)}</span>
+                        <span className="text-gray-200">
+                            {PLAYER_EVENT_LABELS[e.event] ?? e.event}
+                            <span className="text-gray-500"> · {e.actor}</span>
+                            {eventDetail(e) && <span className="block text-xs text-gray-400">{eventDetail(e)}</span>}
+                            {e.note && <span className="block text-xs text-gray-400">&ldquo;{e.note}&rdquo;</span>}
+                        </span>
+                    </li>
+                ))}
+            </ol>
+        </div>
+    );
 }
 
 /**
@@ -40,11 +112,23 @@ export function ClaimDetailsModal({
     updating,
     onClose,
     onUpdateStatus,
+    onDeliver,
+    onResetCode,
 }: ClaimDetailsModalProps) {
     const [actionNotes, setActionNotes] = useState('');
     const [reissueNotes, setReissueNotes] = useState('');
+    const [overrideReason, setOverrideReason] = useState('');
+    const [handoverCode, setHandoverCode] = useState('');
+    const [withoutCode, setWithoutCode] = useState(false);
+    const [deliveryReason, setDeliveryReason] = useState('');
     const config = statusConfig[claim.status];
     const StatusIcon = config.icon;
+    const risk = claim.risk;
+    const badge = risk ? riskBadge[risk.level] : null;
+    const highRisk = risk?.level === 'high';
+    const failures = claim.handover?.failures ?? 0;
+    const codeLocked = failures >= MAX_HANDOVER_FAILURES;
+    const busy = updating === claim.id;
 
     return (
         <div
@@ -57,9 +141,15 @@ export function ClaimDetailsModal({
             >
                 {/* Header */}
                 <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 px-6 py-4 border-b border-white/10 flex items-center justify-between">
-                    <h3 className="text-xl font-bold text-white">Claim Details</h3>
+                    <div>
+                        <h3 className="text-xl font-bold text-white">Claim Details</h3>
+                        {claim.trackingId && (
+                            <p className="font-mono text-sm tracking-wider text-amber-200" title="Tracking ID">{claim.trackingId}</p>
+                        )}
+                    </div>
                     <button
                         onClick={onClose}
+                        aria-label="Close"
                         className="p-2 rounded-lg hover:bg-white/10 transition-colors"
                     >
                         <X className="w-5 h-5 text-gray-400" />
@@ -142,6 +232,31 @@ export function ClaimDetailsModal({
                         </div>
                     </div>
 
+                    {/* Risk flags */}
+                    {risk && risk.flags.length > 0 && (
+                        <div className={`p-4 rounded-xl ${highRisk ? 'bg-red-500/10 border border-red-500/30' : 'bg-amber-500/10 border border-amber-500/20'}`}>
+                            <h5 className="text-white font-medium flex items-center gap-2 mb-2">
+                                <ShieldAlert className={`w-4 h-4 ${highRisk ? 'text-red-300' : 'text-amber-300'}`} />
+                                {badge?.label ?? 'Risk flags'}
+                                <span className="text-xs font-normal text-gray-400">score {risk.score}</span>
+                            </h5>
+                            <ul className="space-y-1.5 text-sm">
+                                {risk.flags.map((flag) => (
+                                    <li key={flag.code} className="text-gray-200">
+                                        {RISK_FLAG_LABELS[flag.code] ?? flag.code}
+                                        {flag.accounts && flag.accounts.length > 0 && (
+                                            <span className="block text-xs text-gray-400">
+                                                {flag.count && flag.count > flag.accounts.length
+                                                    ? `${flag.accounts.join(', ')} and ${flag.count - flag.accounts.length} more`
+                                                    : flag.accounts.join(', ')}
+                                            </span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
                     {/* Status & Timeline */}
                     <div className="flex items-center justify-between p-4 bg-white/5 rounded-xl">
                         <div className="flex items-center gap-3">
@@ -195,10 +310,25 @@ export function ClaimDetailsModal({
                                     rows={2}
                                 />
                             </div>
+                            {highRisk && (
+                                <div>
+                                    <label htmlFor="claim-override-reason" className="text-sm text-red-300 mb-2 block">
+                                        Why approve despite the flags? (required, kept on the timeline)
+                                    </label>
+                                    <textarea
+                                        id="claim-override-reason"
+                                        value={overrideReason}
+                                        onChange={(e) => setOverrideReason(e.target.value)}
+                                        placeholder="e.g. Brothers sharing a house: checked both CNICs on a video call"
+                                        className="w-full px-4 py-3 bg-white/5 border border-red-500/30 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-red-400/60 resize-none"
+                                        rows={2}
+                                    />
+                                </div>
+                            )}
                             <div className="flex gap-3">
                                 <button
-                                    onClick={() => onUpdateStatus(claim.id, 'approved', actionNotes)}
-                                    disabled={updating === claim.id}
+                                    onClick={() => onUpdateStatus(claim.id, 'approved', actionNotes, 'update', undefined, highRisk ? overrideReason.trim() : undefined)}
+                                    disabled={busy || (highRisk && overrideReason.trim().length < MIN_REASON)}
                                     className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
                                 >
                                     {updating === claim.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
@@ -216,17 +346,73 @@ export function ClaimDetailsModal({
                         </div>
                     )}
 
-                    {/* Action for Approved */}
-                    {claim.status === 'approved' && (
-                        <div className="pt-4 border-t border-white/10">
-                            <button
-                                onClick={() => onUpdateStatus(claim.id, 'fulfilled')}
-                                disabled={updating === claim.id}
-                                className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
-                            >
-                                {updating === claim.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
-                                Mark as Fulfilled / Delivered
-                            </button>
+                    {/* Delivery for Approved: the winner's handover code proves the prize reached them */}
+                    {claim.status === 'approved' && onDeliver && (
+                        <div className="space-y-3 pt-4 border-t border-white/10">
+                            <h5 className="text-white font-medium flex items-center gap-2">
+                                <KeyRound className="w-4 h-4 text-emerald-400" />
+                                Confirm delivery
+                            </h5>
+                            <p className="text-xs text-gray-400">
+                                The winner sees a 6-digit handover code on their profile and gives it to whoever hands over the prize.
+                                {failures > 0 && ` ${failures} of ${MAX_HANDOVER_FAILURES} wrong tries used.`}
+                            </p>
+                            {codeLocked ? (
+                                <p role="alert" className="text-sm text-red-300">Too many wrong codes. Reset the code, then ask the winner for the new one.</p>
+                            ) : (
+                                <div className="flex gap-3">
+                                    <input
+                                        aria-label="Winner's handover code"
+                                        inputMode="numeric"
+                                        autoComplete="off"
+                                        maxLength={7}
+                                        value={handoverCode}
+                                        onChange={(e) => setHandoverCode(e.target.value.replace(/[^\d ]/g, ''))}
+                                        placeholder="123 456"
+                                        className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white font-mono tracking-widest placeholder-gray-600 focus:outline-none focus:border-emerald-500/50"
+                                    />
+                                    <button
+                                        onClick={() => onDeliver(claim.id, { handoverCode: handoverCode.trim() })}
+                                        disabled={busy || handoverCode.replace(/\s/g, '').length !== 6}
+                                        className="px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
+                                    >
+                                        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+                                        Confirm Delivery
+                                    </button>
+                                </div>
+                            )}
+                            <div className="flex flex-wrap gap-4 text-xs">
+                                <button type="button" onClick={() => setWithoutCode((v) => !v)} className="text-gray-400 hover:text-white underline-offset-2 hover:underline">
+                                    Delivered without the code?
+                                </button>
+                                {onResetCode && (
+                                    <button type="button" onClick={() => onResetCode(claim.id)} disabled={busy} className="text-amber-300 hover:text-amber-200 underline-offset-2 hover:underline disabled:opacity-50">
+                                        Reset the handover code
+                                    </button>
+                                )}
+                            </div>
+                            {withoutCode && (
+                                <div className="space-y-2">
+                                    <label htmlFor="claim-delivery-reason" className="text-xs text-gray-400 block">
+                                        Why there is no code (required, kept on the timeline)
+                                    </label>
+                                    <textarea
+                                        id="claim-delivery-reason"
+                                        value={deliveryReason}
+                                        onChange={(e) => setDeliveryReason(e.target.value)}
+                                        placeholder="e.g. Winner lost their phone: confirmed their CNIC at the door"
+                                        className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/50 resize-none text-sm"
+                                        rows={2}
+                                    />
+                                    <button
+                                        onClick={() => onDeliver(claim.id, { overrideReason: deliveryReason.trim() })}
+                                        disabled={busy || deliveryReason.trim().length < MIN_REASON}
+                                        className="w-full px-4 py-2.5 bg-white/10 hover:bg-white/15 text-white rounded-xl transition-colors disabled:opacity-50 text-sm font-medium"
+                                    >
+                                        Mark Delivered Without Code
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -278,6 +464,8 @@ export function ClaimDetailsModal({
                             </div>
                         </div>
                     )}
+
+                    <ClaimTimeline claim={claim} />
                 </div>
             </div>
         </div>

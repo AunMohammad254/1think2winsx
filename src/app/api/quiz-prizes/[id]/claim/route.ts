@@ -6,6 +6,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { claimQuizPrize } from '@/lib/quiz-prizes';
+import { recordClaimOrigin } from '@/lib/claim-tracking';
 
 // The same rules claim_quiz_prize applies (and the points-redemption form uses)
 const deliverySchema = z.object({
@@ -49,6 +50,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!result.ok) {
       return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
     }
+    // For the risk flags: claims from the same IP on different accounts
+    await recordClaimOrigin(result.claimId, userId, request.headers);
     return createSecureJsonResponse(
       { claimId: result.claimId, message: 'Thanks! We have your delivery details and will be in touch on WhatsApp.' },
       { status: 201 },
