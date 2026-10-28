@@ -1,4 +1,6 @@
 import { getAdminDb } from '@/lib/supabase/db';
+import { withClaimTracking } from '@/lib/claim-tracking';
+import type { PlayerClaimEvent } from '@/lib/claim-tracking-shared';
 
 /**
  * Prizes a player won in a quiz, and their delivery claims (migration 20261024190000_quiz_prize_claims).
@@ -11,12 +13,19 @@ export type QuizPrizeClaimStatus = 'pending' | 'approved' | 'rejected' | 'fulfil
 
 export interface QuizPrizeClaim {
   id: string;
+  /** What the winner quotes, and what our messages quote (migration 20261028120000_claim_tracking) */
+  trackingId: string;
   status: QuizPrizeClaimStatus;
   requestedAt: string;
   processedAt: string | null;
   /** The admin's note on a decision (a rejection says why) */
   notes: string | null;
+  /** The code the winner gives whoever hands over the prize, only while the claim is approved */
+  handoverCode: string | null;
+  timeline: PlayerClaimEvent[];
 }
+
+type ClaimRow = Omit<QuizPrizeClaim, 'handoverCode' | 'timeline'> & { handoverVersion: number };
 
 export interface QuizPrize {
   winnerId: string;
@@ -45,7 +54,7 @@ interface WinRow {
   selectedAt: string;
   Quiz: Joined<{ title: string }>;
   Prize: Joined<QuizPrize['prize']>;
-  PrizeRedemption: Joined<QuizPrizeClaim>;
+  PrizeRedemption: Joined<ClaimRow>;
 }
 
 /** The player's prizes won in quizzes, newest first (places paid in points are left out). */
@@ -56,27 +65,27 @@ export async function listQuizPrizes(userId: string): Promise<QuizPrize[]> {
       id, quizId, rank, selectedAt,
       Quiz:quizId (title),
       Prize:prizeId (id, name, imageUrl, type, category),
-      PrizeRedemption:prizeRedemptionId (id, status, requestedAt, processedAt, notes)
+      PrizeRedemption:prizeRedemptionId (id, trackingId, status, requestedAt, processedAt, notes, handoverVersion)
     `)
     .eq('userId', userId)
     .not('prizeId', 'is', null)
     .order('selectedAt', { ascending: false });
   if (error) throw error;
 
-  return ((data || []) as unknown as WinRow[]).flatMap((row) => {
-    const prize = one(row.Prize);
-    // The prize can't be deleted while a winner row points to it, but the join may still come back empty
-    if (!prize) return [];
-    return [{
-      winnerId: row.id,
-      quizId: row.quizId,
-      quizTitle: one(row.Quiz)?.title ?? 'Quiz',
-      rank: row.rank,
-      wonAt: row.selectedAt,
-      prize,
-      claim: one(row.PrizeRedemption),
-    }];
-  });
+  // The prize can't be deleted while a winner row points to it, but the join may still come back empty
+  const rows = ((data || []) as unknown as WinRow[]).filter((row) => one(row.Prize));
+  const claimRows = rows.flatMap((row) => one(row.PrizeRedemption) ?? []);
+  const claims = new Map((await withClaimTracking(claimRows)).map(({ handoverVersion: _version, ...claim }) => [claim.id, claim]));
+
+  return rows.map((row) => ({
+    winnerId: row.id,
+    quizId: row.quizId,
+    quizTitle: one(row.Quiz)?.title ?? 'Quiz',
+    rank: row.rank,
+    wonAt: row.selectedAt,
+    prize: one(row.Prize)!,
+    claim: claims.get(one(row.PrizeRedemption)?.id ?? '') ?? null,
+  }));
 }
 
 const CLAIM_STATUS: Record<string, number> = { invalid: 400, not_found: 404, already_claimed: 409, out_of_stock: 409 };

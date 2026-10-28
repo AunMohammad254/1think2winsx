@@ -7,6 +7,7 @@ import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { recordClaimOrigin, withClaimTracking } from '@/lib/claim-tracking';
 
 const redeemPrizeSchema = z.object({
   prizeId: z.string().min(1, 'Prize ID is required'),
@@ -146,6 +147,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // For the risk flags: claims from the same IP on different accounts
+    if (rpcResult?.redemption_id) await recordClaimOrigin(rpcResult.redemption_id, user.id, request.headers);
+
     // Log successful prize redemption
     securityLogger.logSecurityEvent({
       type: 'PRIZE_REDEMPTION',
@@ -258,11 +262,11 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    // Format redemptions
-    const formattedRedemptions = (redemptions || []).map((r: any) => ({
+    // Format redemptions, with each one's handover code (while approved) and timeline
+    const formattedRedemptions = await withClaimTracking((redemptions || []).map((r: any) => ({
       ...r,
       prize: Array.isArray(r.Prize) ? r.Prize[0] : r.Prize
-    }));
+    })));
 
     return createSecureJsonResponse({ redemptions: formattedRedemptions });
 

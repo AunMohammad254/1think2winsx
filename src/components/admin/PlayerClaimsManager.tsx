@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Gift, Search, RefreshCw, Filter } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { getCSRFToken } from '@/lib/csrf';
+import { normalizeTrackingId } from '@/lib/claim-tracking-shared';
 
 // Import extracted components
 import {
@@ -14,6 +15,7 @@ import {
   ClaimsSkeleton,
   type Claim,
   type ClaimStatus,
+  type DeliveryProof,
   type PaginationInfo,
 } from '@/components/player-claims';
 
@@ -43,11 +45,17 @@ export default function PlayerClaimsManager() {
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [updating, setUpdating] = useState<string | null>(null);
+  // A tracking ID typed in the search box is looked up on the server, whatever the status filter
+  const trackingQuery = normalizeTrackingId(searchQuery);
+  // Only the newest list request may fill the list: an older one answering late (a lookup typed
+  // right after the page opened) would otherwise replace its result
+  const latestRequest = useRef(0);
 
   // ============================================
   // Data Fetching
   // ============================================
   const fetchClaims = useCallback(async (showRefreshState = false) => {
+    const request = ++latestRequest.current;
     try {
       if (showRefreshState) {
         setIsRefreshing(true);
@@ -56,18 +64,23 @@ export default function PlayerClaimsManager() {
       }
 
       const params = new URLSearchParams({
-        page: pagination.page.toString(),
+        // A tracking ID finds one claim, which is always on the first page
+        page: (trackingQuery ? 1 : pagination.page).toString(),
         limit: pagination.limit.toString(),
       });
 
       if (selectedStatus !== 'all') {
         params.append('status', selectedStatus);
       }
+      if (trackingQuery) {
+        params.append('tracking', trackingQuery);
+      }
 
       const response = await fetch(`/api/admin/claims?${params}`);
+      const data = response.ok ? await response.json() : null;
+      if (request !== latestRequest.current) return;
 
       if (response.ok) {
-        const data = await response.json();
         setClaims(data.claims || []);
         setPagination(data.pagination);
         // Missing when the server could not count; keep the last known totals
@@ -83,12 +96,14 @@ export default function PlayerClaimsManager() {
         throw new Error('Failed to fetch claims');
       }
     } catch {
-      toast.error('Failed to load claims');
+      if (request === latestRequest.current) toast.error('Failed to load claims');
     } finally {
-      setLoading(false);
-      setIsRefreshing(false);
+      if (request === latestRequest.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
-  }, [selectedStatus, pagination.page, pagination.limit]);
+  }, [selectedStatus, pagination.page, pagination.limit, trackingQuery]);
 
   useEffect(() => {
     fetchClaims();
@@ -97,12 +112,11 @@ export default function PlayerClaimsManager() {
   // ============================================
   // Actions
   // ============================================
-  const updateClaimStatus = async (
+  /** Sends one action on a claim; when it works, reloads the list and closes the details. */
+  const sendClaimAction = async (
     claimId: string,
-    status: string,
-    notes?: string,
-    action: 'update' | 'reissue' = 'update',
-    reissueMode?: 'redelivery' | 'reclaim'
+    body: Record<string, unknown>,
+    successMessage: (data: { message?: string }) => string
   ) => {
     try {
       setUpdating(claimId);
@@ -119,29 +133,24 @@ export default function PlayerClaimsManager() {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
         },
-        // A reissue names its mode; the database decides the claim's new status
-        body: JSON.stringify(
-          action === 'reissue'
-            ? { claimId, action, reissueMode, notes }
-            : { claimId, status, ...(notes !== undefined ? { notes } : {}) },
-        ),
+        body: JSON.stringify({ claimId, ...body }),
       });
 
       if (response.ok) {
         const data = await response.json().catch(() => ({}));
-        if (action === 'reissue') {
-          toast.success(data.message || 'Claim reissued');
-        } else {
-          // approved / rejected / fulfilled -> Approved / Rejected / Fulfilled
-          const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
-          toast.success(`Claim ${statusLabel.toLowerCase()}!`);
-        }
+        toast.success(successMessage(data));
         await fetchClaims();
         setShowDetailsModal(false);
         setSelectedClaim(null);
       } else {
         const data = await response.json();
         toast.error(data.message || 'Failed to update claim');
+        // A wrong handover code: the details stay open and show the tries used
+        if (typeof data.failures === 'number') {
+          setSelectedClaim((prev) => (prev?.id === claimId
+            ? { ...prev, handover: { version: prev.handover?.version ?? 1, failures: data.failures } }
+            : prev));
+        }
       }
     } catch {
       toast.error('An error occurred while updating the claim');
@@ -150,13 +159,36 @@ export default function PlayerClaimsManager() {
     }
   };
 
+  const updateClaimStatus = (
+    claimId: string,
+    status: string,
+    notes?: string,
+    action: 'update' | 'reissue' = 'update',
+    reissueMode?: 'redelivery' | 'reclaim',
+    overrideReason?: string
+  ) => sendClaimAction(
+    claimId,
+    // A reissue names its mode; the database decides the claim's new status
+    action === 'reissue'
+      ? { action, reissueMode, notes }
+      : { status, ...(notes !== undefined ? { notes } : {}), ...(overrideReason ? { overrideReason } : {}) },
+    (data) => (action === 'reissue' ? data.message || 'Claim reissued' : `Claim ${status}!`)
+  );
+
+  const deliverClaim = (claimId: string, proof: DeliveryProof) =>
+    sendClaimAction(claimId, { action: 'deliver', ...proof }, () => 'Claim delivered!');
+
+  const resetHandoverCode = (claimId: string) =>
+    sendClaimAction(claimId, { action: 'reset_code' }, (data) => data.message || 'New handover code issued');
+
   // ============================================
   // Helpers
   // ============================================
   const filteredClaims = claims.filter(claim => {
-    if (!searchQuery) return true;
+    if (!searchQuery || trackingQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
+      claim.trackingId?.toLowerCase().includes(query) ||
       claim.user.name?.toLowerCase().includes(query) ||
       claim.user.email?.toLowerCase().includes(query) ||
       claim.prize.name?.toLowerCase().includes(query) ||
@@ -186,7 +218,7 @@ export default function PlayerClaimsManager() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
-            placeholder="Search by player name, email, or prize..."
+            placeholder="Search by player, email, prize or tracking ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/25"
@@ -297,6 +329,8 @@ export default function PlayerClaimsManager() {
             setSelectedClaim(null);
           }}
           onUpdateStatus={updateClaimStatus}
+          onDeliver={deliverClaim}
+          onResetCode={resetHandoverCode}
         />
       )}
     </div>

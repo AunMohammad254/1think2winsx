@@ -12,6 +12,8 @@ const logger = { logUnauthorizedAccess: vi.fn(), logInvalidInput: vi.fn(), logSe
 
 vi.mock('@/lib/supabase/db', () => ({
   getDb: async () => db.client,
+  // Claim tracking (the timeline, where a claim came from) reads and writes with the server key
+  getAdminDb: () => db.client,
   generateId: () => 'gen-id',
   prizeDb: {},
   userDb: {},
@@ -58,6 +60,11 @@ describe('POST /api/prize-redemption', () => {
       args: { p_user_id: 'user-1', p_prize_id: 'prize-1', p_full_name: 'Ali Khan', p_whatsapp_number: '+923001234567', p_address: 'House 1, Street 2, Lahore' },
     });
     expect(body.redemption).toEqual({ id: 'red-1', prizeName: 'Smart Watch', pointsUsed: 250, status: 'pending', newBalance: 150 });
+    // Where it came from, for the risk flags
+    expect(db.rpcCalls[1]).toEqual({
+      fn: 'record_claim_origin',
+      args: { p_claim_id: 'red-1', p_user_id: 'user-1', p_ip: '1.2.3.4', p_user_agent: 'jest' },
+    });
     expect(eqValue(db.callsTo('User')[0], 'email')).toBe('player@example.test');
     expect(logger.logSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'PRIZE_REDEMPTION', userId: 'user-1', ip: '1.2.3.4', userAgent: 'jest' }));
   });
@@ -173,16 +180,31 @@ describe('POST /api/prize-redemption', () => {
 describe('GET /api/prize-redemption', () => {
   const history = (headers: Record<string, string> = {}) => redemptionRoute.GET(makeRequest('/api/prize-redemption', { headers }));
 
-  it("lists the player's redemptions newest first, flattening the prize join", async () => {
+  it("lists the player's redemptions newest first, flattening the prize join, with each one's timeline", async () => {
+    vi.stubEnv('CLAIM_HANDOVER_SECRET', 'test-handover-secret');
     db.setTable('User', { data: { id: 'user-1' } });
-    db.setTable('PrizeRedemption', { data: [{ id: 'r1', Prize: [{ name: 'Watch' }] }, { id: 'r2', Prize: { name: 'Phone' } }] });
+    db.setTable('PrizeRedemption', { data: [
+      { id: 'r1', status: 'pending', Prize: [{ name: 'Watch' }] },
+      { id: 'r2', status: 'approved', handoverVersion: 1, Prize: { name: 'Phone' } },
+    ] });
+    db.setTable('PrizeClaimEvent', { data: [
+      { claimId: 'r2', event: 'submitted', note: null, createdAt: '2026-10-01T10:00:00Z' },
+      { claimId: 'r2', event: 'approved', note: 'Calling you Monday', createdAt: '2026-10-02T10:00:00Z' },
+    ] });
 
     const body = await (await history()).json();
 
+    const { handoverCode } = await import('@/lib/claim-tracking');
     expect(body.redemptions).toEqual([
-      { id: 'r1', Prize: [{ name: 'Watch' }], prize: { name: 'Watch' } },
-      { id: 'r2', Prize: { name: 'Phone' }, prize: { name: 'Phone' } },
+      { id: 'r1', status: 'pending', Prize: [{ name: 'Watch' }], prize: { name: 'Watch' }, handoverCode: null, timeline: [] },
+      {
+        id: 'r2', status: 'approved', handoverVersion: 1, Prize: { name: 'Phone' }, prize: { name: 'Phone' },
+        // Only an approved claim shows its code; an approval's note stays with the admins
+        handoverCode: handoverCode('r2', 1),
+        timeline: [{ event: 'submitted', at: '2026-10-01T10:00:00Z' }, { event: 'approved', at: '2026-10-02T10:00:00Z' }],
+      },
     ]);
+    expect(body.redemptions[1].handoverCode).toMatch(/^\d{6}$/);
     const call = db.callsTo('PrizeRedemption')[0];
     expect(eqValue(call, 'userId')).toBe('user-1');
     expect(argOf(call, 'order')).toBe('requestedAt');
