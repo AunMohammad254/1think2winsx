@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, memo } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, useId, memo } from 'react';
 import { X, Loader2, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
@@ -531,6 +531,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                         questions={quiz.questions}
                                         answers={answers}
                                         locked={locked}
+                                        closed={timeIsUp}
                                         pick={pick}
                                     />
 
@@ -563,37 +564,50 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
 // unnecessary reconciliations of the large, static question list.
 // Impact: Reduces React render time by skipping reconciliation of questions/options
 // during timer updates, saving main thread cycles while the countdown is running.
+// Each question is a group of native radios (one name per question), so players answer with
+// Tab, the arrow keys and Space too. `closed`: time is up; it flips once, so the countdown still
+// doesn't re-render the list.
 const LiveQuizQuestions = memo(function LiveQuizQuestions({
     questions,
     answers,
     locked,
+    closed,
     pick
 }: {
     questions: PushedQuestion[];
     answers: Record<string, number>;
     locked: boolean;
+    closed: boolean;
     pick: (questionId: string, optionIndex: number) => void;
 }) {
+    // Ids and radio names unique to this panel, whatever the question ids are
+    const baseId = useId();
     return (
         <>
-            {questions.map((q, i) => (
-                <div key={q.id}>
-                    <div className="qp-q">{i + 1}. {q.text}</div>
-                    {q.options.map((opt, idx) => {
-                        const picked = answers[q.id] === idx;
-                        return (
-                            <div
-                                key={idx}
-                                onClick={() => pick(q.id, idx)}
-                                className={`qp-opt ${picked ? 'picked' : ''} ${locked ? 'locked' : ''}`}
-                            >
-                                <span className="radio"></span>
-                                {opt}
-                            </div>
-                        );
-                    })}
-                </div>
-            ))}
+            {questions.map((q, i) => {
+                const groupId = `${baseId}-${i}`;
+                return (
+                    <div key={q.id} role="radiogroup" aria-labelledby={groupId}>
+                        <div className="qp-q" id={groupId}>{i + 1}. {q.text}</div>
+                        {q.options.map((opt, idx) => {
+                            const picked = answers[q.id] === idx;
+                            return (
+                                <label key={idx} className={`qp-opt ${picked ? 'picked' : ''} ${locked ? 'locked' : ''}`}>
+                                    <input
+                                        type="radio"
+                                        className="radio"
+                                        name={groupId}
+                                        checked={picked}
+                                        disabled={locked || closed}
+                                        onChange={() => pick(q.id, idx)}
+                                    />
+                                    {opt}
+                                </label>
+                            );
+                        })}
+                    </div>
+                );
+            })}
         </>
     );
 });
