@@ -1,11 +1,15 @@
 -- =============================================================================
 -- Prize claim tracking: a tracking ID on every claim, a timeline, risk flags and a handover code
 --
--- NOT applied to any database yet. Needs the owner's approval for production (eclivawqhdovsndlngfo).
--- Apply it BEFORE deploying the code that uses it (the profile, redemption history and admin Claims
--- screen read the new columns and call the new functions). The code live before it keeps working on
--- the migrated database: get_admin_claims still answers the three-argument call, update_claim_status
--- is unchanged, and the new columns fill themselves.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-28 as migration 20261028101658, owner-approved,
+-- BEFORE the code that uses it (PR #79) was deployed. Checked after: all 10 claims got a unique tracking
+-- ID with a valid check character, their history was rebuilt (10 submitted, 4 approved, 5 rejected),
+-- only the service role can reach the new functions and the timeline, and the live code's
+-- three-argument get_admin_claims call answered with tracking IDs and risk. Keep that order for any
+-- other database: the profile, redemption history and admin Claims screen read the new columns and
+-- call the new functions. The code live before it keeps working on the migrated database:
+-- get_admin_claims still answers the three-argument call, update_claim_status is unchanged, and the
+-- new columns fill themselves. 20261028130000_claim_tracking_search_path follows it.
 --
 -- Why: a winner had nothing to quote when they contacted us or we contacted them, so anyone could
 -- claim to be them on WhatsApp, and nothing recorded what happened to a claim. Now:

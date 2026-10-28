@@ -365,6 +365,26 @@ describe('privileges', () => {
   });
 });
 
+it('pins the search_path of the pure helper functions (migration 06-20261028130000)', async () => {
+  const { rows } = await pool.query(
+    `SELECT proname, proconfig FROM pg_proc
+      WHERE pronamespace = 'private_hardened'::regnamespace
+        AND proname IN ('claim_tracking_check_char', 'normalize_pk_phone', 'claim_address_key')
+      ORDER BY proname`,
+  );
+  expect(rows).toEqual([
+    { proname: 'claim_address_key', proconfig: ['search_path=""'] },
+    { proname: 'claim_tracking_check_char', proconfig: ['search_path=""'] },
+    { proname: 'normalize_pk_phone', proconfig: ['search_path=""'] },
+  ]);
+  // Same results as before, built-ins found without a search_path
+  const { rows: [r] } = await pool.query(
+    `SELECT private_hardened.normalize_pk_phone('0300-1234567') AS phone, private_hardened.claim_address_key('House 12, St. 4') AS address,
+            private_hardened.claim_tracking_check_char('7K3MQX9') AS check_char`,
+  );
+  expect(r).toEqual({ phone: '923001234567', address: 'house12st4', check_char: trackingCheckChar('7K3MQX9') });
+});
+
 it('stops a second run of the migration', async () => {
   const guard = MIGRATION.match(/DO \$guard\$[\s\S]*?END \$guard\$;/)![0];
   await expect(pool.query(guard)).rejects.toThrow(/get_admin_claims\(text,integer,integer\) is not the version this migration was written against/);
