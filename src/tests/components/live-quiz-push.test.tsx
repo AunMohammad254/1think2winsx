@@ -1,7 +1,8 @@
 import '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createRef } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { jsonResponse } from '@/tests/helpers/ui';
 
 const h = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ const fakeClock = () => vi.useFakeTimers({ now: T0, toFake: ['setTimeout', 'clea
 const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
 const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 const banner = () => screen.queryByText('New quiz just dropped');
+const option = (name: string) => screen.getByRole('radio', { name });
 
 beforeEach(() => {
   h.fetchWithRetry.mockReset().mockImplementation(async () => jsonResponse({ quiz }));
@@ -126,9 +128,15 @@ describe('LiveQuizPush: answering', () => {
     expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q1', undefined, { retries: 3 });
     const submit = screen.getByRole('button', { name: 'Answer all 2 questions' });
     expect(submit).toBeDisabled();
-    fireEvent.click(screen.getByText('Rizwan'));
-    fireEvent.click(screen.getByText('1992'));
-    expect(screen.getByText('Rizwan').className).toContain('picked');
+    // Each question is a group of options named by the question
+    const who = screen.getByRole('radiogroup', { name: '1. Who?' });
+    expect(within(who).getAllByRole('radio').map((r) => r.closest('label')!.textContent)).toEqual(['Babar', 'Rizwan']);
+    expect(screen.getByRole('radiogroup', { name: '2. When?' })).toBeInTheDocument();
+    fireEvent.click(option('Rizwan'));
+    fireEvent.click(option('1992'));
+    expect(option('Rizwan')).toBeChecked();
+    expect(option('Rizwan').closest('label')).toHaveClass('picked');
+    expect(option('Babar')).not.toBeChecked();
 
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
@@ -140,8 +148,12 @@ describe('LiveQuizPush: answering', () => {
     expect(opts).toEqual({ retries: 4, retryOn: [502, 503, 504] });
     expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
     expect(onAnswered).toHaveBeenCalled();
+    // Locked in: the answers are final, and every option says so
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
     fireEvent.click(screen.getByText('Babar'));
-    expect(screen.getByText('Babar').className).not.toContain('picked');
+    expect(option('Babar')).not.toBeChecked();
+    expect(option('Rizwan')).toBeChecked();
+    expect(option('Rizwan').closest('label')).toHaveClass('locked');
   });
 
   it('shows the time left on the server clock, and when it has run out', async () => {
@@ -169,10 +181,10 @@ describe('LiveQuizPush: answering', () => {
     act(() => ref.current!.notify('q1', 'Live Cricket', inMs(60_000), 1));
     fireEvent.click(screen.getByText('New quiz just dropped'));
     await screen.findByText('1. Who?');
-    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(option('Babar'));
     fireEvent.click(screen.getByTitle('Close'));
     fireEvent.click(screen.getByRole('button', { name: /Play live quiz/ }));
-    expect(screen.getByText('Babar')).toHaveClass('picked');
+    expect(option('Babar')).toBeChecked();
     expect(h.fetchWithRetry).toHaveBeenCalledTimes(1);
   });
 
@@ -180,14 +192,14 @@ describe('LiveQuizPush: answering', () => {
     setup();
     act(() => ref.current!.open('q1'));
     expect(await screen.findByText('1. Who?')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(option('Babar'));
     fireEvent.click(screen.getByTitle('Split view'));
     expect(screen.getByText('Split view: the stream keeps playing beside the quiz.')).toBeInTheDocument();
     fireEvent.click(screen.getByTitle('Back to popup'));
     fireEvent.click(screen.getByTitle('Close'));
     expect(screen.queryByText('1. Who?')).toBeNull();
     act(() => ref.current!.open('q1'));
-    expect(await screen.findByText('Babar')).toHaveClass('picked');
+    expect(await screen.findByRole('radio', { name: 'Babar' })).toBeChecked();
 
     const panel = screen.getByText('1. Who?').closest('.quiz-pop')!;
     fireEvent.click(screen.getByText('1. Who?'));
@@ -237,8 +249,8 @@ describe('LiveQuizPush: answering', () => {
 
     act(() => ref.current!.open('q1'));
     await screen.findByText('1. Who?');
-    fireEvent.click(screen.getByText('Babar'));
-    fireEvent.click(screen.getByText('2009'));
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({}));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
     await screen.findByText('Answer locked in — waiting for results');
@@ -248,18 +260,88 @@ describe('LiveQuizPush: answering', () => {
   });
 });
 
+describe('LiveQuizPush: answering with the keyboard', () => {
+  it('answers with Tab, Space and the arrow keys, and locks in with Enter', async () => {
+    const user = userEvent.setup();
+    const { onAnswered } = setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    // Past the panel's split view and close buttons to the first question, which nothing is picked in yet
+    await user.tab();
+    await user.tab();
+    await user.tab();
+    expect(option('Babar')).toHaveFocus();
+    expect(option('Babar')).not.toBeChecked();
+    await user.keyboard(' ');
+    expect(option('Babar')).toBeChecked();
+    // An arrow key moves to the next option and picks it, wrapping round at the end
+    await user.keyboard('{ArrowDown}');
+    expect(option('Rizwan')).toHaveFocus();
+    expect(option('Rizwan')).toBeChecked();
+    expect(option('Babar')).not.toBeChecked();
+    await user.keyboard('{ArrowRight}');
+    expect(option('Babar')).toBeChecked();
+    await user.keyboard('{ArrowUp}');
+    expect(option('Rizwan')).toBeChecked();
+    // Tab leaves the question for the next one, whose own picks don't touch the first
+    await user.tab();
+    expect(option('1992')).toHaveFocus();
+    await user.keyboard('{ArrowLeft}');
+    expect(option('2009')).toHaveFocus();
+    expect(option('2009')).toBeChecked();
+    expect(option('Rizwan')).toBeChecked();
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Lock in answer' })).toHaveFocus();
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    await user.keyboard('{Enter}');
+    expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
+    expect(JSON.parse(h.fetchWithRetry.mock.calls.at(-1)![1].body)).toEqual({ answers: [{ questionId: 'a', selectedOption: 1 }, { questionId: 'b', selectedOption: 1 }] });
+    expect(onAnswered).toHaveBeenCalled();
+  });
+
+  it('a question already answered is entered at the picked option', async () => {
+    const user = userEvent.setup();
+    setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(option('Rizwan'));
+    screen.getByTitle('Close').focus();
+    await user.tab();
+    expect(option('Rizwan')).toHaveFocus();
+  });
+
+  it('once locked in, the options are out of reach of the keyboard', async () => {
+    const user = userEvent.setup();
+    setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await screen.findByText('Answer locked in — waiting for results');
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+    // Tab goes from the close button straight out of the panel, past every option
+    screen.getByTitle('Close').focus();
+    await user.tab();
+    expect(screen.getAllByRole('radio')).not.toContain(document.activeElement);
+    expect(option('Babar')).toBeChecked();
+  });
+});
+
 describe('LiveQuizPush: a push while the viewer is mid-answer', () => {
   const midAnswer = async () => {
     setup();
     act(() => ref.current!.open('q1'));
     await screen.findByText('1. Who?');
-    fireEvent.click(screen.getByText('Babar'));
+    fireEvent.click(option('Babar'));
   };
 
   it('waits as "next" instead of wiping their answers, until they play it', async () => {
     await midAnswer();
     act(() => ref.current!.notify('q2', 'Second', inMs(60_000), 1));
-    expect(screen.getByText('Babar')).toHaveClass('picked');
+    expect(option('Babar')).toBeChecked();
     expect(banner()).toBeNull();
     expect(screen.getByText('Second')).toBeInTheDocument();
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ quiz: { id: 'q2', title: 'Second', questions: [{ id: 'c', text: 'Where?', options: ['Lahore', 'Karachi'] }] } }));
@@ -278,13 +360,13 @@ describe('LiveQuizPush: a push while the viewer is mid-answer', () => {
     fireEvent.click(screen.getByText('New quiz just dropped'));
     expect(h.fetchWithRetry).toHaveBeenLastCalledWith('/api/quizzes/q2', undefined, { retries: 3 });
     expect(await screen.findByText('1. Who?')).toBeInTheDocument();
-    expect(screen.getByText('Babar')).not.toHaveClass('picked');
+    expect(option('Babar')).not.toBeChecked();
   });
 
   it('pushed again, the same quiz keeps their answers and just gets its new window', async () => {
     await midAnswer();
     act(() => ref.current!.notify('q1', 'Live Cricket', inMs(120_000), 2));
-    expect(screen.getByText('Babar')).toHaveClass('picked');
+    expect(option('Babar')).toBeChecked();
     expect(screen.getByText('2:00 left')).toBeInTheDocument();
     expect(screen.queryByText('Play it now')).toBeNull();
   });
@@ -412,8 +494,8 @@ describe('LiveQuizPush: loading and submitting', () => {
     setup();
     act(() => ref.current!.open('q1'));
     await screen.findByText('1. Who?');
-    fireEvent.click(screen.getByText('Babar'));
-    fireEvent.click(screen.getByText('2009'));
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
     const lock = () => fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
 
     h.getCSRFToken.mockResolvedValueOnce(null);
@@ -440,12 +522,17 @@ describe('LiveQuizPush: loading and submitting', () => {
     const { onAnswered } = setup();
     act(() => ref.current!.open('q1'));
     await flush();
-    fireEvent.click(screen.getByText('Babar')); // only the first of two questions
-    await tick(60_000);
+    fireEvent.click(option('Babar')); // only the first of two questions
+    await tick(59_500);
+    // Past the deadline, before the countdown's next tick shows it: a late pick changes nothing
+    act(() => vi.setSystemTime(T0 + 60_000));
+    fireEvent.click(option('2009'));
+    expect(option('2009')).not.toBeChecked();
+    await tick(500);
     expect(screen.getByText("Time's up")).toBeInTheDocument();
-    // The answers are final now: a late pick changes nothing
-    fireEvent.click(screen.getByText('2009'));
-    expect(screen.getByText('2009').className).not.toContain('picked');
+    // The answers are final now, and every option says so
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+    expect(option('Babar')).toBeChecked();
     expect(screen.getByRole('button', { name: 'Submitting...' })).toBeDisabled();
 
     h.fetchWithRetry.mockClear();
@@ -467,8 +554,8 @@ describe('LiveQuizPush: loading and submitting', () => {
     setup();
     act(() => ref.current!.open('q1'));
     await flush();
-    fireEvent.click(screen.getByText('Babar'));
-    fireEvent.click(screen.getByText('2009'));
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
     fireEvent.click(screen.getByTitle('Close'));
     h.fetchWithRetry.mockClear();
     h.fetchWithRetry.mockResolvedValue(jsonResponse({ ok: true }));
@@ -487,8 +574,8 @@ describe('LiveQuizPush: loading and submitting', () => {
     setup();
     act(() => ref.current!.open('q1'));
     await flush();
-    fireEvent.click(screen.getByText('Babar'));
-    fireEvent.click(screen.getByText('2009'));
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ error: 'This quiz has ended and no longer accepts answers.' }, 403));
     await tick(61_000);
     await tick(1_000); // the deadline effect runs once the first act ends, then its timer
@@ -507,8 +594,8 @@ describe('LiveQuizPush: loading and submitting', () => {
     setup();
     act(() => ref.current!.open('q1'));
     await flush();
-    fireEvent.click(screen.getByText('Babar'));
-    fireEvent.click(screen.getByText('2009'));
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
     await tick(59_000);
     let release!: (r: Response) => void;
     h.fetchWithRetry.mockReturnValueOnce(new Promise<Response>((r) => (release = r)));
@@ -522,8 +609,8 @@ describe('LiveQuizPush: loading and submitting', () => {
     setup();
     act(() => ref.current!.open('q1'));
     await screen.findByText('1. Who?');
-    fireEvent.click(screen.getByText('Babar'));
-    fireEvent.click(screen.getByText('2009'));
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
     // Another quiz being full changes nothing here
     act(() => ref.current!.setEntriesClosed('other', true));
     h.fetchWithRetry.mockClear();
@@ -551,8 +638,8 @@ describe('LiveQuizPush: loading and submitting', () => {
     setup();
     act(() => ref.current!.open('q1'));
     await screen.findByText('1. Who?');
-    fireEvent.click(screen.getByText('Babar'));
-    fireEvent.click(screen.getByText('2009'));
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
     await screen.findByText('Answer locked in — waiting for results');
@@ -562,8 +649,8 @@ describe('LiveQuizPush: loading and submitting', () => {
     act(() => ref.current!.notify('q1', 'Live Cricket'));
     fireEvent.click(screen.getByText('New quiz just dropped'));
     await screen.findByText('1. Who?');
-    fireEvent.click(screen.getByText('Rizwan'));
-    fireEvent.click(screen.getByText('1992'));
+    fireEvent.click(option('Rizwan'));
+    fireEvent.click(option('1992'));
     h.fetchWithRetry.mockClear();
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
@@ -575,8 +662,8 @@ describe('LiveQuizPush: loading and submitting', () => {
     setup();
     act(() => ref.current!.open('q1'));
     await screen.findByText('1. Who?');
-    fireEvent.click(screen.getByText('Babar'));
-    fireEvent.click(screen.getByText('2009'));
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
     let release!: (r: Response) => void;
     h.fetchWithRetry.mockReturnValueOnce(new Promise<Response>((r) => (release = r)));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
