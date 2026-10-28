@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle, memo } from 'react';
 import { X, Loader2, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
@@ -316,11 +316,11 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
 
     const toggleSplit = useCallback(() => setPanel((v) => (v === 'split' ? 'popup' : 'split')), []);
 
-    const pick = (questionId: string, optionIndex: number) => {
+    const pick = useCallback((questionId: string, optionIndex: number) => {
         // Once time is up the answers are final: what was picked by then is what gets locked in
         if (locked || isWindowClosed(live?.endsAtMs ?? null, Date.now())) return;
         setAnswers((prev) => ({ ...prev, [questionId]: optionIndex }));
-    };
+    }, [locked, live?.endsAtMs]);
 
     const answeredCount = quiz ? quiz.questions.filter((q) => answers[q.id] !== undefined).length : 0;
     const allAnswered = !!quiz && answeredCount === quiz.questions.length && quiz.questions.length > 0;
@@ -527,24 +527,12 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                         <span>{locked ? 'Answer locked in — waiting for results' : 'Active'}</span>
                                     </div>
 
-                                    {quiz.questions.map((q, i) => (
-                                        <div key={q.id}>
-                                            <div className="qp-q">{i + 1}. {q.text}</div>
-                                            {q.options.map((opt, idx) => {
-                                                const picked = answers[q.id] === idx;
-                                                return (
-                                                    <div
-                                                        key={idx}
-                                                        onClick={() => pick(q.id, idx)}
-                                                        className={`qp-opt ${picked ? 'picked' : ''} ${locked ? 'locked' : ''}`}
-                                                    >
-                                                        <span className="radio"></span>
-                                                        {opt}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    ))}
+                                    <LiveQuizQuestions
+                                        questions={quiz.questions}
+                                        answers={answers}
+                                        locked={locked}
+                                        pick={pick}
+                                    />
 
                                     {!locked && (
                                         <button
@@ -565,6 +553,47 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                     </div>
                 </div>
             )}
+        </>
+    );
+});
+
+// ⚡ Bolt Performance Optimization:
+// Extracted `LiveQuizQuestions` from `LiveQuizPush` into a memoized component.
+// Why: `LiveQuizPush` re-renders every second when counting down, triggering
+// unnecessary reconciliations of the large, static question list.
+// Impact: Reduces React render time by skipping reconciliation of questions/options
+// during timer updates, saving main thread cycles while the countdown is running.
+const LiveQuizQuestions = memo(function LiveQuizQuestions({
+    questions,
+    answers,
+    locked,
+    pick
+}: {
+    questions: PushedQuestion[];
+    answers: Record<string, number>;
+    locked: boolean;
+    pick: (questionId: string, optionIndex: number) => void;
+}) {
+    return (
+        <>
+            {questions.map((q, i) => (
+                <div key={q.id}>
+                    <div className="qp-q">{i + 1}. {q.text}</div>
+                    {q.options.map((opt, idx) => {
+                        const picked = answers[q.id] === idx;
+                        return (
+                            <div
+                                key={idx}
+                                onClick={() => pick(q.id, idx)}
+                                className={`qp-opt ${picked ? 'picked' : ''} ${locked ? 'locked' : ''}`}
+                            >
+                                <span className="radio"></span>
+                                {opt}
+                            </div>
+                        );
+                    })}
+                </div>
+            ))}
         </>
     );
 });
