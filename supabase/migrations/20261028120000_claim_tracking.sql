@@ -9,7 +9,8 @@
 -- other database: the profile, redemption history and admin Claims screen read the new columns and
 -- call the new functions. The code live before it keeps working on the migrated database:
 -- get_admin_claims still answers the three-argument call, update_claim_status is unchanged, and the
--- new columns fill themselves. 20261028130000_claim_tracking_search_path follows it.
+-- new columns fill themselves. 20261028130000_claim_tracking_search_path follows it (production
+-- 20261028103257).
 --
 -- Why: a winner had nothing to quote when they contacted us or we contacted them, so anyone could
 -- claim to be them on WhatsApp, and nothing recorded what happened to a claim. Now:

@@ -1,8 +1,11 @@
 -- =============================================================================
 -- Claim tracking: pin the search_path of its three pure helper functions
 --
--- NOT applied to any database yet. Needs the owner's approval for production (eclivawqhdovsndlngfo).
--- Applies before or after PR #79's code is deployed: nothing the code sees changes.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-28 as migration 20261028103257, owner-approved,
+-- after 20261028120000_claim_tracking (20261028101658) and before PR #79's code was deployed. Checked
+-- after: all three functions carry search_path="", return what they did, every tracking ID still passes
+-- its check character, and the advisor's function_search_path_mutable warning is gone. Applies before
+-- or after the code is deployed: nothing the code sees changes.
 --
 -- Why: Supabase's security advisor (function_search_path_mutable) flagged three functions that
 -- 20261028120000_claim_tracking added without a fixed search_path: claim_tracking_check_char,
