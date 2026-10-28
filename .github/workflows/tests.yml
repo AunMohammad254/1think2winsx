@@ -392,7 +392,10 @@ jobs:
   # ──────────────────────────────────────────────
   e2e-webkit:
     name: 🍎 E2E Tests (WebKit)
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.64's WebKit is built for Ubuntu 24.04 and needs its ICU 74
+    # (libicudata.so.74). ubuntu-latest is moving to 26.04, which doesn't have it, so WebKit
+    # failed to launch on every test there.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: lint
     env:
@@ -469,7 +472,8 @@ jobs:
   # ──────────────────────────────────────────────
   e2e-mobile:
     name: 📱 E2E Tests (Mobile)
-    runs-on: ubuntu-latest
+    # Pinned for Mobile Safari (WebKit), as e2e-webkit is
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: lint
     env:

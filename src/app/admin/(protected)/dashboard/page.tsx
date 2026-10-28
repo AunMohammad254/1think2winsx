@@ -17,6 +17,7 @@ import {
   Send,
   LifeBuoy,
   Ticket,
+  Radio,
   Image as ImageIcon,
 } from 'lucide-react';
 
@@ -109,6 +110,7 @@ const navItems = [
   { href: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
   { href: '/admin/quiz', label: 'Quiz Management', icon: FileText },
   { href: '/admin/quiz-evaluation', label: 'Settle Quizzes', icon: CheckSquare },
+  { href: '/admin/matches', label: 'Live Matches', icon: Radio },
   { href: '/admin/prizes', label: 'Prizes', icon: Gift },
   { href: '/admin/wallet', label: 'Wallet Deposits', icon: Wallet },
   { href: '/admin/claims', label: 'Prize Claims', icon: Trophy },

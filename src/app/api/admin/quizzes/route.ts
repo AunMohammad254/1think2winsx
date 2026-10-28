@@ -36,13 +36,20 @@ const SUMMARY_LIMIT = 500;
  * from their rows, which PostgREST cuts off at 1,000; the list then showed only those 10 quizzes.
  */
 async function quizSummaries(supabase: ReturnType<typeof getAdminDb>) {
-  const { data, error } = await supabase
-    .from('Quiz')
-    .select('id, title, description, duration, status, startsAt, pushedAt, quizType, createdAt, updatedAt')
-    .order('createdAt', { ascending: false })
-    .limit(SUMMARY_LIMIT);
+  const [{ data, error }, matches] = await Promise.all([
+    supabase
+      .from('Quiz')
+      .select('id, title, description, duration, status, startsAt, pushedAt, quizType, createdAt, updatedAt')
+      .order('createdAt', { ascending: false })
+      .limit(SUMMARY_LIMIT),
+    supabase.from('LiveMatch').select('quizId'),
+  ]);
   if (error) throw error;
-  const quizzes = (data || []) as Array<{ id: string } & Record<string, unknown>>;
+  // A match's quiz is run from Live Matches: published from this list, it would reach players before the
+  // match is live. Without the match migration there are no matches, and the list still loads.
+  if (matches.error) console.error('[admin-quizzes] Could not read the matches:', matches.error);
+  const matchQuizzes = new Set(((matches.data || []) as Array<{ quizId: string }>).map((m) => m.quizId));
+  const quizzes = ((data || []) as Array<{ id: string } & Record<string, unknown>>).filter((quiz) => !matchQuizzes.has(quiz.id));
   if (quizzes.length === 0) return [];
 
   const ids = quizzes.map((q) => q.id);

@@ -105,6 +105,19 @@ describe('GET /api/admin/quizzes', () => {
     expect(adminDb.callsTo('QuizAttempt')).toHaveLength(0);
   });
 
+  it("leaves out matches' quizzes, which Live Matches runs, and still lists when the matches can't be read", async () => {
+    adminDb.setTable('Quiz', { data: [{ id: 'a', title: 'A' }, { id: 'match-quiz', title: 'Lahore vs Karachi' }] });
+    adminDb.setTable('LiveMatch', { data: [{ quizId: 'match-quiz' }] });
+    expect((await (await get('?view=summary')).json()).quizzes.map((q: { id: string }) => q.id)).toEqual(['a']);
+    expect(argOf(adminDb.callsTo('LiveMatch')[0], 'select')).toBe('quizId');
+
+    // Before the match migration there is no LiveMatch table
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    adminDb.setTable('LiveMatch', { error: { message: 'relation "LiveMatch" does not exist' } });
+    expect((await (await get('?view=summary')).json()).quizzes.map((q: { id: string }) => q.id)).toEqual(['a', 'match-quiz']);
+    expect(console.error).toHaveBeenCalledWith('[admin-quizzes] Could not read the matches:', { message: 'relation "LiveMatch" does not exist' });
+  });
+
   it('reads no counts for an empty summary, tolerates missing ones, and fails on a read error', async () => {
     adminDb.setTable('Quiz', { data: null });
     expect(await (await get('?view=summary')).json()).toEqual({ quizzes: [] });

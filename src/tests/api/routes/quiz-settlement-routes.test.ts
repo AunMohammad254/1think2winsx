@@ -252,6 +252,7 @@ describe('POST /api/admin/quiz-settlement/notify', () => {
 describe('schema', () => {
   it('maps codes to statuses, anything unknown to 400', () => {
     expect(settleErrorStatus('not_found')).toBe(404);
+    expect(settleErrorStatus('match_unfinished')).toBe(409);
     expect(settleErrorStatus('mystery')).toBe(400);
   });
 

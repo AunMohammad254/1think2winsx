@@ -19,6 +19,13 @@ export const QUIZ_ACTION_LABELS = {
   result_saved: 'Saved the result',
   quiz_settled: 'Settled the quiz',
   notices_resent: 'Sent the notices again',
+  // Match mode (src/lib/match-service.ts). Balls aren't logged here: each "BallEvent" keeps who recorded it.
+  match_created: 'Created the match',
+  match_innings_started: 'Started an innings',
+  match_innings_ended: 'Ended an innings by hand',
+  match_ball_undone: 'Undid a ball',
+  match_answers_closed: 'Closed the open questions',
+  match_abandoned: 'Abandoned the match',
 } as const;
 
 export type QuizAction = keyof typeof QUIZ_ACTION_LABELS;

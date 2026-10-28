@@ -43,6 +43,8 @@ const STATUS: Record<string, number> = {
   already_settled: 409,
   result_missing: 409,
   out_of_stock: 409,
+  // A live match's quiz, refused until the match has finished (migration 20261029120000_match_mode)
+  match_unfinished: 409,
 };
 
 /** HTTP status for a settle_quiz failure code (`invalid` and anything unknown: 400). */
