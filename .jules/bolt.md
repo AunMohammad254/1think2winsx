@@ -26,3 +26,7 @@
 ## 2026-10-25 - [Prevent whole-page re-renders on timer updates]
 **Learning:** Found that `QuizzesPageInner` contained a `setInterval` hook that updated a `timeRemaining` state every second to show a 24-hour access expiration timer. Because this state was stored at the root of the page component, it caused the entire page (including the search bar, filter tabs, and the large list of quiz cards) to needlessly re-render every second.
 **Action:** Extract small, highly dynamic UI elements (like countdown timers) into their own child components to isolate re-renders and shield large, static parent components.
+
+## 2026-10-28 - [LiveQuizPush Questions React.memo optimization]
+**Learning:** Found that `LiveQuizPush` inside the live streaming page had a timer `setInterval` at the root that updated `now` state every second. Because it wasn't extracted, the entire modal, including the complex `quiz.questions` map containing `onClick` handlers, needlessly re-rendered every second.
+**Action:** Extract large lists or static layouts from inside components with timer intervals into dedicated child components wrapped in `React.memo()`. Always wrap callbacks (like `pick`) with `useCallback` when passing them to memoized components to preserve shallow comparison.
