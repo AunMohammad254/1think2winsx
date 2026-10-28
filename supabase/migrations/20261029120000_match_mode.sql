@@ -1,9 +1,14 @@
 -- =============================================================================
 -- Match mode: a live cricket match as a quiz, two prediction questions per over
 --
--- NOT applied to any database yet. Needs the owner's approval for production (eclivawqhdovsndlngfo).
--- The code live before it keeps working on the migrated database: submit_quiz_attempt behaves as
--- before for every quiz that is not a match and has no free entry, and nothing else it uses changes.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-28 as migration 20261028150111, owner-approved,
+-- BEFORE the code that uses it (PR #80) was deployed. Checked after: submit_quiz_attempt's body md5 is
+-- fc6332cd7da3b8fc892722d4d41cb369 (this file's), the three match tables have RLS on with only the
+-- service role reading them, only the service role can call create_live_match and apply_match_change,
+-- the settlement trigger is in place, and the 14 quizzes and 14 questions there were unchanged (none
+-- free, none with match fields). The code live before it keeps working on the migrated database:
+-- submit_quiz_attempt behaves as before for every quiz that is not a match and has no free entry, and
+-- nothing else it uses changes.
 --
 -- How a match runs (the rules are in src/lib/match-engine.ts; this stores what they decide):
 --   - An admin creates a match (create_live_match): a draft prediction quiz with free entry, plus its
