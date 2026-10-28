@@ -2,11 +2,13 @@ import '@/tests/helpers/ui';
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { Trophy } from 'lucide-react';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 
 const router = vi.hoisted(() => ({ prefetch: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
 
-import { SportsBall } from '@/components/hero/SportsBall';
+import { SportsBall, SPORTS_BALL_WIDTHS, sportsBallSrcSet } from '@/components/hero/SportsBall';
 import StatsGrid from '@/components/profile/StatsGrid';
 import BalanceCard from '@/components/profile/BalanceCard';
 import ProfileHeader from '@/components/profile/ProfileHeader';
@@ -41,6 +43,32 @@ describe('hero decorations', () => {
   it('SportsBall draws a cricket ball for a sport it has no picture of', () => {
     render(<SportsBall type={'golf' as never} />);
     expect(screen.getByAltText('Cricket Ball')).toBeInTheDocument();
+  });
+
+  it("SportsBall loads static pre-sized files that Cloudflare caches, never Next's optimizer", () => {
+    const { container } = render(<SportsBall type="hockey" />);
+    const img = screen.getByAltText('Field Hockey Ball');
+    expect(img).toHaveAttribute('src', '/images/sports/hockey.webp');
+    expect(img).toHaveAttribute('fetchpriority', 'high');
+    const source = container.querySelector('picture > source');
+    expect(source).toHaveAttribute('type', 'image/avif');
+    expect(source).toHaveAttribute('srcset', sportsBallSrcSet('/images/sports/hockey.webp'));
+    expect(container.innerHTML).not.toContain('/_next/image');
+  });
+
+  it('sportsBallSrcSet lists one AVIF copy per pre-sized width', () => {
+    expect(sportsBallSrcSet('/images/sports/cricket.webp')).toBe(
+      '/images/sports/cricket-128.avif 128w, /images/sports/cricket-256.avif 256w, ' +
+        '/images/sports/cricket-384.avif 384w, /images/sports/cricket-512.avif 512w'
+    );
+  });
+
+  it('every ball has a pre-sized AVIF copy on disk for each width', () => {
+    for (const ball of ['cricket', 'basketball', 'tennis', 'football', 'hockey', 'squash']) {
+      for (const width of SPORTS_BALL_WIDTHS) {
+        expect(existsSync(path.join(process.cwd(), 'public', 'images', 'sports', `${ball}-${width}.avif`))).toBe(true);
+      }
+    }
   });
 });
 

@@ -5,7 +5,9 @@
  * The Cache Rule serves the public prerendered pages, and Next's prefetches of them, to visitors without
  * a Supabase session cookie. These checks prove that it does, that each cached copy is the build the
  * origin runs now (a stale one points at deleted JS chunks), and that nothing personal comes from the
- * cache. Like the smoke check: one request at a time (27), no sign-in, no writes, no secrets.
+ * cache. They also check that the home page's pictures are static files Cloudflare caches, not
+ * /_next/image (resized on Hostinger, never cached), and that browsers may keep the manifest. Like the
+ * smoke check: one request at a time (30), no sign-in, no writes, no secrets.
  */
 import {
   CACHED_STATUSES, PRODUCTION_URL, cacheStatus, check, expectCacheControl, expectCached, expectStatus, parseOrigin, probe,
@@ -31,6 +33,10 @@ export const PREFETCH_HEADERS: Record<string, string> = {
 export const SESSION_COOKIE = 'sb-pagecachecheck-auth-token=1';
 /** Cloudflare's answer when the request was never eligible for its cache, or the origin said no. */
 const NOT_CACHED_STATUSES = ['DYNAMIC', 'BYPASS'];
+/** A pre-sized ball picture in the home page HTML (src/components/hero/SportsBall.tsx). */
+const STATIC_BALL_IMAGE = /\/images\/sports\/[a-z]+-\d+\.avif/;
+/** What next.config.js sends for the manifest: browsers fetch it on most page loads. */
+export const MANIFEST_CACHE_CONTROL = 'public, max-age=86400';
 
 export interface PageCacheOptions {
   baseUrl: string;
@@ -167,6 +173,39 @@ function checkNotCached(name: string, res: Probe | Error, status: number, conten
   });
 }
 
+/** The home page loads no picture through Next's optimizer, and names the static ones it uses instead. */
+function checkHomeImages(home: Probe | Error) {
+  return check('GET / pictures are static files', home, (page, problems) => {
+    if (page.body.includes('/_next/image')) {
+      problems.push('the home page loads pictures through /_next/image: Hostinger resizes each one, and Cloudflare never caches it');
+    }
+    const image = STATIC_BALL_IMAGE.exec(page.body)?.[0];
+    if (!image) problems.push('no pre-sized ball picture (/images/sports/<ball>-<width>.avif) in the home page');
+    return image ?? '(none)';
+  });
+}
+
+/** A static file asked for twice: the second answer comes from Cloudflare's cache. */
+function checkStaticTwice(name: string, first: Probe | Error, second: Probe | Error, contentType: string) {
+  if (first instanceof Error) return check(name, first, () => '');
+  return check(name, second, (res, problems) => {
+    expectStatus(first, 200, problems);
+    expectStatus(res, 200, problems);
+    expectContentType(res, contentType, problems);
+    expectCached(res, problems);
+    return `${first.headers.get('cf-cache-status') ?? '(missing)'} then ${cacheStatus(res)}`;
+  });
+}
+
+function checkManifest(res: Probe | Error) {
+  return check('GET /manifest.json', res, (manifest, problems) => {
+    expectStatus(manifest, 200, problems);
+    expectContentType(manifest, 'application/', problems);
+    expectCacheControl(manifest, MANIFEST_CACHE_CONTROL, problems);
+    return `cache-control=${manifest.headers.get('cache-control') ?? '(missing)'}, ${cacheStatus(manifest)}`;
+  });
+}
+
 /** Read the origin's build (through a URL the cache never answers) and what Cloudflare serves for `/`. */
 export async function readBuilds(options: PageCacheOptions, fetcher: Fetcher = fetch) {
   const origin = await probe(fetcher, `${options.baseUrl}${ORIGIN_PROBE}`, options.timeoutMs);
@@ -243,9 +282,12 @@ export async function runPageCacheChecks(
   add(checkOrigin(origin));
   const originBuild = origin instanceof Error ? null : buildIdOf(origin.body);
 
+  let home: Probe | Error = new Error('the home page was not fetched');
   for (const path of CACHED_PAGES) {
     const first = await get(`${base}${path}`);
-    add(checkCachedTwice(`GET ${path} (twice)`, first, await get(`${base}${path}`), 'text/html', originBuild));
+    const second = await get(`${base}${path}`);
+    if (path === '/') home = second;
+    add(checkCachedTwice(`GET ${path} (twice)`, first, second, 'text/html', originBuild));
   }
 
   const prefetchUrl = `${base}/faq?_rsc=${await rscSearchParam(PREFETCH_HEADERS)}`;
@@ -257,5 +299,13 @@ export async function runPageCacheChecks(
   for (const [path, status] of Object.entries(UNCACHED_PATHS)) {
     add(checkNotCached(`GET ${path}`, await get(`${base}${path}`), status));
   }
+
+  add(checkHomeImages(home));
+  const image = home instanceof Error ? undefined : STATIC_BALL_IMAGE.exec(home.body)?.[0];
+  if (image) {
+    const firstImage = await get(`${base}${image}`);
+    add(checkStaticTwice(`GET ${image} (twice)`, firstImage, await get(`${base}${image}`), 'image/avif'));
+  }
+  add(checkManifest(await get(`${base}/manifest.json`)));
   return results;
 }

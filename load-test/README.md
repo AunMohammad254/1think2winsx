@@ -69,7 +69,7 @@ Cloudflare keeps the public pages for a year. **After every Hostinger deploy, be
 bun run cache:purge
 ```
 
-It purges everything on the zone, then runs `bun run cache:check`: 27 requests, one at a time. Each cached page
+It purges everything on the zone, then runs `bun run cache:check`: 30 requests, one at a time. Each cached page
 and a `/faq` prefetch must come from the cache as the build the origin runs now. The same prefetch URL without
 its RSC header, a request with a session cookie, `/quizzes`, `/login`, `/auth` and `/api/health` must not come
 from the cache. It refuses to purge while Cloudflare already serves the origin's build: the deploy has not gone
