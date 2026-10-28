@@ -99,7 +99,6 @@ export function SportsBall({ className = "", type = "cricket" }: SportsBallProps
         {/* The original 512px WebP is the fallback for a browser without AVIF */}
         <picture>
           <source type="image/avif" srcSet={sportsBallSrcSet(config.image)} sizes={SPORTS_BALL_SIZES} />
-          {/* eslint-disable-next-line @next/next/no-img-element -- static files on purpose, see SPORTS_BALL_WIDTHS */}
           <img
             src={config.image}
             alt={config.name}
