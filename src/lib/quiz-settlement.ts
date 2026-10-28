@@ -108,7 +108,7 @@ export type SettleResult =
        */
       pool?: PoolSummary & { recipientIds: string[] };
     }
-  | { success: false; code: 'not_found' | 'already_settled' | 'result_missing' | 'out_of_stock' | 'invalid'; error: string };
+  | { success: false; code: 'not_found' | 'already_settled' | 'result_missing' | 'out_of_stock' | 'match_unfinished' | 'invalid'; error: string };
 
 type QuizRow = { id: string; title: string; status: string; quizType: string | null; pushedAt: string | null; duration: number | null };
 
