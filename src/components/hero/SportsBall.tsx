@@ -1,5 +1,3 @@
-import Image from 'next/image';
-
 export type SportsBallType = 'cricket' | 'basketball' | 'tennis' | 'football' | 'hockey' | 'squash';
 
 interface SportsBallProps {
@@ -53,6 +51,19 @@ const BALL_CONFIGS: Record<SportsBallType, BallStyleConfig> = {
   },
 };
 
+/**
+ * Widths of the pre-sized AVIF copies next to each picture (scripts/resize-sports-images.ts makes them).
+ * They are plain static files, so Cloudflare caches them; Next's optimizer (/_next/image) resized every
+ * visitor's copy on Hostinger, because Cloudflare never caches that route.
+ */
+export const SPORTS_BALL_WIDTHS = [128, 256, 384, 512];
+const SPORTS_BALL_SIZES = '(max-width: 640px) 96px, (max-width: 1024px) 160px, 240px';
+
+/** `/images/sports/cricket.webp` → `/images/sports/cricket-128.avif 128w, …` */
+export function sportsBallSrcSet(image: string): string {
+  return SPORTS_BALL_WIDTHS.map((width) => `${image.replace(/\.webp$/, `-${width}.avif`)} ${width}w`).join(', ');
+}
+
 export function SportsBall({ className = "", type = "cricket" }: SportsBallProps) {
   const config = BALL_CONFIGS[type] || BALL_CONFIGS.cricket;
 
@@ -85,14 +96,17 @@ export function SportsBall({ className = "", type = "cricket" }: SportsBallProps
 
       {/* Main 3D ball container */}
       <div className="ball-spin relative w-full h-full rounded-full overflow-hidden select-none">
-        <Image
-          src={config.image}
-          alt={config.name}
-          fill
-          sizes="(max-width: 640px) 96px, (max-width: 1024px) 160px, 240px"
-          priority
-          className="object-contain pointer-events-none drop-shadow-2xl"
-        />
+        {/* The original 512px WebP is the fallback for a browser without AVIF */}
+        <picture>
+          <source type="image/avif" srcSet={sportsBallSrcSet(config.image)} sizes={SPORTS_BALL_SIZES} />
+          <img
+            src={config.image}
+            alt={config.name}
+            fetchPriority="high"
+            decoding="async"
+            className="absolute inset-0 h-full w-full object-contain pointer-events-none drop-shadow-2xl"
+          />
+        </picture>
 
         {/* Specular glass sheen overlay */}
         <div

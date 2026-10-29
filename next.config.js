@@ -117,6 +117,17 @@ const nextConfig = {
             value: 'camera=(), microphone=(), geolocation=(), payment=()'
           }
         ]
+      },
+      {
+        // Browsers fetch the manifest on most page loads, and public files get max-age=0, so each fetch
+        // reached Hostinger. A day is fine: it changes about never, and browsers re-read it after that.
+        source: '/manifest.json',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400'
+          }
+        ]
       }
     ];
   },

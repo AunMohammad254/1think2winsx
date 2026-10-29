@@ -4,7 +4,7 @@ import path from 'path';
 import { describe, it, expect } from 'vitest';
 import {
   buildIdOf, cloudflareCredentials, decidePurge, parsePageCacheArgs, purgeEverything, rscSearchParam, runPageCacheChecks,
-  CACHED_PAGES, ORIGIN_PROBE, PAGE_CACHE_CONTROL, PREFETCH_HEADERS, UNCACHED_PATHS, type PageCacheOptions,
+  CACHED_PAGES, MANIFEST_CACHE_CONTROL, ORIGIN_PROBE, PAGE_CACHE_CONTROL, PREFETCH_HEADERS, UNCACHED_PATHS, type PageCacheOptions,
 } from './page-cache-checks';
 import type { CheckResult, Fetcher, Probe } from './smoke-checks';
 
@@ -18,7 +18,11 @@ const options: PageCacheOptions = { baseUrl: BASE, purge: false, force: false, p
 type Route = { status?: number; headers?: Record<string, string>; body?: string } | Error;
 
 // How production embeds the build: escaped inside a script in the HTML, plain JSON in a prefetch
-const html = (build = BUILD) => `<html><script>self.__next_f.push([1,"0:{\\"P\\":null,\\"b\\":\\"${build}\\",\\"c\\":[]}"])</script></html>`;
+const BALLS = '<picture><source type="image/avif" srcSet="/images/sports/cricket-128.avif 128w, /images/sports/cricket-256.avif 256w"/></picture>';
+const html = (build = BUILD, pictures = BALLS) =>
+  `<html>${pictures}<script>self.__next_f.push([1,"0:{\\"P\\":null,\\"b\\":\\"${build}\\",\\"c\\":[]}"])</script></html>`;
+const IMAGE_URL = `${BASE}/images/sports/cricket-128.avif`;
+const image = (cf: string) => ({ headers: { 'content-type': 'image/avif', 'cache-control': 'public, max-age=14400', 'cf-cache-status': cf } });
 const flight = (build = BUILD) => `0:{"staleTime":300,"buildId":"${build}"}`;
 const page = (cf: string, build = BUILD, extra: Record<string, string> = {}) =>
   ({ headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': PAGE_CACHE_CONTROL, 'cf-cache-status': cf, ...extra }, body: html(build) });
@@ -36,6 +40,11 @@ const CACHED_SITE: Record<string, Route | Route[]> = {
   [`${BASE}/login`]: { status: 307, headers: { location: '/auth?mode=login', 'cf-cache-status': 'DYNAMIC' } },
   [`${BASE}/auth`]: page('DYNAMIC'),
   [`${BASE}/api/health`]: { headers: { 'cache-control': 'no-store', 'cf-cache-status': 'DYNAMIC' }, body: '{"status":"ok"}' },
+  [IMAGE_URL]: [image('MISS'), image('HIT')],
+  [`${BASE}/manifest.json`]: {
+    headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': MANIFEST_CACHE_CONTROL, 'cf-cache-status': 'DYNAMIC' },
+    body: '{"name":"1Think2Win"}',
+  },
 };
 
 // Production on 2026-10-21, before the rule: the same pages, every one DYNAMIC
@@ -130,9 +139,13 @@ describe('runPageCacheChecks', () => {
       'pass 307 GET /login',
       'pass 200 GET /auth',
       'pass 200 GET /api/health',
+      'pass 200 GET / pictures are static files',
+      'pass 200 GET /images/sports/cricket-128.avif (twice)',
+      'pass 200 GET /manifest.json',
     ]);
     expect(byName(results, 'GET /faq (twice)').detail).toBe(`MISS then cf-cache-status=HIT, build=${BUILD}`);
-    expect(calls).toHaveLength(27);
+    expect(byName(results, 'GET /images/sports/cricket-128.avif (twice)').detail).toBe('MISS then cf-cache-status=HIT');
+    expect(calls).toHaveLength(30);
     expect(maxInFlight()).toBe(1);
     expect(calls.filter((c) => new Headers(c.init.headers).has('cookie')).map((c) => c.url)).toEqual([`${BASE}/faq`]);
   });
@@ -176,6 +189,28 @@ describe('runPageCacheChecks', () => {
       'content-type is text/x-component, expected text/html',
       'cf-cache-status is HIT, expected DYNAMIC/BYPASS: the page cache must not answer this',
     ]);
+  });
+
+  it("catches home page pictures resized on Hostinger, an uncached ball picture, and a manifest browsers can't keep", async () => {
+    const { results, calls } = await run({
+      [`${BASE}/`]: [page('MISS'), { ...page('HIT'), body: html(BUILD, '<img src="/_next/image?url=%2Fimages%2Fsports%2Fcricket.webp&w=256&q=75">') }],
+      [`${BASE}/manifest.json`]: { headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=0', 'cf-cache-status': 'DYNAMIC' } },
+    });
+    expect(failures(results)).toEqual(['GET / pictures are static files', 'GET /manifest.json']);
+    expect(byName(results, 'GET / pictures are static files').problems).toEqual([
+      'the home page loads pictures through /_next/image: Hostinger resizes each one, and Cloudflare never caches it',
+      'no pre-sized ball picture (/images/sports/<ball>-<width>.avif) in the home page',
+    ]);
+    expect(byName(results, 'GET /manifest.json').problems).toEqual([
+      `Cache-Control is "public, max-age=0", expected "${MANIFEST_CACHE_CONTROL}"`,
+    ]);
+    // With no static picture named there is nothing to fetch
+    expect(calls.map((c) => c.url)).not.toContain(IMAGE_URL);
+
+    const uncached = await run({ [IMAGE_URL]: image('DYNAMIC') });
+    expect(failures(uncached.results)).toEqual(['GET /images/sports/cricket-128.avif (twice)']);
+    const missing = await run({ [IMAGE_URL]: new Error('timeout') });
+    expect(byName(missing.results, 'GET /images/sports/cricket-128.avif (twice)').problems).toEqual(['request failed: timeout']);
   });
 
   it('reports a failed request as a failed check and carries on', async () => {
