@@ -1,0 +1,11 @@
+{
+  "description": "Live quiz snapshot (/api/live), shared quiz copies (/api/live/quizzes/*) and live matches (/api/live/matches/*): cache for the time their Cache-Control allows",
+  "expression": "(http.host in {\"1think2win.com\" \"www.1think2win.com\"} and (http.request.uri.path eq \"/api/live\" or starts_with(http.request.uri.path, \"/api/live/quizzes/\") or starts_with(http.request.uri.path, \"/api/live/matches/\")))",
+  "action": "set_cache_settings",
+  "action_parameters": {
+    "cache": true,
+    "edge_ttl": { "mode": "respect_origin" },
+    "browser_ttl": { "mode": "respect_origin" }
+  },
+  "enabled": true
+}
