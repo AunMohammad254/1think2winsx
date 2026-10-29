@@ -1,7 +1,13 @@
 -- =============================================================================
 -- Match mode: scorer corrections
 --
--- Not applied to production yet.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-29 as migration 20261029101649, owner-approved,
+-- BEFORE the code that uses it (PR #85) was deployed. Checked after: apply_match_change's body md5 is
+-- b8e0d413211e54d301e4dbb2804801b6 (this file's), it is still SECURITY DEFINER with search_path public
+-- and callable only by the service role, "BallEvent"."replacedBy" exists, and the one match there was
+-- unchanged (abandoned, version 14, 9 balls). submit_quiz_attempt was untouched
+-- (fc6332cd7da3b8fc892722d4d41cb369). The code live before it keeps working on the migrated database:
+-- it never sends the new keys, and everything else apply_match_change does is the same.
 --
 -- The scorer console could take back only the last ball. A wrong ball further back, a "Close answers",
 -- "End innings" or "Abandon" pressed by mistake, or the wrong team sent in to bat stayed as they were.
