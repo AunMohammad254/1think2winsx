@@ -12,17 +12,16 @@ compatibility_date = "2026-10-06"
 workers_dev = false
 upload_source_maps = true
 
-# The apex and www both serve the app (no redirect), so both are routed
+# www redirects to the apex (a Redirect Rule, which runs before Workers), so only the apex is routed.
+# Paths Cloudflare serves from its cache, and the webhooks, get routes without this Worker (README.md).
 [[routes]]
 pattern = "1think2win.com/api/*"
 zone_name = "1think2win.com"
 
-[[routes]]
-pattern = "www.1think2win.com/api/*"
-zone_name = "1think2win.com"
-
 [vars]
 SITE_URL = "https://1think2win.com"
+# "false": log-only. Limits are counted and logged ("wouldLimit" in Workers Logs), never applied
+ENFORCE = "false"
 
 [secrets]
 required = ["CRON_SECRET"]
@@ -50,6 +49,13 @@ name = "IP_LIMITER"
 namespace_id = "1003"
 simple = { limit = 3000, period = 60 }
 
+# Hostinger's budget, per Cloudflare location (one key): 60 API requests/s, under Hostinger's ~100/s with
+# room for page requests. Players in Pakistan arrive mostly through KHI, a few through LHE and MCT.
+[[ratelimits]]
+name = "ORIGIN_LIMITER"
+namespace_id = "1004"
+simple = { limit = 600, period = 10 }
+
 [observability]
 enabled = true
 
@@ -60,6 +66,11 @@ routes = [{ pattern = "staging.1think2win.com/api/*", zone_name = "1think2win.co
 
 [env.staging.vars]
 SITE_URL = "https://staging.1think2win.com"
+ENFORCE = "true"
+
+# No cron until staging.1think2win.com has a DNS record: it would call a name that doesn't resolve every minute
+[env.staging.triggers]
+crons = []
 
 [env.staging.secrets]
 required = ["CRON_SECRET"]
@@ -79,3 +90,8 @@ simple = { limit = 600, period = 60 }
 name = "IP_LIMITER"
 namespace_id = "2003"
 simple = { limit = 200000, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "ORIGIN_LIMITER"
+namespace_id = "2004"
+simple = { limit = 600, period = 10 }
