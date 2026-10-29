@@ -1,7 +1,14 @@
 -- =============================================================================
 -- Match mode: questions reviewed before players see them, and worded in Roman Urdu too
 --
--- Not applied to production yet.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-29 as migration 20261029113514, owner-approved,
+-- BEFORE the code that uses it (PR #86) was deployed. Checked after: apply_match_change's body md5 is
+-- db7793e7a9570d0c68e0d3063134c269 (this file's), it is still SECURITY DEFINER with search_path public
+-- and callable only by the service role, the three new columns exist with their defaults, and the one
+-- match there was unchanged (abandoned, version 14) with drafts [] and autoSend off.
+-- private_hardened.submit_quiz_attempt was untouched (fc6332cd7da3b8fc892722d4d41cb369). The code live
+-- before it keeps working on the migrated database: it never sends the new keys, and new questions just
+-- have no Roman Urdu.
 --
 -- An over's questions are worded by Gemini (src/lib/match-wording.ts) or the built-in templates, and AI can
 -- get things wrong. So unless a match sends them automatically, they wait as drafts: an admin edits or
