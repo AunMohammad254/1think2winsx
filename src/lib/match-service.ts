@@ -4,6 +4,7 @@ import type { QuizAction } from '@/lib/admin-action-labels';
 import { overQuestions } from '@/lib/match-questions';
 import {
   applyEvent,
+  reopenable,
   scoreInnings,
   targetFor,
   type Ball,
@@ -128,6 +129,15 @@ export function ballLabel(ball: Pick<Ball, 'runs' | 'extra' | 'wicket'>): string
 
 export type QuestionState = 'open' | 'closed' | 'settled' | 'void';
 
+/** A delivery as the console shows it, with what it needs to correct it */
+export interface ViewBall {
+  id: string;
+  label: string;
+  runs: number;
+  extra: Extra;
+  wicket: boolean;
+}
+
 export interface MatchView {
   match: Omit<MatchRow, 'createdAt'> & { title: string };
   settled: boolean;
@@ -139,7 +149,7 @@ export interface MatchView {
     wickets: number;
     oversText: string;
     target: number | null;
-    overs: Array<{ number: number; runs: number; wickets: number; complete: boolean; balls: string[] }>;
+    overs: Array<{ number: number; runs: number; wickets: number; complete: boolean; balls: ViewBall[] }>;
   }>;
   questions: Array<{
     id: string;
@@ -151,6 +161,8 @@ export interface MatchView {
     state: QuestionState;
     closesAt: string | null;
     correctOption: number | null;
+    /** Closed early, and may take answers again (src/lib/match-engine.ts reopenable) */
+    reopenable: boolean;
   }>;
   /** The server's clock, so the console counts down to close times correctly */
   serverNow: string;
@@ -167,6 +179,7 @@ function parseOptions(options: string): string[] {
 
 export function matchView(loaded: LoadedMatch, now = Date.now()): MatchView {
   const { row, state } = loaded;
+  const canReopen = new Set(reopenable(state).map((q) => q.id));
   const { createdAt: _createdAt, ...match } = row;
   return {
     match: { ...match, title: loaded.title },
@@ -183,7 +196,8 @@ export function matchView(loaded: LoadedMatch, now = Date.now()): MatchView {
         oversText: score.oversText,
         target,
         overs: score.overs.map((over) => ({
-          number: over.number, runs: over.runs, wickets: over.wickets, complete: over.complete, balls: over.balls.map(ballLabel),
+          number: over.number, runs: over.runs, wickets: over.wickets, complete: over.complete,
+          balls: over.balls.map((ball) => ({ id: ball.id, label: ballLabel(ball), runs: ball.runs, extra: ball.extra, wicket: ball.wicket })),
         })),
       };
     }),
@@ -202,6 +216,7 @@ export function matchView(loaded: LoadedMatch, now = Date.now()): MatchView {
         state,
         closesAt: q.closesAt,
         correctOption: state === 'settled' ? q.correctOption : null,
+        reopenable: canReopen.has(q.id),
       };
     }),
     serverNow: new Date(now).toISOString(),
@@ -221,6 +236,11 @@ const EVENT_ACTIONS: Partial<Record<MatchEvent['type'], QuizAction>> = {
   undo: 'match_ball_undone',
   close_answers: 'match_answers_closed',
   abandon: 'match_abandoned',
+  correct_ball: 'match_ball_corrected',
+  resume_innings: 'match_innings_resumed',
+  remove_innings: 'match_innings_removed',
+  reopen_answers: 'match_answers_reopened',
+  restore: 'match_restored',
 };
 
 /**

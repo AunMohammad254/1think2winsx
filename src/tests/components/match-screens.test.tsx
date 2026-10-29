@@ -100,8 +100,12 @@ describe('MatchConsole', () => {
   const inFuture = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
   const question = (over: Partial<MatchView['questions'][number]> = {}) => ({
     id: 'q', innings: 1 as const, over: 3, text: 'Will a wicket fall in over 3?', options: ['Yes', 'No'], market: 'wicket_in_over',
-    state: 'open' as const, closesAt: inFuture(60), correctOption: null, ...over,
+    state: 'open' as const, closesAt: inFuture(60), correctOption: null, reopenable: false, ...over,
   });
+  // Scorecard labels as deliveries: '4' is 4 off the bat, 'W' a wicket with no run
+  const deliveries = (prefix: string, labels: string[]) => labels.map((label, i) => ({
+    id: `${prefix}${i + 1}`, label, runs: Number.parseInt(label, 10) || 0, extra: 'none' as const, wicket: label.includes('W'),
+  }));
   const view = (over: Partial<MatchView> = {}, match: Partial<MatchView['match']> = {}): MatchView => ({
     match: {
       id: 'm1', quizId: 'quiz1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 20, questionsPerOver: 2,
@@ -111,8 +115,8 @@ describe('MatchConsole', () => {
     innings: [{
       innings: 1, battingTeam: 'Lahore', endReason: null, runs: 12, wickets: 1, oversText: '1.3', target: null,
       overs: [
-        { number: 1, runs: 7, wickets: 0, complete: true, balls: ['1', '4', '0', '1', '1', '0'] },
-        { number: 2, runs: 5, wickets: 1, complete: false, balls: ['4', 'W', '1'] },
+        { number: 1, runs: 7, wickets: 0, complete: true, balls: deliveries('o1b', ['1', '4', '0', '1', '1', '0']) },
+        { number: 2, runs: 5, wickets: 1, complete: false, balls: deliveries('o2b', ['4', 'W', '1']) },
       ],
     }],
     questions: [],
@@ -193,9 +197,10 @@ describe('MatchConsole', () => {
     expect(posts().every((p) => p.url === '/api/admin/matches/m1/events')).toBe(true);
   });
 
-  it('undoes, closes answers, and asks before ending the innings or abandoning', async () => {
+  it('undoes, and asks before closing answers, ending the innings or abandoning, saying how to put each back', async () => {
     serve(view());
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue(null);
     render(<MatchConsole matchId="m1" />);
     await screen.findByText('Lahore vs Karachi');
     const click = async (name: RegExp, type: string) => {
@@ -203,14 +208,91 @@ describe('MatchConsole', () => {
       await waitFor(() => expect(lastEvent().event).toEqual({ type }));
     };
     await click(/Undo last ball/, 'undo');
-    await click(/Close answers now/, 'close_answers');
+    fireEvent.click(screen.getByRole('button', { name: /Close answers now/ }));
     fireEvent.click(screen.getByRole('button', { name: /End innings/ }));
     fireEvent.click(screen.getByRole('button', { name: /Abandon match/ }));
-    expect(confirm).toHaveBeenCalledTimes(2);
-    expect(posts()).toHaveLength(2);
+    expect(confirm.mock.calls.map(([text]) => text)).toEqual([expect.stringMatching(/Reopen answers puts back/), expect.stringMatching(/Resume innings puts it back/)]);
+    expect(prompt).toHaveBeenCalledWith(expect.stringMatching(/Restore match puts it back[\s\S]*Type the match name to confirm: Lahore vs Karachi/));
+    expect(posts()).toHaveLength(1);
+
     confirm.mockReturnValue(true);
+    await click(/Close answers now/, 'close_answers');
     await click(/End innings/, 'end_innings');
+    // Abandoning needs the match's name typed (case and spaces don't matter)
+    prompt.mockReturnValue('Lahore vs');
+    fireEvent.click(screen.getByRole('button', { name: /Abandon match/ }));
+    expect(posts()).toHaveLength(3);
+    prompt.mockReturnValue('  lahore VS karachi ');
     await click(/Abandon match/, 'abandon');
+  });
+
+  it('corrects any ball from the scorecard, starting from what was recorded', async () => {
+    serve(view());
+    render(<MatchConsole matchId="m1" />);
+    const card = await screen.findByRole('region', { name: 'Scorecard' });
+    expect(card).toHaveTextContent('Innings 1: Lahore');
+    expect(card).toHaveTextContent('Over 1' + '140110' + '7 runs');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Correct innings 1, over 2, ball 2: W' }));
+    const panel = screen.getByRole('group', { name: 'Correct a ball' });
+    expect(panel).toHaveTextContent('Innings 1, over 2, ball 2: was W. What really happened?');
+    expect(screen.getByRole('button', { name: 'Wicket' , pressed: true })).toBeInTheDocument();
+    // It was a wide that took a run, not a wicket
+    fireEvent.click(screen.getAllByRole('button', { name: 'Wide' })[1]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Wicket' })[1]);
+    fireEvent.click(screen.getByRole('button', { name: '1 run (correction)' }));
+    await waitFor(() => expect(lastEvent()).toEqual({ version: 3, event: { type: 'correct_ball', ballId: 'o2b2', runs: 1, extra: 'wide', wicket: false } }));
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Correct a ball' })).toBeNull());
+
+    // Picked by mistake: cancel
+    fireEvent.click(screen.getByRole('button', { name: 'Correct innings 1, over 1, ball 1: 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel the correction' }));
+    expect(screen.queryByRole('group', { name: 'Correct a ball' })).toBeNull();
+  });
+
+  it("gives each over's runs in the scorecard", async () => {
+    const quiet = { number: 1, runs: 1, wickets: 0, complete: true, balls: deliveries('q', ['1', '0', '0', '0', '0', '0']) };
+    serve(view({ innings: [{ ...view().innings[0], overs: [quiet] }] }));
+    render(<MatchConsole matchId="m1" />);
+    expect(await screen.findByRole('region', { name: 'Scorecard' })).toHaveTextContent('Over 1100000' + '1 run');
+  });
+
+  it("offers the corrections where they apply: resume, remove, reopen answers", async () => {
+    const endedByHand = view({
+      innings: [{ ...view().innings[0], endReason: 'admin' }],
+      questions: [question({ id: 'r1', state: 'closed', reopenable: true }), question({ id: 'r2', state: 'closed', reopenable: true }), question({ id: 'r3', state: 'closed' })],
+    }, { status: 'innings_break' });
+    serve(endedByHand);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { unmount } = render(<MatchConsole matchId="m1" />);
+    const section = await screen.findByRole('region', { name: 'Put a mistake right' });
+    expect(section).toHaveTextContent('To fix a wrong ball, pick it in the scorecard below');
+    expect(screen.queryByRole('button', { name: /Remove innings/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Resume innings 1/ }));
+    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'resume_innings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen answers (2)' }));
+    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'reopen_answers' }));
+    expect(confirm).not.toHaveBeenCalled();
+    unmount();
+
+    // The wrong team sent in: no balls yet, so the innings can go
+    serve(view({ innings: [{ ...view().innings[0], endReason: 'admin' }, { innings: 2, battingTeam: 'Lahore', endReason: null, runs: 0, wickets: 0, oversText: '0.0', target: 13, overs: [] }] }));
+    render(<MatchConsole matchId="m1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Remove innings 2/ }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/Remove innings 2 \(Lahore batting\)\? .*any players already answered are voided/));
+    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'remove_innings' }));
+    expect(screen.queryByRole('button', { name: /Resume innings/ })).toBeNull();
+  });
+
+  it('restores an abandoned match after asking; nothing else can change it', async () => {
+    serve(view({}, { status: 'abandoned' }));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<MatchConsole matchId="m1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Restore match/ }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/Settled results stand/));
+    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'restore' }));
+    expect(screen.getByRole('button', { name: /Correct innings 1, over 1, ball 1/ })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /Reopen answers/ })).toBeNull();
   });
 
   it('shows refusals, reloads when someone else changed the match, and survives a lost connection', async () => {
@@ -223,6 +305,12 @@ describe('MatchConsole', () => {
     fireEvent.click(screen.getByRole('button', { name: '0 runs' }));
     await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith('Runs must be a whole number from 0 to 7'));
     expect(gets()).toBe(1);
+
+    // A ball that wasn't saved keeps its kind, to try again
+    fireEvent.click(screen.getByRole('button', { name: 'Wide' }));
+    fireEvent.click(screen.getByRole('button', { name: '0 runs' }));
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(screen.getByRole('button', { name: 'Wide' })).toHaveAttribute('aria-pressed', 'true');
 
     answer = async () => jsonResponse({ error: 'Someone else changed this match first.', code: 'stale' }, 409);
     fireEvent.click(screen.getByRole('button', { name: '0 runs' }));
@@ -304,10 +392,13 @@ describe('MatchConsole', () => {
     expect(screen.queryByRole('button', { name: /Undo last ball/ })).toBeNull();
     abandoned.unmount();
 
-    serve(view({ settled: true }, { status: 'completed' }));
+    serve(view({ settled: true, innings: [{ ...view().innings[0], endReason: 'admin' }] }, { status: 'completed' }));
     render(<MatchConsole matchId="m1" />);
     expect(await screen.findByText(/has been settled/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Undo last ball/ })).toBeNull();
     expect(screen.queryByText(/Settle its quiz/)).toBeNull();
+    // Settled is final: no corrections at all
+    expect(screen.queryByRole('region', { name: 'Put a mistake right' })).toBeNull();
+    expect(screen.getByRole('button', { name: /Correct innings 1, over 1, ball 1/ })).toBeDisabled();
   });
 });

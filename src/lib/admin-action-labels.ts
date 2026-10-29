@@ -26,6 +26,11 @@ export const QUIZ_ACTION_LABELS = {
   match_ball_undone: 'Undid a ball',
   match_answers_closed: 'Closed the open questions',
   match_abandoned: 'Abandoned the match',
+  match_ball_corrected: 'Corrected a ball',
+  match_innings_resumed: 'Resumed an innings ended by hand',
+  match_innings_removed: 'Removed an innings with no balls',
+  match_answers_reopened: 'Reopened answers closed early',
+  match_restored: 'Restored the abandoned match',
 } as const;
 
 export type QuizAction = keyof typeof QUIZ_ACTION_LABELS;

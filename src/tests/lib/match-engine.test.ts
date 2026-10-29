@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyEvent,
   planQuestions,
+  reopenable,
   resolveMarket,
   scoreInnings,
   splitOvers,
@@ -46,7 +47,10 @@ function play(events: MatchEvent[], from: MatchState = EMPTY, config: MatchConfi
 }
 
 function store(state: MatchState, change: MatchChange): MatchState {
-  const questions: MatchQuestion[] = state.questions.map((q) => ({ ...q }));
+  const questions: MatchQuestion[] = state.questions
+    // A removed innings' questions are deleted, or detached from the match when answered: gone either way
+    .filter((q) => q.innings !== change.removeInnings?.innings)
+    .map((q) => ({ ...q }));
   for (const slot of change.release) {
     for (let k = 0; k < state.config.questionsPerOver; k++) {
       questions.push({
@@ -58,6 +62,7 @@ function store(state: MatchState, change: MatchChange): MatchState {
   }
   for (const q of questions) {
     if (change.closeAll || change.lock.includes(q.id)) q.closed = true;
+    if (change.reopen?.some((r) => r.id === q.id)) q.closed = false;
     const resolved = change.resolve.find((r) => r.id === q.id);
     if (resolved) Object.assign(q, { hasResult: true, correctOption: resolved.option, status: 'active' });
     if (change.void.includes(q.id)) Object.assign(q, { hasResult: false, correctOption: null, status: 'paused' });
@@ -220,7 +225,9 @@ describe('undo', () => {
   it('can take back the ball that finished the match', () => {
     let { state } = play([startLahore, ...six(runs(1)), ...six(dot), { type: 'start_innings', battingTeam: 'Karachi' }, runs(7)]);
     expect(state.status).toBe('completed');
-    expect(applyEvent(state, dot, () => 'x')).toEqual({ ok: false, error: 'This match has finished: only its last ball can be undone' });
+    expect(applyEvent(state, dot, () => 'x')).toEqual({
+      ok: false, error: 'This match has finished: only its balls can be corrected, or an innings ended by hand resumed',
+    });
     ({ state } = play([{ type: 'undo' }], state));
     expect(state.status).toBe('live');
   });
@@ -254,7 +261,7 @@ describe('admin events', () => {
     expect(last).toMatchObject({ status: 'abandoned', closeAll: true });
     expect(last.void.sort()).toEqual(['q1.2.0', 'q1.2.1']);
     expect(q(state, 'q1.1.0').hasResult).toBe(true);
-    expect(applyEvent(state, dot, () => 'x')).toEqual({ ok: false, error: 'This match was abandoned: nothing more can be recorded' });
+    expect(applyEvent(state, dot, () => 'x')).toEqual({ ok: false, error: 'This match was abandoned: restore it first to record anything more' });
   });
 
   it('refuses events that make no sense where the match is', () => {
@@ -297,5 +304,144 @@ describe('planQuestions edge cases', () => {
     const later: MatchQuestion = { ...q(state, 'q1.1.0'), id: 'later', over: 2 };
     // Over 1 undone after over 2's questions were out: nothing before it, so nothing closes them
     expect(planQuestions({ ...state, questions: [later] }).lock).toEqual([]);
+  });
+});
+
+describe('corrections', () => {
+  // Like play, but new balls get ids no earlier play() handed out (play numbers from b1 each time)
+  let fixes = 0;
+  const fix = (state: MatchState, event: MatchEvent) => {
+    const outcome = applyEvent(state, event, () => `c${++fixes}`);
+    if (!outcome.ok) throw new Error(outcome.error);
+    return { state: store(outcome.state, outcome.change), last: outcome.change };
+  };
+  const refuse = (state: MatchState, event: MatchEvent) => applyEvent(state, event, () => 'x');
+
+  it('corrects any ball: it keeps its number, and the results follow the corrected balls', () => {
+    let { state } = play([startLahore, ...six(dot), runs(1)]);
+    expect(q(state, 'q1.1.0')).toMatchObject({ hasResult: true, correctOption: 1 });
+    // Ball 2 of over 1 was really a six: over 1 went for 6, so "6 or more" is Yes now
+    const { state: fixed, last } = fix(state, { type: 'correct_ball', ballId: 'b2', runs: 6, extra: 'none', wicket: false });
+    expect(last.replaceBall).toEqual({
+      id: expect.stringMatching(/^c\d+$/), replaces: 'b2', innings: 1, seq: 2, runs: 6, extra: 'none', extraRuns: 0, wicket: false,
+    });
+    expect(last.resolve).toEqual([{ id: 'q1.1.0', option: 0 }]);
+    expect(fixed.balls.map((b) => b.runs)).toEqual([0, 6, 0, 0, 0, 0, 1]);
+    // Then a wide after all: over 1 is one legal ball short, so the next ball (a single) completes it, for 2 runs
+    ({ state } = fix(fixed, { type: 'correct_ball', ballId: last.replaceBall!.id, runs: 0, extra: 'wide', wicket: false }));
+    expect(state.balls[1]).toMatchObject({ extra: 'wide', extraRuns: 1, seq: 2 });
+    expect(q(state, 'q1.1.0')).toMatchObject({ hasResult: true, correctOption: 1 });
+  });
+
+  it('refuses a ball that is gone, an impossible one, or no change at all', () => {
+    const { state } = play([startLahore, dot]);
+    expect(refuse(state, { type: 'correct_ball', ballId: 'nope', runs: 1, extra: 'none', wicket: false }))
+      .toEqual({ ok: false, error: 'That ball was undone or changed meanwhile' });
+    expect(refuse(state, { type: 'correct_ball', ballId: 'b1', runs: 1, extra: 'beamer' as never, wicket: false }))
+      .toEqual({ ok: false, error: 'Unknown kind of delivery' });
+    expect(refuse(state, { type: 'correct_ball', ballId: 'b1', runs: 9, extra: 'none', wicket: false }))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/0 to 7/) });
+    expect(refuse(state, { type: 'correct_ball', ballId: 'b1', runs: 0, extra: 'none', wicket: false }))
+      .toEqual({ ok: false, error: 'That ball already says so' });
+  });
+
+  it("won't bring back to life an innings its balls ended once the next one has started", () => {
+    const { state } = play([startLahore, ...six(dot), ...six(dot), { type: 'start_innings', battingTeam: 'Karachi' }, dot]);
+    // A legal ball of innings 1 made a wide: innings 1 would be one ball short
+    expect(refuse(state, { type: 'correct_ball', ballId: 'b2', runs: 0, extra: 'wide', wicket: false }))
+      .toEqual({ ok: false, error: "With that ball innings 1 wouldn't be over, but innings 2 has started" });
+    // Its runs can change: the target moves with them
+    const { state: fixed } = fix(state, { type: 'correct_ball', ballId: 'b2', runs: 4, extra: 'none', wicket: false });
+    expect(targetFor(2, fixed.balls, CONFIG.oversPerInnings)).toBe(5);
+  });
+
+  it('can still correct a finished match, which may then go on', () => {
+    let { state } = play([startLahore, ...six(runs(1)), ...six(dot), { type: 'start_innings', battingTeam: 'Karachi' }, runs(7)]);
+    expect(state.status).toBe('completed');
+    // The winning hit was really a single: Karachi still need 6
+    ({ state } = fix(state, { type: 'correct_ball', ballId: state.balls[state.balls.length - 1].id, runs: 1, extra: 'none', wicket: false }));
+    expect(state).toMatchObject({ status: 'live', innings: [{ endReason: 'overs' }, { endReason: null }] });
+  });
+
+  it('resumes an innings ended by hand: its voided overs come back, its closed questions stay closed', () => {
+    let { state } = play([startLahore, dot, dot, { type: 'end_innings' }]);
+    const { state: resumed, last } = fix(state, { type: 'resume_innings' });
+    expect(last).toMatchObject({ resumeInnings: { innings: 1 }, status: 'live' });
+    expect(last.pending.sort()).toEqual(['q1.1.0', 'q1.1.1', 'q1.2.0', 'q1.2.1']);
+    expect(resumed.innings[0].endReason).toBeNull();
+    expect(q(resumed, 'q1.2.0').closed).toBe(true);
+    // And a finished match whose second innings was ended by hand
+    ({ state } = play([{ type: 'end_innings' }, { type: 'start_innings', battingTeam: 'Karachi' }, dot, { type: 'end_innings' }], resumed));
+    expect(state.status).toBe('completed');
+    expect(fix(state, { type: 'resume_innings' }).state.status).toBe('live');
+  });
+
+  it("resumes only an innings ended by hand, and not one its balls already end", () => {
+    expect(refuse(EMPTY, { type: 'resume_innings' })).toEqual({ ok: false, error: 'Only an innings ended by hand can be resumed' });
+    const live = play([startLahore]).state;
+    expect(refuse(live, { type: 'resume_innings' })).toEqual({ ok: false, error: 'Only an innings ended by hand can be resumed' });
+    const complete = Array.from({ length: 12 }, (_, i) => ball(i + 1, { id: `f${i}`, runs: 0 }));
+    const ended: MatchState = { ...EMPTY, status: 'innings_break', innings: [{ innings: 1, battingTeam: 'Lahore', endReason: 'admin' }], balls: complete };
+    expect(refuse(ended, { type: 'resume_innings' })).toEqual({ ok: false, error: 'Its balls already end this innings: undo or correct one instead' });
+  });
+
+  it('removes an innings without balls, with its questions, so the right team can go in', () => {
+    let { state } = play([startLahore, ...six(dot), ...six(dot), { type: 'start_innings', battingTeam: 'Karachi' }]);
+    const { state: removed, last } = fix(state, { type: 'remove_innings' });
+    expect(last).toMatchObject({ removeInnings: { innings: 2 }, status: 'innings_break', release: [] });
+    expect(removed.innings.map((i) => i.innings)).toEqual([1]);
+    expect(removed.questions.some((x) => x.innings === 2)).toBe(false);
+    // The first innings too, while it has no balls: back to the toss
+    ({ state } = play([startLahore, { type: 'remove_innings' }]));
+    expect(state).toMatchObject({ status: 'setup', innings: [], questions: [] });
+  });
+
+  it("refuses to remove an innings that has balls, or one that isn't there", () => {
+    expect(refuse(EMPTY, { type: 'remove_innings' })).toEqual({ ok: false, error: 'There is no innings to remove' });
+    expect(refuse(play([startLahore, dot]).state, { type: 'remove_innings' })).toEqual({ ok: false, error: "An innings with balls recorded can't be removed" });
+  });
+
+  it("reopens answers closed early, until the window their over would have had, and only while it hasn't started", () => {
+    let { state } = play([startLahore, { type: 'close_answers' }]);
+    let last: MatchChange;
+    ({ state, last } = fix(state, { type: 'reopen_answers' }));
+    expect(last.reopen).toEqual([{ id: 'q1.1.0', closesInSeconds: 120 }, { id: 'q1.1.1', closesInSeconds: 120 }]);
+    expect(q(state, 'q1.1.0').closed).toBe(false);
+
+    // Over 2's questions, closed during over 1's 2nd ball: back with the fallback window
+    ({ state } = play([dot, dot, { type: 'close_answers' }], state));
+    expect(reopenable(state).map((x) => x.id)).toEqual(['q1.2.0', 'q1.2.1']);
+    ({ last } = fix(state, { type: 'reopen_answers' }));
+    expect(last.reopen).toEqual([{ id: 'q1.2.0', closesInSeconds: 150 }, { id: 'q1.2.1', closesInSeconds: 150 }]);
+
+    // Over 1 has had its 5th legal ball: over 2's questions stay closed
+    ({ state } = play([dot, dot, dot], state));
+    expect(reopenable(state)).toEqual([]);
+    expect(refuse(state, { type: 'reopen_answers' })).toEqual({
+      ok: false, error: 'No question can take answers again: its over has started, or the innings is over',
+    });
+  });
+
+  it('reopens nothing in an innings that is over, or in an abandoned match', () => {
+    const { state } = play([startLahore, dot, { type: 'end_innings' }]);
+    expect(reopenable(state)).toEqual([]);
+    expect(reopenable({ ...state, status: 'abandoned' })).toEqual([]);
+    expect(reopenable(EMPTY)).toEqual([]);
+  });
+
+  it('restores an abandoned match: results stand, unfinished overs come back, answers stay closed until reopened', () => {
+    let { state } = play([startLahore, ...six(dot), dot, { type: 'abandon' }]);
+    let last: MatchChange;
+    ({ state, last } = fix(state, { type: 'restore' }));
+    expect(last).toMatchObject({ status: 'live' });
+    expect(last.pending.sort()).toEqual(['q1.2.0', 'q1.2.1']);
+    expect(q(state, 'q1.1.0').hasResult).toBe(true);
+    expect(q(state, 'q1.2.0')).toMatchObject({ status: 'active', closed: true });
+    // Over 2 has started, so its questions can't take answers again; the balls carry on
+    expect(play([dot], state).state.balls).toHaveLength(8);
+  });
+
+  it('restores only an abandoned match', () => {
+    expect(refuse(play([startLahore]).state, { type: 'restore' })).toEqual({ ok: false, error: 'Only an abandoned match can be restored' });
   });
 });

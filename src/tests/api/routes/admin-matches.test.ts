@@ -103,7 +103,11 @@ describe('POST /api/admin/matches/[id]/events', () => {
     expect(await res.json()).toEqual({ match: { version: 4 } });
     expect(service.applyMatchEvent).toHaveBeenCalledWith('m1', 3, { type: 'ball', runs: 4, extra: 'none', wicket: false }, 'boss@example.test');
     expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/matches/[id]/events', { write: true });
-    for (const event of [{ type: 'start_innings', battingTeam: 'Lahore' }, { type: 'undo' }, { type: 'end_innings' }, { type: 'close_answers' }, { type: 'abandon' }]) {
+    for (const event of [
+      { type: 'start_innings', battingTeam: 'Lahore' }, { type: 'undo' }, { type: 'end_innings' }, { type: 'close_answers' }, { type: 'abandon' },
+      { type: 'correct_ball', ballId: 'b1', runs: 2, extra: 'leg_bye', wicket: false }, { type: 'resume_innings' }, { type: 'remove_innings' },
+      { type: 'reopen_answers' }, { type: 'restore' },
+    ]) {
       expect((await post({ version: 3, event })).status).toBe(200);
     }
   });
@@ -114,6 +118,8 @@ describe('POST /api/admin/matches/[id]/events', () => {
       { version: 3, event: { type: 'ball', runs: 1, extra: 'beamer', wicket: false } },
       { version: -1, event: { type: 'undo' } },
       { version: 3, event: { type: 'declare' } },
+      { version: 3, event: { type: 'correct_ball', runs: 2, extra: 'none', wicket: false } },
+      { version: 3, event: { type: 'correct_ball', ballId: '', runs: 2, extra: 'none', wicket: false } },
       null,
     ]) {
       expect((await post(body)).status, JSON.stringify(body)).toBe(400);
