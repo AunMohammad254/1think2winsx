@@ -33,9 +33,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const body = bodySchema.safeParse(await request.json().catch(() => null));
     if (!body.success) return NextResponse.json({ error: 'Invalid question review', details: body.error.issues }, { status: 400 });
-    const result = body.data.action === 'send'
-      ? await sendDrafts(id, body.data.questions, admin.email)
-      : await skipDrafts(id, body.data.ids, admin.email);
+    const review = body.data;
+    const result = await (review.action === 'send' ? sendDrafts(id, review.questions, admin.email) : skipDrafts(id, review.ids, admin.email));
     if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
     return createSecureJsonResponse(result.data, { status: 200 });
   } catch (error) {

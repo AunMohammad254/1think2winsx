@@ -427,6 +427,19 @@ describe('MatchConsole', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Review questions' })).toBeNull());
   });
 
+  it('skips a reviewed question through the review panel', async () => {
+    const waiting = {
+      id: 'd9', innings: 1 as const, over: 3, market: 'wicket_in_over', params: {}, options: ['Yes', 'No'], line: null,
+      text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
+      plainText: 'Will a wicket fall in over 3?', plainTextRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
+      ai: false, closesAt: inFuture(120), state: 'waiting' as const,
+    };
+    serve(view({ drafts: [waiting] }), () => jsonResponse(view()));
+    render(<MatchConsole matchId="m1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip over 3 question 1' }));
+    await waitFor(() => expect(posts().at(-1)).toEqual({ url: '/api/admin/matches/m1/questions', body: { action: 'skip', ids: ['d9'] } }));
+  });
+
   it('after the match: only undo, and a pointer to settling; nothing for an abandoned or settled match', async () => {
     serve(view({}, { status: 'completed' }));
     const { unmount } = render(<MatchConsole matchId="m1" />);

@@ -158,6 +158,8 @@ describe('PATCH /api/admin/matches/[id]', () => {
 
   it('refuses anything else, passes on refusals and reports failures', async () => {
     for (const body of [{ autoSend: 'yes' }, {}, null]) expect((await patch(body)).status).toBe(400);
+    const notJson = new NextRequest('http://localhost/api/admin/matches/m1', { method: 'PATCH', body: '{' });
+    expect((await one.PATCH(notJson, routeParams({ id: 'm1' }))).status).toBe(400);
     expect(service.setAutoSend).not.toHaveBeenCalled();
     service.setAutoSend.mockResolvedValue({ ok: false, status: 409, code: 'settled', error: 'Settled' });
     expect(await (await patch({ autoSend: false })).json()).toEqual({ error: 'Settled', code: 'settled' });
@@ -198,7 +200,11 @@ describe('POST /api/admin/matches/[id]/questions', () => {
     ]) {
       expect((await post(body)).status, JSON.stringify(body)).toBe(400);
     }
+    const notJson = new NextRequest('http://localhost/api/admin/matches/m1/questions', { method: 'POST', body: '{' });
+    expect((await review.POST(notJson, routeParams({ id: 'm1' }))).status).toBe(400);
     expect(service.sendDrafts).not.toHaveBeenCalled();
+    service.skipDrafts.mockResolvedValueOnce({ ok: false, status: 409, code: 'gone', error: 'Gone' });
+    expect((await post({ action: 'skip', ids: ['d1'] })).status).toBe(409);
     service.sendDrafts.mockResolvedValue({ ok: false, status: 400, code: 'wording', error: 'The English wording must keep the line (9)' });
     const res = await post({ action: 'send', questions: [question] });
     expect(res.status).toBe(400);

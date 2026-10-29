@@ -93,6 +93,9 @@ describe('aiWording', () => {
     expect(await aiWording(CTX, both, KEY, gemini([{ en: 7 }]) as never)).toEqual([null, null]);
     expect(error).toHaveBeenCalledWith('[match-wording] Gemini wording failed, using the built-in wording:', 'Gemini answered 429');
     expect(error).toHaveBeenCalledWith('[match-wording] Gemini wording failed, using the built-in wording:', 'Gemini did not answer with a list');
+    // Something thrown that isn't an Error is logged as it is
+    expect(await aiWording(CTX, both, KEY, vi.fn(async () => { throw 'socket hang up'; }) as never)).toEqual([null, null]);
+    expect(error).toHaveBeenLastCalledWith('[match-wording] Gemini wording failed, using the built-in wording:', 'socket hang up');
   });
 
   it('reads the key from the environment by default', async () => {

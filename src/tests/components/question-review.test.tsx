@@ -109,6 +109,14 @@ describe('QuestionReview', () => {
     expect(screen.getAllByRole('textbox')[1]).toHaveValue('Edited over 4 for 9?');
   });
 
+  it('skips a question, forgetting its edits once skipped', async () => {
+    const { onSkip } = setup([wicket()]);
+    fireEvent.change(screen.getAllByRole('textbox')[1], { target: { value: 'Edited over 4?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Skip over 4 question 1' }));
+    await waitFor(() => expect(onSkip).toHaveBeenCalledWith(['w']));
+    await waitFor(() => expect(screen.getAllByRole('textbox')[1]).toHaveValue('Will a wicket fall in over 4?'));
+  });
+
   it("says which overs' questions ran out of time", () => {
     setup([runs({ state: 'too_late', over: 2 }), wicket({ state: 'too_late', over: 2 }), wicket({ id: 'w3', state: 'too_late', over: 3 })]);
     expect(screen.getByText('Ran out of time, never sent: over 2, 3. Those overs have no questions.')).toBeInTheDocument();
