@@ -8,19 +8,26 @@ const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 const ORIGIN = 'https://1think2win.com';
 const IP = '203.0.113.7';
 
-function makeEnv(allow = true, allowIp = allow) {
+function makeEnv(allow = true, allowIp = allow, { allowOrigin = true, enforce = 'true' as Env['ENFORCE'] } = {}) {
 	const submit = vi.fn(async (_options: RateLimitOptions) => ({ success: allow }));
 	const api = vi.fn(async (_options: RateLimitOptions) => ({ success: allow }));
 	const perIp = vi.fn(async (_options: RateLimitOptions) => ({ success: allowIp }));
+	const budget = vi.fn(async (_options: RateLimitOptions) => ({ success: allowOrigin }));
 	const env: Env = {
 		SUBMIT_LIMITER: { limit: submit },
 		API_LIMITER: { limit: api },
 		IP_LIMITER: { limit: perIp },
+		ORIGIN_LIMITER: { limit: budget },
 		SITE_URL: ORIGIN,
+		ENFORCE: enforce,
 		CRON_SECRET: 'test-secret',
 	};
-	return { env, submit, api, perIp };
+	return { env, submit, api, perIp, budget };
 }
+
+/** worker.fetch with a fresh execution context (it calls passThroughOnException on it). */
+const call = (request: Request, env: Env, ctx = createExecutionContext()) =>
+	worker.fetch(request as Request<unknown, IncomingRequestCfProperties>, env, ctx);
 
 function mockOrigin(impl: () => Promise<Response> = async () => new Response('origin')) {
 	return vi.spyOn(globalThis, 'fetch').mockImplementation(impl);
@@ -43,7 +50,7 @@ describe('rate limiting', () => {
 		const { env } = makeEnv(false);
 		const origin = mockOrigin();
 
-		const response = await worker.fetch(submit('sb-ref-auth-token=a'), env);
+		const response = await call(submit('sb-ref-auth-token=a'), env);
 
 		expect(response.status).toBe(429);
 		expect(Number(response.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1);
@@ -55,9 +62,9 @@ describe('rate limiting', () => {
 		const { env, submit: limit } = makeEnv();
 		mockOrigin();
 
-		await worker.fetch(submit('sb-ref-auth-token=base64-userA'), env);
-		await worker.fetch(submit('theme=dark; sb-ref-auth-token.0=base64-userB; sb-ref-auth-token.1=rest'), env);
-		await worker.fetch(submit('sb-ref-auth-token=base64-userA'), env);
+		await call(submit('sb-ref-auth-token=base64-userA'), env);
+		await call(submit('theme=dark; sb-ref-auth-token.0=base64-userB; sb-ref-auth-token.1=rest'), env);
+		await call(submit('sb-ref-auth-token=base64-userA'), env);
 
 		const [a, b, aAgain] = limit.mock.calls.map(([options]) => options.key);
 		expect(a).toMatch(/^s:[0-9a-f]{24}$/);
@@ -69,7 +76,7 @@ describe('rate limiting', () => {
 		const { env, submit: limit } = makeEnv();
 		mockOrigin();
 
-		await worker.fetch(submit('sb-ref-auth-token-code-verifier=x'), env);
+		await call(submit('sb-ref-auth-token-code-verifier=x'), env);
 
 		expect(limit).toHaveBeenCalledWith({ key: `ip:${IP}` });
 	});
@@ -78,8 +85,8 @@ describe('rate limiting', () => {
 		const { env, submit: submitLimit, api } = makeEnv();
 		mockOrigin();
 
-		await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=base64-userA' }), env);
-		await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=base64-userB' }), env);
+		await call(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=base64-userA' }), env);
+		await call(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=base64-userB' }), env);
 
 		const [a, b] = api.mock.calls.map(([options]) => options.key);
 		expect(a).toMatch(/^s:[0-9a-f]{24}$/);
@@ -91,7 +98,7 @@ describe('rate limiting', () => {
 		const { env, api } = makeEnv();
 		mockOrigin();
 
-		await worker.fetch(apiRequest('/api/leaderboard'), env);
+		await call(apiRequest('/api/prizes'), env);
 
 		expect(api).toHaveBeenCalledWith({ key: `ip:${IP}` });
 	});
@@ -100,8 +107,8 @@ describe('rate limiting', () => {
 		const { env, perIp } = makeEnv();
 		mockOrigin();
 
-		await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=a' }), env);
-		await worker.fetch(submit('sb-ref-auth-token=a'), env);
+		await call(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=a' }), env);
+		await call(submit('sb-ref-auth-token=a'), env);
 
 		expect(perIp.mock.calls).toEqual([[{ key: IP }], [{ key: IP }]]);
 	});
@@ -110,42 +117,78 @@ describe('rate limiting', () => {
 		const { env } = makeEnv(true, false);
 		const origin = mockOrigin();
 
-		const response = await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=fresh' }), env);
+		const response = await call(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=fresh' }), env);
 
 		expect(response.status).toBe(429);
 		expect(origin).not.toHaveBeenCalled();
 	});
 
-	it('never limits the cron endpoint', async () => {
-		const { env, submit: submitLimit, api, perIp } = makeEnv(false);
+	it('never limits the cron endpoint, the webhooks or the send-email hook', async () => {
+		const { env, submit: submitLimit, api, perIp, budget } = makeEnv(false, false, { allowOrigin: false });
 		mockOrigin();
 
-		const response = await worker.fetch(apiRequest('/api/cron/process-scheduled'), env);
-
-		expect(response.status).toBe(200);
+		for (const path of ['/api/cron/process-scheduled', '/api/webhooks/brevo', '/api/webhooks/ses', '/api/auth/send-email-hook']) {
+			const response = await call(apiRequest(path, { method: 'POST' }), env);
+			expect(response.status).toBe(200);
+		}
 		expect(api).not.toHaveBeenCalled();
 		expect(submitLimit).not.toHaveBeenCalled();
 		expect(perIp).not.toHaveBeenCalled();
+		expect(budget).not.toHaveBeenCalled();
 	});
 });
 
-describe('edge cache', () => {
-	it('strips cookies and caches shared GETs', async () => {
-		const { env } = makeEnv();
+describe("Hostinger's budget", () => {
+	it('answers 503 busy without reaching the origin once the budget for this location is spent', async () => {
+		const { env, budget } = makeEnv(true, true, { allowOrigin: false });
 		const origin = mockOrigin();
 
-		await worker.fetch(apiRequest('/api/leaderboard', { cookie: 'sb-ref-auth-token=secret' }), env);
+		const response = await call(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=a' }), env);
 
-		const [sent, init] = origin.mock.calls[0] as [Request, RequestInit<RequestInitCfProperties>];
-		expect(sent.headers.get('Cookie')).toBeNull();
-		expect(init.cf).toMatchObject({ cacheEverything: true, cacheTtlByStatus: { '200-299': 30, '500-599': 0 } });
+		expect(response.status).toBe(503);
+		expect(Number(response.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1);
+		expect(await response.json()).toMatchObject({ code: 'OVERLOADED' });
+		expect(budget).toHaveBeenCalledWith({ key: 'origin' });
+		expect(origin).not.toHaveBeenCalled();
 	});
 
-	it('passes per-user requests through with their cookies and no cache override', async () => {
+	it('counts only requests that passed the other limits, since only those would reach Hostinger', async () => {
+		const { env, budget } = makeEnv(false);
+		mockOrigin();
+
+		const response = await call(submit('sb-ref-auth-token=a'), env);
+
+		expect(response.status).toBe(429);
+		expect(budget).not.toHaveBeenCalled();
+	});
+});
+
+describe('log-only mode (ENFORCE=false)', () => {
+	it('lets every request through and logs the limit it would have hit', async () => {
+		const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+		const origin = mockOrigin();
+
+		await call(submit('sb-ref-auth-token=a'), makeEnv(false, true, { enforce: 'false' }).env);
+		await call(apiRequest('/api/quizzes'), makeEnv(true, false, { enforce: 'false' }).env);
+		await call(apiRequest('/api/prizes'), makeEnv(true, true, { allowOrigin: false, enforce: 'false' }).env);
+		await call(apiRequest('/api/quizzes'), makeEnv(false, true, { enforce: 'false' }).env);
+
+		expect(origin).toHaveBeenCalledTimes(4);
+		expect(log.mock.calls.map(([line]) => JSON.parse(line as string))).toEqual([
+			{ wouldLimit: 'submit', method: 'POST', path: '/api/quizzes/q1/submit' },
+			{ wouldLimit: 'ip', method: 'GET', path: '/api/quizzes' },
+			{ wouldLimit: 'origin', method: 'GET', path: '/api/prizes' },
+			{ wouldLimit: 'api', method: 'GET', path: '/api/quizzes' },
+		]);
+	});
+});
+
+describe('passing requests on', () => {
+	it('passes requests through with their cookies and no cache override (Cache Rules decide caching)', async () => {
 		const { env } = makeEnv();
 		const origin = mockOrigin();
 
-		await worker.fetch(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=secret' }), env);
+		await call(apiRequest('/api/quizzes', { cookie: 'sb-ref-auth-token=secret' }), env);
 
 		const [sent, init] = origin.mock.calls[0] as [Request, RequestInit<RequestInitCfProperties>];
 		expect(sent.headers.get('Cookie')).toBe('sb-ref-auth-token=secret');
@@ -154,17 +197,76 @@ describe('edge cache', () => {
 });
 
 describe('origin failures', () => {
+	it('hands the request to Hostinger itself if this Worker throws', async () => {
+		const { env } = makeEnv();
+		mockOrigin();
+		const ctx = createExecutionContext();
+		const passThrough = vi.spyOn(ctx, 'passThroughOnException');
+
+		await call(apiRequest('/api/quizzes'), env, ctx);
+
+		expect(passThrough).toHaveBeenCalled();
+	});
+
 	it("turns an origin error into the app's 503 busy response", async () => {
 		const { env } = makeEnv();
 		mockOrigin(async () => {
 			throw new TypeError('Network connection lost');
 		});
 
-		const response = await worker.fetch(apiRequest('/api/quizzes'), env);
+		const response = await call(apiRequest('/api/quizzes'), env);
 
 		expect(response.status).toBe(503);
 		expect(response.headers.get('Cache-Control')).toBe('no-store');
 		expect(await response.json()).toMatchObject({ code: 'OVERLOADED' });
+	});
+
+	it("turns Hostinger's HTML 403 block page into the app's 503 busy response, and logs it", async () => {
+		const { env } = makeEnv();
+		mockOrigin(async () => new Response('<html>Access denied</html>', { status: 403, headers: { 'content-type': 'text/html; charset=UTF-8' } }));
+		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		const response = await call(apiRequest('/api/quizzes'), env);
+
+		expect(response.status).toBe(503);
+		expect(await response.json()).toMatchObject({ code: 'OVERLOADED' });
+		expect(JSON.parse(error.mock.calls[0][0] as string)).toEqual({ hostingerBlock: true, method: 'GET', path: '/api/quizzes' });
+	});
+
+	it("passes the app's own JSON 403s through untouched", async () => {
+		const { env } = makeEnv();
+		mockOrigin(async () => Response.json({ error: 'Forbidden' }, { status: 403 }));
+
+		const response = await call(apiRequest('/api/live/quizzes/q1'), env);
+
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({ error: 'Forbidden' });
+	});
+
+	it('gives up on a silent origin after 15 s, except for admin work, the scheduler and uploads', async () => {
+		vi.useFakeTimers();
+		try {
+			const { env } = makeEnv();
+			// Answers only when aborted
+			vi.spyOn(globalThis, 'fetch').mockImplementation(
+				(_input, init) =>
+					new Promise((_resolve, reject) =>
+						(init?.signal as AbortSignal | undefined)?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))),
+					),
+			);
+
+			const quick = call(apiRequest('/api/quizzes'), env);
+			const slow = Promise.race([
+				call(apiRequest('/api/admin/newsletter/send', { method: 'POST' }), env),
+				new Promise((resolve) => setTimeout(() => resolve('still waiting'), 20_000)),
+			]);
+			await vi.advanceTimersByTimeAsync(20_000);
+
+			expect((await quick).status).toBe(503);
+			expect(await slow).toBe('still waiting');
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 
