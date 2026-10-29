@@ -28,8 +28,9 @@ function setup(drafts: Draft[], answer = true) {
 }
 
 describe('changeLine', () => {
-  it('changes the line where it stands as a number of its own', () => {
-    expect(changeLine('Will over 9 go for 9 or more? 19 is not it', 9, 10)).toBe('Will over 10 go for 10 or more? 19 is not it');
+  it('changes the line where it stands as a number of its own, never the over it names', () => {
+    expect(changeLine('Will over 9 go for 9 or more? 19 is not it', 9, 10)).toBe('Will over 9 go for 10 or more? 19 is not it');
+    expect(changeLine('Kya Over 4 mein 4 ya zyada?', 4, 6)).toBe('Kya Over 4 mein 6 ya zyada?');
   });
 });
 
@@ -77,6 +78,19 @@ describe('QuestionReview', () => {
       { id: 'r', text: 'Will Lahore get 11 or more in over 4?', textRomanUrdu: 'Kya Lahore over 4 mein 11 ya zyada banayega?', line: 11 },
     ]));
     await waitFor(() => expect(screen.getAllByRole('textbox')[1]).toHaveValue('Lahore need runs: will over 4 go for 9 or more?'));
+  });
+
+  it('rewords from the text before the line box was touched, so typing 10 never leaves a 1 behind', () => {
+    setup([runs({ over: 1, text: 'Will over 1 go for 9 or more?', textRomanUrdu: 'Kya over 1 mein 9 ya zyada?' })]);
+    const box = screen.getByRole('spinbutton');
+    fireEvent.change(box, { target: { value: '1' } });
+    fireEvent.change(box, { target: { value: '10' } });
+    expect(screen.getAllByRole('textbox')[1]).toHaveValue('Will over 1 go for 10 or more?');
+    expect(screen.getAllByRole('textbox')[0]).toHaveValue('Kya over 1 mein 10 ya zyada?');
+    // A hand edit starts a new base: the next line change rewords the edited text
+    fireEvent.change(screen.getAllByRole('textbox')[1], { target: { value: 'Over 1: 10 or more for Lahore?' } });
+    fireEvent.change(box, { target: { value: '12' } });
+    expect(screen.getAllByRole('textbox')[1]).toHaveValue('Over 1: 12 or more for Lahore?');
   });
 
   it('puts a question back to the built-in wording and line', () => {

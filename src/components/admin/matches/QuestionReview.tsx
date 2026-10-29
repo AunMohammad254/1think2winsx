@@ -7,7 +7,10 @@ import type { MatchView } from '@/lib/match-service';
 import type { DraftToSend } from '@/lib/match-service';
 
 type Draft = MatchView['drafts'][number];
-type Edit = { text: string; textRomanUrdu: string; line: number | null };
+type Wording = { text: string; textRomanUrdu: string };
+// `base`: the wording and line before the line box was first changed, so every keystroke rewords from it
+// (typing 10 passes through 1, which must not stick in the text)
+type Edit = Wording & { line: number | null; base?: Wording & { line: number } };
 
 const button = 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50';
 const field = 'w-full rounded-xl border border-white/10 bg-gray-900/60 px-3 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none';
@@ -18,8 +21,8 @@ const clock = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
 
-/** `text` with the number `from` (as a whole number) changed to `to` */
-export const changeLine = (text: string, from: number, to: number) => text.replace(new RegExp(`\\b${from}\\b`, 'g'), String(to));
+/** `text` with the number `from` (as a whole number) changed to `to`, except where it names the over ("over 9") */
+export const changeLine = (text: string, from: number, to: number) => text.replace(new RegExp(`(?<!over\\s)\\b${from}\\b`, 'gi'), String(to));
 
 /**
  * The over questions waiting for an admin (match mode): worded by Gemini or the built-in templates, in
@@ -45,7 +48,8 @@ export default function QuestionReview({ drafts, now, busy, onSend, onSkip }: {
     const before = current(draft);
     const line = Number.parseInt(value, 10);
     if (!Number.isInteger(line) || line < 1 || line > 36 || before.line === null) return;
-    edit(draft, { line, text: changeLine(before.text, before.line, line), textRomanUrdu: changeLine(before.textRomanUrdu, before.line, line) });
+    const base = before.base ?? { text: before.text, textRomanUrdu: before.textRomanUrdu, line: before.line };
+    edit(draft, { line, base, text: changeLine(base.text, base.line, line), textRomanUrdu: changeLine(base.textRomanUrdu, base.line, line) });
   };
   const forget = (ids: string[]) => setEdits((all) => Object.fromEntries(Object.entries(all).filter(([id]) => !ids.includes(id))));
   const send = async (group: Draft[]) => {
@@ -92,11 +96,11 @@ export default function QuestionReview({ drafts, now, busy, onSend, onSkip }: {
                   </div>
                   <label className="block space-y-1 text-xs text-gray-400">
                     <span>Roman Urdu (players see this first)</span>
-                    <textarea rows={2} className={field} value={value.textRomanUrdu} onChange={(e) => edit(draft, { textRomanUrdu: e.target.value })} />
+                    <textarea rows={2} className={field} value={value.textRomanUrdu} onChange={(e) => edit(draft, { textRomanUrdu: e.target.value, base: undefined })} />
                   </label>
                   <label className="block space-y-1 text-xs text-gray-400">
                     <span>English</span>
-                    <textarea rows={2} className={field} value={value.text} onChange={(e) => edit(draft, { text: e.target.value })} />
+                    <textarea rows={2} className={field} value={value.text} onChange={(e) => edit(draft, { text: e.target.value, base: undefined })} />
                   </label>
                   <div className="flex flex-wrap items-end gap-2">
                     {value.line !== null && (
@@ -106,7 +110,7 @@ export default function QuestionReview({ drafts, now, busy, onSend, onSkip }: {
                       </label>
                     )}
                     {changed && (
-                      <button type="button" disabled={busy} onClick={() => edit(draft, { text: draft.plainText, textRomanUrdu: draft.plainTextRomanUrdu, line: draft.line })}
+                      <button type="button" disabled={busy} onClick={() => edit(draft, { text: draft.plainText, textRomanUrdu: draft.plainTextRomanUrdu, line: draft.line, base: undefined })}
                         className={`${button} bg-white/10 text-white hover:bg-white/15`}>
                         <Undo2 className="h-4 w-4" /> Built-in wording
                       </button>
