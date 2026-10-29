@@ -65,7 +65,8 @@ describe('buildPublicMatch', () => {
   it('gives players the score ball by ball and the questions sent, never drafts or the scorer\'s settings', async () => {
     loadMatch.mockResolvedValue(loaded());
     const match = (await buildPublicMatch('m1', NOW))!;
-    expect(loadMatch).toHaveBeenCalledWith('m1', NOW);
+    // With the player counts, for entriesClosed
+    expect(loadMatch).toHaveBeenCalledWith('m1', NOW, true);
     expect(match.match).toEqual({
       id: 'm1', quizId: 'quiz1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 2, status: 'live',
       settled: false, entriesClosed: false,

@@ -12,6 +12,8 @@ import type { Insertable, Updatable } from '../database.types'
 export const quizDb = {
     async findMany(options?: {
         status?: string
+        /** false: only quizzes that need a day pass (a live match's quiz is free entry) */
+        freeEntry?: boolean
         limit?: number
         offset?: number
         orderBy?: 'createdAt' | 'title'
@@ -22,6 +24,10 @@ export const quizDb = {
 
         if (options?.status) {
             query = query.eq('status', options.status)
+        }
+
+        if (options?.freeEntry !== undefined) {
+            query = query.eq('freeEntry', options.freeEntry)
         }
 
         query = query.order(options?.orderBy || 'createdAt', {

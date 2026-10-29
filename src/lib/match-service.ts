@@ -90,8 +90,11 @@ export interface LoadedMatch {
   title: string;
   /** Players can see it: its quiz is active (Go live), not a draft */
   published: boolean;
-  /** Players who have answered, and how many may (QuizAdminSettings, 2,000 unless changed) */
-  players: { entries: number; maxEntries: number };
+  /**
+   * Players who have answered, and how many may (QuizAdminSettings, 2,000 unless changed). Only read
+   * when asked for (loadMatch's withPlayers): working out a change doesn't need it.
+   */
+  players: { entries: number; maxEntries: number } | null;
   /** Its quiz has been settled: the match can't change any more */
   settled: boolean;
   state: MatchState;
@@ -104,8 +107,10 @@ const one = <T>(value: Joined<T>): T | null => (Array.isArray(value) ? value[0] 
 
 const MATCH_COLUMNS = 'id, quizId, teamA, teamB, oversPerInnings, questionsPerOver, firstWindowSeconds, lockFallbackSeconds, status, autoSend, version, createdAt, drafts';
 
+const NOT_READ = { data: null, error: null };
+
 /** The match with its innings, balls and questions, or null when there is none. */
-export async function loadMatch(matchId: string, now = Date.now()): Promise<LoadedMatch | null> {
+export async function loadMatch(matchId: string, now = Date.now(), withPlayers = false): Promise<LoadedMatch | null> {
   const db = getAdminDb();
   const { data, error } = await db.from('LiveMatch').select(`${MATCH_COLUMNS}, Quiz:quizId (title, status)`).eq('id', matchId).maybeSingle();
   if (error) throw error;
@@ -121,8 +126,8 @@ export async function loadMatch(matchId: string, now = Date.now()): Promise<Load
       .select('id, text, textRomanUrdu, options, matchInnings, matchOver, market, marketParams, status, hasCorrectAnswer, correctOption, closesAt')
       .eq('quizId', row.quizId).not('matchInnings', 'is', null).order('matchInnings').order('matchOver').order('createdAt'),
     db.from('QuizSettlement').select('quizId', { count: 'exact', head: true }).eq('quizId', row.quizId),
-    db.from('QuizAdminSettings').select('maxEntries').eq('quizId', row.quizId).maybeSingle(),
-    db.from('QuizEntryCount').select('entries').eq('quizId', row.quizId).maybeSingle(),
+    withPlayers ? db.from('QuizAdminSettings').select('maxEntries').eq('quizId', row.quizId).maybeSingle() : NOT_READ,
+    withPlayers ? db.from('QuizEntryCount').select('entries').eq('quizId', row.quizId).maybeSingle() : NOT_READ,
   ]);
   for (const result of [innings, balls, questions, settlement, settings, entries]) if (result.error) throw result.error;
 
@@ -132,10 +137,10 @@ export async function loadMatch(matchId: string, now = Date.now()): Promise<Load
     row,
     title: quiz?.title ?? `${row.teamA} vs ${row.teamB}`,
     published: quiz?.status === 'active',
-    players: {
+    players: withPlayers ? {
       entries: (entries.data as { entries: number } | null)?.entries ?? 0,
       maxEntries: (settings.data as { maxEntries: number } | null)?.maxEntries ?? DEFAULT_MAX_ENTRIES,
-    },
+    } : null,
     settled: (settlement.count ?? 0) > 0,
     questions: questionRows,
     drafts: draftList,
@@ -392,7 +397,7 @@ export async function applyMatchEvent(matchId: string, version: number, event: M
   if (action) {
     await logQuizAction({ quizId: loaded.row.quizId, quizTitle: loaded.title, action, adminEmail: admin, details: { matchId, event } });
   }
-  const reloaded = await loadMatch(matchId);
+  const reloaded = await loadMatch(matchId, Date.now(), true);
   return { ok: true, data: matchView(reloaded!) };
 }
 
@@ -418,7 +423,7 @@ async function changeDrafts(
       quizId: loaded.row.quizId, quizTitle: loaded.title, action: planned.data.action, adminEmail: admin,
       details: { matchId, ...planned.data.details },
     });
-    return { ok: true, data: matchView((await loadMatch(matchId))!) };
+    return { ok: true, data: matchView((await loadMatch(matchId, Date.now(), true))!) };
   }
   return refuse(409, 'stale', 'The match kept changing while this was saved: try again');
 }
@@ -502,18 +507,15 @@ export const matchLink = (matchId: string) => `/match/${matchId}`;
 
 /**
  * Tells every player a match went live: a bell notification (and web push) that opens the match screen.
- * Only the first time: a match hidden by mistake and taken live again doesn't notify twice. Slow on a big
- * user base, so the route runs it after its response.
+ * Slow on a big user base, so the route runs it after its response, and only for the first Go live
+ * (setPublished's `announce`).
  */
 export async function announceMatch(matchId: string, title: string): Promise<void> {
-  const link = matchLink(matchId);
-  const { data: sent } = await getAdminDb().from('Notification').select('id').eq('link', link).limit(1);
-  if (sent && sent.length > 0) return;
   await notificationDb.createBroadcast({
     title: '🔴 Live match',
     message: `${title}: predict what happens in every over. Free to play!`,
     type: 'quiz_deadline',
-    link,
+    link: matchLink(matchId),
   });
 }
 
@@ -521,13 +523,16 @@ export async function announceMatch(matchId: string, title: string): Promise<voi
  * Go live (`published`): the match's quiz goes from draft to active, so players see the match and can
  * answer; or back to a draft, which hides it and stops answers. Never pushedAt: the quiz-wide answering
  * window it starts would close the match (src/lib/scheduled-jobs.ts); each question closes on its own.
+ *
+ * `announce`: this is the match's first Go live (its History tab has none before), so players should be
+ * told. A match hidden by mistake and taken live again doesn't notify twice.
  */
-export async function setPublished(matchId: string, published: boolean, admin: string): Promise<MatchResult<{ view: MatchView; changed: boolean }>> {
-  const loaded = await loadMatch(matchId);
+export async function setPublished(matchId: string, published: boolean, admin: string): Promise<MatchResult<{ view: MatchView; changed: boolean; announce: boolean }>> {
+  const loaded = await loadMatch(matchId, Date.now(), true);
   if (!loaded) return refuse(404, 'not_found', 'Match not found');
   if (loaded.settled) return refuse(409, 'settled', "This match's quiz has been settled, so the match can't change any more");
   if (published && loaded.row.status === 'abandoned') return refuse(409, 'abandoned', 'Restore the match before taking it live');
-  if (loaded.published === published) return { ok: true, data: { view: matchView(loaded), changed: false } };
+  if (loaded.published === published) return { ok: true, data: { view: matchView(loaded), changed: false, announce: false } };
 
   const { data, error } = await getAdminDb().from('Quiz')
     .update({ status: published ? 'active' : 'draft', updatedAt: new Date().toISOString() })
@@ -536,16 +541,22 @@ export async function setPublished(matchId: string, published: boolean, admin: s
   if (error) throw error;
   // Its quiz was changed meanwhile (another console)
   if (!data || data.length === 0) return refuse(409, 'stale', 'The match changed meanwhile. It has been reloaded: check it and try again.');
+  let announce = false;
+  if (published) {
+    const { data: before } = await getAdminDb().from('AdminActionLog').select('id')
+      .eq('quizId', loaded.row.quizId).eq('action', 'match_published').limit(1);
+    announce = !before || before.length === 0;
+  }
   await logQuizAction({
     quizId: loaded.row.quizId, quizTitle: loaded.title, action: published ? 'match_published' : 'match_hidden', adminEmail: admin,
     details: { matchId },
   });
-  return { ok: true, data: { view: matchView((await loadMatch(matchId))!), changed: true } };
+  return { ok: true, data: { view: matchView((await loadMatch(matchId, Date.now(), true))!), changed: true, announce } };
 }
 
 /** How many players may join the match (first come, first served; submit_quiz_attempt enforces it). */
 export async function setMaxEntries(matchId: string, maxEntries: number, admin: string): Promise<MatchResult<MatchView>> {
-  const loaded = await loadMatch(matchId);
+  const loaded = await loadMatch(matchId, Date.now(), true);
   if (!loaded) return refuse(404, 'not_found', 'Match not found');
   if (loaded.settled) return refuse(409, 'settled', "This match's quiz has been settled, so the match can't change any more");
   const { error } = await getAdminDb().from('QuizAdminSettings')
@@ -553,9 +564,9 @@ export async function setMaxEntries(matchId: string, maxEntries: number, admin: 
   if (error) throw error;
   await logQuizAction({
     quizId: loaded.row.quizId, quizTitle: loaded.title, action: 'match_entry_limit_changed', adminEmail: admin,
-    details: { matchId, from: loaded.players.maxEntries, to: maxEntries },
+    details: { matchId, from: loaded.players!.maxEntries, to: maxEntries },
   });
-  return { ok: true, data: matchView((await loadMatch(matchId))!) };
+  return { ok: true, data: matchView((await loadMatch(matchId, Date.now(), true))!) };
 }
 
 export interface NewMatch {

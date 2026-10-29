@@ -351,11 +351,13 @@ export async function POST(req: NextRequest) {
     activeQuizzes = activeQuizzesCache.quizzes;
   } else {
     try {
-      // Oldest first: pay_quiz_access charges the oldest active quiz's price
+      // Oldest first: pay_quiz_access charges the oldest active quiz's price. Free-entry quizzes (live
+      // matches, played on their own screen) need no day pass and aren't ordinary quizzes
       const { data } = await adminDb
         .from('Quiz')
         .select('title, duration, accessPrice, passingScore')
         .eq('status', 'active')
+        .eq('freeEntry', false)
         .order('createdAt', { ascending: true })
         .limit(5);
 

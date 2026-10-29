@@ -9,7 +9,8 @@ import { useNow } from '@/hooks/useNow';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import type { PublicMatch } from '@/lib/match-feed';
-import { byOver, clock, clockOffset, closesAt, isOpen, tally, type FeedQuestion, type MyAnswers, type OverGroup } from '@/lib/match-play';
+import { formatClock } from '@/lib/live-countdown';
+import { byOver, clockOffset, closesAt, isOpen, tally, type FeedQuestion, type MyAnswers, type OverGroup } from '@/lib/match-play';
 
 const STATUS: Record<PublicMatch['match']['status'], string> = {
   setup: 'Starting soon',
@@ -19,10 +20,13 @@ const STATUS: Record<PublicMatch['match']['status'], string> = {
   abandoned: 'Abandoned',
 };
 
-// Ball by ball while the match is on (the feed is cached 3 s at the edge); once it is over, only the
-// settlement is left to see
+// Ball by ball while the match is on (the feed is cached 3 s at the edge). Once it is over, only the
+// settlement is left to see; before it is live (or once hidden) nothing changes often either
 const LIVE_POLL_MS = 3_000;
 const QUIET_POLL_MS = 30_000;
+// A failed read of the player's earlier answers is tried again after this, doubling each time
+const ANSWERS_RETRY_MS = 5_000;
+const ANSWERS_RETRY_MAX_MS = 60_000;
 
 // Match questions are Yes/No: Roman Urdu first, as in the questions
 const OPTION_LABELS: Record<string, string> = { Yes: 'Haan · Yes', No: 'Nahi · No' };
@@ -55,7 +59,7 @@ function OpenOver({ group, now, answers, picks, late, canAnswer, sending, onPick
   onPick: (questionId: string, option: number) => void;
   onLockIn: (group: OverGroup) => void;
 }) {
-  const until = closesAt(group, now);
+  const until = closesAt(group, now, late);
   const answerable = (q: FeedQuestion) => answers[q.id] === undefined && !late.has(q.id) && isOpen(q, now);
   const ready = group.questions.some((q) => answerable(q) && picks[q.id] !== undefined);
   const allAnswered = group.questions.every((q) => answers[q.id] !== undefined);
@@ -65,7 +69,7 @@ function OpenOver({ group, now, answers, picks, late, canAnswer, sending, onPick
         <h2 className="text-lg font-bold text-white">Over {group.over}: what will happen?</h2>
         {until !== null && (
           <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm ${until - now < 20_000 ? 'bg-red-500/20 text-red-200' : 'bg-amber-500/20 text-amber-100'}`}>
-            <Clock className="h-4 w-4" /> Closes in {clock(until - now)}
+            <Clock className="h-4 w-4" /> Closes in {formatClock(until - now)}
           </span>
         )}
       </div>
@@ -121,8 +125,9 @@ function Result({ question, mine }: { question: FeedQuestion; mine: number | und
  * over in Roman Urdu and English. Everything shown comes from the shared feed GET /api/live/matches/[id],
  * which Cloudflare caches for a few seconds, so however many people watch, Hostinger sees a handful of
  * requests. Signed out, a visitor can watch; answering needs an account (free entry). A signed-in player's
- * earlier answers are read once (GET /api/quizzes/[id]/answers); answers go through the quiz submit route,
- * which takes each one once and refuses one whose over has closed.
+ * earlier answers are read once (GET /api/quizzes/[id]/answers, tried again until it works) and answering
+ * waits for them, so an earlier answer is never shown as a new one; answers go through the quiz submit
+ * route, which takes each one once and refuses one whose over has closed.
  */
 export default function MatchScreen({ matchId }: { matchId: string }) {
   const { user } = useAuth();
@@ -131,6 +136,9 @@ export default function MatchScreen({ matchId }: { matchId: string }) {
   // How far this device's clock is behind the server's
   const [offset, setOffset] = useState(0);
   const [answers, setAnswers] = useState<MyAnswers>({});
+  // The player's earlier answers have been read
+  const [answersRead, setAnswersRead] = useState(false);
+  const [answersAttempt, setAnswersAttempt] = useState(0);
   const [picks, setPicks] = useState<MyAnswers>({});
   // Questions the server said closed before an answer arrived
   const [late, setLate] = useState<Set<string>>(() => new Set());
@@ -161,25 +169,29 @@ export default function MatchScreen({ matchId }: { matchId: string }) {
   useEffect(() => {
     void loadFeed();
   }, [loadFeed]);
-  const over = feed?.match.status === 'completed' || feed?.match.status === 'abandoned';
-  useJitteredPolling(loadFeed, { intervalMs: over ? QUIET_POLL_MS : LIVE_POLL_MS, jitterMs: 1_000, maxBackoffMs: 30_000 });
+  const quiet = load === 'not_found' || feed?.match.status === 'completed' || feed?.match.status === 'abandoned';
+  useJitteredPolling(loadFeed, { intervalMs: quiet ? QUIET_POLL_MS : LIVE_POLL_MS, jitterMs: 1_000, maxBackoffMs: 30_000 });
 
-  // The player's earlier answers, once per player and match
+  // The player's earlier answers, once per player and match; a failed read is tried again
   const quizId = feed?.match.quizId;
   useEffect(() => {
     if (!user || !quizId || answersFor.current === `${user.id}:${quizId}`) return;
     answersFor.current = `${user.id}:${quizId}`;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     void (async () => {
       try {
         const response = await fetch(`/api/quizzes/${encodeURIComponent(quizId)}/answers`);
-        if (!response.ok) return;
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data: { answers: Array<{ questionId: string; selectedOption: number }> } = await response.json();
         setAnswers((mine) => ({ ...Object.fromEntries(data.answers.map((a) => [a.questionId, a.selectedOption])), ...mine }));
+        setAnswersRead(true);
       } catch {
-        // Answers given on this screen still show, and the server never takes a second answer to a question
+        answersFor.current = null;
+        retry = setTimeout(() => setAnswersAttempt((n) => n + 1), Math.min(ANSWERS_RETRY_MAX_MS, ANSWERS_RETRY_MS * 2 ** answersAttempt));
       }
     })();
-  }, [user, quizId]);
+    return () => clearTimeout(retry);
+  }, [user, quizId, answersAttempt]);
 
   const anyOpen = feed?.questions.some((q) => q.state === 'open') ?? false;
   const now = useNow(1000, anyOpen) + offset;
@@ -236,7 +248,7 @@ export default function MatchScreen({ matchId }: { matchId: string }) {
     return shell(
       <div className={`${card} space-y-4 text-center`}>
         <h1 className="text-xl font-bold text-white">This match isn&apos;t live</h1>
-        <p className="text-gray-300">It hasn&apos;t started for players yet, or it has been taken down. Live matches show on the quiz list.</p>
+        <p className="text-gray-300">It hasn&apos;t started for players yet, or it has been taken down. This page checks again every half a minute, and live matches show on the quiz list.</p>
         <Link href="/quizzes" prefetch={false} className={`${button} bg-white/10 text-white hover:bg-white/15`}>Go to quizzes</Link>
       </div>,
     );
@@ -254,8 +266,9 @@ export default function MatchScreen({ matchId }: { matchId: string }) {
   const open = groups.filter((g) => g.questions.some((q) => isOpen(q, now) && !late.has(q.id)));
   const past = groups.filter((g) => !open.includes(g)).reverse();
   const played = Object.keys(answers).length > 0;
-  const full = match.entriesClosed && !played;
-  const canAnswer = !!user && !full;
+  // Only once the player's answers are read: one who already joined is still in, whatever the limit
+  const full = match.entriesClosed && answersRead && !played;
+  const canAnswer = !!user && answersRead && !full;
   const score = tally(feed.questions, answers);
   const current = feed.innings[feed.innings.length - 1];
   const lastOver = current?.overs[current.overs.length - 1];
@@ -292,6 +305,7 @@ export default function MatchScreen({ matchId }: { matchId: string }) {
           <Link href="/auth?mode=login" prefetch={false} className={`${button} bg-gradient-to-r from-emerald-500 to-blue-500 text-white`}>Sign in to play</Link>
         </div>
       )}
+      {user && !answersRead && <p className="text-center text-sm text-gray-400">Loading your answers…</p>}
       {user && full && <p role="status" className="rounded-xl bg-amber-500/10 p-4 text-amber-100">This match is full: entries have closed.</p>}
       {notice && (
         <p role={notice.tone === 'error' ? 'alert' : 'status'} className={`rounded-xl p-4 text-sm ${notice.tone === 'ok' ? 'bg-emerald-500/10 text-emerald-100' : 'bg-red-500/10 text-red-100'}`}>

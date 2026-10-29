@@ -101,7 +101,8 @@ describe('GET /api/admin/matches/[id]', () => {
     service.matchView.mockReturnValue({ match: { id: 'm1' } });
     const res = await get();
     expect(await res.json()).toEqual({ match: { id: 'm1' } });
-    expect(service.loadMatch).toHaveBeenCalledWith('m1');
+    // With the player counts the Players box shows
+    expect(service.loadMatch).toHaveBeenCalledWith('m1', expect.any(Number), true);
   });
 
   it('answers 404 for an unknown match, 500 when loading fails, and passes the guard through', async () => {
@@ -187,7 +188,7 @@ describe('PATCH /api/admin/matches/[id]', () => {
   const liveView = { match: { id: 'm1', title: 'Lahore vs Karachi', published: true } };
 
   it('takes the match live, shows it on the quiz list at once, and tells every player after the response', async () => {
-    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: true } });
+    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: true, announce: true } });
     service.announceMatch.mockResolvedValue(undefined);
     const res = await patch({ published: true });
     expect(await res.json()).toEqual(liveView);
@@ -205,15 +206,16 @@ describe('PATCH /api/admin/matches/[id]', () => {
     expect(console.error).toHaveBeenCalledWith('[matches] Announcing the match failed:', expect.any(Error));
   });
 
-  it('hides it without telling anyone, and does nothing more when nothing changed or it was refused', async () => {
-    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: true } });
+  it('hides it, or takes it live again, without telling anyone, and does nothing more when nothing changed or it was refused', async () => {
+    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: true, announce: false } });
     await patch({ published: false });
-    expect(invalidateQuizCatalog).toHaveBeenCalledTimes(1);
+    await patch({ published: true });
+    expect(invalidateQuizCatalog).toHaveBeenCalledTimes(2);
     expect(afterResponse).toHaveLength(0);
 
-    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: false } });
+    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: false, announce: false } });
     expect((await patch({ published: true })).status).toBe(200);
-    expect(invalidateQuizCatalog).toHaveBeenCalledTimes(1);
+    expect(invalidateQuizCatalog).toHaveBeenCalledTimes(2);
     expect(afterResponse).toHaveLength(0);
 
     service.setPublished.mockResolvedValue({ ok: false, status: 409, code: 'abandoned', error: 'Restore the match before taking it live' });

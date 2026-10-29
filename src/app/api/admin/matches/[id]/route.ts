@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const admin = await adminApiGuard(request, '/api/admin/matches/[id]', { write: false });
   if (admin instanceof Response) return admin;
   try {
-    const loaded = await loadMatch(id);
+    const loaded = await loadMatch(id, Date.now(), true);
     if (!loaded) return NextResponse.json({ error: 'Match not found' }, { status: 404 });
     return createSecureJsonResponse(matchView(loaded), { status: 200 });
   } catch (error) {
@@ -34,6 +34,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
  * maxEntries (how many players can join). Answers with the match as it now is.
  *
  * The first Go live tells every player, after the response (a broadcast is slow on a big user base).
+ * Taking it live again after hiding it doesn't.
  */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -51,7 +52,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         // The match card shows on the quiz list now, not when the catalogue next refreshes
         invalidateQuizCatalog();
         const { match } = outcome.data.view;
-        if (settings.published) {
+        if (outcome.data.announce) {
           after(() => announceMatch(match.id, match.title).catch((error) => console.error('[matches] Announcing the match failed:', error)));
         }
       }

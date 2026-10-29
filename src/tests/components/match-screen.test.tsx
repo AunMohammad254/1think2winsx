@@ -64,6 +64,11 @@ function serve(first: PublicMatch | (() => Response), answers: Array<{ questionI
     return typeof first === 'function' ? first() : new Response(JSON.stringify(first), { status: 200, headers: { 'content-type': 'application/json', age: '2' } });
   });
 }
+/** Over 3's questions, once the player's earlier answers are read (answering waits for them) */
+async function readyOver3() {
+  await screen.findByRole('button', { name: /Lock in for over 3/ });
+  return screen.getByRole('region', { name: 'Over 3 predictions' });
+}
 const submits = () => h.submit.mock.calls.map(([url, init]) => ({ url, body: JSON.parse((init as RequestInit).body as string) }));
 
 beforeEach(() => {
@@ -135,6 +140,10 @@ describe('MatchScreen: watching', () => {
     await act(async () => { await h.poll!.task(); });
     expect(screen.getByRole('heading', { name: "This match isn't live" })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Go to quizzes' })).toHaveAttribute('href', '/quizzes');
+    // Nothing changes often on a match that isn't live: checked every 30 s, not every 3 s
+    rerender(<MatchScreen matchId="m1" />);
+    expect(h.poll!.opts).toMatchObject({ intervalMs: 30_000 });
+    expect(screen.getByText(/checks again every half a minute/)).toBeInTheDocument();
   });
 
   it('offers to try again when the first load fails', async () => {
@@ -207,7 +216,7 @@ describe('MatchScreen: playing', () => {
     serve(feed());
     h.submit.mockResolvedValue(jsonResponse({ message: 'ok' }));
     render(<MatchScreen matchId="m1" />);
-    const over3 = await screen.findByRole('region', { name: 'Over 3 predictions' });
+    const over3 = await readyOver3();
     const lockIn = within(over3).getByRole('button', { name: /Lock in for over 3/ });
     expect(lockIn).toBeDisabled();
     const [yesA, , , noB] = within(over3).getAllByRole('radio');
@@ -231,7 +240,7 @@ describe('MatchScreen: playing', () => {
       .mockResolvedValueOnce(jsonResponse({ error: 'Too late for over 3: answers closed before yours arrived. Nothing was saved, so send your other answers again.', code: 'questions_closed', closed: ['q3a'] }, 409))
       .mockResolvedValueOnce(jsonResponse({ message: 'ok' }));
     render(<MatchScreen matchId="m1" />);
-    const over3 = await screen.findByRole('region', { name: 'Over 3 predictions' });
+    const over3 = await readyOver3();
     const [yesA, , yesB] = within(over3).getAllByRole('radio');
     fireEvent.click(yesA);
     fireEvent.click(yesB);
@@ -246,7 +255,7 @@ describe('MatchScreen: playing', () => {
     serve(feed());
     h.submit.mockResolvedValue(jsonResponse({ error: 'Too late for over 3: answers closed before yours arrived.', code: 'questions_closed', closed: ['q3a', 'q3b'] }, 409));
     render(<MatchScreen matchId="m1" />);
-    const over3 = await screen.findByRole('region', { name: 'Over 3 predictions' });
+    const over3 = await readyOver3();
     fireEvent.click(within(over3).getAllByRole('radio')[0]);
     fireEvent.click(within(over3).getByRole('button', { name: /Lock in/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Too late for over 3: answers closed before yours arrived.');
@@ -264,7 +273,7 @@ describe('MatchScreen: playing', () => {
     // A third question in the over, so something is left after two refusals
     serve(feed({ questions: [...OPEN, question({ id: 'q3c' })] }));
     render(<MatchScreen matchId="m1" />);
-    const over3 = await screen.findByRole('region', { name: 'Over 3 predictions' });
+    const over3 = await readyOver3();
     const radios = within(over3).getAllByRole('radio');
     fireEvent.click(radios[0]);
     fireEvent.click(radios[2]);
@@ -277,7 +286,7 @@ describe('MatchScreen: playing', () => {
   it('explains every other refusal and lets the player try again', async () => {
     serve(feed());
     render(<MatchScreen matchId="m1" />);
-    const over3 = await screen.findByRole('region', { name: 'Over 3 predictions' });
+    const over3 = await readyOver3();
     fireEvent.click(within(over3).getAllByRole('radio')[0]);
     const lockIn = () => fireEvent.click(within(over3).getByRole('button', { name: /Lock in/ }));
 
@@ -317,18 +326,38 @@ describe('MatchScreen: playing', () => {
     expect(screen.queryByText('This match is full: entries have closed.')).toBeNull();
   });
 
-  it("still plays when the player's earlier answers can't be read", async () => {
-    serve(feed(), jsonResponse({ error: 'down' }, 500));
-    const { unmount } = render(<MatchScreen matchId="m1" />);
-    expect(await screen.findByRole('button', { name: /Lock in for over 3/ })).toBeInTheDocument();
-    unmount();
-    h.fetch.mockImplementation(async (url: string) => {
-      if (url === '/api/quizzes/quiz1/answers') throw new Error('offline');
-      return jsonResponse(feed());
-    });
-    render(<MatchScreen matchId="m1" />);
-    expect(await screen.findByRole('button', { name: /Lock in for over 3/ })).toBeInTheDocument();
-    expect(screen.queryByText(/Your answer/)).toBeNull();
+  it("waits for the player's earlier answers before taking new ones, trying again until they are read", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let reads = 0;
+      h.fetch.mockImplementation(async (url: string) => {
+        if (url !== '/api/quizzes/quiz1/answers') return jsonResponse(feed({}, { entriesClosed: true }));
+        reads += 1;
+        if (reads === 1) return jsonResponse({ error: 'down' }, 500);
+        if (reads === 2) throw new Error('offline');
+        return jsonResponse({ answers: [{ questionId: 'q3a', selectedOption: 0 }] });
+      });
+      render(<MatchScreen matchId="m1" />);
+      expect(await screen.findByText('Loading your answers…')).toBeInTheDocument();
+      await waitFor(() => expect(reads).toBe(1));
+      // Not known yet whether they joined: neither "full" nor answerable
+      expect(screen.queryByText('This match is full: entries have closed.')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Lock in/ })).toBeNull();
+      for (const option of screen.getAllByRole('radio')) expect(option).toBeDisabled();
+
+      // Tried again after 5 s, then 10 s
+      await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+      expect(reads).toBe(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(reads).toBe(3);
+      expect(await screen.findByText('Your answer: Haan · Yes')).toBeInTheDocument();
+      expect(screen.queryByText('Loading your answers…')).toBeNull();
+      // Joined already: still in although the match is full
+      expect(screen.queryByText('This match is full: entries have closed.')).toBeNull();
+      expect(screen.getByRole('button', { name: /Lock in for over 3/ })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

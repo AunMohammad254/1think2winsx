@@ -10,7 +10,7 @@ vi.mock('@/lib/csrf', () => ({ getCSRFHeaders: async () => ({ 'X-CSRF-Token': 't
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: h.push }) }));
 
 import MatchList from '@/components/admin/matches/MatchList';
-import MatchConsole, { countdown } from '@/components/admin/matches/MatchConsole';
+import MatchConsole from '@/components/admin/matches/MatchConsole';
 
 let fetchMock: ReturnType<typeof vi.fn>;
 const posts = () => fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').map(([url, init]) => ({ url, body: JSON.parse(init.body) }));
@@ -87,12 +87,6 @@ describe('MatchList', () => {
     create();
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Check your connection/));
     expect(h.push).not.toHaveBeenCalled();
-  });
-});
-
-describe('countdown', () => {
-  it('shows minutes and seconds left, never below zero', () => {
-    expect([countdown(83_000), countdown(59_001), countdown(-5)]).toEqual(['1:23', '1:00', '0:00']);
   });
 });
 
@@ -475,7 +469,7 @@ describe('MatchConsole', () => {
       const body = JSON.parse(init.body as string);
       return 'published' in body
         ? jsonResponse(view({ players: first.players }, { published: body.published }))
-        : jsonResponse(view({ players: { ...first.players, maxEntries: body.maxEntries } }));
+        : jsonResponse(view({ players: { ...first.players!, maxEntries: body.maxEntries } }));
     });
     vi.stubGlobal('fetch', fetchMock);
   }

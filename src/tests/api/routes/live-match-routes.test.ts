@@ -40,11 +40,12 @@ describe('GET /api/live/matches/[id]', () => {
     expect(requireAuth).not.toHaveBeenCalled();
   });
 
-  it('answers an uncached 404 for a match players can\'t see, and an uncached 503 when it fails', async () => {
+  it('answers a 404 kept 10 s at the edge for a match players can\'t see, and an uncached 503 when it fails', async () => {
     getPublicMatch.mockResolvedValue(null);
     let res = await get('hidden');
     expect(res.status).toBe(404);
-    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    // Screens left open on it, or a link shared before Go live, mustn't reach Hostinger on every poll
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=10');
     getPublicMatch.mockRejectedValue(new Error('db down'));
     res = await get();
     expect(res.status).toBe(503);

@@ -53,7 +53,7 @@ export interface PublicMatch {
 
 /** The public part of a match, or null while players can't see it (not taken live yet, or hidden). */
 export async function buildPublicMatch(matchId: string, now = Date.now()): Promise<PublicMatch | null> {
-  const loaded = await loadMatch(matchId, now);
+  const loaded = await loadMatch(matchId, now, true);
   if (!loaded || !loaded.published) return null;
   const view = matchView(loaded, now);
   return {
@@ -66,7 +66,7 @@ export async function buildPublicMatch(matchId: string, now = Date.now()): Promi
       oversPerInnings: view.match.oversPerInnings,
       status: view.match.status,
       settled: view.settled,
-      entriesClosed: view.players.entries >= view.players.maxEntries,
+      entriesClosed: view.players!.entries >= view.players!.maxEntries,
     },
     innings: view.innings.map((innings) => ({
       ...innings,

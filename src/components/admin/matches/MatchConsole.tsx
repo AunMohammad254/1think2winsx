@@ -7,6 +7,7 @@ import { getCSRFHeaders } from '@/lib/csrf';
 import { useNow } from '@/hooks/useNow';
 import type { Extra, MatchEvent } from '@/lib/match-engine';
 import { MAX_ENTRIES_LIMIT } from '@/lib/quiz-entries';
+import { formatClock } from '@/lib/live-countdown';
 import type { DraftToSend, MatchView, ViewBall } from '@/lib/match-service';
 import { STATUS_LABELS } from './MatchList';
 import QuestionReview from './QuestionReview';
@@ -24,18 +25,12 @@ const button = 'inline-flex items-center justify-center gap-2 rounded-xl px-4 py
 const toggle = (on: boolean) =>
   `${button} border ${on ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200' : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'}`;
 
-/** 83 seconds as 1:23 */
-export function countdown(ms: number): string {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-}
-
 type Question = MatchView['questions'][number];
 
 function QuestionRow({ question, now }: { question: Question; now: number }) {
   const left = question.closesAt ? Date.parse(question.closesAt) - now : null;
   const state = question.state === 'open' && left !== null && left <= 0 ? 'closed' : question.state;
-  const badge = state === 'open' ? (left === null ? 'Open' : `Open · closes in ${countdown(left)}`)
+  const badge = state === 'open' ? (left === null ? 'Open' : `Open · closes in ${formatClock(left)}`)
     : state === 'closed' ? 'Closed'
     : state === 'settled' ? `Settled: ${question.options[question.correctOption!] ?? '?'}`
     : 'Void';
@@ -99,7 +94,7 @@ function DeliveryPad({ busy, onRuns, initial, label }: {
 }
 
 /** How many players have joined, and the box that changes how many may */
-function PlayerLimit({ players, busy, onSave }: { players: MatchView['players']; busy: boolean; onSave: (maxEntries: number) => Promise<boolean> }) {
+function PlayerLimit({ players, busy, onSave }: { players: NonNullable<MatchView['players']>; busy: boolean; onSave: (maxEntries: number) => Promise<boolean> }) {
   const [value, setValue] = useState(String(players.maxEntries));
   const limit = Number(value);
   const valid = Number.isInteger(limit) && limit >= 1 && limit <= MAX_ENTRIES_LIMIT;
@@ -205,7 +200,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
     ? 'Take this match live? Players see it on the quiz list and every player gets a notification (only the first time).'
     : 'Hide this match from players? They can\'t answer until you take it live again.'));
   const setMaxEntries = (maxEntries: number) => save('', 'PATCH', { maxEntries },
-    maxEntries < view!.players.entries ? ask(`${view!.players.entries} players have already joined, so nobody new can join. Save anyway?`) : undefined);
+    maxEntries < view!.players!.entries ? ask(`${view!.players!.entries} players have already joined, so nobody new can join. Save anyway?`) : undefined);
 
   if (!view) {
     return failed
@@ -286,7 +281,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
             )}
           </div>
           {abandoned && !match.published && <p className="text-xs text-gray-400"><Eye className="mr-1 inline h-3 w-3" />Restore the match before taking it live.</p>}
-          <PlayerLimit key={view.players.maxEntries} players={view.players} busy={busy} onSave={setMaxEntries} />
+          {view.players && <PlayerLimit key={view.players.maxEntries} players={view.players} busy={busy} onSave={setMaxEntries} />}
         </section>
       )}
 
@@ -310,7 +305,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
         <section aria-label="Record a ball" className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-6">
           {firstOverOpen && (
             <p role="status" className="rounded-xl bg-amber-500/10 p-3 text-sm text-amber-200">
-              Over 1&apos;s questions close in {countdown(firstOverLeft)}. Close them before the first ball is bowled.
+              Over 1&apos;s questions close in {formatClock(firstOverLeft)}. Close them before the first ball is bowled.
             </p>
           )}
           <DeliveryPad busy={busy} label="" onRuns={(runs, extra, wicket) => send({ type: 'ball', runs, extra, wicket })} />

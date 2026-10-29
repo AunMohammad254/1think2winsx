@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { byOver, clock, clockOffset, closesAt, isOpen, tally, type FeedQuestion } from '@/lib/match-play';
+import { byOver, clockOffset, closesAt, isOpen, tally, type FeedQuestion } from '@/lib/match-play';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const q = (over: Partial<FeedQuestion> = {}): FeedQuestion => ({
@@ -38,6 +38,9 @@ describe('byOver and closesAt', () => {
     // Only the questions still open count
     expect(closesAt(groups[0], NOW)).toBe(Date.parse('2026-10-29T12:01:00Z'));
     expect(closesAt(groups[1], NOW)).toBeNull();
+    // Nor one the server said closed early
+    expect(closesAt(groups[0], NOW - 120_000, new Set(['b']))).toBe(Date.parse('2026-10-29T12:01:00Z'));
+    expect(closesAt(groups[0], NOW, new Set(['a']))).toBeNull();
   });
 });
 
@@ -49,11 +52,5 @@ describe('tally', () => {
     ];
     expect(tally(questions, { a: 0, b: 0, d: 1 })).toEqual({ right: 1, settled: 2 });
     expect(tally(questions, {})).toEqual({ right: 0, settled: 0 });
-  });
-});
-
-describe('clock', () => {
-  it('shows minutes and seconds, never below zero', () => {
-    expect([clock(83_000), clock(59_001), clock(-5)]).toEqual(['1:23', '1:00', '0:00']);
   });
 });

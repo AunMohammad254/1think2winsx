@@ -41,9 +41,12 @@ export function byOver(questions: FeedQuestion[]): OverGroup[] {
   return groups;
 }
 
-/** The soonest the group's questions still open at `now` close, or null when none has a closing time */
-export function closesAt(group: OverGroup, now: number): number | null {
-  const times = group.questions.flatMap((q) => (q.closesAt && isOpen(q, now) ? [Date.parse(q.closesAt)] : []));
+/**
+ * The soonest the group's questions still open at `now` close, leaving out any the server said closed
+ * (`closed`), or null when none has a closing time
+ */
+export function closesAt(group: OverGroup, now: number, closed: ReadonlySet<string> = new Set()): number | null {
+  const times = group.questions.flatMap((q) => (q.closesAt && isOpen(q, now) && !closed.has(q.id) ? [Date.parse(q.closesAt)] : []));
   return times.length > 0 ? Math.min(...times) : null;
 }
 
@@ -51,10 +54,4 @@ export function closesAt(group: OverGroup, now: number): number | null {
 export function tally(questions: FeedQuestion[], answers: MyAnswers): { right: number; settled: number } {
   const settled = questions.filter((q) => q.state === 'settled' && answers[q.id] !== undefined);
   return { right: settled.filter((q) => answers[q.id] === q.correctOption).length, settled: settled.length };
-}
-
-/** 83 seconds as 1:23 */
-export function clock(ms: number): string {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
