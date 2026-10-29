@@ -6,8 +6,9 @@
  * a Supabase session cookie. These checks prove that it does, that each cached copy is the build the
  * origin runs now (a stale one points at deleted JS chunks), and that nothing personal comes from the
  * cache. They also check that the home page's pictures are static files Cloudflare caches, not
- * /_next/image (resized on Hostinger, never cached), and that browsers may keep the manifest. Like the
- * smoke check: one request at a time (30), no sign-in, no writes, no secrets.
+ * /_next/image (resized on Hostinger, never cached), that the leaderboard API and the manifest come from
+ * the cache, and that an ad landing (?utm_…) gets the cached page while any other query string does not.
+ * Like the smoke check: one request at a time (36), no sign-in, no writes, no secrets.
  */
 import {
   CACHED_STATUSES, PRODUCTION_URL, cacheStatus, check, expectCacheControl, expectCached, expectStatus, parseOrigin, probe,
@@ -37,6 +38,13 @@ const NOT_CACHED_STATUSES = ['DYNAMIC', 'BYPASS'];
 const STATIC_BALL_IMAGE = /\/images\/sports\/[a-z]+-\d+\.avif/;
 /** What next.config.js sends for the manifest: browsers fetch it on most page loads. */
 export const MANIFEST_CACHE_CONTROL = 'public, max-age=86400';
+/** Shared JSON the cache rules in deploy/cloudflare-{leaderboard,manifest}-cache-rule.json cover. */
+export const LEADERBOARD_PATH = '/api/leaderboard';
+export const MANIFEST_PATH = '/manifest.json';
+/** Tracking parameters only: the rewrite rule (deploy/cloudflare-tracking-query-rewrite-rule.json) drops them. */
+export const AD_LANDING = '/?utm_source=cache-check&utm_medium=test';
+/** One parameter that isn't tracking keeps the whole query string, so this one reaches Hostinger. */
+export const MIXED_LANDING = '/?ref=cache-check&utm_source=cache-check';
 
 export interface PageCacheOptions {
   baseUrl: string;
@@ -185,24 +193,16 @@ function checkHomeImages(home: Probe | Error) {
   });
 }
 
-/** A static file asked for twice: the second answer comes from Cloudflare's cache. */
-function checkStaticTwice(name: string, first: Probe | Error, second: Probe | Error, contentType: string) {
+/** A file asked for twice: the second answer comes from Cloudflare's cache (and has `cacheControl`, if given). */
+function checkRepeatCached(name: string, first: Probe | Error, second: Probe | Error, contentType: string, cacheControl?: string) {
   if (first instanceof Error) return check(name, first, () => '');
   return check(name, second, (res, problems) => {
     expectStatus(first, 200, problems);
     expectStatus(res, 200, problems);
     expectContentType(res, contentType, problems);
+    if (cacheControl) expectCacheControl(res, cacheControl, problems);
     expectCached(res, problems);
     return `${first.headers.get('cf-cache-status') ?? '(missing)'} then ${cacheStatus(res)}`;
-  });
-}
-
-function checkManifest(res: Probe | Error) {
-  return check('GET /manifest.json', res, (manifest, problems) => {
-    expectStatus(manifest, 200, problems);
-    expectContentType(manifest, 'application/', problems);
-    expectCacheControl(manifest, MANIFEST_CACHE_CONTROL, problems);
-    return `cache-control=${manifest.headers.get('cache-control') ?? '(missing)'}, ${cacheStatus(manifest)}`;
   });
 }
 
@@ -304,8 +304,16 @@ export async function runPageCacheChecks(
   const image = home instanceof Error ? undefined : STATIC_BALL_IMAGE.exec(home.body)?.[0];
   if (image) {
     const firstImage = await get(`${base}${image}`);
-    add(checkStaticTwice(`GET ${image} (twice)`, firstImage, await get(`${base}${image}`), 'image/avif'));
+    add(checkRepeatCached(`GET ${image} (twice)`, firstImage, await get(`${base}${image}`), 'image/avif'));
   }
-  add(checkManifest(await get(`${base}/manifest.json`)));
+
+  const firstBoard = await get(`${base}${LEADERBOARD_PATH}`);
+  add(checkRepeatCached(`GET ${LEADERBOARD_PATH} (twice)`, firstBoard, await get(`${base}${LEADERBOARD_PATH}`), 'application/json'));
+  const firstManifest = await get(`${base}${MANIFEST_PATH}`);
+  add(checkRepeatCached(`GET ${MANIFEST_PATH} (twice)`, firstManifest, await get(`${base}${MANIFEST_PATH}`), 'application/', MANIFEST_CACHE_CONTROL));
+
+  const firstLanding = await get(`${base}${AD_LANDING}`);
+  add(checkCachedTwice(`GET ${AD_LANDING} (ad landing, twice)`, firstLanding, await get(`${base}${AD_LANDING}`), 'text/html', originBuild));
+  add(checkNotCached(`GET ${MIXED_LANDING}`, await get(`${base}${MIXED_LANDING}`), 200, 'text/html'));
   return results;
 }

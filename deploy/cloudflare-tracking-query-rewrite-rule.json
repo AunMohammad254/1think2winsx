@@ -1,0 +1,10 @@
+{
+  "ref": "drop_tracking_query",
+  "description": "Ad and social landings on the cached public pages: drop a query string made only of tracking parameters, so the page cache rule serves them (deploy/CLOUDFLARE_PAGE_CACHE.md)",
+  "expression": "(http.host eq \"1think2win.com\" and http.request.uri.path in {\"/\" \"/faq\" \"/how-to-play\" \"/prizes\" \"/leaderboard\" \"/terms\" \"/privacy\" \"/disclaimer\" \"/contact\"} and http.request.uri.query ne \"\" and all(http.request.uri.args.names[*] in {\"utm_source\" \"utm_medium\" \"utm_campaign\" \"utm_term\" \"utm_content\" \"utm_id\" \"fbclid\" \"mibextid\" \"gclid\" \"gbraid\" \"wbraid\" \"gad_source\" \"msclkid\" \"ttclid\" \"twclid\" \"igsh\" \"igshid\" \"li_fat_id\"}))",
+  "action": "rewrite",
+  "action_parameters": {
+    "uri": { "query": { "value": "" } }
+  },
+  "enabled": true
+}

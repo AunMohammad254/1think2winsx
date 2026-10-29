@@ -89,8 +89,31 @@ What each part is for:
   `cache:check` fails if Cloudflare ever adds a `max-age`.
 - **Apex host only**: `www` answers with a 301 to the apex.
 
-Plan limits: this makes 2 of the 10 Cache Rules on the Free plan. No Cache Response Rules, Transform Rules or
-custom cache keys are needed.
+Plan limits: this made 2 of the 10 Cache Rules on the Free plan. With the rules below, the zone uses 4 of 10
+Cache Rules and 1 of 10 URL Rewrite Rules. No Cache Response Rules or custom cache keys are needed.
+
+## Shared JSON and ad landings (live since 2026-10-29)
+
+Three more rules, applied through the Cloudflare API on 2026-10-29. The exact bodies are in `deploy/`, and unit
+tests keep them in step with what `cache:check` verifies.
+
+| Rule | File | What it does |
+|---|---|---|
+| Cache Rule *Leaderboard API* | [`cloudflare-leaderboard-cache-rule.json`](./cloudflare-leaderboard-cache-rule.json) | Caches `/api/leaderboard` for its own `s-maxage=60`. The route reads no cookie or session, so every visitor gets the same answer for the same query. |
+| Cache Rule *Web app manifest* | [`cloudflare-manifest-cache-rule.json`](./cloudflare-manifest-cache-rule.json) | Caches `/manifest.json` for its own `max-age` (one day, set in `next.config.js`). |
+| URL Rewrite *Drop tracking query* | [`cloudflare-tracking-query-rewrite-rule.json`](./cloudflare-tracking-query-rewrite-rule.json) | On the nine cached pages, drops a query string made **only** of tracking parameters (`utm_*`, `fbclid`, `gclid`, `ttclid`, `igsh`, …). The page cache rule then sees an empty query, so ad and social landings get the cached page. |
+
+Notes:
+
+- **Both cache rules use the same settings as the page rule** (`bypass_by_default`, `respect_origin`), so an
+  error without a `Cache-Control` header is never stored.
+- **The rewrite keeps the whole query string when any parameter is not a tracking one.** `/?ref=x&utm_source=y`
+  still reaches Hostinger, and so do `/?page-cache-check=1` (the origin probe) and every `?_rsc=` prefetch.
+- **Analytics are unaffected.** The rewrite only changes the URL Hostinger sees. The browser keeps the full URL,
+  so Cloudflare Web Analytics, which runs in the browser, still records the tracking parameters. The app itself
+  never reads them.
+- **Rollback** is the same as for the page rule: switch the rule off. For the rewrite, use **Rules → Transform
+  Rules → URL Rewrite**.
 
 ## Apply (owner)
 
@@ -157,9 +180,9 @@ From one desktop visit to `/` (prefetches only fire for links on screen, so mobi
 | `/quizzes?_rsc=` (307) and the `/login?redirect=…` it leads to | 2 | personal route |
 | `/login?_rsc=`, `/register?_rsc=` | 4 | personal routes, left out on purpose |
 | `/prizes` server-action POST (on `/prizes`) | 1 | POST, never cached |
-| `/api/leaderboard?…` (on `/leaderboard`) | 1 | already `s-maxage=60`, but no Cache Rule covers it |
+| a landing with a non-tracking query string (`/?ref=…`) | 1 | the rewrite only drops tracking-only query strings |
 | anything from a signed-in visitor | all | session cookie; the navbar's prefetches included |
 
-Ideas for later, each needing its own change and approval: `prefetch={false}` on the navbar links to personal
-routes (saves those 6 per anonymous visit, and the signed-in prefetches); a Cache Rule for `/api/leaderboard`; a
-URL Rewrite Rule that drops `fbclid`/`utm_*` on these paths so ad and social landings also hit the cache.
+Done since: `prefetch={false}` on links to personal routes (a65f215) removes the 6 prefetches above for current
+builds. The home page's sport balls are static files instead of `/_next/image` (PR #82). `/api/leaderboard`,
+`/manifest.json` and tracking-only landings are covered by the rules in "Shared JSON and ad landings".
