@@ -97,7 +97,15 @@ describe('matchView', () => {
       ['Lahore', 19, 0, '2.0', null, 'overs'],
       ['Karachi', 6, 1, '0.1', 20, null],
     ]);
-    expect(view.innings[1].overs).toEqual([{ number: 1, runs: 6, wickets: 1, complete: false, balls: ['Wd', '4Nb', 'W'] }]);
+    expect(view.innings[1].overs).toEqual([{
+      number: 1, runs: 6, wickets: 1, complete: false,
+      // With what the console needs to correct each
+      balls: [
+        { id: 'c1', label: 'Wd', runs: 0, extra: 'wide', wicket: false },
+        { id: 'c2', label: '4Nb', runs: 4, extra: 'no_ball', wicket: false },
+        { id: 'c3', label: 'W', runs: 0, extra: 'none', wicket: true },
+      ],
+    }]);
     expect(view.serverNow).toBe('2026-10-29T12:00:00.000Z');
   });
 
@@ -121,6 +129,21 @@ describe('matchView', () => {
     expect(view.questions[0].options).toEqual(['Yes', 'No']);
     expect(view.questions[5].options).toEqual([]);
     expect(view.questions[6].options).toEqual([]);
+  });
+
+  it('marks the closed questions that may take answers again', async () => {
+    setMatch({
+      balls: [ball(1), ball(2)],
+      questions: [
+        // Over 2's, closed early during over 1: its over hasn't started
+        question({ id: 'early', matchOver: 2, closesAt: '2026-10-29T11:00:00Z' }),
+        // Over 1's: its over has started
+        question({ id: 'started', closesAt: '2026-10-29T11:00:00Z' }),
+        question({ id: 'open', matchOver: 2 }),
+      ],
+    });
+    const view = matchView((await loadMatch('m1', NOW))!, NOW);
+    expect(view.questions.map((q) => [q.id, q.reopenable])).toEqual([['early', true], ['started', false], ['open', false]]);
   });
 
   it('labels every kind of delivery', () => {
@@ -160,6 +183,16 @@ describe('applyMatchEvent', () => {
     });
     // The match is read again after the change
     expect(db.callsTo('LiveMatch')).toHaveLength(2);
+  });
+
+  it('sends a correction to the database, and logs it on the quiz', async () => {
+    setMatch({ balls: [ball(1), ball(2)] });
+    db.setRpc('apply_match_change', { data: { success: true, version: 4 } });
+    const event = { type: 'correct_ball' as const, ballId: 'b1', runs: 4, extra: 'none' as const, wicket: false };
+    expect((await applyMatchEvent('m1', 3, event, 'boss@example.test')).ok).toBe(true);
+    expect((db.rpcCalls[0].args.p_change as { replaceBall: unknown }).replaceBall)
+      .toEqual({ id: 'id1', replaces: 'b1', innings: 1, seq: 1, runs: 4, extra: 'none', extraRuns: 0, wicket: false });
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_ball_corrected', details: { matchId: 'm1', event } }));
   });
 
   it("records a ball with the engine's id and number, and doesn't log it", async () => {

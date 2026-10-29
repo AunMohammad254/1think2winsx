@@ -4,9 +4,11 @@
  * the match (src/lib/match-service.ts), applyEvent works out the change, and apply_match_change stores
  * it in one transaction.
  *
- * The balls are the source of truth and the questions follow from them, so an undone ball takes back
- * whatever it caused: a result, a void, the end of an innings. Only opening questions can't be taken
- * back (players may have answered).
+ * The balls are the source of truth and the questions follow from them, so an undone or corrected ball
+ * takes back whatever it caused: a result, a void, the end of an innings. The console can also put right
+ * an innings ended by hand, the wrong team sent in, answers closed too early and an abandoned match (see
+ * applyEvent). Only opening questions can't be taken back (players may have answered), and a question
+ * whose over has started never takes answers again.
  *
  * Questions shown during over N are about over N+1:
  *   - they open at over N's first delivery (over 1's when the innings starts),
@@ -176,7 +178,13 @@ export type MatchEvent =
   | { type: 'undo' }
   | { type: 'end_innings' }
   | { type: 'close_answers' }
-  | { type: 'abandon' };
+  | { type: 'abandon' }
+  // Corrections
+  | { type: 'correct_ball'; ballId: string; runs: number; extra: Extra; wicket: boolean }
+  | { type: 'resume_innings' }
+  | { type: 'remove_innings' }
+  | { type: 'reopen_answers' }
+  | { type: 'restore' };
 
 /** Over `over` of innings `innings` needs its questions now; they close after `closesInSeconds` at the latest */
 export interface ReleaseSlot {
@@ -190,11 +198,19 @@ export interface MatchChange {
   startInnings?: { innings: InningsNumber; battingTeam: string };
   endInnings?: { innings: InningsNumber; reason: EndReason };
   reopenInnings?: { innings: InningsNumber };
+  /** An innings ended by hand plays on */
+  resumeInnings?: { innings: InningsNumber };
+  /** An innings without balls goes, with its questions */
+  removeInnings?: { innings: InningsNumber };
   ball?: Ball;
   undoBall?: string;
+  /** A corrected ball: the new one takes the old one's number */
+  replaceBall?: Ball & { replaces: string };
   release: ReleaseSlot[];
   lock: string[];
   closeAll?: true;
+  /** Questions closed early that take answers again, until then */
+  reopen?: Array<{ id: string; closesInSeconds: number }>;
   resolve: Array<{ id: string; option: number }>;
   void: string[];
   pending: string[];
@@ -214,19 +230,31 @@ export function targetFor(innings: InningsNumber, balls: Ball[], oversPerInnings
   return scoreInnings(balls.filter((ball) => ball.innings === 1), oversPerInnings, null).runs + 1;
 }
 
+const AFTER_THE_END: ReadonlyArray<MatchEvent['type']> = ['undo', 'correct_ball', 'resume_innings'];
+
 /**
  * What `event` changes, or why it can't happen. `newId` names a new ball. The returned state is the match
  * after the change, as the next load will see it.
  */
 export function applyEvent(state: MatchState, event: MatchEvent, newId: () => string): EventOutcome {
-  if (state.status === 'abandoned') return fail('This match was abandoned: nothing more can be recorded');
-  // A finished match can still take back its last ball (a wrongly recorded winning run, say)
-  if (state.status === 'completed' && event.type !== 'undo') return fail('This match has finished: only its last ball can be undone');
+  if (state.status === 'abandoned' && event.type !== 'restore') {
+    return fail('This match was abandoned: restore it first to record anything more');
+  }
+  // A finished match can still have its balls put right (a wrongly recorded winning run, say), or an
+  // innings ended by hand played on
+  if (state.status === 'completed' && !AFTER_THE_END.includes(event.type)) {
+    return fail('This match has finished: only its balls can be corrected, or an innings ended by hand resumed');
+  }
   const innings = state.innings.map((i) => ({ ...i }));
   let balls = state.balls;
+  let questions = state.questions;
   const change: Partial<MatchChange> = {};
   let status: MatchStatus = state.status;
   const current = innings[innings.length - 1];
+  const endedBy = (record: Innings, withBalls: Ball[]) => scoreInnings(
+    withBalls.filter((ball) => ball.innings === record.innings), state.config.oversPerInnings,
+    targetFor(record.innings, withBalls, state.config.oversPerInnings),
+  ).endedBy;
 
   switch (event.type) {
     case 'start_innings': {
@@ -278,9 +306,59 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
       status = 'abandoned';
       change.closeAll = true;
       break;
+    case 'correct_ball': {
+      const old = balls.find((ball) => ball.id === event.ballId);
+      if (!old) return fail('That ball was undone or changed meanwhile');
+      if (!EXTRAS.includes(event.extra)) return fail('Unknown kind of delivery');
+      if (!Number.isInteger(event.runs) || event.runs < 0 || event.runs > MAX_RUNS_PER_BALL) {
+        return fail(`Runs must be a whole number from 0 to ${MAX_RUNS_PER_BALL}`);
+      }
+      const ball: Ball = {
+        id: newId(), innings: old.innings, seq: old.seq, runs: event.runs, extra: event.extra,
+        extraRuns: isLegal(event) ? 0 : 1, wicket: event.wicket === true,
+      };
+      if (ball.runs === old.runs && ball.extra === old.extra && ball.wicket === old.wicket) return fail('That ball already says so');
+      const corrected = balls.map((b) => (b.id === old.id ? ball : b));
+      // An innings its balls ended can't come back to life under the one played after it
+      const record = innings.find((i) => i.innings === old.innings)!;
+      if (record !== current && record.endReason !== 'admin' && endedBy(record, corrected) === null) {
+        return fail(`With that ball innings ${record.innings} wouldn't be over, but innings ${current.innings} has started`);
+      }
+      balls = corrected;
+      change.replaceBall = { ...ball, replaces: old.id };
+      break;
+    }
+    case 'resume_innings': {
+      if (!current || current.endReason !== 'admin') return fail('Only an innings ended by hand can be resumed');
+      if (endedBy(current, balls) !== null) return fail('Its balls already end this innings: undo or correct one instead');
+      current.endReason = null;
+      change.resumeInnings = { innings: current.innings };
+      break;
+    }
+    case 'remove_innings': {
+      if (!current) return fail('There is no innings to remove');
+      if (balls.some((ball) => ball.innings === current.innings)) return fail("An innings with balls recorded can't be removed");
+      innings.pop();
+      // Answered ones stay in the database, voided and no longer part of the match
+      questions = questions.filter((q) => q.innings !== current.innings);
+      change.removeInnings = { innings: current.innings };
+      break;
+    }
+    case 'reopen_answers': {
+      const reopen = reopenable(state);
+      if (reopen.length === 0) return fail('No question can take answers again: its over has started, or the innings is over');
+      const windows = new Map(reopen.map((q) => [q.id, q.over === 1 ? state.config.firstWindowSeconds : state.config.lockFallbackSeconds]));
+      questions = questions.map((q) => (windows.has(q.id) ? { ...q, closed: false } : q));
+      change.reopen = [...windows].map(([id, closesInSeconds]) => ({ id, closesInSeconds }));
+      break;
+    }
+    case 'restore':
+      if (state.status !== 'abandoned') return fail('Only an abandoned match can be restored');
+      status = statusOf(innings);
+      break;
   }
 
-  const plan = planQuestions({ ...state, innings, balls, status });
+  const plan = planQuestions({ ...state, innings, balls, status, questions });
   // The balls decide whether an innings they could end is over; one ended by hand stays ended
   for (const record of innings) {
     const ended = plan.endedBy.get(record.innings) ?? null;
@@ -296,7 +374,7 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
 
   return {
     ok: true,
-    state: { ...state, innings, balls, status },
+    state: { ...state, innings, balls, status, questions },
     change: {
       ...change,
       release: plan.release,
@@ -307,6 +385,19 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
       status,
     },
   };
+}
+
+/**
+ * Closed questions that may take answers again: unsettled, not void, about the innings being played,
+ * their over not started and the balls not closing them yet (the over before has fewer than 5 legal
+ * balls). Answering after a ball of their over would let players see part of the answer.
+ */
+export function reopenable(state: MatchState): MatchQuestion[] {
+  const live = state.innings[state.innings.length - 1];
+  if (state.status === 'abandoned' || !live || live.endReason) return [];
+  const overs = splitOvers(state.balls.filter((ball) => ball.innings === live.innings));
+  return state.questions.filter((q) => q.innings === live.innings && q.closed && q.status === 'active' && !q.hasResult
+    && !overs[q.over - 1] && (overs[q.over - 2]?.legalBalls ?? 0) < BALLS_PER_OVER - 1);
 }
 
 /** The status the innings give a match that isn't abandoned */

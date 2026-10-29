@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Ban, Flag, Loader2, Lock, Undo2 } from 'lucide-react';
+import { Ban, Flag, Loader2, Lock, LockOpen, Pencil, Play, RotateCcw, Trash2, Undo2, X } from 'lucide-react';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { useNow } from '@/hooks/useNow';
 import type { Extra, MatchEvent } from '@/lib/match-engine';
-import type { MatchView } from '@/lib/match-service';
+import type { MatchView, ViewBall } from '@/lib/match-service';
 import { STATUS_LABELS } from './MatchList';
 
 const EXTRA_BUTTONS: Array<{ extra: Extra; label: string }> = [
@@ -49,17 +49,65 @@ function QuestionRow({ question, now }: { question: Question; now: number }) {
   );
 }
 
+/** The kind of delivery and Wicket, then the runs, which send. Shared by recording a ball and correcting one. */
+function DeliveryPad({ busy, onRuns, initial, label }: {
+  busy: boolean;
+  /** Resolves true once saved */
+  onRuns: (runs: number, extra: Extra, wicket: boolean) => Promise<boolean>;
+  initial?: Pick<ViewBall, 'extra' | 'wicket'>;
+  label: string;
+}) {
+  const [extra, setExtra] = useState<Extra>(initial?.extra ?? 'none');
+  const [wicket, setWicket] = useState(initial?.wicket ?? false);
+  const pick = async (runs: number, isWicket = wicket) => {
+    // Saved: back to a plain ball for the next one. Not saved: the choice stays, to try again
+    if (await onRuns(runs, extra, isWicket)) {
+      setExtra('none');
+      setWicket(false);
+    }
+  };
+  return (
+    <>
+      <div role="group" aria-label={`Kind of delivery${label}`} className="flex flex-wrap gap-2">
+        {EXTRA_BUTTONS.map((option) => (
+          <button key={option.extra} type="button" aria-pressed={extra === option.extra} onClick={() => setExtra(option.extra)} className={toggle(extra === option.extra)}>
+            {option.label}
+          </button>
+        ))}
+        <button type="button" aria-pressed={wicket} onClick={() => setWicket(!wicket)} className={toggle(wicket)}>
+          Wicket
+        </button>
+      </div>
+      <div role="group" aria-label={`Runs${label}`} className="flex flex-wrap gap-2">
+        {RUN_BUTTONS.map((runs) => (
+          <button key={runs} disabled={busy} onClick={() => void pick(runs)} aria-label={`${runs} run${runs === 1 ? '' : 's'}${label}`}
+            className={`${button} h-14 w-14 bg-gray-800 text-lg text-white hover:bg-gray-700`}>
+            {runs}
+          </button>
+        ))}
+        <button disabled={busy} onClick={() => void pick(0, true)} aria-label={`Wicket, no run${label}`} className={`${button} h-14 w-14 bg-red-600 text-lg text-white hover:bg-red-700`}>
+          W
+        </button>
+      </div>
+    </>
+  );
+}
+
+interface Editing { ball: ViewBall; innings: number; over: number; position: number }
+
 /**
  * The scorer console: an admin records each ball of a live match. Questions open, close and settle from
- * the balls (src/lib/match-engine.ts); an undone ball takes back what it caused. Every change carries the
- * version this screen saw, so two consoles can't overwrite each other: a refused change reloads.
+ * the balls (src/lib/match-engine.ts); an undone or corrected ball takes back what it caused. Mistakes
+ * can be put right until the match's quiz is settled: any ball corrected, an innings ended by hand
+ * resumed, one started with the wrong team removed, answers closed too early reopened (while their over
+ * hasn't started), an abandoned match restored. Every change carries the version this screen saw, so
+ * two consoles can't overwrite each other: a refused change reloads.
  */
 export default function MatchConsole({ matchId }: { matchId: string }) {
   const [view, setView] = useState<MatchView | null>(null);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [extra, setExtra] = useState<Extra>('none');
-  const [wicket, setWicket] = useState(false);
+  const [editing, setEditing] = useState<Editing | null>(null);
   // How far this device's clock is from the server's, for the countdowns
   const [skew, setSkew] = useState(0);
 
@@ -88,9 +136,9 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
   const now = useNow(1000, anyOpen) + skew;
 
   // One change at a time: every button that sends is disabled while one is on its way (React applies
-  // a click's state before the next click, so a double click is caught too)
-  const send = async (event: MatchEvent, confirmText?: string) => {
-    if (confirmText && !window.confirm(confirmText)) return;
+  // a click's state before the next click, so a double click is caught too). `confirmed` asks first.
+  const send = async (event: MatchEvent, confirmed: () => boolean = () => true): Promise<boolean> => {
+    if (!confirmed()) return false;
     setBusy(true);
     try {
       const response = await fetch(`/api/admin/matches/${encodeURIComponent(matchId)}/events`, {
@@ -104,19 +152,19 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
         toast.error(data.error || 'Failed to save the change');
         // Someone else changed the match, or it was settled: show it as it is now
         if (response.status === 409) await load();
-        return;
+        return false;
       }
       show(data);
-      if (event.type === 'ball') {
-        setExtra('none');
-        setWicket(false);
-      }
+      setEditing(null);
+      return true;
     } catch {
       toast.error('Failed to save the change. Check your connection: nothing was recorded.');
+      return false;
     } finally {
       setBusy(false);
     }
   };
+  const ask = (text: string) => () => window.confirm(text);
 
   if (!view) {
     return failed
@@ -132,7 +180,17 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
   const questions = view.questions.filter((q) => q.innings === current?.innings).sort((a, b) => b.over - a.over);
   const firstOverOpen = current && current.overs.length === 0 && questions.some((q) => q.over === 1 && q.state === 'open');
   const firstOverLeft = firstOverOpen ? Math.min(...questions.filter((q) => q.over === 1).map((q) => Date.parse(q.closesAt!) - now)) : 0;
-  const ball = (runs: number, isWicket = wicket) => send({ type: 'ball', runs, extra, wicket: isWicket });
+  const abandoned = match.status === 'abandoned';
+  const canCorrect = !view.settled && !abandoned;
+  const reopenCount = view.questions.filter((q) => q.reopenable).length;
+  const canResume = canCorrect && current?.endReason === 'admin';
+  const canRemove = canCorrect && current !== undefined && current.overs.length === 0;
+  const abandonConfirmed = () => {
+    const typed = window.prompt(
+      `Abandoning voids every unsettled question and stops the match (Restore match puts it back until the quiz is settled).\n\nType the match name to confirm: ${match.title}`,
+    );
+    return typed !== null && typed.trim().toLowerCase() === match.title.toLowerCase();
+  };
 
   return (
     <div className="space-y-6">
@@ -152,7 +210,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
         ))}
         {current && (
           <p className="text-sm text-gray-300" aria-label="This over">
-            {thisOver ? `Over ${thisOver.number}: ${thisOver.balls.join(' ')}` : `Over ${current.overs.length + 1} next`}
+            {thisOver ? `Over ${thisOver.number}: ${thisOver.balls.map((b) => b.label).join(' ')}` : `Over ${current.overs.length + 1} next`}
           </p>
         )}
       </section>
@@ -180,27 +238,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
               Over 1&apos;s questions close in {countdown(firstOverLeft)}. Close them before the first ball is bowled.
             </p>
           )}
-          <div role="group" aria-label="Kind of delivery" className="flex flex-wrap gap-2">
-            {EXTRA_BUTTONS.map((option) => (
-              <button key={option.extra} type="button" aria-pressed={extra === option.extra} onClick={() => setExtra(option.extra)} className={toggle(extra === option.extra)}>
-                {option.label}
-              </button>
-            ))}
-            <button type="button" aria-pressed={wicket} onClick={() => setWicket(!wicket)} className={toggle(wicket)}>
-              Wicket
-            </button>
-          </div>
-          <div role="group" aria-label="Runs" className="flex flex-wrap gap-2">
-            {RUN_BUTTONS.map((runs) => (
-              <button key={runs} disabled={busy} onClick={() => ball(runs)} aria-label={`${runs} run${runs === 1 ? '' : 's'}`}
-                className={`${button} h-14 w-14 bg-gray-800 text-lg text-white hover:bg-gray-700`}>
-                {runs}
-              </button>
-            ))}
-            <button disabled={busy} onClick={() => ball(0, true)} aria-label="Wicket, no run" className={`${button} h-14 w-14 bg-red-600 text-lg text-white hover:bg-red-700`}>
-              W
-            </button>
-          </div>
+          <DeliveryPad busy={busy} label="" onRuns={(runs, extra, wicket) => send({ type: 'ball', runs, extra, wicket })} />
           <p className="text-xs text-gray-400">
             Pick the kind of delivery (and Wicket) first if it isn&apos;t a plain ball, then the runs. For a wide or no-ball, the runs are the ones
             taken on top of the penalty run.
@@ -208,27 +246,106 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
         </section>
       )}
 
-      {!view.settled && match.status !== 'abandoned' && match.status !== 'setup' && (
+      {!view.settled && !abandoned && match.status !== 'setup' && (
         <div className="flex flex-wrap gap-3">
           <button disabled={busy} onClick={() => send({ type: 'undo' })} className={`${button} bg-white/10 text-white hover:bg-white/15`}>
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />} Undo last ball
           </button>
           {match.status === 'live' && (
             <>
-              <button disabled={busy} onClick={() => send({ type: 'close_answers' })} className={`${button} bg-amber-600 text-white hover:bg-amber-700`}>
+              <button disabled={busy} onClick={() => send({ type: 'close_answers' }, ask("Close every open question now? Players can't answer them any more.\n\nReopen answers puts back any whose over hasn't started."))}
+                className={`${button} bg-amber-600 text-white hover:bg-amber-700`}>
                 <Lock className="h-4 w-4" /> Close answers now
               </button>
-              <button disabled={busy} onClick={() => send({ type: 'end_innings' }, 'End this innings now? Its unfinished overs are voided.')} className={`${button} bg-white/10 text-white hover:bg-white/15`}>
+              <button disabled={busy} onClick={() => send({ type: 'end_innings' }, ask('End this innings now? Its unfinished overs are voided.\n\nResume innings puts it back while the next innings has no balls.'))}
+                className={`${button} bg-white/10 text-white hover:bg-white/15`}>
                 <Flag className="h-4 w-4" /> End innings
               </button>
             </>
           )}
           {match.status !== 'completed' && (
-            <button disabled={busy} onClick={() => send({ type: 'abandon' }, 'Abandon the match? Every unsettled question is voided, and nothing more can be recorded.')} className={`${button} bg-red-600/80 text-white hover:bg-red-700`}>
+            <button disabled={busy} onClick={() => send({ type: 'abandon' }, abandonConfirmed)} className={`${button} bg-red-600/80 text-white hover:bg-red-700`}>
               <Ban className="h-4 w-4" /> Abandon match
             </button>
           )}
         </div>
+      )}
+
+      {(canResume || canRemove || reopenCount > 0 || (abandoned && !view.settled)) && (
+        <section aria-label="Put a mistake right" className="space-y-3 rounded-2xl border border-amber-400/20 bg-amber-500/5 p-6">
+          <h3 className="font-semibold text-white">Put a mistake right</h3>
+          <div className="flex flex-wrap gap-3">
+            {abandoned && !view.settled && (
+              <button disabled={busy} onClick={() => send({ type: 'restore' }, ask('Restore the match? Settled results stand, and the overs it voided come back. Answers stay closed until you reopen them.'))}
+                className={`${button} bg-emerald-600 text-white hover:bg-emerald-700`}>
+                <RotateCcw className="h-4 w-4" /> Restore match
+              </button>
+            )}
+            {canResume && (
+              <button disabled={busy} onClick={() => send({ type: 'resume_innings' })} className={`${button} bg-white/10 text-white hover:bg-white/15`}>
+                <Play className="h-4 w-4" /> Resume innings {current.innings}
+              </button>
+            )}
+            {canRemove && (
+              <button disabled={busy}
+                onClick={() => send({ type: 'remove_innings' }, ask(`Remove innings ${current.innings} (${current.battingTeam} batting)? Its questions are removed; any players already answered are voided.`))}
+                className={`${button} bg-white/10 text-white hover:bg-white/15`}>
+                <Trash2 className="h-4 w-4" /> Remove innings {current.innings}
+              </button>
+            )}
+            {reopenCount > 0 && (
+              <button disabled={busy} onClick={() => send({ type: 'reopen_answers' })} className={`${button} bg-white/10 text-white hover:bg-white/15`}>
+                <LockOpen className="h-4 w-4" /> Reopen answers ({reopenCount})
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-gray-400">
+            To fix a wrong ball, pick it in the scorecard below. A question whose over has started never takes answers again.
+          </p>
+        </section>
+      )}
+
+      {view.innings.some((innings) => innings.overs.length > 0) && (
+        <section aria-label="Scorecard" className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-6">
+          <h3 className="font-semibold text-white">Scorecard</h3>
+          {view.innings.map((innings) => (
+            <div key={innings.innings} className="space-y-2">
+              <p className="text-sm text-gray-300">Innings {innings.innings}: {innings.battingTeam}</p>
+              <ol className="space-y-1">
+                {innings.overs.map((over) => (
+                  <li key={over.number} className="flex flex-wrap items-center gap-1.5 text-sm">
+                    <span className="w-16 shrink-0 text-gray-400">Over {over.number}</span>
+                    {over.balls.map((ball, index) => (
+                      <button key={ball.id} type="button" disabled={!canCorrect || busy}
+                        aria-label={`Correct innings ${innings.innings}, over ${over.number}, ball ${index + 1}: ${ball.label}`}
+                        onClick={() => setEditing({ ball, innings: innings.innings, over: over.number, position: index + 1 })}
+                        className={`rounded-lg px-2 py-1 font-mono ${editing?.ball.id === ball.id ? 'bg-amber-500/30 text-amber-100' : 'bg-gray-800 text-white hover:bg-gray-700'} disabled:hover:bg-gray-800`}>
+                        {ball.label}
+                      </button>
+                    ))}
+                    <span className="ml-2 text-xs text-gray-500">{over.runs} run{over.runs === 1 ? '' : 's'}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))}
+          {editing && canCorrect && (
+            <div role="group" aria-label="Correct a ball" className="space-y-3 rounded-xl border border-amber-400/30 bg-gray-900/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-white">
+                  <Pencil className="mr-1 inline h-4 w-4" />
+                  Innings {editing.innings}, over {editing.over}, ball {editing.position}: was <span className="font-mono">{editing.ball.label}</span>. What really happened?
+                </p>
+                <button type="button" onClick={() => setEditing(null)} aria-label="Cancel the correction" className="rounded-lg p-1 text-gray-400 hover:bg-white/10">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <DeliveryPad key={editing.ball.id} busy={busy} initial={editing.ball} label=" (correction)"
+                onRuns={(runs, extra, wicket) => send({ type: 'correct_ball', ballId: editing.ball.id, runs, extra, wicket })} />
+              <p className="text-xs text-gray-400">The scores, results and players&apos; right and wrong answers follow the corrected ball.</p>
+            </div>
+          )}
+        </section>
       )}
 
       {match.status === 'completed' && !view.settled && (
