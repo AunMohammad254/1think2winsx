@@ -4,6 +4,8 @@ import {
   applyEvent,
   planQuestions,
   reopenable,
+  stillSendable,
+  MIN_ANSWER_SECONDS,
   resolveMarket,
   scoreInnings,
   splitOvers,
@@ -443,5 +445,43 @@ describe('corrections', () => {
 
   it('restores only an abandoned match', () => {
     expect(refuse(play([startLahore]).state, { type: 'restore' })).toEqual({ ok: false, error: 'Only an abandoned match can be restored' });
+  });
+});
+
+describe('reviewed questions (drafts)', () => {
+  const NOW = 1_000_000;
+
+  it("opens nothing for an over whose questions wait for review or were skipped", () => {
+    const waiting = applyEvent({ ...EMPTY, draftSlots: [{ innings: 1, over: 1 }] }, startLahore, () => 'x');
+    expect(waiting.ok && waiting.change.release).toEqual([]);
+    const live: MatchState = { ...play([startLahore]).state, draftSlots: [{ innings: 1, over: 2 }] };
+    const ball = applyEvent(live, dot, () => 'x');
+    expect(ball.ok && ball.change.release).toEqual([]);
+    // Without the slot, over 2's questions would open now
+    const without = applyEvent({ ...live, draftSlots: undefined }, dot, () => 'x');
+    expect(without.ok && without.change.release).toEqual([{ innings: 1, over: 2, closesInSeconds: 150 }]);
+  });
+
+  it("drops a removed innings' slots, so a fresh innings gets fresh questions", () => {
+    const { state } = play([startLahore, ...six(dot), ...six(dot), { type: 'start_innings', battingTeam: 'Karachi' }]);
+    const outcome = applyEvent({ ...state, draftSlots: [{ innings: 1, over: 1 }, { innings: 2, over: 1 }] }, { type: 'remove_innings' }, () => 'x');
+    expect(outcome.ok && outcome.state.draftSlots).toEqual([{ innings: 1, over: 1 }]);
+  });
+
+  it('can send a question while its innings is played, its over not started, the balls not closing it and time left', () => {
+    const live = play([startLahore, dot, dot]).state;
+    const slot = { innings: 1 as const, over: 2 };
+    expect(stillSendable(live, slot, NOW + 60_000, NOW)).toBe(true);
+    // Less than MIN_ANSWER_SECONDS left
+    expect(stillSendable(live, slot, NOW + (MIN_ANSWER_SECONDS - 1) * 1000, NOW)).toBe(false);
+    // Over 1 has had its 5th legal ball
+    expect(stillSendable(play([dot, dot, dot], live).state, slot, NOW + 60_000, NOW)).toBe(false);
+    // Its own over has started
+    expect(stillSendable(live, { innings: 1, over: 1 }, NOW + 60_000, NOW)).toBe(false);
+    // Another innings, an innings over, an abandoned match, no innings at all
+    expect(stillSendable(live, { innings: 2, over: 2 }, NOW + 60_000, NOW)).toBe(false);
+    expect(stillSendable(play([{ type: 'end_innings' }], live).state, slot, NOW + 60_000, NOW)).toBe(false);
+    expect(stillSendable({ ...live, status: 'abandoned' }, slot, NOW + 60_000, NOW)).toBe(false);
+    expect(stillSendable(EMPTY, slot, NOW + 60_000, NOW)).toBe(false);
   });
 });

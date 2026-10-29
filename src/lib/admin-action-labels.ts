@@ -31,6 +31,9 @@ export const QUIZ_ACTION_LABELS = {
   match_innings_removed: 'Removed an innings with no balls',
   match_answers_reopened: 'Reopened answers closed early',
   match_restored: 'Restored the abandoned match',
+  match_questions_sent: "Sent an over's questions to players",
+  match_questions_skipped: "Skipped an over's questions",
+  match_auto_send_changed: 'Switched automatic sending of questions',
 } as const;
 
 export type QuizAction = keyof typeof QUIZ_ACTION_LABELS;

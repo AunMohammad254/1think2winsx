@@ -78,6 +78,27 @@ export interface MatchState {
   /** Balls not undone, by innings then seq */
   balls: Ball[];
   questions: MatchQuestion[];
+  /**
+   * Overs whose questions wait for an admin's review (or were skipped) instead of being out: they have
+   * their questions, so none are released for them again
+   */
+  draftSlots?: Array<{ innings: InningsNumber; over: number }>;
+}
+
+/** Questions must give players at least this long to answer */
+export const MIN_ANSWER_SECONDS = 10;
+
+/**
+ * Whether a reviewed question about `slot` can still go out at `now`: its innings is being played, its
+ * over hasn't started, the balls wouldn't close it yet (the over before has fewer than 5 legal balls),
+ * and at least MIN_ANSWER_SECONDS are left before `closesAtMs`, the close time it was given when written.
+ */
+export function stillSendable(state: MatchState, slot: { innings: InningsNumber; over: number }, closesAtMs: number, now: number): boolean {
+  const live = state.innings[state.innings.length - 1];
+  if (state.status === 'abandoned' || !live || live.endReason || live.innings !== slot.innings) return false;
+  const overs = splitOvers(state.balls.filter((ball) => ball.innings === live.innings));
+  return !overs[slot.over - 1] && (overs[slot.over - 2]?.legalBalls ?? 0) < BALLS_PER_OVER - 1
+    && closesAtMs - now >= MIN_ANSWER_SECONDS * 1000;
 }
 
 export const isLegal = (ball: Pick<Ball, 'extra'>) => ball.extra !== 'wide' && ball.extra !== 'no_ball';
@@ -248,6 +269,7 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
   const innings = state.innings.map((i) => ({ ...i }));
   let balls = state.balls;
   let questions = state.questions;
+  let draftSlots = state.draftSlots;
   const change: Partial<MatchChange> = {};
   let status: MatchStatus = state.status;
   const current = innings[innings.length - 1];
@@ -341,6 +363,7 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
       innings.pop();
       // Answered ones stay in the database, voided and no longer part of the match
       questions = questions.filter((q) => q.innings !== current.innings);
+      draftSlots = draftSlots?.filter((slot) => slot.innings !== current.innings);
       change.removeInnings = { innings: current.innings };
       break;
     }
@@ -358,7 +381,7 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
       break;
   }
 
-  const plan = planQuestions({ ...state, innings, balls, status, questions });
+  const plan = planQuestions({ ...state, innings, balls, status, questions, draftSlots });
   // The balls decide whether an innings they could end is over; one ended by hand stays ended
   for (const record of innings) {
     const ended = plan.endedBy.get(record.innings) ?? null;
@@ -374,7 +397,7 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
 
   return {
     ok: true,
-    state: { ...state, innings, balls, status, questions },
+    state: { ...state, innings, balls, status, questions, draftSlots },
     change: {
       ...change,
       release: plan.release,
@@ -460,7 +483,8 @@ export function planQuestions(state: MatchState): QuestionPlan {
   const live = state.innings[state.innings.length - 1];
   if (!abandoned && live && !ended(live)) {
     const overs = scores.get(live.innings)!.overs;
-    const has = (over: number) => state.questions.some((q) => q.innings === live.innings && q.over === over);
+    const has = (over: number) => state.questions.some((q) => q.innings === live.innings && q.over === over)
+      || (state.draftSlots ?? []).some((slot) => slot.innings === live.innings && slot.over === over);
     for (let over = 1; over <= config.oversPerInnings; over++) {
       if (has(over) || overs[over - 1]) continue;
       if (over === 1) {
