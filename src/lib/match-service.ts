@@ -1,5 +1,6 @@
-import { getAdminDb, generateId } from '@/lib/supabase/db';
+import { getAdminDb, generateId, notificationDb } from '@/lib/supabase/db';
 import { logQuizAction } from '@/lib/admin-action-log';
+import { DEFAULT_MAX_ENTRIES } from '@/lib/quiz-entries';
 import type { QuizAction } from '@/lib/admin-action-labels';
 import { overQuestions } from '@/lib/match-questions';
 import { aiWording, wordingProblem } from '@/lib/match-wording';
@@ -26,6 +27,9 @@ import {
  * An over's questions are worded by Gemini or the built-in templates (src/lib/match-wording.ts), in
  * English and Roman Urdu. Unless the match sends them automatically, they wait as drafts
  * (migration 20261031120000_match_question_review) until an admin sends, edits or skips them.
+ *
+ * Players see a match once an admin takes it live (its quiz goes from draft to active), on the match
+ * screen (/match/[id], fed by src/lib/match-feed.ts) rather than the ordinary quiz list.
  */
 
 export interface MatchRow {
@@ -84,6 +88,10 @@ interface QuestionRow {
 export interface LoadedMatch {
   row: MatchRow;
   title: string;
+  /** Players can see it: its quiz is active (Go live), not a draft */
+  published: boolean;
+  /** Players who have answered, and how many may (QuizAdminSettings, 2,000 unless changed) */
+  players: { entries: number; maxEntries: number };
   /** Its quiz has been settled: the match can't change any more */
   settled: boolean;
   state: MatchState;
@@ -99,13 +107,13 @@ const MATCH_COLUMNS = 'id, quizId, teamA, teamB, oversPerInnings, questionsPerOv
 /** The match with its innings, balls and questions, or null when there is none. */
 export async function loadMatch(matchId: string, now = Date.now()): Promise<LoadedMatch | null> {
   const db = getAdminDb();
-  const { data, error } = await db.from('LiveMatch').select(`${MATCH_COLUMNS}, Quiz:quizId (title)`).eq('id', matchId).maybeSingle();
+  const { data, error } = await db.from('LiveMatch').select(`${MATCH_COLUMNS}, Quiz:quizId (title, status)`).eq('id', matchId).maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  const { Quiz, drafts, ...row } = data as MatchRow & { Quiz: Joined<{ title: string }>; drafts: MatchDraft[] | null };
+  const { Quiz, drafts, ...row } = data as MatchRow & { Quiz: Joined<{ title: string; status: string }>; drafts: MatchDraft[] | null };
   const draftList = drafts ?? [];
 
-  const [innings, balls, questions, settlement] = await Promise.all([
+  const [innings, balls, questions, settlement, settings, entries] = await Promise.all([
     db.from('MatchInnings').select('innings, battingTeam, endReason').eq('matchId', matchId).order('innings'),
     db.from('BallEvent').select('id, innings, seq, runs, extra, extraRuns, wicket').eq('matchId', matchId).is('undoneAt', null)
       .order('innings').order('seq'),
@@ -113,13 +121,21 @@ export async function loadMatch(matchId: string, now = Date.now()): Promise<Load
       .select('id, text, textRomanUrdu, options, matchInnings, matchOver, market, marketParams, status, hasCorrectAnswer, correctOption, closesAt')
       .eq('quizId', row.quizId).not('matchInnings', 'is', null).order('matchInnings').order('matchOver').order('createdAt'),
     db.from('QuizSettlement').select('quizId', { count: 'exact', head: true }).eq('quizId', row.quizId),
+    db.from('QuizAdminSettings').select('maxEntries').eq('quizId', row.quizId).maybeSingle(),
+    db.from('QuizEntryCount').select('entries').eq('quizId', row.quizId).maybeSingle(),
   ]);
-  for (const result of [innings, balls, questions, settlement]) if (result.error) throw result.error;
+  for (const result of [innings, balls, questions, settlement, settings, entries]) if (result.error) throw result.error;
 
   const questionRows = (questions.data || []) as QuestionRow[];
+  const quiz = one(Quiz);
   return {
     row,
-    title: one(Quiz)?.title ?? `${row.teamA} vs ${row.teamB}`,
+    title: quiz?.title ?? `${row.teamA} vs ${row.teamB}`,
+    published: quiz?.status === 'active',
+    players: {
+      entries: (entries.data as { entries: number } | null)?.entries ?? 0,
+      maxEntries: (settings.data as { maxEntries: number } | null)?.maxEntries ?? DEFAULT_MAX_ENTRIES,
+    },
     settled: (settlement.count ?? 0) > 0,
     questions: questionRows,
     drafts: draftList,
@@ -174,8 +190,9 @@ export interface ViewBall {
 }
 
 export interface MatchView {
-  match: Omit<MatchRow, 'createdAt'> & { title: string };
+  match: Omit<MatchRow, 'createdAt'> & { title: string; published: boolean };
   settled: boolean;
+  players: LoadedMatch['players'];
   innings: Array<{
     innings: InningsNumber;
     battingTeam: string;
@@ -222,8 +239,9 @@ export function matchView(loaded: LoadedMatch, now = Date.now()): MatchView {
   const canReopen = new Set(reopenable(state).map((q) => q.id));
   const { createdAt: _createdAt, ...match } = row;
   return {
-    match: { ...match, title: loaded.title },
+    match: { ...match, title: loaded.title, published: loaded.published },
     settled: loaded.settled,
+    players: loaded.players,
     innings: state.innings.map((record) => {
       const target = targetFor(record.innings, state.balls, row.oversPerInnings);
       const score = scoreInnings(state.balls.filter((ball) => ball.innings === record.innings), row.oversPerInnings, target);
@@ -477,6 +495,67 @@ export function setAutoSend(matchId: string, autoSend: boolean, admin: string): 
     ok: true,
     data: { change: { autoSend }, action: 'match_auto_send_changed', details: { autoSend } },
   }));
+}
+
+/** Where players play a match */
+export const matchLink = (matchId: string) => `/match/${matchId}`;
+
+/**
+ * Tells every player a match went live: a bell notification (and web push) that opens the match screen.
+ * Only the first time: a match hidden by mistake and taken live again doesn't notify twice. Slow on a big
+ * user base, so the route runs it after its response.
+ */
+export async function announceMatch(matchId: string, title: string): Promise<void> {
+  const link = matchLink(matchId);
+  const { data: sent } = await getAdminDb().from('Notification').select('id').eq('link', link).limit(1);
+  if (sent && sent.length > 0) return;
+  await notificationDb.createBroadcast({
+    title: '🔴 Live match',
+    message: `${title}: predict what happens in every over. Free to play!`,
+    type: 'quiz_deadline',
+    link,
+  });
+}
+
+/**
+ * Go live (`published`): the match's quiz goes from draft to active, so players see the match and can
+ * answer; or back to a draft, which hides it and stops answers. Never pushedAt: the quiz-wide answering
+ * window it starts would close the match (src/lib/scheduled-jobs.ts); each question closes on its own.
+ */
+export async function setPublished(matchId: string, published: boolean, admin: string): Promise<MatchResult<{ view: MatchView; changed: boolean }>> {
+  const loaded = await loadMatch(matchId);
+  if (!loaded) return refuse(404, 'not_found', 'Match not found');
+  if (loaded.settled) return refuse(409, 'settled', "This match's quiz has been settled, so the match can't change any more");
+  if (published && loaded.row.status === 'abandoned') return refuse(409, 'abandoned', 'Restore the match before taking it live');
+  if (loaded.published === published) return { ok: true, data: { view: matchView(loaded), changed: false } };
+
+  const { data, error } = await getAdminDb().from('Quiz')
+    .update({ status: published ? 'active' : 'draft', updatedAt: new Date().toISOString() })
+    .eq('id', loaded.row.quizId).eq('status', published ? 'draft' : 'active')
+    .select('id');
+  if (error) throw error;
+  // Its quiz was changed meanwhile (another console)
+  if (!data || data.length === 0) return refuse(409, 'stale', 'The match changed meanwhile. It has been reloaded: check it and try again.');
+  await logQuizAction({
+    quizId: loaded.row.quizId, quizTitle: loaded.title, action: published ? 'match_published' : 'match_hidden', adminEmail: admin,
+    details: { matchId },
+  });
+  return { ok: true, data: { view: matchView((await loadMatch(matchId))!), changed: true } };
+}
+
+/** How many players may join the match (first come, first served; submit_quiz_attempt enforces it). */
+export async function setMaxEntries(matchId: string, maxEntries: number, admin: string): Promise<MatchResult<MatchView>> {
+  const loaded = await loadMatch(matchId);
+  if (!loaded) return refuse(404, 'not_found', 'Match not found');
+  if (loaded.settled) return refuse(409, 'settled', "This match's quiz has been settled, so the match can't change any more");
+  const { error } = await getAdminDb().from('QuizAdminSettings')
+    .upsert({ quizId: loaded.row.quizId, maxEntries, updatedAt: new Date().toISOString() }, { onConflict: 'quizId' });
+  if (error) throw error;
+  await logQuizAction({
+    quizId: loaded.row.quizId, quizTitle: loaded.title, action: 'match_entry_limit_changed', adminEmail: admin,
+    details: { matchId, from: loaded.players.maxEntries, to: maxEntries },
+  });
+  return { ok: true, data: matchView((await loadMatch(matchId))!) };
 }
 
 export interface NewMatch {

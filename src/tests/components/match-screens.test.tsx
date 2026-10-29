@@ -109,9 +109,10 @@ describe('MatchConsole', () => {
   const view = (over: Partial<MatchView> = {}, match: Partial<MatchView['match']> = {}): MatchView => ({
     match: {
       id: 'm1', quizId: 'quiz1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 20, questionsPerOver: 2,
-      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'live', autoSend: false, version: 3, ...match,
+      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'live', autoSend: false, version: 3, published: false, ...match,
     },
     settled: false,
+    players: { entries: 0, maxEntries: 2000 },
     innings: [{
       innings: 1, battingTeam: 'Lahore', endReason: null, runs: 12, wickets: 1, oversText: '1.3', target: null,
       overs: [
@@ -463,5 +464,71 @@ describe('MatchConsole', () => {
     // Settled is final: no corrections at all
     expect(screen.queryByRole('region', { name: 'Put a mistake right' })).toBeNull();
     expect(screen.getByRole('button', { name: /Correct innings 1, over 1, ball 1/ })).toBeDisabled();
+    // Nor does who can see it
+    expect(screen.queryByRole('region', { name: 'Players' })).toBeNull();
+  });
+
+  /** Answers each PATCH with the match as its setting now is */
+  function serveSettings(first: MatchView) {
+    fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== 'PATCH') return jsonResponse(first);
+      const body = JSON.parse(init.body as string);
+      return 'published' in body
+        ? jsonResponse(view({ players: first.players }, { published: body.published }))
+        : jsonResponse(view({ players: { ...first.players, maxEntries: body.maxEntries } }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  }
+  const patches = () => fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
+    .map(([, init]) => JSON.parse((init as RequestInit).body as string));
+
+  it('takes the match live after asking, links the player screen, and hides it again', async () => {
+    serveSettings(view());
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<MatchConsole matchId="m1" />);
+    const panel = await screen.findByRole('region', { name: 'Players' });
+    expect(panel).toHaveTextContent("Players can't see this match yet");
+    fireEvent.click(screen.getByRole('button', { name: /Go live/ }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/every player gets a notification \(only the first time\)/));
+    expect(patches()).toEqual([]);
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: /Go live/ }));
+    expect(await screen.findByText('Players can see this match')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '/match/m1' })).toHaveAttribute('href', '/match/m1');
+    fireEvent.click(screen.getByRole('button', { name: /Hide from players/ }));
+    expect(confirm).toHaveBeenLastCalledWith(expect.stringMatching(/^Hide this match from players\?/));
+    expect(await screen.findByText("Players can't see this match yet")).toBeInTheDocument();
+    expect(patches()).toEqual([{ published: true }, { published: false }]);
+  });
+
+  it('only takes a restored match live', async () => {
+    serveSettings(view({}, { status: 'abandoned' }));
+    render(<MatchConsole matchId="m1" />);
+    expect(await screen.findByText('Restore the match before taking it live.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Go live/ })).toBeDisabled();
+  });
+
+  it('changes how many players can join, asking first when that turns new players away', async () => {
+    serveSettings(view({ players: { entries: 10, maxEntries: 2000 } }));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<MatchConsole matchId="m1" />);
+    expect(await screen.findByText('10 of 2,000 joined')).toBeInTheDocument();
+    const box = screen.getByRole('spinbutton', { name: 'Players who can join' });
+    const save = screen.getByRole('button', { name: 'Save' });
+    // Nothing to save until it changes to a valid number
+    expect(save).toBeDisabled();
+    fireEvent.change(box, { target: { value: '0' } });
+    expect(save).toBeDisabled();
+    fireEvent.change(box, { target: { value: '5' } });
+    fireEvent.click(save);
+    expect(confirm).toHaveBeenCalledWith('10 players have already joined, so nobody new can join. Save anyway?');
+    expect(patches()).toEqual([]);
+
+    fireEvent.change(box, { target: { value: '5000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('10 of 5,000 joined')).toBeInTheDocument();
+    expect(patches()).toEqual([{ maxEntries: 5000 }]);
+    expect(confirm).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { getDb } from '@/lib/supabase/db';
+import { getDb, getAdminDb } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
@@ -36,11 +36,26 @@ const EXPECTED_REFUSALS = new Set(['closed', 'entries_closed']);
 const SOME_CLOSED_MESSAGE =
   'Some of these questions already have their result, so they no longer take answers. Reopen the quiz to answer the rest.';
 
-/** How many of the submitted questions of this quiz already have their result saved (closed to answers). */
-async function closedQuestions(supabase: Awaited<ReturnType<typeof getDb>>, quizId: string, questionIds: string[]): Promise<number> {
-  const { data } = await supabase.from('Question').select('id')
-    .eq('quizId', quizId).eq('hasCorrectAnswer', true).in('id', questionIds);
-  return (data || []).length;
+// The database may be a moment ahead of this server's clock: a question that closed just now counts as closed
+const CLOCK_SLACK_MS = 5_000;
+
+/** A live match's questions that closed before the answers arrived (each closes on its own, over by over). */
+function matchClosedMessage(overs: number[], all: boolean): string {
+  const which = overs.length === 1 ? `over ${overs[0]}` : `overs ${overs.join(', ')}`;
+  return `Too late for ${which}: answers closed before yours arrived.${all ? '' : ' Nothing was saved, so send your other answers again.'}`;
+}
+
+/**
+ * The submitted questions of this quiz that no longer take answers: their result is saved, or (a live
+ * match's) they closed or their over was voided. The server reads them: players can't read when a
+ * question closes.
+ */
+async function closedQuestions(quizId: string, questionIds: string[]): Promise<Array<{ id: string; matchOver: number | null }>> {
+  const { data } = await getAdminDb().from('Question').select('id, status, hasCorrectAnswer, closesAt, matchOver')
+    .eq('quizId', quizId).in('id', questionIds);
+  const now = Date.now() + CLOCK_SLACK_MS;
+  return ((data || []) as Array<{ id: string; status: string; hasCorrectAnswer: boolean; closesAt: string | null; matchOver: number | null }>)
+    .filter((q) => q.hasCorrectAnswer || (q.closesAt !== null && Date.parse(q.closesAt) <= now) || (q.matchOver !== null && q.status === 'paused'));
 }
 
 /**
@@ -118,12 +133,19 @@ export async function POST(
     };
 
     if (!r.success) {
-      // "invalid" also covers a question whose result was saved while the player answered: say so, as
-      // normal late-player behaviour rather than a security event
+      // "invalid" also covers a question whose result was saved, or (a match's) that closed, while the player
+      // answered: say so, as normal late-player behaviour rather than a security event
       if (r.code === 'invalid') {
-        const closed = await closedQuestions(supabase, quizId, validation.data.answers.map((a) => a.questionId));
-        if (closed > 0) {
-          const all = closed === validation.data.answers.length;
+        const closed = await closedQuestions(quizId, validation.data.answers.map((a) => a.questionId));
+        if (closed.length > 0) {
+          const all = closed.length === validation.data.answers.length;
+          const overs = [...new Set(closed.flatMap((q) => (q.matchOver === null ? [] : [q.matchOver])))];
+          // The match screen drops the closed ones and sends the rest again
+          if (overs.length > 0) {
+            return NextResponse.json({
+              error: matchClosedMessage(overs, all), code: 'questions_closed', closed: closed.map((q) => q.id),
+            }, { status: 409 });
+          }
           return NextResponse.json({
             error: all ? QUIZ_ENDED_MESSAGE : SOME_CLOSED_MESSAGE,
             code: all ? 'quiz_ended' : 'questions_closed',

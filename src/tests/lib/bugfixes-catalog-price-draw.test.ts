@@ -63,7 +63,10 @@ describe('quiz catalogue attempt counts', () => {
     status: 'upcoming', accessPrice: 2, quizType: 'normal', isBumperPrize: false, startsAt: null,
     pushedAt: null, createdAt: 'x', updatedAt: 'x',
   };
-  beforeEach(() => { tables.QuizAdminSettings = { data: [], error: null }; });
+  beforeEach(() => {
+    tables.QuizAdminSettings = { data: [], error: null };
+    tables.LiveMatch = { data: [], error: null };
+  });
 
   it('marks a quiz full once it has as many players as its entry limit (2,000 when none is saved), never sending the limit', async () => {
     tables.Quiz = { data: [quiz, { ...quiz, id: 'q2' }, { ...quiz, id: 'q3' }], error: null };
@@ -148,6 +151,64 @@ describe('quiz catalogue attempt counts', () => {
     expect(catalog[0].totalAttempts).toBe(0);
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+// ── quiz catalogue: live matches ──────────────────────────────────────────────
+describe('quiz catalogue live matches', () => {
+  const quiz = {
+    id: 'q1', title: 'Quiz', description: null, duration: 30, timeUpDuration: 60, passingScore: 70,
+    status: 'active', accessPrice: 0, quizType: 'predictable', isBumperPrize: false, startsAt: null,
+    pushedAt: null, createdAt: 'x', updatedAt: 'x',
+  };
+  const match = (over: Record<string, unknown> = {}) =>
+    ({ id: 'm1', quizId: 'mq1', teamA: 'Lahore', teamB: 'Karachi', status: 'live', updatedAt: new Date().toISOString(), ...over });
+  beforeEach(() => {
+    tables.QuizAdminSettings = { data: [], error: null };
+    tables.Question = { data: [], error: null };
+    rpc.mockResolvedValue({ data: [], error: null });
+  });
+
+  it('keeps a match quiz out of the quiz list, and lists the matches taken live, finished ones for 2 hours', async () => {
+    tables.Quiz = { data: [
+      quiz,
+      { ...quiz, id: 'mq1', title: 'Lahore vs Karachi' },
+      { ...quiz, id: 'mq2', title: 'Old final' },
+      { ...quiz, id: 'mq3', title: 'Just ended' },
+      // Not live for players: never listed
+      { ...quiz, id: 'mq4', title: 'Paused match', status: 'paused' },
+    ], error: null };
+    tables.LiveMatch = { data: [
+      match(),
+      match({ id: 'm2', quizId: 'mq2', status: 'completed', updatedAt: new Date(Date.now() - 3 * 3600_000).toISOString() }),
+      match({ id: 'm3', quizId: 'mq3', status: 'abandoned', updatedAt: new Date(Date.now() - 3600_000).toISOString() }),
+      match({ id: 'm4', quizId: 'mq4' }),
+      // A match whose quiz is a draft isn't in the quiz read at all
+      match({ id: 'm5', quizId: 'draft' }),
+    ], error: null };
+    const { getActiveQuizCatalog, getLiveMatches } = await import('@/lib/quiz-catalog');
+    expect((await getActiveQuizCatalog()).map((q) => q.id)).toEqual(['q1']);
+    expect(await getLiveMatches()).toEqual([
+      { id: 'm1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', status: 'live' },
+      { id: 'm3', title: 'Just ended', teamA: 'Lahore', teamB: 'Karachi', status: 'abandoned' },
+    ]);
+  });
+
+  it('lists the matches when there is no ordinary quiz, and fails rather than list a match as a quiz', async () => {
+    tables.Quiz = { data: [{ ...quiz, id: 'mq1', title: 'Lahore vs Karachi' }], error: null };
+    tables.LiveMatch = { data: [match()], error: null };
+    const catalog = await import('@/lib/quiz-catalog');
+    expect(await catalog.getActiveQuizCatalog()).toEqual([]);
+    expect((await catalog.getLiveMatches()).map((m) => m.id)).toEqual(['m1']);
+
+    vi.resetModules();
+    tables.LiveMatch = { data: null, error: new Error('matches down') };
+    const fresh = await import('@/lib/quiz-catalog');
+    await expect(fresh.getActiveQuizCatalog()).rejects.toThrow('matches down');
+    tables.LiveMatch = { data: null, error: null };
+    tables.Quiz = { data: null, error: null };
+    vi.resetModules();
+    expect(await (await import('@/lib/quiz-catalog')).getLiveMatches()).toEqual([]);
   });
 });
 

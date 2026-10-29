@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Ban, Flag, Loader2, Lock, LockOpen, Pencil, Play, RotateCcw, Trash2, Undo2, X } from 'lucide-react';
+import { Ban, Eye, EyeOff, Flag, Loader2, Lock, LockOpen, Pencil, Play, Radio, RotateCcw, Trash2, Undo2, X } from 'lucide-react';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { useNow } from '@/hooks/useNow';
 import type { Extra, MatchEvent } from '@/lib/match-engine';
+import { MAX_ENTRIES_LIMIT } from '@/lib/quiz-entries';
 import type { DraftToSend, MatchView, ViewBall } from '@/lib/match-service';
 import { STATUS_LABELS } from './MatchList';
 import QuestionReview from './QuestionReview';
@@ -97,6 +98,26 @@ function DeliveryPad({ busy, onRuns, initial, label }: {
   );
 }
 
+/** How many players have joined, and the box that changes how many may */
+function PlayerLimit({ players, busy, onSave }: { players: MatchView['players']; busy: boolean; onSave: (maxEntries: number) => Promise<boolean> }) {
+  const [value, setValue] = useState(String(players.maxEntries));
+  const limit = Number(value);
+  const valid = Number.isInteger(limit) && limit >= 1 && limit <= MAX_ENTRIES_LIMIT;
+  return (
+    <div className="flex flex-wrap items-end gap-3">
+      <label className="space-y-1 text-xs text-gray-400">
+        <span className="block">Players who can join</span>
+        <input type="number" min={1} max={MAX_ENTRIES_LIMIT} value={value} onChange={(e) => setValue(e.target.value)}
+          className="w-32 rounded-xl border border-white/10 bg-gray-900/60 px-3 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none" />
+      </label>
+      <button type="button" disabled={busy || !valid || limit === players.maxEntries} onClick={() => void onSave(limit)} className={`${button} bg-white/10 text-white hover:bg-white/15`}>
+        Save
+      </button>
+      <p className="text-sm text-gray-300">{players.entries.toLocaleString()} of {players.maxEntries.toLocaleString()} joined</p>
+    </div>
+  );
+}
+
 interface Editing { ball: ViewBall; innings: number; over: number; position: number }
 
 /**
@@ -108,6 +129,8 @@ interface Editing { ball: ViewBall; innings: number; over: number; position: num
  * two consoles can't overwrite each other: a refused change reloads.
  *
  * An over's questions wait for review (QuestionReview) unless the match sends them automatically.
+ * Players see nothing until an admin takes the match live (Go live), which also tells every player; Hide
+ * takes it back off. The Players box sets how many may join.
  */
 export default function MatchConsole({ matchId }: { matchId: string }) {
   const [view, setView] = useState<MatchView | null>(null);
@@ -178,6 +201,11 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
   const setAutoSend = (autoSend: boolean) => save('', 'PATCH', { autoSend }, autoSend
     ? ask("Send each over's questions as they are written, without review? Gemini can get a wording wrong; the built-in wording is used whenever it does.")
     : undefined);
+  const setPublished = (published: boolean) => save('', 'PATCH', { published }, ask(published
+    ? 'Take this match live? Players see it on the quiz list and every player gets a notification (only the first time).'
+    : 'Hide this match from players? They can\'t answer until you take it live again.'));
+  const setMaxEntries = (maxEntries: number) => save('', 'PATCH', { maxEntries },
+    maxEntries < view!.players.entries ? ask(`${view!.players.entries} players have already joined, so nobody new can join. Save anyway?`) : undefined);
 
   if (!view) {
     return failed
@@ -235,6 +263,32 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
       </section>
 
       {view.settled && <p role="status" className="text-amber-200">This match&apos;s quiz has been settled, so it can&apos;t change any more.</p>}
+
+      {!view.settled && (
+        <section aria-label="Players" className={`space-y-4 rounded-2xl border p-6 ${match.published ? 'border-emerald-400/30 bg-emerald-500/5' : 'border-white/10 bg-white/5'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <h3 className="font-semibold text-white">{match.published ? 'Players can see this match' : 'Players can\'t see this match yet'}</h3>
+              <p className="text-xs text-gray-400">
+                {match.published
+                  ? <>They play it at <a href={`/match/${match.id}`} target="_blank" rel="noreferrer" className="underline">/match/{match.id}</a>.</>
+                  : 'Go live puts it on the quiz list and tells every player.'}
+              </p>
+            </div>
+            {match.published ? (
+              <button type="button" disabled={busy} onClick={() => void setPublished(false)} className={`${button} bg-white/10 text-white hover:bg-white/15`}>
+                <EyeOff className="h-4 w-4" /> Hide from players
+              </button>
+            ) : (
+              <button type="button" disabled={busy || abandoned} onClick={() => void setPublished(true)} className={`${button} bg-red-600 text-white hover:bg-red-700`}>
+                <Radio className="h-4 w-4" /> Go live
+              </button>
+            )}
+          </div>
+          {abandoned && !match.published && <p className="text-xs text-gray-400"><Eye className="mr-1 inline h-3 w-3" />Restore the match before taking it live.</p>}
+          <PlayerLimit key={view.players.maxEntries} players={view.players} busy={busy} onSave={setMaxEntries} />
+        </section>
+      )}
 
       {!view.settled && <QuestionReview drafts={view.drafts} now={now} busy={busy} onSend={sendQuestions} onSkip={skipQuestions} />}
 
