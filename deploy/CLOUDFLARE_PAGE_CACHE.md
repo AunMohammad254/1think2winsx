@@ -89,24 +89,26 @@ What each part is for:
   `cache:check` fails if Cloudflare ever adds a `max-age`.
 - **Apex host only**: `www` answers with a 301 to the apex.
 
-Plan limits: this made 2 of the 10 Cache Rules on the Free plan. With the rules below, the zone uses 4 of 10
+Plan limits: this made 2 of the 10 Cache Rules on the Free plan. With the rules below, the zone uses 5 of 10
 Cache Rules and 1 of 10 URL Rewrite Rules. No Cache Response Rules or custom cache keys are needed.
 
-## Shared JSON and ad landings (live since 2026-10-29)
+## Static files, shared JSON and ad landings (live since 2026-10-29)
 
-Three more rules, applied through the Cloudflare API on 2026-10-29. The exact bodies are in `deploy/`, and unit
+Four more rules, applied through the Cloudflare API on 2026-10-29. The exact bodies are in `deploy/`, and unit
 tests keep them in step with what `cache:check` verifies.
 
 | Rule | File | What it does |
 |---|---|---|
+| Cache Rule *Static files* | [`cloudflare-static-files-cache-rule.json`](./cloudflare-static-files-cache-rule.json) | Keeps `/images/*`, `/Favicon/*` and `/favicon.ico` at the edge for 30 days (we purge on every deploy), and in browsers for 4 h. Next serves `public/` files with `max-age=0`, so before this rule Cloudflare kept them but asked Hostinger on every request (`REVALIDATED`): 7–8 Hostinger requests per new visitor to `/`. A 4xx/5xx is never stored. `sw.js` is left out so a new service worker is never held back. |
 | Cache Rule *Leaderboard API* | [`cloudflare-leaderboard-cache-rule.json`](./cloudflare-leaderboard-cache-rule.json) | Caches `/api/leaderboard` for its own `s-maxage=60`. The route reads no cookie or session, so every visitor gets the same answer for the same query. |
 | Cache Rule *Web app manifest* | [`cloudflare-manifest-cache-rule.json`](./cloudflare-manifest-cache-rule.json) | Caches `/manifest.json` for its own `max-age` (one day, set in `next.config.js`). |
 | URL Rewrite *Drop tracking query* | [`cloudflare-tracking-query-rewrite-rule.json`](./cloudflare-tracking-query-rewrite-rule.json) | On the nine cached pages, drops a query string made **only** of tracking parameters (`utm_*`, `fbclid`, `gclid`, `ttclid`, `igsh`, …). The page cache rule then sees an empty query, so ad and social landings get the cached page. |
 
 Notes:
 
-- **Both cache rules use the same settings as the page rule** (`bypass_by_default`, `respect_origin`), so an
-  error without a `Cache-Control` header is never stored.
+- **The leaderboard and manifest rules use the same settings as the page rule** (`bypass_by_default`,
+  `respect_origin`), so an error without a `Cache-Control` header is never stored. The static files rule overrides
+  the origin's TTL instead, because Next's `max-age=0` is what it exists to replace.
 - **The rewrite keeps the whole query string when any parameter is not a tracking one.** `/?ref=x&utm_source=y`
   still reaches Hostinger, and so do `/?page-cache-check=1` (the origin probe) and every `?_rsc=` prefetch.
 - **Analytics are unaffected.** The rewrite only changes the URL Hostinger sees. The browser keeps the full URL,
@@ -184,5 +186,6 @@ From one desktop visit to `/` (prefetches only fire for links on screen, so mobi
 | anything from a signed-in visitor | all | session cookie; the navbar's prefetches included |
 
 Done since: `prefetch={false}` on links to personal routes (a65f215) removes the 6 prefetches above for current
-builds. The home page's sport balls are static files instead of `/_next/image` (PR #82). `/api/leaderboard`,
-`/manifest.json` and tracking-only landings are covered by the rules in "Shared JSON and ad landings".
+builds. The home page's sport balls are static files instead of `/_next/image` (PR #82). Static files,
+`/api/leaderboard`, `/manifest.json` and tracking-only landings are covered by the rules in "Static files, shared
+JSON and ad landings".

@@ -69,10 +69,10 @@ Cloudflare keeps the public pages for a year. **After every Hostinger deploy, be
 bun run cache:purge
 ```
 
-It purges everything on the zone, then runs `bun run cache:check`: 36 requests, one at a time. Each cached page,
+It purges everything on the zone, then runs `bun run cache:check`: 38 requests, one at a time. Each cached page,
 a `/faq` prefetch and an ad landing (`/?utm_source=…`) must come from the cache as the build the origin runs now.
-So must a home page ball picture, `/api/leaderboard` and `/manifest.json`, and the home page must not use
-`/_next/image`. The same prefetch URL without its RSC header, a request with a session cookie, a landing with a
+So must `/api/leaderboard` and `/manifest.json`. A home page ball picture and `/favicon.ico` must be plain `HIT`s
+(not rechecked with Hostinger), and the home page must not use `/_next/image`. The same prefetch URL without its RSC header, a request with a session cookie, a landing with a
 non-tracking query string, `/quizzes`, `/login`, `/auth` and `/api/health` must not come from the cache. It refuses to purge while Cloudflare already serves the origin's build: the deploy has not gone
 live yet, and purging then would refill the cache with the old pages (`--force` overrides). It needs
 `CLOUDFLARE_ZONE_ID` and `CLOUDFLARE_API_TOKEN` in the git-ignored `.env.cloudflare` (setup in the runbook).

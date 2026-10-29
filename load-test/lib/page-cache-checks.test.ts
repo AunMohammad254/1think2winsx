@@ -4,7 +4,7 @@ import path from 'path';
 import { describe, it, expect } from 'vitest';
 import {
   buildIdOf, cloudflareCredentials, decidePurge, parsePageCacheArgs, purgeEverything, rscSearchParam, runPageCacheChecks,
-  AD_LANDING, CACHED_PAGES, LEADERBOARD_PATH, MANIFEST_CACHE_CONTROL, MANIFEST_PATH, MIXED_LANDING, ORIGIN_PROBE, PAGE_CACHE_CONTROL,
+  AD_LANDING, CACHED_PAGES, FAVICON_PATH, LEADERBOARD_PATH, MANIFEST_CACHE_CONTROL, MANIFEST_PATH, MIXED_LANDING, ORIGIN_PROBE, PAGE_CACHE_CONTROL,
   PREFETCH_HEADERS, UNCACHED_PATHS, type PageCacheOptions,
 } from './page-cache-checks';
 import type { CheckResult, Fetcher, Probe } from './smoke-checks';
@@ -24,6 +24,7 @@ const html = (build = BUILD, pictures = BALLS) =>
   `<html>${pictures}<script>self.__next_f.push([1,"0:{\\"P\\":null,\\"b\\":\\"${build}\\",\\"c\\":[]}"])</script></html>`;
 const IMAGE_URL = `${BASE}/images/sports/cricket-128.avif`;
 const image = (cf: string) => ({ headers: { 'content-type': 'image/avif', 'cache-control': 'public, max-age=14400', 'cf-cache-status': cf } });
+const icon = (cf: string) => ({ headers: { 'content-type': 'image/x-icon', 'cache-control': 'public, max-age=14400, must-revalidate', 'cf-cache-status': cf } });
 const board = (cf: string) => ({
   headers: { 'content-type': 'application/json', 'cache-control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=300', 'cf-cache-status': cf },
   body: '{"leaderboard":[]}',
@@ -48,6 +49,7 @@ const CACHED_SITE: Record<string, Route | Route[]> = {
   [`${BASE}/auth`]: page('DYNAMIC'),
   [`${BASE}/api/health`]: { headers: { 'cache-control': 'no-store', 'cf-cache-status': 'DYNAMIC' }, body: '{"status":"ok"}' },
   [IMAGE_URL]: [image('MISS'), image('HIT')],
+  [`${BASE}${FAVICON_PATH}`]: [icon('MISS'), icon('HIT')],
   [`${BASE}${LEADERBOARD_PATH}`]: [board('MISS'), board('HIT')],
   [`${BASE}${MANIFEST_PATH}`]: [manifest('MISS'), manifest('HIT')],
   // The rewrite drops the tracking parameters, so the landing gets the cached `/` (already a HIT)
@@ -60,6 +62,9 @@ const UNCACHED_SITE: Record<string, Route | Route[]> = {
   ...CACHED_SITE,
   ...Object.fromEntries(CACHED_PAGES.map((p) => [`${BASE}${p}`, page('DYNAMIC')])),
   [`${PREFETCH_URL} [rsc]`]: prefetch('DYNAMIC'),
+  // Next sends public files with max-age=0: Cloudflare keeps them but asks Hostinger on every request
+  [IMAGE_URL]: [image('MISS'), image('REVALIDATED')],
+  [`${BASE}${FAVICON_PATH}`]: [icon('MISS'), icon('EXPIRED')],
   [`${BASE}${LEADERBOARD_PATH}`]: board('DYNAMIC'),
   [`${BASE}${MANIFEST_PATH}`]: manifest('DYNAMIC'),
   [`${BASE}${AD_LANDING}`]: page('DYNAMIC'),
@@ -148,6 +153,20 @@ describe('the rules for shared JSON and ad landings (deploy/cloudflare-*-rule.js
     }
   });
 
+  it("keeps public/ files at the edge whatever Next's max-age=0 says, browsers 4 h, and never stores an error", () => {
+    const rule = read('cloudflare-static-files-cache-rule.json');
+    expect(rule.expression).toContain('starts_with(http.request.uri.path, "/images/")');
+    expect(rule.expression).toContain('starts_with(http.request.uri.path, "/Favicon/")');
+    expect(rule.expression).toContain(`http.request.uri.path eq "${FAVICON_PATH}"`);
+    // The service worker stays out, so a new one is never held back
+    expect(rule.expression).not.toContain('sw.js');
+    expect(rule.action_parameters).toEqual({
+      cache: true,
+      edge_ttl: { mode: 'override_origin', default: 2592000, status_code_ttl: [{ status_code_range: { from: 400 }, value: -1 }] },
+      browser_ttl: { mode: 'override_origin', default: 14400 },
+    });
+  });
+
   it('drops a query string only on the cached pages, and only when every parameter is a tracking one', () => {
     const rule = read('cloudflare-tracking-query-rewrite-rule.json');
     const pages = /http\.request\.uri\.path in \{([^}]*)\}/.exec(rule.expression)?.[1] ?? '';
@@ -178,6 +197,7 @@ describe('runPageCacheChecks', () => {
       'pass 200 GET /api/health',
       'pass 200 GET / pictures are static files',
       'pass 200 GET /images/sports/cricket-128.avif (twice)',
+      'pass 200 GET /favicon.ico (twice)',
       'pass 200 GET /api/leaderboard (twice)',
       'pass 200 GET /manifest.json (twice)',
       `pass 200 GET ${AD_LANDING} (ad landing, twice)`,
@@ -185,7 +205,7 @@ describe('runPageCacheChecks', () => {
     ]);
     expect(byName(results, 'GET /faq (twice)').detail).toBe(`MISS then cf-cache-status=HIT, build=${BUILD}`);
     expect(byName(results, 'GET /images/sports/cricket-128.avif (twice)').detail).toBe('MISS then cf-cache-status=HIT');
-    expect(calls).toHaveLength(36);
+    expect(calls).toHaveLength(38);
     expect(maxInFlight()).toBe(1);
     expect(calls.filter((c) => new Headers(c.init.headers).has('cookie')).map((c) => c.url)).toEqual([`${BASE}/faq`]);
   });
@@ -195,6 +215,8 @@ describe('runPageCacheChecks', () => {
     expect(failures(results)).toEqual([
       ...CACHED_PAGES.map((p) => `GET ${p} (twice)`),
       'GET /faq?_rsc= (prefetch, twice)',
+      'GET /images/sports/cricket-128.avif (twice)',
+      'GET /favicon.ico (twice)',
       'GET /api/leaderboard (twice)',
       'GET /manifest.json (twice)',
       `GET ${AD_LANDING} (ad landing, twice)`,
@@ -256,6 +278,11 @@ describe('runPageCacheChecks', () => {
 
     const uncached = await run({ [IMAGE_URL]: image('DYNAMIC') });
     expect(failures(uncached.results)).toEqual(['GET /images/sports/cricket-128.avif (twice)']);
+    // Kept, but rechecked with Hostinger each time: what the static files rule stops
+    const rechecked = await run({ [IMAGE_URL]: [image('MISS'), image('REVALIDATED')] });
+    expect(byName(rechecked.results, 'GET /images/sports/cricket-128.avif (twice)').problems).toEqual([
+      'cf-cache-status is REVALIDATED, expected HIT: Cloudflare asked Hostinger again (deploy/cloudflare-static-files-cache-rule.json)',
+    ]);
     const missing = await run({ [IMAGE_URL]: new Error('timeout') });
     expect(byName(missing.results, 'GET /images/sports/cricket-128.avif (twice)').problems).toEqual(['request failed: timeout']);
   });
