@@ -6,8 +6,9 @@ import { Ban, Flag, Loader2, Lock, LockOpen, Pencil, Play, RotateCcw, Trash2, Un
 import { getCSRFHeaders } from '@/lib/csrf';
 import { useNow } from '@/hooks/useNow';
 import type { Extra, MatchEvent } from '@/lib/match-engine';
-import type { MatchView, ViewBall } from '@/lib/match-service';
+import type { DraftToSend, MatchView, ViewBall } from '@/lib/match-service';
 import { STATUS_LABELS } from './MatchList';
+import QuestionReview from './QuestionReview';
 
 const EXTRA_BUTTONS: Array<{ extra: Extra; label: string }> = [
   { extra: 'none', label: 'Off the bat' },
@@ -43,7 +44,10 @@ function QuestionRow({ question, now }: { question: Question; now: number }) {
     : 'bg-amber-500/20 text-amber-200';
   return (
     <li className="flex flex-col gap-1 rounded-xl border border-white/10 bg-gray-900/40 p-3 sm:flex-row sm:items-center sm:justify-between">
-      <span className="text-sm text-white">{question.text}</span>
+      <span className="text-sm text-white">
+        {question.textRomanUrdu && <span className="block">{question.textRomanUrdu}</span>}
+        <span className={question.textRomanUrdu ? 'block text-xs text-gray-400' : undefined}>{question.text}</span>
+      </span>
       <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${tone}`}>{badge}</span>
     </li>
   );
@@ -102,6 +106,8 @@ interface Editing { ball: ViewBall; innings: number; over: number; position: num
  * resumed, one started with the wrong team removed, answers closed too early reopened (while their over
  * hasn't started), an abandoned match restored. Every change carries the version this screen saw, so
  * two consoles can't overwrite each other: a refused change reloads.
+ *
+ * An over's questions wait for review (QuestionReview) unless the match sends them automatically.
  */
 export default function MatchConsole({ matchId }: { matchId: string }) {
   const [view, setView] = useState<MatchView | null>(null);
@@ -133,19 +139,19 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
   }, [load]);
 
   const anyOpen = view?.questions.some((q) => q.state === 'open') ?? false;
-  const now = useNow(1000, anyOpen) + skew;
+  const anyWaiting = view?.drafts.some((d) => d.state === 'waiting') ?? false;
+  const now = useNow(1000, anyOpen || anyWaiting) + skew;
 
   // One change at a time: every button that sends is disabled while one is on its way (React applies
   // a click's state before the next click, so a double click is caught too). `confirmed` asks first.
-  const send = async (event: MatchEvent, confirmed: () => boolean = () => true): Promise<boolean> => {
+  const save = async (path: string, method: 'POST' | 'PATCH', body: unknown, confirmed: () => boolean = () => true): Promise<boolean> => {
     if (!confirmed()) return false;
     setBusy(true);
     try {
-      const response = await fetch(`/api/admin/matches/${encodeURIComponent(matchId)}/events`, {
-        method: 'POST',
+      const response = await fetch(`/api/admin/matches/${encodeURIComponent(matchId)}${path}`, {
+        method,
         headers: { 'Content-Type': 'application/json', ...(await getCSRFHeaders()) },
-        // Only reachable from buttons shown once the match is loaded
-        body: JSON.stringify({ version: view!.match.version, event }),
+        body: JSON.stringify(body),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -164,7 +170,14 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
       setBusy(false);
     }
   };
+  // Only reachable from buttons shown once the match is loaded
+  const send = (event: MatchEvent, confirmed?: () => boolean) => save('/events', 'POST', { version: view!.match.version, event }, confirmed);
+  const sendQuestions = (questions: DraftToSend[]) => save('/questions', 'POST', { action: 'send', questions });
+  const skipQuestions = (ids: string[]) => save('/questions', 'POST', { action: 'skip', ids });
   const ask = (text: string) => () => window.confirm(text);
+  const setAutoSend = (autoSend: boolean) => save('', 'PATCH', { autoSend }, autoSend
+    ? ask("Send each over's questions as they are written, without review? Gemini can get a wording wrong; the built-in wording is used whenever it does.")
+    : undefined);
 
   if (!view) {
     return failed
@@ -202,6 +215,12 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
           </div>
           <span className="rounded-full bg-white/10 px-3 py-1 text-sm text-gray-200">{STATUS_LABELS[match.status]}</span>
         </div>
+        {!view.settled && !abandoned && (
+          <label className="flex items-center gap-2 text-sm text-gray-300">
+            <input type="checkbox" checked={match.autoSend} disabled={busy} onChange={(e) => void setAutoSend(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
+            Send questions automatically, without review
+          </label>
+        )}
         {view.innings.map((innings) => (
           <p key={innings.innings} className="text-lg text-white">
             <span className="font-semibold">{innings.battingTeam}</span> {innings.runs}/{innings.wickets}{' '}
@@ -216,6 +235,8 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
       </section>
 
       {view.settled && <p role="status" className="text-amber-200">This match&apos;s quiz has been settled, so it can&apos;t change any more.</p>}
+
+      {!view.settled && <QuestionReview drafts={view.drafts} now={now} busy={busy} onSend={sendQuestions} onSkip={skipQuestions} />}
 
       {!view.settled && (match.status === 'setup' || match.status === 'innings_break') && (
         <section aria-label="Start an innings" className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-6">

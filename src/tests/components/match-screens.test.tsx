@@ -100,7 +100,7 @@ describe('MatchConsole', () => {
   const inFuture = (seconds: number) => new Date(Date.now() + seconds * 1000).toISOString();
   const question = (over: Partial<MatchView['questions'][number]> = {}) => ({
     id: 'q', innings: 1 as const, over: 3, text: 'Will a wicket fall in over 3?', options: ['Yes', 'No'], market: 'wicket_in_over',
-    state: 'open' as const, closesAt: inFuture(60), correctOption: null, reopenable: false, ...over,
+    state: 'open' as const, closesAt: inFuture(60), correctOption: null, reopenable: false, textRomanUrdu: null, ...over,
   });
   // Scorecard labels as deliveries: '4' is 4 off the bat, 'W' a wicket with no run
   const deliveries = (prefix: string, labels: string[]) => labels.map((label, i) => ({
@@ -109,7 +109,7 @@ describe('MatchConsole', () => {
   const view = (over: Partial<MatchView> = {}, match: Partial<MatchView['match']> = {}): MatchView => ({
     match: {
       id: 'm1', quizId: 'quiz1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 20, questionsPerOver: 2,
-      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'live', version: 3, ...match,
+      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'live', autoSend: false, version: 3, ...match,
     },
     settled: false,
     innings: [{
@@ -120,6 +120,7 @@ describe('MatchConsole', () => {
       ],
     }],
     questions: [],
+    drafts: [],
     serverNow: new Date().toISOString(),
     ...over,
   });
@@ -375,6 +376,68 @@ describe('MatchConsole', () => {
     }));
     render(<MatchConsole matchId="m1" />);
     expect(await screen.findByText(/Over 1's questions close in 1:(31|30|29)\. Close them before the first ball/)).toBeInTheDocument();
+  });
+
+  it('shows each question in Roman Urdu first, English under it', async () => {
+    serve(view({ questions: [question({ textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?' })] }));
+    render(<MatchConsole matchId="m1" />);
+    const list = await screen.findByRole('region', { name: 'Questions' });
+    expect(list.querySelector('li')!.textContent).toMatch(/^Kya over 3 mein koi wicket giray ga\?Will a wicket fall in over 3\?/);
+  });
+
+  it('switches automatic sending, asking before turning review off', async () => {
+    // PATCH answers with the match as the switch now is
+    fetchMock = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'PATCH'
+      ? jsonResponse(view({}, { autoSend: JSON.parse(init.body as string).autoSend }))
+      : jsonResponse(view())));
+    vi.stubGlobal('fetch', fetchMock);
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<MatchConsole matchId="m1" />);
+    const box = await screen.findByRole('checkbox', { name: /Send questions automatically/ });
+    fireEvent.click(box);
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/without review\? Gemini can get a wording wrong/));
+    expect(posts()).toHaveLength(0);
+    confirm.mockReturnValue(true);
+    fireEvent.click(box);
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /Send questions automatically/ })).toBeChecked());
+    const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')!;
+    expect(patch[0]).toBe('/api/admin/matches/m1');
+    expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ autoSend: true });
+    // Turning review back on needs no question
+    confirm.mockClear();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Send questions automatically/ }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toHaveLength(2));
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('sends and skips reviewed questions through the review panel', async () => {
+    const waiting = {
+      id: 'd1', innings: 1 as const, over: 3, market: 'wicket_in_over', params: {}, options: ['Yes', 'No'], line: null,
+      text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
+      plainText: 'Will a wicket fall in over 3?', plainTextRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
+      ai: false, closesAt: inFuture(120), state: 'waiting' as const,
+    };
+    serve(view({ drafts: [waiting] }), () => jsonResponse(view()));
+    render(<MatchConsole matchId="m1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Send over 3 question 1' }));
+    await waitFor(() => expect(posts().at(-1)).toEqual({
+      url: '/api/admin/matches/m1/questions',
+      body: { action: 'send', questions: [{ id: 'd1', text: waiting.text, textRomanUrdu: waiting.textRomanUrdu }] },
+    }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Review questions' })).toBeNull());
+  });
+
+  it('skips a reviewed question through the review panel', async () => {
+    const waiting = {
+      id: 'd9', innings: 1 as const, over: 3, market: 'wicket_in_over', params: {}, options: ['Yes', 'No'], line: null,
+      text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
+      plainText: 'Will a wicket fall in over 3?', plainTextRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
+      ai: false, closesAt: inFuture(120), state: 'waiting' as const,
+    };
+    serve(view({ drafts: [waiting] }), () => jsonResponse(view()));
+    render(<MatchConsole matchId="m1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip over 3 question 1' }));
+    await waitFor(() => expect(posts().at(-1)).toEqual({ url: '/api/admin/matches/m1/questions', body: { action: 'skip', ids: ['d9'] } }));
   });
 
   it('after the match: only undo, and a pointer to settling; nothing for an abandoned or settled match', async () => {

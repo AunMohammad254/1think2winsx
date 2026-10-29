@@ -6,7 +6,8 @@ import { BALLS_PER_OVER, type InningsNumber } from '@/lib/match-engine';
  * reading the match should beat guessing, but not by much. Only markets src/lib/match-engine.ts can
  * settle from the balls, and none about wides or no-balls (what spot-fixing targets).
  *
- * These are fixed templates. Gemini will write the wording later; the markets and how they settle stay.
+ * These are the built-in wordings, in English and Roman Urdu (Urdu in the Latin alphabet, as fans text it).
+ * Gemini can word them better (src/lib/match-wording.ts); the markets and how they settle stay.
  */
 
 export interface OverContext {
@@ -24,6 +25,8 @@ export interface OverQuestion {
   market: string;
   params: Record<string, number>;
   text: string;
+  /** The same question in Roman Urdu, which players see first */
+  textRomanUrdu: string;
   options: string[];
 }
 
@@ -52,14 +55,30 @@ function question(market: string, ctx: OverContext): OverQuestion {
   switch (market) {
     case 'over_runs_at_least': {
       const line = runsLine(ctx);
-      return { market, params: { line }, text: `${ctx.battingTeam}: will ${over} go for ${line} or more runs?`, options: YES_NO };
+      return {
+        market, params: { line }, options: YES_NO,
+        text: `${ctx.battingTeam}: will ${over} go for ${line} or more runs?`,
+        textRomanUrdu: `${ctx.battingTeam}: kya ${over} mein ${line} ya us se zyada runs banenge?`,
+      };
     }
     case 'boundary_in_over':
-      return { market, params: {}, text: `Will there be a four or a six in ${over}?`, options: YES_NO };
+      return {
+        market, params: {}, options: YES_NO,
+        text: `Will there be a four or a six in ${over}?`,
+        textRomanUrdu: `Kya ${over} mein chauka ya chhakka lagega?`,
+      };
     case 'dots_at_least':
-      return { market, params: { line: DOTS_LINE }, text: `Will ${over} have ${DOTS_LINE} or more dot balls?`, options: YES_NO };
+      return {
+        market, params: { line: DOTS_LINE }, options: YES_NO,
+        text: `Will ${over} have ${DOTS_LINE} or more dot balls?`,
+        textRomanUrdu: `Kya ${over} mein ${DOTS_LINE} ya zyada dot balls hongi?`,
+      };
     default:
-      return { market: 'wicket_in_over', params: {}, text: `Will a wicket fall in ${over}?`, options: YES_NO };
+      return {
+        market: 'wicket_in_over', params: {}, options: YES_NO,
+        text: `Will a wicket fall in ${over}?`,
+        textRomanUrdu: `Kya ${over} mein koi wicket giray ga?`,
+      };
   }
 }
 
