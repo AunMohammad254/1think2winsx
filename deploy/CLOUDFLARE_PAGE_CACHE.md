@@ -36,7 +36,7 @@ after the cache.
 
 **Never cached by this rule:** `/quizzes`, `/quiz/*`, `/profile*`, `/login` (a redirect to `/auth`), `/register`,
 `/auth*`, `/forgot-*`, `/update-password`, `/unsubscribe`, `/admin*` and `/api/*`. They are simply not in the
-path list. The existing `/api/live` rule is unchanged.
+path list. `/api/live*` has a rule of its own ("The live API rule" below).
 
 ## The rule
 
@@ -116,6 +116,25 @@ Notes:
   never reads them.
 - **Rollback** is the same as for the page rule: switch the rule off. For the rewrite, use **Rules → Transform
   Rules → URL Rewrite**.
+
+## The live API rule
+
+The oldest of the zone's Cache Rules, *Live quiz snapshot*, caches what every player polls: `/api/live` (the public
+quiz list, 5 s) and `/api/live/quizzes/*` (a quiz's questions, 10 s). Each route sends its own `Cache-Control`, and
+the rule keeps answers for exactly that long.
+
+[`cloudflare-live-api-cache-rule.json`](./cloudflare-live-api-cache-rule.json) is the rule as it must be for match
+mode (PR #87). Two changes from the live rule:
+
+- **It adds `/api/live/matches/*`**, the match feed every match screen polls every 3 s (cached 3 s; 10 s for a match
+  that isn't live). Without it every viewer's poll reaches Hostinger, so it must be applied **before the first match
+  goes live**.
+- **Its edge TTL is `bypass_by_default`** instead of `respect_origin`, like the rules above. With `respect_origin`,
+  an answer under `/api/live*` that carries no `Cache-Control` would be kept for Cloudflare's default time for its
+  status (a 404 for 3 minutes, a 200 for 2 hours). Every live route sends one, so nothing it caches today changes.
+
+Apply it by replacing the existing rule (`PATCH` the rule by its ID in the cache settings entrypoint with the JSON
+file as the body). The zone still uses 5 of 10 Cache Rules.
 
 ## Apply (owner)
 
