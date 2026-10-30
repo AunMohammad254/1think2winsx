@@ -78,7 +78,7 @@ describe('buildPublicMatch', () => {
     expect(match.questions).toEqual([
       {
         id: 'q1', innings: 1, over: 2, text: 'Lahore: will over 2 go for 8 or more runs?', textRomanUrdu: 'Lahore: kya over 2 mein 8 ya us se zyada runs banenge?',
-        options: ['Yes', 'No'], state: 'open', closesAt: '2026-10-29T12:01:00Z', correctOption: null,
+        options: ['Yes', 'No'], optionsRomanUrdu: ['Haan', 'Nahi'], state: 'open', closesAt: '2026-10-29T12:01:00Z', correctOption: null,
       },
       expect.objectContaining({ id: 'q0', state: 'settled', correctOption: 1 }),
       // A voided question's option never shows

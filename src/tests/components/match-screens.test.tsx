@@ -494,7 +494,7 @@ describe('MatchConsole', () => {
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: /Go live/ }));
     expect(await screen.findByText('Players can see this match')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '/match/m1' })).toHaveAttribute('href', '/match/m1');
+    expect(screen.getByText(/each over's questions pop up on the live stream once you send them/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Hide from players/ }));
     expect(confirm).toHaveBeenLastCalledWith(expect.stringMatching(/^Hide this match from players\?/));
     expect(await screen.findByText("Players can't see this match yet")).toBeInTheDocument();

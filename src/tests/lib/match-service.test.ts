@@ -21,7 +21,7 @@ vi.mock('@/lib/match-wording', async (importOriginal) => ({
 
 const {
   loadMatch, matchView, ballLabel, applyMatchEvent, createMatch, listMatches, sendDrafts, skipDrafts, setAutoSend,
-  setPublished, setMaxEntries, announceMatch, matchLink,
+  setPublished, setMaxEntries, announceMatch, MATCH_LINK,
 } = await import('@/lib/match-service');
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
@@ -560,11 +560,12 @@ describe('who can play: Go live and the player limit', () => {
     await expect(setMaxEntries('m1', 1, 'a')).rejects.toEqual({ message: 'down' });
   });
 
-  it('tells every player, with a link to the match screen', async () => {
-    expect(matchLink('m1')).toBe('/match/m1');
-    await announceMatch('m1', 'Lahore vs Karachi');
+  it('tells every player, with a link to the quiz page where its overs pop up on the stream', async () => {
+    expect(MATCH_LINK).toBe('/quizzes');
+    await announceMatch('Lahore vs Karachi');
     expect(createBroadcast).toHaveBeenCalledWith({
-      title: '🔴 Live match', message: 'Lahore vs Karachi: predict what happens in every over. Free to play!', type: 'quiz_deadline', link: '/match/m1',
+      title: '🔴 Live match', message: 'Lahore vs Karachi: predict what happens in every over, right on the live stream. Free to play!',
+      type: 'quiz_deadline', link: '/quizzes',
     });
     // No search through the notifications: setPublished decides whether to tell
     expect(db.callsTo('Notification')).toHaveLength(0);

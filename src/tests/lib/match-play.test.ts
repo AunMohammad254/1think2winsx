@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
-import { byOver, clockOffset, closesAt, isOpen, tally, type FeedQuestion } from '@/lib/match-play';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { clockOffset, openOver, readAnswered, rememberAnswered, scoreLine, type FeedQuestion } from '@/lib/match-play';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const q = (over: Partial<FeedQuestion> = {}): FeedQuestion => ({
-  id: 'q1', innings: 1, over: 3, text: 'Will a wicket fall in over 3?', textRomanUrdu: null, options: ['Yes', 'No'],
+  id: 'q1', innings: 1, over: 3, text: 'Will a wicket fall in over 3?', textRomanUrdu: null, options: ['Yes', 'No'], optionsRomanUrdu: ['Haan', 'Nahi'],
   state: 'open', closesAt: '2026-10-29T12:01:00Z', correctOption: null, ...over,
 });
 
@@ -18,39 +18,64 @@ describe('clockOffset', () => {
   });
 });
 
-describe('isOpen', () => {
-  it('takes answers until it closes, whatever an older copy of the feed says', () => {
-    expect(isOpen(q(), NOW)).toBe(true);
-    expect(isOpen(q(), Date.parse('2026-10-29T12:01:00Z'))).toBe(false);
-    expect(isOpen(q({ closesAt: null }), NOW)).toBe(true);
-    expect(isOpen(q({ state: 'closed' }), NOW)).toBe(false);
+describe('openOver', () => {
+  it('finds the over taking answers now, and when its first question closes', () => {
+    const over = openOver([
+      q({ id: 'old', over: 2, state: 'settled', closesAt: '2026-10-29T11:55:00Z' }),
+      q({ id: 'a' }),
+      q({ id: 'b', closesAt: '2026-10-29T12:00:40Z' }),
+    ], NOW)!;
+    expect(over).toMatchObject({ innings: 1, over: 3, closesAtMs: Date.parse('2026-10-29T12:00:40Z') });
+    expect(over.questions.map((x) => x.id)).toEqual(['a', 'b']);
+  });
+
+  it('takes the later over should two be open, and none once time is up, closed early or without a time', () => {
+    const later = openOver([q({ id: 'a', over: 5 }), q({ id: 'b', innings: 2, over: 1 }), q({ id: 'c', over: 4 })], NOW)!;
+    expect([later.innings, later.over]).toEqual([2, 1]);
+    expect(openOver([q({ id: 'a', over: 5 }), q({ id: 'c', over: 4 })], NOW)!.over).toBe(5);
+    expect(openOver([q()], Date.parse('2026-10-29T12:01:00Z'))).toBeNull();
+    expect(openOver([q({ state: 'closed' }), q({ closesAt: null })], NOW)).toBeNull();
+    expect(openOver([], NOW)).toBeNull();
   });
 });
 
-describe('byOver and closesAt', () => {
-  it('groups the questions by innings and over, and finds when a group closes', () => {
-    const groups = byOver([
-      q({ id: 'a', over: 2 }), q({ id: 'b', over: 2, closesAt: '2026-10-29T11:59:00Z' }),
-      q({ id: 'c', over: 3, closesAt: null }), q({ id: 'd', innings: 2, over: 3 }),
-    ]);
-    expect(groups.map((g) => [g.key, g.questions.map((x) => x.id)])).toEqual([['1.2', ['a', 'b']], ['1.3', ['c']], ['2.3', ['d']]]);
-    expect(closesAt(groups[0], NOW - 120_000)).toBe(Date.parse('2026-10-29T11:59:00Z'));
-    // Only the questions still open count
-    expect(closesAt(groups[0], NOW)).toBe(Date.parse('2026-10-29T12:01:00Z'));
-    expect(closesAt(groups[1], NOW)).toBeNull();
-    // Nor one the server said closed early
-    expect(closesAt(groups[0], NOW - 120_000, new Set(['b']))).toBe(Date.parse('2026-10-29T12:01:00Z'));
-    expect(closesAt(groups[0], NOW, new Set(['a']))).toBeNull();
+describe('scoreLine', () => {
+  const match = { title: 'Lahore vs Karachi' } as never;
+  const innings = { innings: 1 as const, battingTeam: 'Lahore', endReason: null, runs: 48, wickets: 2, oversText: '6.0', target: null, overs: [] };
+
+  it('gives the innings being played, with the target in a chase', () => {
+    expect(scoreLine({ match, innings: [innings] })).toBe('Lahore 48/2 (6.0 overs)');
+    expect(scoreLine({ match, innings: [innings, { ...innings, innings: 2, battingTeam: 'Karachi', runs: 12, wickets: 0, oversText: '1.3', target: 151 }] }))
+      .toBe('Karachi 12/0 (1.3 overs, target 151)');
+  });
+
+  it("names the match before an innings starts", () => {
+    expect(scoreLine({ match, innings: [] })).toBe('Lahore vs Karachi');
   });
 });
 
-describe('tally', () => {
-  it('counts right answers among the settled questions the player answered', () => {
-    const questions = [
-      q({ id: 'a', state: 'settled', correctOption: 0 }), q({ id: 'b', state: 'settled', correctOption: 1 }),
-      q({ id: 'c', state: 'settled', correctOption: 1 }), q({ id: 'd', state: 'closed' }),
-    ];
-    expect(tally(questions, { a: 0, b: 0, d: 1 })).toEqual({ right: 1, settled: 2 });
-    expect(tally(questions, {})).toEqual({ right: 0, settled: 0 });
+describe('readAnswered and rememberAnswered', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("remembers this player's locked-in questions for a match, on this device", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set());
+    rememberAnswered('u1', 'mq1', new Set(['a', 'b']));
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set(['a', 'b']));
+    // Another player on the same device, or another match: their own
+    expect(readAnswered('u2', 'mq1')).toEqual(new Set());
+    expect(store.get('t2w:match-answered:u1:mq1')).toBe('["a","b"]');
+    // Anything odd kept there reads as nothing answered
+    store.set('t2w:match-answered:u1:mq1', '{"a":1}');
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set());
+    store.set('t2w:match-answered:u1:mq1', '["a",7]');
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set(['a']));
+  });
+
+  it('carries on without storage (private mode, storage full)', () => {
+    vi.stubGlobal('localStorage', { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('full'); } });
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set());
+    expect(() => rememberAnswered('u1', 'mq1', new Set(['a']))).not.toThrow();
   });
 });

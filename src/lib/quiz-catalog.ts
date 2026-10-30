@@ -11,9 +11,9 @@ import { DEFAULT_MAX_ENTRIES } from '@/lib/quiz-entries';
  * same moment (e.g. after a push notification or a realtime "quiz published" event)
  * the database is queried once, not 5,000 times.
  *
- * A live match's quiz (match mode) is never part of it: players play a match on its own screen
- * (/match/[id]), and its questions close one by one. The same read lists the matches players can see
- * (getLiveMatches), for the match cards.
+ * A live match's quiz (match mode) is never part of it: its questions close one by one, and each over pops
+ * up on the stream from the match's own feed. The same read lists the matches players can see
+ * (getLiveMatches), so the quiz page knows which feed to follow.
  */
 
 export interface CatalogQuestion { id: string; text: string; options: string[] }

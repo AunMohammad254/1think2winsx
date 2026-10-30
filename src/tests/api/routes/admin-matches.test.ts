@@ -197,7 +197,7 @@ describe('PATCH /api/admin/matches/[id]', () => {
     expect(service.announceMatch).not.toHaveBeenCalled();
     expect(afterResponse).toHaveLength(1);
     await afterResponse[0]();
-    expect(service.announceMatch).toHaveBeenCalledWith('m1', 'Lahore vs Karachi');
+    expect(service.announceMatch).toHaveBeenCalledWith('Lahore vs Karachi');
 
     // A failed broadcast is only logged
     service.announceMatch.mockRejectedValue(new Error('push down'));

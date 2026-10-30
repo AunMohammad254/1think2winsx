@@ -290,8 +290,8 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
               <h3 className="font-semibold text-white">{match.published ? 'Players can see this match' : 'Players can\'t see this match yet'}</h3>
               <p className="text-xs text-gray-400">
                 {match.published
-                  ? <>They play it at <a href={`/match/${match.id}`} target="_blank" rel="noreferrer" className="underline">/match/{match.id}</a>.</>
-                  : 'Go live puts it on the quiz list and tells every player.'}
+                  ? 'On the Quizzes page, each over\'s questions pop up on the live stream once you send them.'
+                  : 'Go live tells every player, and each over\'s questions you send then pop up on the live stream.'}
               </p>
             </div>
             {match.published ? (

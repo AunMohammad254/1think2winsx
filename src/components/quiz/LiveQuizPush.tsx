@@ -10,11 +10,16 @@ import { ENTRIES_CLOSED_MESSAGE } from '@/lib/quiz-entries';
 import { describeStart, formatClock } from '@/lib/live-countdown';
 import { isStreamFullscreen } from '@/lib/stream-fullscreen';
 import { isNotificationSoundOn, playChime } from '@/lib/notification-sound';
+import { MATCH_POPUP_MARGIN_SECONDS } from '@/lib/match-engine';
 
 interface PushedQuestion {
     id: string;
     text: string;
     options: string[];
+    /** A live match's question in Roman Urdu: shown first, the English under it */
+    textRomanUrdu?: string | null;
+    /** Its options in Roman Urdu (null where one has none), shown with the English */
+    optionsRomanUrdu?: Array<string | null>;
 }
 
 interface PushedQuizData {
@@ -29,6 +34,28 @@ interface LiveEntry {
     title: string;
     endsAtMs: number | null;
     windowMs: number | null;
+    /**
+     * A live match's over (see MatchPush): its questions come with it, and the header shows the score.
+     * `closesAtMs`: when the server stops taking its answers (the countdown ends before, see MATCH_MARGIN_MS).
+     */
+    match?: { quiz: PushedQuizData; over: number; matchTitle: string; score: string; closesAtMs: number };
+}
+
+/**
+ * One over of a live match (match mode), as the quiz page sees it in the match's feed: its questions pop
+ * up like a pushed quiz. `key` names that set of questions (one pop-up each); answers go to `quizId`, the
+ * match's quiz. `closesAtMs`: device time the over's answers close (it moves when the scorer closes them
+ * early or reopens them); `windowMs`: how long they have been open.
+ */
+export interface MatchPush {
+    key: string;
+    quizId: string;
+    matchTitle: string;
+    over: number;
+    score: string;
+    closesAtMs: number;
+    windowMs: number;
+    questions: PushedQuestion[];
 }
 
 /** An announced quiz that hasn't started. `startsAtMs` null: no start time was set. */
@@ -60,6 +87,11 @@ export interface LiveQuizPushHandle {
      * refuse; false (the limit was raised, or the viewer got in) lets them submit again.
      */
     setEntriesClosed: (quizId: string, closed: boolean) => void;
+    /**
+     * From every check of a live match's feed: the over taking answers. A new over pops up like a pushed
+     * quiz; the same one again only updates its close time and the score in its header.
+     */
+    match: (push: MatchPush) => void;
 }
 
 interface LiveQuizPushProps {
@@ -70,6 +102,8 @@ interface LiveQuizPushProps {
      * instead of the personal route: quizzes are free and the viewer has not answered this one.
      */
     canUseSharedCopy?: (quizId: string) => boolean;
+    /** A live match's over was locked in: the questions answered, so they don't pop up again after a reload */
+    onMatchLocked?: (quizId: string, questionIds: string[]) => void;
 }
 
 type Panel = 'hidden' | 'popup' | 'split';
@@ -86,6 +120,14 @@ const TIME_UP_MESSAGE = 'The time is up for the quiz. You cannot lock in answer.
  * server's 30 s grace period, so a crowd whose countdowns all reach zero together doesn't submit at once.
  */
 const AUTO_LOCK_SPREAD_MS = 15_000;
+
+/**
+ * A live match's questions close at their own time, with no grace period: the countdown ends this long
+ * before it, and the answers given are locked in over the next MATCH_LOCK_SPREAD_MS, so a crowd's arrive
+ * spread out, and all of them in time.
+ */
+const MATCH_MARGIN_MS = MATCH_POPUP_MARGIN_SECONDS * 1000;
+const MATCH_LOCK_SPREAD_MS = MATCH_MARGIN_MS - 5_000;
 
 const parseMs = (iso: string | null | undefined) => {
     const ms = iso ? Date.parse(iso) : NaN;
@@ -129,7 +171,7 @@ function Ring({ fraction, label }: { fraction: number; label?: string }) {
  * For the same reason a quiz pushed while the viewer is mid-answer waits as
  * "next" instead of replacing the one they are answering.
  */
-const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function LiveQuizPush({ onAnswered, canUseSharedCopy }, ref) {
+const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function LiveQuizPush({ onAnswered, canUseSharedCopy, onMatchLocked }, ref) {
     const [panel, setPanel] = useState<Panel>('hidden');
     const [banner, setBanner] = useState<Banner>(null);
     const [bannerShown, setBannerShown] = useState(false);
@@ -155,10 +197,10 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
 
     // Latest state for the handle, which the page calls from its live check. A layout effect, so it is
     // current as soon as a render commits (a push right after "Lock in" must see the lock)
-    const stateRef = useRef({ panel, banner, live, next, quiz, locked, answers, submitting });
+    const stateRef = useRef({ panel, banner, live, next, quiz, locked, answers, submitting, autoLocking });
     useLayoutEffect(() => {
-        stateRef.current = { panel, banner, live, next, quiz, locked, answers, submitting };
-    }, [panel, banner, live, next, quiz, locked, answers, submitting]);
+        stateRef.current = { panel, banner, live, next, quiz, locked, answers, submitting, autoLocking };
+    }, [panel, banner, live, next, quiz, locked, answers, submitting, autoLocking]);
 
     // One tick a second while something counts down
     const counting = live?.endsAtMs != null || upcoming !== null;
@@ -224,10 +266,10 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         }
     }, [canUseSharedCopy]);
 
-    // Starts `entry` from scratch (a new push, or the queued one)
+    // Starts `entry` from scratch (a new push, or the queued one). A live match's over brings its questions.
     const startFresh = useCallback((entry: LiveEntry) => {
         setLive(entry);
-        setQuiz(null);
+        setQuiz(entry.match?.quiz ?? null);
         setAnswers({});
         setLocked(false);
         setLoadError(null);
@@ -235,17 +277,18 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         setAutoLocking(false);
     }, []);
 
-    const notify = useCallback((quizId: string, quizTitle: string, endsAt: string | null = null, durationMinutes = 0) => {
-        const entry: LiveEntry = { id: quizId, title: quizTitle, endsAtMs: parseMs(endsAt), windowMs: durationMinutes * 60_000 || null };
+    // A pushed quiz, or a live match's over, arrives: banner first
+    const arrive = useCallback((entry: LiveEntry) => {
         setNow(Date.now());
-        // The announcement for this quiz is over: it is live now
-        setUpcoming((u) => (u?.id === quizId ? null : u));
         alertViewer();
         const s = stateRef.current;
-        if (s.panel !== 'hidden' && !s.locked && Object.keys(s.answers).length > 0) {
-            // Mid-answer: never wipe what the viewer picked. Pushed again, the same quiz just gets its
-            // new window; another one waits as "next" in the panel.
-            if (s.live!.id === quizId) setLive(entry);
+        // Mid-answer: picks not locked in yet, and either time left or the deadline lock-in on its way.
+        // One whose time is up with nothing left to send doesn't hold the new one back.
+        const stillAnswering = () => s.live!.endsAtMs === null || s.live!.endsAtMs > Date.now() || s.autoLocking;
+        if (s.panel !== 'hidden' && !s.locked && Object.keys(s.answers).length > 0 && stillAnswering()) {
+            // Never wipe what the viewer picked. Pushed again, the same quiz just gets its new window;
+            // another one waits as "next" in the panel.
+            if (s.live!.id === entry.id) setLive(entry);
             else setNext(entry);
             return;
         }
@@ -257,6 +300,41 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         setPanel('hidden');
         showBanner('live');
     }, [showBanner, startFresh]);
+
+    const notify = useCallback((quizId: string, quizTitle: string, endsAt: string | null = null, durationMinutes = 0) => {
+        // The announcement for this quiz is over: it is live now
+        setUpcoming((u) => (u?.id === quizId ? null : u));
+        arrive({ id: quizId, title: quizTitle, endsAtMs: parseMs(endsAt), windowMs: durationMinutes * 60_000 || null });
+    }, [arrive]);
+
+    // The overs that already popped up: checked again, one only follows its close time and score
+    const matchOversRef = useRef(new Set<string>());
+    const match = useCallback((push: MatchPush) => {
+        const endsAtMs = push.closesAtMs - MATCH_MARGIN_MS;
+        if (matchOversRef.current.has(push.key)) {
+            // The same object back when nothing changed, so a check every few seconds doesn't re-render
+            const follow = (entry: LiveEntry | null) => (entry?.id === push.key && (entry.endsAtMs !== endsAtMs || entry.match!.score !== push.score)
+                ? { ...entry, endsAtMs, match: { ...entry.match!, score: push.score, closesAtMs: push.closesAtMs } }
+                : entry);
+            setLive(follow);
+            setNext(follow);
+            return;
+        }
+        matchOversRef.current.add(push.key);
+        arrive({
+            id: push.key,
+            title: `Over ${push.over} · ${push.matchTitle}`,
+            endsAtMs,
+            windowMs: Math.max(1, push.windowMs - MATCH_MARGIN_MS),
+            match: {
+                quiz: { id: push.quizId, title: push.matchTitle, questions: push.questions },
+                over: push.over,
+                matchTitle: push.matchTitle,
+                score: push.score,
+                closesAtMs: push.closesAtMs,
+            },
+        });
+    }, [arrive]);
 
     const announce = useCallback((quizId: string, quizTitle: string, startsAt: string | null) => {
         setNow(Date.now());
@@ -286,7 +364,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         else closedEntriesRef.current.delete(quizId);
     }, []);
 
-    useImperativeHandle(ref, () => ({ notify, announce, open, setEntriesClosed }), [notify, announce, open, setEntriesClosed]);
+    useImperativeHandle(ref, () => ({ notify, announce, open, setEntriesClosed, match }), [notify, announce, open, setEntriesClosed, match]);
 
     // From the live banner or pill. Both show only for a pushed quiz, so there is always one to open;
     // a quiz already loaded is not fetched again.
@@ -301,7 +379,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         const queued = stateRef.current.next!;
         setNext(null);
         startFresh(queued);
-        loadQuiz(queued.id);
+        // A live match's over came with its questions
+        if (!queued.match) loadQuiz(queued.id);
     }, [startFresh, loadQuiz]);
 
     // Closing with a quiz waiting brings that one up
@@ -370,13 +449,16 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             setLocked(true);
             const n = picked.length;
             toast.success(atDeadline ? `Time's up: your ${n} answer${n === 1 ? ' was' : 's were'} locked in.` : 'Answer locked in!');
-            onAnswered?.();
+            // Not the page's refresh for a live match's over: every player locks one in each over, and the
+            // refresh is a request to the server per player. The page remembers the over instead.
+            if (live?.match) onMatchLocked?.(loaded.id, picked.map((q) => q.id));
+            else onAnswered?.();
         } catch (err) {
             toast.error(err instanceof Error ? err.message : 'Failed to submit your answer');
         } finally {
             setSubmitting(false);
         }
-    }, [quiz, answers, live, onAnswered]);
+    }, [quiz, answers, live, onAnswered, onMatchLocked]);
     const submit = useCallback(() => send(false), [send]);
     // The deadline lock-in runs from a timer: it must use the answers as they are when it fires
     const sendRef = useRef(send);
@@ -400,14 +482,20 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         const s = stateRef.current;
         // A Lock in already on its way covers it, and so does one already done
         if (!s.quiz || s.locked || s.submitting || !s.quiz.questions.some((q) => s.answers[q.id] !== undefined)) return;
+        // A live match's over the scorer closed early: the server takes no more answers
+        const closed = () => {
+            const entry = stateRef.current.live!;
+            return !!entry.match && Date.now() >= entry.match.closesAtMs;
+        };
+        if (closed()) return;
         setAutoLocking(true);
         autoLockTimerRef.current = setTimeout(async () => {
             try {
-                await sendRef.current(true);
+                if (!closed()) await sendRef.current(true);
             } finally {
                 setAutoLocking(false);
             }
-        }, Math.random() * AUTO_LOCK_SPREAD_MS);
+        }, Math.random() * (s.live!.match ? MATCH_LOCK_SPREAD_MS : AUTO_LOCK_SPREAD_MS));
     }, [timeIsUp, deadlineKey]);
 
     // Pills under the stream (over it, in fullscreen) for what the banners announced
@@ -429,8 +517,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                             </span>
                         )}
                         <span className="ttext">
-                            <span className="ttitle">New quiz just dropped</span>
-                            <span className="tsub">{live!.title} · tap to play</span>
+                            <span className="ttitle">{live!.match ? `Over ${live!.match.over}: what will happen?` : 'New quiz just dropped'}</span>
+                            <span className="tsub">{live!.match ? live!.match.matchTitle : live!.title} · tap to play</span>
                         </span>
                     </button>
                     <button className="lq-banner-close" onClick={hideBanner} aria-label="Close notification">
@@ -459,7 +547,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                     {livePill && (
                         <button className="lq-pill live" onClick={openPanel} aria-label={`Play live quiz ${live!.title}, ${formatClock(liveLeft!)} left`}>
                             <Ring fraction={liveFraction} />
-                            <span className="lq-pill-text">Live quiz · {formatClock(liveLeft!)}</span>
+                            <span className="lq-pill-text">{live!.match ? `Over ${live!.match.over}` : 'Live quiz'} · {formatClock(liveLeft!)}</span>
                         </button>
                     )}
                     {upcomingPill && (
@@ -498,6 +586,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                 </button>
                             </div>
                         </div>
+                        {live!.match && <div className="qp-score">{live!.match.score}</div>}
                         {liveLeft !== null && (
                             <div className="qp-progress" aria-hidden="true"><span style={{ width: `${liveFraction * 100}%` }} /></div>
                         )}
@@ -588,7 +677,10 @@ const LiveQuizQuestions = memo(function LiveQuizQuestions({
                 const groupId = `${baseId}-${i}`;
                 return (
                     <div key={q.id} role="radiogroup" aria-labelledby={groupId}>
-                        <div className="qp-q" id={groupId}>{i + 1}. {q.text}</div>
+                        <div className="qp-q" id={groupId}>
+                            {i + 1}. {q.textRomanUrdu ?? q.text}
+                            {q.textRomanUrdu && <span className="qp-q-en">{q.text}</span>}
+                        </div>
                         {q.options.map((opt, idx) => {
                             const picked = answers[q.id] === idx;
                             return (
@@ -601,7 +693,7 @@ const LiveQuizQuestions = memo(function LiveQuizQuestions({
                                         disabled={locked || closed}
                                         onChange={() => pick(q.id, idx)}
                                     />
-                                    {opt}
+                                    {q.optionsRomanUrdu?.[idx] ? `${q.optionsRomanUrdu[idx]} · ${opt}` : opt}
                                 </label>
                             );
                         })}

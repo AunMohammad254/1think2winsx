@@ -28,8 +28,9 @@ import {
  * English and Roman Urdu. Unless the match sends them automatically, they wait as drafts
  * (migration 20261031120000_match_question_review) until an admin sends, edits or skips them.
  *
- * Players see a match once an admin takes it live (its quiz goes from draft to active), on the match
- * screen (/match/[id], fed by src/lib/match-feed.ts) rather than the ordinary quiz list.
+ * Players see a match once an admin takes it live (its quiz goes from draft to active): on the quiz page,
+ * each over's questions pop up on the live stream like a pushed quiz (src/hooks/useMatchPush.ts, fed by
+ * src/lib/match-feed.ts). The match is not in the ordinary quiz list.
  */
 
 export interface MatchRow {
@@ -505,20 +506,20 @@ export function setAutoSend(matchId: string, autoSend: boolean, admin: string): 
   }));
 }
 
-/** Where players play a match */
-export const matchLink = (matchId: string) => `/match/${matchId}`;
+/** Where players play a match: the quiz page, where each over's questions pop up on the live stream */
+export const MATCH_LINK = '/quizzes';
 
 /**
- * Tells every player a match went live: a bell notification (and web push) that opens the match screen.
- * Slow on a big user base, so the route runs it after its response, and only for the first Go live
- * (setPublished's `announce`).
+ * Tells every player a match went live: a bell notification (and web push) that opens the quiz page, where
+ * its overs pop up on the stream. Slow on a big user base, so the route runs it after its response, and
+ * only for the first Go live (setPublished's `announce`).
  */
-export async function announceMatch(matchId: string, title: string): Promise<void> {
+export async function announceMatch(title: string): Promise<void> {
   await notificationDb.createBroadcast({
     title: '🔴 Live match',
-    message: `${title}: predict what happens in every over. Free to play!`,
+    message: `${title}: predict what happens in every over, right on the live stream. Free to play!`,
     type: 'quiz_deadline',
-    link: matchLink(matchId),
+    link: MATCH_LINK,
   });
 }
 

@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
   liveFetch: vi.fn(),
   // Keyed by interval: the slow personal poll and the 5 s live check
   polls: {} as Record<number, Poll>,
-  push: { notify: vi.fn(), announce: vi.fn(), open: vi.fn(), setEntriesClosed: vi.fn() },
+  push: { notify: vi.fn(), announce: vi.fn(), open: vi.fn(), setEntriesClosed: vi.fn(), match: vi.fn() },
   // Latest props the page gave LazyStreamPlayer
   streamProps: null as null | { onAvailabilityChange?: (available: boolean) => void },
   // false: LiveQuizPush's lazy chunk has not loaded yet
@@ -88,7 +88,7 @@ beforeEach(() => {
   h.suspend = false;
   h.polls = {};
   h.pushMounted = true;
-  for (const f of [h.router.push, h.router.replace, h.push.notify, h.push.announce, h.push.open, h.push.setEntriesClosed, ...Object.values(h.toast), ...Object.values(h.wallet)]) f.mockReset();
+  for (const f of [h.router.push, h.router.replace, h.push.notify, h.push.announce, h.push.open, h.push.setEntriesClosed, h.push.match, ...Object.values(h.toast), ...Object.values(h.wallet)]) f.mockReset();
   Element.prototype.scrollIntoView = vi.fn();
   h.fetchWithRetry.mockReset().mockImplementation(async () => ok());
   h.liveFetch.mockReset().mockImplementation(async () => snapshot('v0', []));
@@ -368,31 +368,32 @@ describe('quizzes page: live updates', () => {
     expect(h.push.announce).toHaveBeenCalledTimes(1);
   });
 
-  it('lists the live matches from the live check, popping up one taken live since the last check', async () => {
-    const match = (id: string, over: Record<string, unknown> = {}) =>
-      ({ id, title: `Match ${id}`, teamA: 'Lahore', teamB: 'Karachi', status: 'live', ...over });
-    const withMatches = (version: string, matches: unknown[]) => jsonResponse({ version, quizzes: [], matches });
-    h.liveFetch.mockImplementation(async () => withMatches('m-a', [match('m1')]));
+  it("pops a live match's over up on the stream, from the match the live check lists, with no list or page of its own", async () => {
+    const closesAt = new Date(Date.now() + 90_000).toISOString();
+    const feed = {
+      match: { id: 'm1', quizId: 'mq1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 20, status: 'live', settled: false, entriesClosed: false },
+      innings: [{ innings: 1, battingTeam: 'Lahore', endReason: null, runs: 48, wickets: 2, oversText: '6.0', target: null, overs: [] }],
+      questions: [{ id: 'r', innings: 1, over: 7, text: 'Will over 7 go for 8 or more runs?', textRomanUrdu: 'Kya over 7 mein 8 ya zyada runs banenge?', options: ['Yes', 'No'], optionsRomanUrdu: ['Haan', 'Nahi'], state: 'open', closesAt, correctOption: null }],
+      // This file mocks Date.now, not new Date()
+      serverNow: new Date(Date.now()).toISOString(),
+    };
+    h.liveFetch.mockImplementation(async (url: string) => {
+      if (url === '/api/live/matches/m1') return jsonResponse(feed);
+      return jsonResponse({ version: 'm-a', quizzes: [], matches: [{ id: 'm1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', status: 'live' }] });
+    });
     render(<QuizzesPage />);
     await loaded();
     await act(async () => { await livePoll().task(); });
-    // Already live when the page opened: listed, no pop-up
-    const list = screen.getByRole('region', { name: 'Live matches' });
-    expect(within(list).getByRole('link', { name: /Match m1/ })).toHaveAttribute('href', '/match/m1');
-    expect(h.toast.info).not.toHaveBeenCalled();
-
-    h.liveFetch.mockImplementation(async () => withMatches('m-b', [match('m1'), match('m2', { status: 'completed' })]));
-    await act(async () => { await livePoll().task(); });
-    expect(h.toast.info).toHaveBeenCalledTimes(1);
-    expect(h.toast.info).toHaveBeenCalledWith('Live match: Match m2', expect.objectContaining({ description: 'Predict every over. Free to play', duration: 10000 }));
-    h.toast.info.mock.calls[0][1].action.onClick();
-    expect(h.router.push).toHaveBeenCalledWith('/match/m2');
-    expect(within(screen.getByRole('region', { name: 'Live matches' })).getByText('See how it ended')).toBeInTheDocument();
-
-    // A snapshot from before matches existed lists none
-    h.liveFetch.mockImplementation(async () => snapshot('v-old', []));
-    await act(async () => { await livePoll().task(); });
+    await waitFor(() => expect(h.push.match).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'm1:r', quizId: 'mq1', matchTitle: 'Lahore vs Karachi', over: 7, score: 'Lahore 48/2 (6.0 overs)',
+    })));
+    // The pop-up tells the page what was locked in, so it isn't asked again after a reload
+    expect(h.liveProps).toMatchObject({ onMatchLocked: expect.any(Function) });
+    expect(h.liveFetch).toHaveBeenCalledWith('/api/live/matches/m1', { credentials: 'omit' });
+    // Polled every 3 s while a match is on
+    expect(h.polls[3_000].opts).toMatchObject({ enabled: true });
     expect(screen.queryByRole('region', { name: 'Live matches' })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Lahore vs Karachi/ })).toBeNull();
   });
 
   it('patches the list in place from the live snapshot, and pops up a newly pushed quiz once', async () => {
