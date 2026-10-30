@@ -30,3 +30,7 @@
 ## 2026-10-28 - [LiveQuizPush Questions React.memo optimization]
 **Learning:** Found that `LiveQuizPush` inside the live streaming page had a timer `setInterval` at the root that updated `now` state every second. Because it wasn't extracted, the entire modal, including the complex `quiz.questions` map containing `onClick` handlers, needlessly re-rendered every second.
 **Action:** Extract large lists or static layouts from inside components with timer intervals into dedicated child components wrapped in `React.memo()`. Always wrap callbacks (like `pick`) with `useCallback` when passing them to memoized components to preserve shallow comparison.
+
+## 2026-10-30 - [Memoize Framer Motion PodiumSection]
+**Learning:** Found that the `PodiumSection` component, which renders heavy `framer-motion` animations, was not memoized, unlike the `LeaderboardRow` components. If the parent page frequently re-renders (e.g., from timer updates or polling), this unmemoized static section will incur a performance cost.
+**Action:** Use `React.memo` on heavy static presentation components (like the Podium) to shield them from parent re-renders caused by unrelated state changes or polling timers.
