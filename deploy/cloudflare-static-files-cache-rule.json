@@ -1,0 +1,16 @@
+{
+  "ref": "public_static_files",
+  "description": "Static files from public/ (/images/*, /Favicon/*, /favicon.ico): Next sends max-age=0, so without this every request revalidated with Hostinger. Keep 30 days at the edge (purged on every deploy), 4 h in browsers; never store errors",
+  "expression": "(http.host eq \"1think2win.com\" and (starts_with(http.request.uri.path, \"/images/\") or starts_with(http.request.uri.path, \"/Favicon/\") or http.request.uri.path eq \"/favicon.ico\"))",
+  "action": "set_cache_settings",
+  "action_parameters": {
+    "cache": true,
+    "edge_ttl": {
+      "mode": "override_origin",
+      "default": 2592000,
+      "status_code_ttl": [{ "status_code_range": { "from": 400 }, "value": -1 }]
+    },
+    "browser_ttl": { "mode": "override_origin", "default": 14400 }
+  },
+  "enabled": true
+}

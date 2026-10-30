@@ -1,0 +1,12 @@
+{
+  "ref": "leaderboard_api",
+  "description": "Leaderboard API (/api/leaderboard): the same for every visitor, cache for the time its Cache-Control allows (60 s)",
+  "expression": "(http.host eq \"1think2win.com\" and http.request.uri.path eq \"/api/leaderboard\")",
+  "action": "set_cache_settings",
+  "action_parameters": {
+    "cache": true,
+    "edge_ttl": { "mode": "bypass_by_default" },
+    "browser_ttl": { "mode": "respect_origin" }
+  },
+  "enabled": true
+}
