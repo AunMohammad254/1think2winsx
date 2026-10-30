@@ -51,9 +51,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (outcome.ok && outcome.data.changed) {
         // The match card shows on the quiz list now, not when the catalogue next refreshes
         invalidateQuizCatalog();
-        const { match } = outcome.data.view;
         if (outcome.data.announce) {
-          after(() => announceMatch(match.id, match.title).catch((error) => console.error('[matches] Announcing the match failed:', error)));
+          const { title } = outcome.data.view.match;
+          after(() => announceMatch(title).catch((error) => console.error('[matches] Announcing the match failed:', error)));
         }
       }
       result = outcome.ok ? { ok: true as const, data: outcome.data.view } : outcome;

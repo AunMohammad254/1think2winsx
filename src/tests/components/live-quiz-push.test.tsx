@@ -17,7 +17,7 @@ vi.mock('@/lib/csrf', () => ({ getCSRFToken: () => h.getCSRFToken() }));
 vi.mock('@/lib/fetch-retry', () => ({ fetchWithRetry: (...a: unknown[]) => h.fetchWithRetry(...a) }));
 vi.mock('@/lib/notification-sound', () => ({ playChime: () => h.chime(), isNotificationSoundOn: () => h.soundOn }));
 
-import LiveQuizPush, { type LiveQuizPushHandle } from '@/components/quiz/LiveQuizPush';
+import LiveQuizPush, { type LiveQuizPushHandle, type MatchPush } from '@/components/quiz/LiveQuizPush';
 import { STREAM_FULLSCREEN_ATTR } from '@/lib/stream-fullscreen';
 
 const quiz = { id: 'q1', title: 'Live Cricket', questions: [{ id: 'a', text: 'Who?', options: ['Babar', 'Rizwan'] }, { id: 'b', text: 'When?', options: ['1992', '2009'] }] };
@@ -671,5 +671,118 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(busy).toBeDisabled();
     await act(async () => release(jsonResponse({})));
     expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
+  });
+});
+
+describe('LiveQuizPush: a live match over', () => {
+  const push = (over: Partial<MatchPush> = {}): MatchPush => ({
+    key: 'm1:1.7', quizId: 'mq1', matchTitle: 'Lahore vs Karachi', over: 7, score: 'Lahore 48/2 (6.0 overs)',
+    closesAtMs: Date.now() + 75_000, windowMs: 90_000,
+    questions: [
+      { id: 'r', text: 'Will over 7 go for 8 or more runs?', textRomanUrdu: 'Kya over 7 mein 8 ya zyada runs banenge?', options: ['Yes', 'No'] },
+      { id: 'w', text: 'Will a wicket fall in over 7?', textRomanUrdu: 'Kya over 7 mein koi wicket giray ga?', options: ['Yes', 'No'] },
+    ],
+    ...over,
+  });
+  const overBanner = (n = 7) => screen.queryByText(`Over ${n}: what will happen?`);
+  const panel = (n = 7) => screen.getByRole('region', { name: `Over ${n} · Lahore vs Karachi` });
+
+  it('pops up like a pushed quiz, counting down to 15 s before it closes, with Roman Urdu first and the score', async () => {
+    fakeClock();
+    setup();
+    act(() => ref.current!.match(push()));
+    expect(overBanner()).toBeInTheDocument();
+    expect(screen.getByText('Lahore vs Karachi · tap to play')).toBeInTheDocument();
+    // 75 s until it closes, less the margin that gets the last answers there in time
+    expect(screen.getByText('1:00')).toBeInTheDocument();
+    expect(h.chime).toHaveBeenCalledTimes(1);
+    fireEvent.click(overBanner()!);
+    // Its questions came with it: nothing to load
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+    expect(within(panel()).getByLabelText('Score')).toHaveTextContent('Lahore 48/2 (6.0 overs)');
+    const first = within(panel()).getByRole('radiogroup', { name: /Kya over 7 mein 8/ });
+    expect(first).toHaveTextContent('1. Kya over 7 mein 8 ya zyada runs banenge?Will over 7 go for 8 or more runs?');
+    expect(within(first).getAllByRole('radio').map((r) => r.closest('label')!.textContent)).toEqual(['Haan · Yes', 'Nahi · No']);
+  });
+
+  it('shows the same over checked again with the new score only, and a pill naming the over', async () => {
+    fakeClock();
+    setup();
+    act(() => ref.current!.match(push()));
+    await tick(8000);
+    expect(screen.getByRole('button', { name: /Play live quiz Over 7 · Lahore vs Karachi/ })).toHaveTextContent('Over 7 · 0:52');
+    act(() => ref.current!.match(push({ score: 'Lahore 52/2 (6.2 overs)' })));
+    // No second banner or chime
+    expect(overBanner()).toBeNull();
+    expect(h.chime).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /Play live quiz Over 7/ }));
+    expect(within(panel()).getByLabelText('Score')).toHaveTextContent('Lahore 52/2 (6.2 overs)');
+  });
+
+  it("locks in to the match's quiz, without the page's refresh a quiz's lock-in asks for", async () => {
+    const { onAnswered } = setup();
+    h.fetchWithRetry.mockResolvedValue(jsonResponse({ message: 'ok' }));
+    act(() => ref.current!.match(push()));
+    fireEvent.click(overBanner()!);
+    const [yesRuns, , , noWicket] = within(panel()).getAllByRole('radio');
+    fireEvent.click(yesRuns);
+    fireEvent.click(noWicket);
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
+    const [url, init] = h.fetchWithRetry.mock.calls[0];
+    expect(url).toBe('/api/quizzes/mq1/submit');
+    expect(JSON.parse(init.body)).toEqual({ answers: [{ questionId: 'r', selectedOption: 0 }, { questionId: 'w', selectedOption: 1 }] });
+    expect(onAnswered).not.toHaveBeenCalled();
+    expect(screen.getByText(/Answer locked in/)).toBeInTheDocument();
+
+    // The next over pops up fresh
+    act(() => ref.current!.match(push({ key: 'm1:1.8', over: 8, questions: [
+      { id: 'x', text: 'Will over 8 have a four or a six?', textRomanUrdu: null, options: ['Maybe'] },
+      { id: 'y', text: 'Will a wicket fall in over 8?', textRomanUrdu: 'Kya over 8 mein koi wicket giray ga?', options: ['Yes', 'Shayad'] },
+    ] })));
+    expect(overBanner(8)).toBeInTheDocument();
+    fireEvent.click(overBanner(8)!);
+    // English only when there is no Roman Urdu; an option without a Roman Urdu label shows as it is
+    expect(within(panel(8)).getByText('1. Will over 8 have a four or a six?')).toBeInTheDocument();
+    expect(within(panel(8)).getByRole('radio', { name: 'Maybe' })).not.toBeChecked();
+    expect(within(panel(8)).getByRole('radio', { name: 'Haan · Yes' })).toBeInTheDocument();
+    expect(within(panel(8)).getByRole('radio', { name: 'Shayad' })).toBeInTheDocument();
+  });
+
+  it('waits as "next" while the viewer is answering something else, and comes with its questions', async () => {
+    setup();
+    act(() => ref.current!.open('q1'));
+    await waitFor(() => expect(option('Babar')).toBeInTheDocument());
+    fireEvent.click(option('Babar'));
+    act(() => ref.current!.match(push()));
+    expect(screen.getByText('Over 7 · Lahore vs Karachi')).toBeInTheDocument();
+    h.fetchWithRetry.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Play it now' }));
+    expect(within(panel()).getAllByRole('radio')).toHaveLength(4);
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+  });
+
+  it("doesn't pop an over up twice, even after another quiz took its place", async () => {
+    setup();
+    act(() => ref.current!.match(push()));
+    act(() => ref.current!.notify('q1', 'Live Cricket', inMs(60_000), 1));
+    act(() => ref.current!.match(push({ score: 'Lahore 60/2 (6.4 overs)' })));
+    expect(overBanner()).toBeNull();
+    expect(banner()).toBeInTheDocument();
+  });
+
+  it('locks in the answers given within 10 s of the countdown ending, before the over closes', async () => {
+    fakeClock();
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    setup();
+    h.fetchWithRetry.mockResolvedValue(jsonResponse({ message: 'ok' }));
+    act(() => ref.current!.match(push()));
+    fireEvent.click(overBanner()!);
+    fireEvent.click(within(panel()).getAllByRole('radio')[0]);
+    await tick(60_000);
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+    await tick(9_900);
+    expect(h.fetchWithRetry).toHaveBeenCalledTimes(1);
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was locked in.");
   });
 });

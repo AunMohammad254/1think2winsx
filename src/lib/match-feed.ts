@@ -2,9 +2,10 @@ import { loadMatch, matchView, type QuestionState } from '@/lib/match-service';
 import type { EndReason, InningsNumber, MatchStatus } from '@/lib/match-engine';
 
 /**
- * What players see of a live match (GET /api/live/matches/[id], the match screen): the score, ball by ball,
- * and the questions sent so far with their results. The same for every player, so Cloudflare serves one
- * copy to the whole crowd; never drafts, the scorer's settings or anything else only admins see.
+ * What players see of a live match (GET /api/live/matches/[id], read by the quiz page to pop each over's
+ * questions up on the stream): the score, ball by ball, and the questions sent so far with their results.
+ * The same for every player, so Cloudflare serves one copy to the whole crowd; never drafts, the scorer's
+ * settings or anything else only admins see.
  *
  * Each process keeps a match's copy for a moment and loads it once however many requests miss the edge
  * cache together (one per Cloudflare location every few seconds).

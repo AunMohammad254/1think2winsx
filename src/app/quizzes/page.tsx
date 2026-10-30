@@ -21,7 +21,7 @@ import { fetchWithRetry } from '@/lib/fetch-retry';
 import { useJitteredPolling } from '@/hooks/useJitteredPolling';
 import { mergeLiveQuizzes, NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT, type LiveSnapshot } from '@/lib/live-catalog';
 import type { LiveMatchCard } from '@/lib/quiz-catalog';
-import LiveMatchCards from '@/components/match/LiveMatchCards';
+import { useMatchPush } from '@/hooks/useMatchPush';
 import { computeQuizEndsAt } from '@/lib/quiz-clock';
 import PaymentModal from '@/components/quiz/PaymentModal';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
@@ -145,10 +145,8 @@ function QuizzesPageInner() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [walletEnabled, setWalletEnabled] = useState<boolean | null>(null); // null = loading
-  // Live matches (match mode), from the live check: each is played on its own screen
+  // Live matches (match mode), from the live check: each over's questions pop up on the stream
   const [liveMatches, setLiveMatches] = useState<LiveMatchCard[]>([]);
-  // The matches already listed; null until the first check, which pops nothing up
-  const seenMatchesRef = useRef<Set<string> | null>(null);
 
   // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by the live check)
   const refetchTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -319,20 +317,8 @@ function QuizzesPageInner() {
       const snapshot: LiveSnapshot = await response.json();
       if (snapshot.version === liveVersionRef.current) return true;
       liveVersionRef.current = snapshot.version;
-      // A match taken live since the last check pops up (the bell has its notification too)
-      const matches = snapshot.matches ?? [];
-      const seenMatches = seenMatchesRef.current;
-      for (const match of matches) {
-        if (seenMatches && !seenMatches.has(match.id)) {
-          toast.info(`Live match: ${match.title}`, {
-            description: 'Predict every over. Free to play',
-            action: { label: 'Play', onClick: () => router.push(`/match/${match.id}`) },
-            duration: 10000,
-          });
-        }
-      }
-      seenMatchesRef.current = new Set(matches.map((match) => match.id));
-      setLiveMatches(matches);
+      // A match taken live: useMatchPush pops its overs up on the stream
+      setLiveMatches(snapshot.matches ?? []);
       // Admin "push to live" (or a scheduled quiz going live): a pushedAt we have not reacted to yet
       // shows the live banner. A new announcedAt on an upcoming quiz shows the upcoming one.
       let notices = 0;
@@ -372,8 +358,9 @@ function QuizzesPageInner() {
     } catch {
       return false;
     }
-  }, [debouncedFreshFetch, router]);
+  }, [debouncedFreshFetch]);
   useJitteredPolling(checkLive, { intervalMs: 5_000, jitterMs: 2_000, enabled: !!userId });
+  useMatchPush(liveMatches, liveQuizPushRef);
 
   // Deep link from the notification bell / a "View Details" link on a
   // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
@@ -588,8 +575,6 @@ function QuizzesPageInner() {
         {hasAccess && paymentInfo && (
           <AccessStatusBanner paymentInfo={paymentInfo} onExpire={expireAccess} />
         )}
-
-        <LiveMatchCards matches={liveMatches} />
 
         {/* Live Stream Section — everything push/banner/split-related is scoped
             to this one relative+overflow-hidden box; it never affects the

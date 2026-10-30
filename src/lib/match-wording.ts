@@ -50,8 +50,9 @@ const MINUTE_MS = 60_000;
 // When a 429 doesn't say how long to wait
 const DEFAULT_PAUSE_MS = 60_000;
 export const MAX_QUESTION_LENGTH = 160;
-// The scorer is waiting on this when a ball opens the next over's questions
-const TIMEOUT_MS = 2_000;
+// The scorer is waiting on this when a ball opens the next over's questions. Gemini took 1.5-2 s for a short
+// request (2026-10-30), so 2 s timed out most real ones
+const TIMEOUT_MS = 6_000;
 // Free entry, prizes for predictions: never worded like a bet
 const BETTING = /\b(bet|bets|betting|odds|stakes?|wagers?|gambl\w*|jua|satta)\b/i;
 const LINK = /https?:\/\/|www\./i;
@@ -192,7 +193,7 @@ export function wordingProblem(wording: Wording, over: number, params: Record<st
 
 /**
  * Gemini's wording for each question, or null for one it didn't word well (and for all of them without a
- * key, when the call would go past a limit, or when it fails or takes longer than 2 s). Never throws.
+ * key, when the call would go past a limit, or when it fails or takes longer than 6 s). Never throws.
  */
 export async function aiWording(
   ctx: WordingContext,
