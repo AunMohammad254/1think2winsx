@@ -153,6 +153,16 @@ describe('the rules for shared JSON and ad landings (deploy/cloudflare-*-rule.js
     }
   });
 
+  it('caches the live API, the match feed included, for the time the origin allows, like the pages', () => {
+    const rule = read('cloudflare-live-api-cache-rule.json');
+    expect(rule.expression).toBe(
+      '(http.host in {"1think2win.com" "www.1think2win.com"} and (http.request.uri.path eq "/api/live" or '
+      + 'starts_with(http.request.uri.path, "/api/live/quizzes/") or starts_with(http.request.uri.path, "/api/live/matches/")))'
+    );
+    // An answer without Cache-Control is never kept
+    expect(rule.action_parameters).toEqual(pageRule.action_parameters);
+  });
+
   it("keeps public/ files at the edge whatever Next's max-age=0 says, browsers 4 h, and never stores an error", () => {
     const rule = read('cloudflare-static-files-cache-rule.json');
     expect(rule.expression).toContain('starts_with(http.request.uri.path, "/images/")');
