@@ -260,6 +260,8 @@ describe('POST /api/chatbot: what playing costs follows the wallet switch', () =
     expect(prompt).not.toContain('FREE TO PLAY');
     // the same quiz pay_quiz_access charges for
     expect(adminDb.callsTo('Quiz')[0].ops).toContainEqual({ op: 'order', args: ['createdAt', { ascending: true }] });
+    // never a live match's (free entry, played on its own screen)
+    expect(adminDb.callsTo('Quiz')[0].ops).toContainEqual({ op: 'eq', args: ['freeEntry', false] });
   });
 
   it.each([

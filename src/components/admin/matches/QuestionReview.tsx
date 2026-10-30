@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Send, Sparkles, SkipForward, Undo2 } from 'lucide-react';
 import { MIN_ANSWER_SECONDS } from '@/lib/match-engine';
+import { formatClock } from '@/lib/live-countdown';
 import type { MatchView } from '@/lib/match-service';
 import type { DraftToSend } from '@/lib/match-service';
 
@@ -14,12 +15,6 @@ type Edit = Wording & { line: number | null; base?: Wording & { line: number } }
 
 const button = 'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50';
 const field = 'w-full rounded-xl border border-white/10 bg-gray-900/60 px-3 py-2 text-sm text-white focus:border-emerald-400 focus:outline-none';
-
-/** 83 seconds as 1:23 */
-const clock = (ms: number) => {
-  const seconds = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-};
 
 /** `text` with the number `from` (as a whole number) changed to `to`, except where it names the over ("over 9") */
 export const changeLine = (text: string, from: number, to: number) => text.replace(new RegExp(`(?<!over\\s)\\b${from}\\b`, 'gi'), String(to));
@@ -80,7 +75,7 @@ export default function QuestionReview({ drafts, now, busy, onSend, onSkip }: {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="font-medium text-white">Over {over}</p>
               <p className={`text-xs ${left < 30_000 ? 'text-red-300' : 'text-amber-200'}`}>
-                Send within {clock(left)}, {over === 1 ? 'and before over 1 starts' : `and before the 5th ball of over ${over - 1}`}
+                Send within {formatClock(left)}, {over === 1 ? 'and before over 1 starts' : `and before the 5th ball of over ${over - 1}`}
               </p>
             </div>
             {group.map((draft, i) => {

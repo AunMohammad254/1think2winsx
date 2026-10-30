@@ -11,6 +11,7 @@ const applyRateLimit = vi.fn();
 const recordSecurityEvent = vi.fn();
 const requirePaymentAccess = vi.fn();
 const getActiveQuizCatalog = vi.fn();
+const getLiveMatches = vi.fn();
 const getCatalogQuiz = vi.fn();
 const isWalletEnabled = vi.fn();
 const findFirstActive = vi.fn();
@@ -39,6 +40,7 @@ vi.mock('@/lib/payment-middleware', () => ({ requirePaymentAccess: (...a: unknow
 vi.mock('@/lib/quiz-catalog', async (importOriginal) => ({
   QUIZ_ENDED_MESSAGE: (await importOriginal<typeof import('@/lib/quiz-catalog')>()).QUIZ_ENDED_MESSAGE,
   getActiveQuizCatalog: (...a: unknown[]) => getActiveQuizCatalog(...a),
+  getLiveMatches: (...a: unknown[]) => getLiveMatches(...a),
   getCatalogQuiz: (...a: unknown[]) => getCatalogQuiz(...a),
 }));
 vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: (...a: unknown[]) => isWalletEnabled(...a) }));
@@ -231,6 +233,8 @@ describe('GET /api/quizzes', () => {
 });
 
 describe('GET /api/live', () => {
+  beforeEach(() => getLiveMatches.mockReset().mockResolvedValue([]));
+
   it('serves only the public part of the catalogue, cacheable for 5 s at the edge', async () => {
     getActiveQuizCatalog.mockResolvedValue([
       catalogQuiz({ id: 'live', pushedAt: '2026-10-16T10:00:00+00:00' }),
@@ -260,6 +264,7 @@ describe('GET /api/live', () => {
     expect(body.walletEnabled).toBe(false);
     // A start time and an announcement only matter while the quiz is upcoming
     expect(body.quizzes[2]).toMatchObject({ startsAt: null, announcedAt: null });
+    expect(body.matches).toEqual([]);
     // Nothing per player and no question bodies (let alone the answer key) leave the server
     expect(JSON.stringify(body)).not.toContain('Who wins the toss');
     expect(requireAuth).not.toHaveBeenCalled();
@@ -280,7 +285,13 @@ describe('GET /api/live', () => {
     const second = (await (await liveRoute.GET()).json()).version;
     expect(second).not.toBe(first);
     isWalletEnabled.mockResolvedValue(false);
-    expect((await (await liveRoute.GET()).json()).version).not.toBe(second);
+    const third = (await (await liveRoute.GET()).json()).version;
+    expect(third).not.toBe(second);
+    // A match taken live changes it too
+    getLiveMatches.mockResolvedValue([{ id: 'm1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', status: 'live' }]);
+    const withMatch = await (await liveRoute.GET()).json();
+    expect(withMatch.version).not.toBe(third);
+    expect(withMatch.matches).toEqual([{ id: 'm1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', status: 'live' }]);
   });
 
   it('answers an uncached 503 when the catalogue cannot be loaded, so pollers back off', async () => {

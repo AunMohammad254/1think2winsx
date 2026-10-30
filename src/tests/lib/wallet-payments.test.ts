@@ -58,7 +58,8 @@ describe('wallet service', () => {
   it('getQuizAccessPrice quotes the OLDEST active quiz, like pay_quiz_access charges', async () => {
     quizDb.findMany.mockResolvedValueOnce([{ accessPrice: 5 }]);
     expect(await service.getQuizAccessPrice()).toEqual({ success: true, price: 5 });
-    expect(quizDb.findMany).toHaveBeenCalledWith({ status: 'active', limit: 1, orderBy: 'createdAt', orderDir: 'asc' });
+    // A free-entry quiz (a live match) never sets the day pass price
+    expect(quizDb.findMany).toHaveBeenCalledWith({ status: 'active', freeEntry: false, limit: 1, orderBy: 'createdAt', orderDir: 'asc' });
     quizDb.findMany.mockResolvedValueOnce([]);
     expect(await service.getQuizAccessPrice()).toEqual({ success: true, price: 2 });
     quizDb.findMany.mockResolvedValueOnce([{ accessPrice: null }]);

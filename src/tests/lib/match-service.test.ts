@@ -5,7 +5,12 @@ import { createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/
 let db: SupabaseMock;
 let ids = 0;
 const logQuizAction = vi.fn();
-vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => db.client, generateId: () => `id${++ids}` }));
+const createBroadcast = vi.fn();
+vi.mock('@/lib/supabase/db', () => ({
+  getAdminDb: () => db.client,
+  generateId: () => `id${++ids}`,
+  notificationDb: { createBroadcast: (...a: unknown[]) => createBroadcast(...a) },
+}));
 vi.mock('@/lib/admin-action-log', () => ({ logQuizAction: (...a: unknown[]) => logQuizAction(...a) }));
 // Gemini is never called: each test says what it would word (the check, wordingProblem, is the real one)
 const aiWording = vi.fn();
@@ -14,7 +19,10 @@ vi.mock('@/lib/match-wording', async (importOriginal) => ({
   aiWording: (...a: unknown[]) => aiWording(...a),
 }));
 
-const { loadMatch, matchView, ballLabel, applyMatchEvent, createMatch, listMatches, sendDrafts, skipDrafts, setAutoSend } = await import('@/lib/match-service');
+const {
+  loadMatch, matchView, ballLabel, applyMatchEvent, createMatch, listMatches, sendDrafts, skipDrafts, setAutoSend,
+  setPublished, setMaxEntries, announceMatch, matchLink,
+} = await import('@/lib/match-service');
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const ROW = {
@@ -41,6 +49,7 @@ beforeEach(() => {
   db = createSupabaseMock();
   ids = 0;
   logQuizAction.mockReset();
+  createBroadcast.mockReset();
   aiWording.mockReset().mockImplementation(async (_ctx: unknown, questions: unknown[]) => questions.map(() => null));
 });
 
@@ -115,7 +124,11 @@ describe('matchView', () => {
       ],
     });
     const view = matchView((await loadMatch('m1', NOW))!, NOW);
-    expect(view.match).toEqual({ ...ROW, createdAt: undefined, title: 'Lahore vs Karachi' });
+    expect(view.match).toEqual({ ...ROW, createdAt: undefined, title: 'Lahore vs Karachi', published: false });
+    // Not asked for
+    expect(view.players).toBeNull();
+    expect(db.callsTo('QuizAdminSettings')).toHaveLength(0);
+    expect(db.callsTo('QuizEntryCount')).toHaveLength(0);
     expect(view.innings.map((i) => [i.battingTeam, i.runs, i.wickets, i.oversText, i.target, i.endReason])).toEqual([
       ['Lahore', 19, 0, '2.0', null, 'overs'],
       ['Karachi', 6, 1, '0.1', 20, null],
@@ -441,5 +454,116 @@ describe('createMatch and listMatches', () => {
     expect(await listMatches()).toEqual([]);
     db.setTable('LiveMatch', { error: { message: 'down' } });
     await expect(listMatches()).rejects.toEqual({ message: 'down' });
+  });
+});
+
+describe('who can play: Go live and the player limit', () => {
+  const draftQuiz = { title: 'Lahore vs Karachi', status: 'draft' };
+  const liveQuiz = { title: 'Lahore vs Karachi', status: 'active' };
+
+  it('reads whether players can see the match, and how many have joined out of how many may', async () => {
+    setMatch({ quiz: liveQuiz });
+    db.setTable('QuizAdminSettings', { data: { maxEntries: 500 } });
+    db.setTable('QuizEntryCount', { data: { entries: 12 } });
+    const loaded = (await loadMatch('m1', NOW, true))!;
+    expect(loaded).toMatchObject({ published: true, players: { entries: 12, maxEntries: 500 } });
+    expect(matchView(loaded, NOW).players).toEqual({ entries: 12, maxEntries: 500 });
+    expect(eqValue(db.callsTo('QuizAdminSettings')[0], 'quizId')).toBe('quiz1');
+    expect(eqValue(db.callsTo('QuizEntryCount')[0], 'quizId')).toBe('quiz1');
+    // Nothing saved yet: nobody joined, 2,000 may
+    db.setTable('QuizAdminSettings', { data: null });
+    db.setTable('QuizEntryCount', { data: null });
+    expect((await loadMatch('m1', NOW, true))!.players).toEqual({ entries: 0, maxEntries: 2000 });
+    db.setTable('QuizEntryCount', { error: { message: 'count down' } });
+    await expect(loadMatch('m1', NOW, true)).rejects.toEqual({ message: 'count down' });
+  });
+
+  it('takes the match live: its quiz goes from draft to active, logged, without a pushedAt', async () => {
+    setMatch({ quiz: draftQuiz });
+    db.setTable('LiveMatch', [
+      { data: { ...ROW, Quiz: draftQuiz } },
+      { data: { ...ROW, Quiz: liveQuiz } },
+    ]);
+    db.setTable('Quiz', { data: [{ id: 'quiz1' }] });
+    db.setTable('AdminActionLog', { data: [] });
+    const result = await setPublished('m1', true, 'boss@example.test');
+    // Its first Go live: players are told
+    expect(result).toMatchObject({ ok: true, data: { changed: true, announce: true, view: { match: { published: true }, players: { maxEntries: 2000 } } } });
+    const earlier = db.callsTo('AdminActionLog')[0];
+    expect(eqValue(earlier, 'quizId')).toBe('quiz1');
+    expect(eqValue(earlier, 'action')).toBe('match_published');
+    const update = db.callsTo('Quiz')[0];
+    expect(update.ops.find((o) => o.op === 'update')?.args[0]).toEqual({ status: 'active', updatedAt: expect.any(String) });
+    expect(eqValue(update, 'id')).toBe('quiz1');
+    // Only from a draft: a quiz changed meanwhile isn't touched
+    expect(eqValue(update, 'status')).toBe('draft');
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ quizId: 'quiz1', action: 'match_published', adminEmail: 'boss@example.test', details: { matchId: 'm1' } }));
+  });
+
+  it('takes it live again without telling anyone a second time', async () => {
+    setMatch({ quiz: draftQuiz });
+    db.setTable('Quiz', { data: [{ id: 'quiz1' }] });
+    db.setTable('AdminActionLog', { data: [{ id: 'log1' }] });
+    expect(await setPublished('m1', true, 'a')).toMatchObject({ ok: true, data: { changed: true, announce: false } });
+    // Unreadable history: told as if new
+    db.setTable('AdminActionLog', { data: null });
+    expect(await setPublished('m1', true, 'a')).toMatchObject({ ok: true, data: { announce: true } });
+  });
+
+  it('hides it again, and changes nothing when it already is that way', async () => {
+    setMatch({ quiz: liveQuiz });
+    db.setTable('Quiz', { data: [{ id: 'quiz1' }] });
+    expect(await setPublished('m1', true, 'a')).toMatchObject({ ok: true, data: { changed: false, announce: false } });
+    expect(db.callsTo('Quiz')).toHaveLength(0);
+    expect(await setPublished('m1', false, 'a')).toMatchObject({ ok: true, data: { changed: true, announce: false } });
+    expect(db.callsTo('AdminActionLog')).toHaveLength(0);
+    const update = db.callsTo('Quiz')[0];
+    expect(update.ops.find((o) => o.op === 'update')?.args[0]).toMatchObject({ status: 'draft' });
+    expect(eqValue(update, 'status')).toBe('active');
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_hidden' }));
+  });
+
+  it('refuses for an unknown, settled or abandoned match, or one changed meanwhile, and throws a failed update', async () => {
+    expect(await setPublished('nope', true, 'a')).toMatchObject({ ok: false, status: 404 });
+    setMatch({ quiz: draftQuiz, settled: 1 });
+    expect(await setPublished('m1', true, 'a')).toMatchObject({ ok: false, status: 409, code: 'settled' });
+    setMatch({ quiz: draftQuiz, row: { status: 'abandoned' } });
+    expect(await setPublished('m1', true, 'a')).toEqual({ ok: false, status: 409, code: 'abandoned', error: 'Restore the match before taking it live' });
+    // Hiding an abandoned match is fine
+    setMatch({ quiz: liveQuiz, row: { status: 'abandoned' } });
+    db.setTable('Quiz', { data: [] });
+    expect(await setPublished('m1', false, 'a')).toMatchObject({ ok: false, status: 409, code: 'stale' });
+    db.setTable('Quiz', { data: null });
+    expect(await setPublished('m1', false, 'a')).toMatchObject({ ok: false, code: 'stale' });
+    db.setTable('Quiz', { error: { message: 'down' } });
+    await expect(setPublished('m1', false, 'a')).rejects.toEqual({ message: 'down' });
+    expect(logQuizAction).not.toHaveBeenCalled();
+  });
+
+  it('sets how many players may join, logged with the old and new limit', async () => {
+    setMatch();
+    db.setTable('QuizAdminSettings', { data: { maxEntries: 2000 } });
+    expect(await setMaxEntries('m1', 5000, 'boss@example.test')).toMatchObject({ ok: true, data: { players: { maxEntries: 2000 } } });
+    const upsert = db.callsTo('QuizAdminSettings').find((c) => c.ops.some((o) => o.op === 'upsert'))!;
+    expect(upsert.ops.find((o) => o.op === 'upsert')?.args).toEqual([{ quizId: 'quiz1', maxEntries: 5000, updatedAt: expect.any(String) }, { onConflict: 'quizId' }]);
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_entry_limit_changed', details: { matchId: 'm1', from: 2000, to: 5000 } }));
+
+    db.setTable('LiveMatch', { data: null });
+    expect(await setMaxEntries('nope', 1, 'a')).toMatchObject({ ok: false, status: 404 });
+    setMatch({ settled: 1 });
+    expect(await setMaxEntries('m1', 1, 'a')).toMatchObject({ ok: false, code: 'settled' });
+    setMatch();
+    db.setTable('QuizAdminSettings', (call) => (call.ops.some((o) => o.op === 'upsert') ? { error: { message: 'down' } } : { data: null }));
+    await expect(setMaxEntries('m1', 1, 'a')).rejects.toEqual({ message: 'down' });
+  });
+
+  it('tells every player, with a link to the match screen', async () => {
+    expect(matchLink('m1')).toBe('/match/m1');
+    await announceMatch('m1', 'Lahore vs Karachi');
+    expect(createBroadcast).toHaveBeenCalledWith({
+      title: '🔴 Live match', message: 'Lahore vs Karachi: predict what happens in every over. Free to play!', type: 'quiz_deadline', link: '/match/m1',
+    });
+    // No search through the notifications: setPublished decides whether to tell
+    expect(db.callsTo('Notification')).toHaveLength(0);
   });
 });

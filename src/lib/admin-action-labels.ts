@@ -34,6 +34,9 @@ export const QUIZ_ACTION_LABELS = {
   match_questions_sent: "Sent an over's questions to players",
   match_questions_skipped: "Skipped an over's questions",
   match_auto_send_changed: 'Switched automatic sending of questions',
+  match_published: 'Took the match live for players',
+  match_hidden: 'Hid the match from players',
+  match_entry_limit_changed: 'Changed how many players can join',
 } as const;
 
 export type QuizAction = keyof typeof QUIZ_ACTION_LABELS;

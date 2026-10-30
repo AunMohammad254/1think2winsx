@@ -368,6 +368,33 @@ describe('quizzes page: live updates', () => {
     expect(h.push.announce).toHaveBeenCalledTimes(1);
   });
 
+  it('lists the live matches from the live check, popping up one taken live since the last check', async () => {
+    const match = (id: string, over: Record<string, unknown> = {}) =>
+      ({ id, title: `Match ${id}`, teamA: 'Lahore', teamB: 'Karachi', status: 'live', ...over });
+    const withMatches = (version: string, matches: unknown[]) => jsonResponse({ version, quizzes: [], matches });
+    h.liveFetch.mockImplementation(async () => withMatches('m-a', [match('m1')]));
+    render(<QuizzesPage />);
+    await loaded();
+    await act(async () => { await livePoll().task(); });
+    // Already live when the page opened: listed, no pop-up
+    const list = screen.getByRole('region', { name: 'Live matches' });
+    expect(within(list).getByRole('link', { name: /Match m1/ })).toHaveAttribute('href', '/match/m1');
+    expect(h.toast.info).not.toHaveBeenCalled();
+
+    h.liveFetch.mockImplementation(async () => withMatches('m-b', [match('m1'), match('m2', { status: 'completed' })]));
+    await act(async () => { await livePoll().task(); });
+    expect(h.toast.info).toHaveBeenCalledTimes(1);
+    expect(h.toast.info).toHaveBeenCalledWith('Live match: Match m2', expect.objectContaining({ description: 'Predict every over. Free to play', duration: 10000 }));
+    h.toast.info.mock.calls[0][1].action.onClick();
+    expect(h.router.push).toHaveBeenCalledWith('/match/m2');
+    expect(within(screen.getByRole('region', { name: 'Live matches' })).getByText('See how it ended')).toBeInTheDocument();
+
+    // A snapshot from before matches existed lists none
+    h.liveFetch.mockImplementation(async () => snapshot('v-old', []));
+    await act(async () => { await livePoll().task(); });
+    expect(screen.queryByRole('region', { name: 'Live matches' })).toBeNull();
+  });
+
   it('patches the list in place from the live snapshot, and pops up a newly pushed quiz once', async () => {
     render(<QuizzesPage />);
     await loaded();

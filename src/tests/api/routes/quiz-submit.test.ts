@@ -9,7 +9,8 @@ const requireCSRFToken = vi.fn();
 const applyRateLimit = vi.fn();
 const recordSecurityEvent = vi.fn();
 
-vi.mock('@/lib/supabase/db', () => ({ getDb: async () => db.client }));
+// The closed-question check reads with the server's client: players can't read when a question closes
+vi.mock('@/lib/supabase/db', () => ({ getDb: async () => db.client, getAdminDb: () => db.client }));
 vi.mock('@/lib/auth-middleware', () => ({ requireAuth: (...a: unknown[]) => requireAuth(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { quiz: 'quiz' }, applyRateLimit: (...a: unknown[]) => applyRateLimit(...a) }));
@@ -21,6 +22,8 @@ const answers = [
   { questionId: 'q1', selectedOption: 0 },
   { questionId: 'q2', selectedOption: 3 },
 ];
+/** A question as the closed-question check reads it: open, no result, not a match's */
+const row = (id: string, over: Record<string, unknown> = {}) => ({ id, status: 'active', hasCorrectAnswer: false, closesAt: null, matchOver: null, ...over });
 const submit = (body: unknown = { answers }) => POST(makeRequest('/api/quizzes/quiz-1/submit', { body }), routeParams({ id: 'quiz-1' }));
 
 beforeEach(() => {
@@ -159,21 +162,20 @@ describe('POST /api/quizzes/[id]/submit', () => {
 
   it('says the quiz has ended when every submitted question already has its result, without a security event', async () => {
     db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'invalid', error: 'Invalid or closed question IDs in submission' } });
-    db.setTable('Question', { data: [{ id: 'q1' }, { id: 'q2' }] });
+    db.setTable('Question', { data: [row('q1', { hasCorrectAnswer: true }), row('q2', { hasCorrectAnswer: true })] });
     const res = await submit();
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'This quiz has ended: its results are already in.', code: 'quiz_ended' });
-    // Only this quiz's questions, only closed ones, only those submitted
+    // Only this quiz's questions, only those submitted
     const lookup = db.callsTo('Question')[0];
     expect(eqValue(lookup, 'quizId')).toBe('quiz-1');
-    expect(eqValue(lookup, 'hasCorrectAnswer')).toBe(true);
     expect(lookup.ops.find((o) => o.op === 'in')?.args).toEqual(['id', ['q1', 'q2']]);
     expect(recordSecurityEvent).not.toHaveBeenCalled();
   });
 
   it('says which part closed when only some submitted questions have their result', async () => {
     db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'invalid' } });
-    db.setTable('Question', { data: [{ id: 'q2' }] });
+    db.setTable('Question', { data: [row('q1'), row('q2', { hasCorrectAnswer: true })] });
     const res = await submit();
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
@@ -183,10 +185,32 @@ describe('POST /api/quizzes/[id]/submit', () => {
     expect(recordSecurityEvent).not.toHaveBeenCalled();
   });
 
+  it('tells a live match player which over closed before their answers arrived, and which ones, without a security event', async () => {
+    db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'invalid' } });
+    const past = new Date(Date.now() - 1000).toISOString();
+    db.setTable('Question', { data: [row('q1', { matchOver: 7, closesAt: past }), row('q2', { matchOver: 7, closesAt: past })] });
+    let res = await submit();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'Too late for over 7: answers closed before yours arrived.', code: 'questions_closed', closed: ['q1', 'q2'] });
+
+    // One closed by time, one in a voided over: nothing was saved, so the rest must be sent again
+    db.setTable('Question', { data: [row('q1', { matchOver: 7, closesAt: past }), row('q2', { matchOver: 8, status: 'paused', closesAt: new Date(Date.now() + 60_000).toISOString() })] });
+    res = await submit({ answers: [...answers, { questionId: 'q3', selectedOption: 1 }] });
+    expect(await res.json()).toEqual({
+      error: 'Too late for overs 7, 8: answers closed before yours arrived. Nothing was saved, so send your other answers again.',
+      code: 'questions_closed', closed: ['q1', 'q2'],
+    });
+    expect(recordSecurityEvent).not.toHaveBeenCalled();
+  });
+
   it('still treats an invalid submit with no closed question as invalid input', async () => {
     db.setRpc('submit_quiz_attempt', { data: { success: false, code: 'invalid', error: 'Invalid or closed question IDs in submission' } });
     db.setTable('Question', { data: null });
-    const res = await submit();
+    let res = await submit();
+    expect(res.status).toBe(400);
+    // A match question still open, and a paused question of an ordinary quiz, aren't closed ones
+    db.setTable('Question', { data: [row('q1', { matchOver: 3, closesAt: new Date(Date.now() + 60_000).toISOString() }), row('q2', { status: 'paused' })] });
+    res = await submit();
     expect(res.status).toBe(400);
     expect(recordSecurityEvent).toHaveBeenCalledWith('INVALID_INPUT', expect.anything(), 'user-1', expect.objectContaining({ code: 'invalid' }));
   });

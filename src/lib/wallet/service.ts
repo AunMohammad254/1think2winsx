@@ -165,10 +165,11 @@ export interface GetPriceResult {
  * Must stay in step with `pay_quiz_access`, which charges the oldest active quiz's price when
  * no quiz id is passed. This used to pick the NEWEST active quiz, so with two active quizzes
  * at different prices the confirmation dialog quoted one price and the wallet was charged another.
+ * A free-entry quiz (a live match) needs no day pass, so its price never counts, there as here.
  */
 export async function getQuizAccessPrice(): Promise<GetPriceResult> {
     try {
-        const quizzes = await quizDb.findMany({ status: 'active', limit: 1, orderBy: 'createdAt', orderDir: 'asc' });
+        const quizzes = await quizDb.findMany({ status: 'active', freeEntry: false, limit: 1, orderBy: 'createdAt', orderDir: 'asc' });
         return { success: true, price: quizzes[0]?.accessPrice ?? 2.0 };
     } catch (err) {
         console.error('[wallet/service] getQuizAccessPrice error:', err);

@@ -182,9 +182,12 @@ describe('quiz.db specifics', () => {
     await quizDb.findMany({ status: 'active', limit: 5, offset: 10, orderBy: 'title', orderDir: 'asc' });
     const call = lastCall();
     expect(eqValue(call, 'status')).toBe('active');
+    expect(eqValue(call, 'freeEntry')).toBeUndefined();
     expect(call.ops.find((o) => o.op === 'order')?.args).toEqual(['title', { ascending: true }]);
     expect(argOf(call, 'limit')).toBe(5);
     expect(call.ops.find((o) => o.op === 'range')?.args).toEqual([10, 14]);
+    await quizDb.findMany({ freeEntry: false });
+    expect(eqValue(lastCall(), 'freeEntry')).toBe(false);
     await quizDb.findMany({ offset: 3 });
     expect(lastCall().ops.find((o) => o.op === 'range')?.args).toEqual([3, 12]);
     expect(lastCall().ops.find((o) => o.op === 'order')?.args).toEqual(['createdAt', { ascending: false }]);

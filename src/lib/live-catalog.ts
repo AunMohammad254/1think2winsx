@@ -1,4 +1,4 @@
-import type { CatalogQuiz } from '@/lib/quiz-catalog';
+import type { CatalogQuiz, LiveMatchCard } from '@/lib/quiz-catalog';
 
 /**
  * Cached polling for live updates (F1).
@@ -53,6 +53,8 @@ export interface LiveSnapshot {
   quizzes: LiveQuiz[];
   /** Off means every quiz is free, whatever its `accessPrice` says. */
   walletEnabled: boolean;
+  /** Live matches players can see (match mode), each played on its own screen. Missing from a copy cached before they existed. */
+  matches?: LiveMatchCard[];
 }
 
 // Same shape the personal list sends (Dates serialised as ISO strings), so merged and fetched

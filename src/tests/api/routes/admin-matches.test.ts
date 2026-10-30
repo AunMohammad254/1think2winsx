@@ -6,8 +6,16 @@ import { makeRequest, routeParams } from '@/tests/helpers/supabase-mock';
 const guard = vi.fn();
 const service = {
   listMatches: vi.fn(), createMatch: vi.fn(), loadMatch: vi.fn(), matchView: vi.fn(), applyMatchEvent: vi.fn(),
-  sendDrafts: vi.fn(), skipDrafts: vi.fn(), setAutoSend: vi.fn(),
+  sendDrafts: vi.fn(), skipDrafts: vi.fn(), setAutoSend: vi.fn(), setPublished: vi.fn(), setMaxEntries: vi.fn(), announceMatch: vi.fn(),
 };
+// Work the route leaves for after its response, run by the test
+const afterResponse: Array<() => unknown> = [];
+const invalidateQuizCatalog = vi.fn();
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: (task: () => unknown) => afterResponse.push(task),
+}));
+vi.mock('@/lib/quiz-catalog', () => ({ invalidateQuizCatalog: () => invalidateQuizCatalog() }));
 vi.mock('@/lib/admin-api-guard', () => ({ adminApiGuard: (...a: unknown[]) => guard(...a) }));
 vi.mock('@/lib/match-service', () => ({
   listMatches: (...a: unknown[]) => service.listMatches(...a),
@@ -18,6 +26,9 @@ vi.mock('@/lib/match-service', () => ({
   sendDrafts: (...a: unknown[]) => service.sendDrafts(...a),
   skipDrafts: (...a: unknown[]) => service.skipDrafts(...a),
   setAutoSend: (...a: unknown[]) => service.setAutoSend(...a),
+  setPublished: (...a: unknown[]) => service.setPublished(...a),
+  setMaxEntries: (...a: unknown[]) => service.setMaxEntries(...a),
+  announceMatch: (...a: unknown[]) => service.announceMatch(...a),
 }));
 
 const list = await import('@/app/api/admin/matches/route');
@@ -28,6 +39,8 @@ const review = await import('@/app/api/admin/matches/[id]/questions/route');
 beforeEach(() => {
   guard.mockReset().mockResolvedValue({ id: 'admin-1', email: 'boss@example.test' });
   for (const fn of Object.values(service)) fn.mockReset();
+  afterResponse.length = 0;
+  invalidateQuizCatalog.mockReset();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -88,7 +101,8 @@ describe('GET /api/admin/matches/[id]', () => {
     service.matchView.mockReturnValue({ match: { id: 'm1' } });
     const res = await get();
     expect(await res.json()).toEqual({ match: { id: 'm1' } });
-    expect(service.loadMatch).toHaveBeenCalledWith('m1');
+    // With the player counts the Players box shows
+    expect(service.loadMatch).toHaveBeenCalledWith('m1', expect.any(Number), true);
   });
 
   it('answers 404 for an unknown match, 500 when loading fails, and passes the guard through', async () => {
@@ -167,6 +181,55 @@ describe('PATCH /api/admin/matches/[id]', () => {
     expect((await patch({ autoSend: false })).status).toBe(500);
     guard.mockResolvedValueOnce(NextResponse.json({}, { status: 403 }));
     expect((await patch({ autoSend: false })).status).toBe(403);
+    // One setting at a time
+    expect((await patch({ autoSend: true, published: true })).status).toBe(400);
+  });
+
+  const liveView = { match: { id: 'm1', title: 'Lahore vs Karachi', published: true } };
+
+  it('takes the match live, shows it on the quiz list at once, and tells every player after the response', async () => {
+    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: true, announce: true } });
+    service.announceMatch.mockResolvedValue(undefined);
+    const res = await patch({ published: true });
+    expect(await res.json()).toEqual(liveView);
+    expect(service.setPublished).toHaveBeenCalledWith('m1', true, 'boss@example.test');
+    expect(invalidateQuizCatalog).toHaveBeenCalled();
+    expect(service.announceMatch).not.toHaveBeenCalled();
+    expect(afterResponse).toHaveLength(1);
+    await afterResponse[0]();
+    expect(service.announceMatch).toHaveBeenCalledWith('m1', 'Lahore vs Karachi');
+
+    // A failed broadcast is only logged
+    service.announceMatch.mockRejectedValue(new Error('push down'));
+    await patch({ published: true });
+    await afterResponse[1]();
+    expect(console.error).toHaveBeenCalledWith('[matches] Announcing the match failed:', expect.any(Error));
+  });
+
+  it('hides it, or takes it live again, without telling anyone, and does nothing more when nothing changed or it was refused', async () => {
+    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: true, announce: false } });
+    await patch({ published: false });
+    await patch({ published: true });
+    expect(invalidateQuizCatalog).toHaveBeenCalledTimes(2);
+    expect(afterResponse).toHaveLength(0);
+
+    service.setPublished.mockResolvedValue({ ok: true, data: { view: liveView, changed: false, announce: false } });
+    expect((await patch({ published: true })).status).toBe(200);
+    expect(invalidateQuizCatalog).toHaveBeenCalledTimes(2);
+    expect(afterResponse).toHaveLength(0);
+
+    service.setPublished.mockResolvedValue({ ok: false, status: 409, code: 'abandoned', error: 'Restore the match before taking it live' });
+    const res = await patch({ published: true });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'Restore the match before taking it live', code: 'abandoned' });
+  });
+
+  it('sets how many players can join, within the limits a quiz has', async () => {
+    service.setMaxEntries.mockResolvedValue({ ok: true, data: { players: { entries: 0, maxEntries: 5000 } } });
+    expect(await (await patch({ maxEntries: 5000 })).json()).toEqual({ players: { entries: 0, maxEntries: 5000 } });
+    expect(service.setMaxEntries).toHaveBeenCalledWith('m1', 5000, 'boss@example.test');
+    for (const maxEntries of [0, 100_001, 1.5, '5000']) expect((await patch({ maxEntries })).status).toBe(400);
+    expect(service.setMaxEntries).toHaveBeenCalledTimes(1);
   });
 });
 

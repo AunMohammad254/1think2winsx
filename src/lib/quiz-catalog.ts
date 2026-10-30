@@ -10,6 +10,10 @@ import { DEFAULT_MAX_ENTRIES } from '@/lib/quiz-entries';
  * a few seconds with single-flight loading: when 5,000 players open /quizzes at the
  * same moment (e.g. after a push notification or a realtime "quiz published" event)
  * the database is queried once, not 5,000 times.
+ *
+ * A live match's quiz (match mode) is never part of it: players play a match on its own screen
+ * (/match/[id]), and its questions close one by one. The same read lists the matches players can see
+ * (getLiveMatches), for the match cards.
  */
 
 export interface CatalogQuestion { id: string; text: string; options: string[] }
@@ -43,6 +47,18 @@ export interface CatalogQuiz {
   prizeName: string | null;
 }
 
+/** A match players can see (taken live), as its card on the quiz list shows it. */
+export interface LiveMatchCard {
+  id: string;
+  title: string;
+  teamA: string;
+  teamB: string;
+  status: 'setup' | 'live' | 'innings_break' | 'completed' | 'abandoned';
+}
+
+// A finished or abandoned match stays listed this long after its last change, so players can see how it ended
+const FINISHED_MATCH_LISTED_MS = 2 * 60 * 60_000;
+
 /** What the quiz routes tell a player who opens a quiz whose results are already in. */
 export const QUIZ_ENDED_MESSAGE = 'This quiz has ended: its results are already in.';
 
@@ -52,15 +68,16 @@ const TTL_MS = 15_000;
 const STALE_MAX_MS = 5 * 60_000;
 // `nextDueAt`: start time of the next scheduled/upcoming quiz. The cache is dropped at
 // that moment so a quiz going live is never held back by the TTL.
-let cache: { at: number; data: CatalogQuiz[]; nextDueAt: number | null } | null = null;
-let inflight: Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }> | null = null;
+type Catalog = { data: CatalogQuiz[]; matches: LiveMatchCard[]; nextDueAt: number | null };
+let cache: ({ at: number } & Catalog) | null = null;
+let inflight: Promise<Catalog> | null = null;
 
 function parseOptions(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw as string[];
   try { return JSON.parse(String(raw)); } catch { return []; }
 }
 
-async function load(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }> {
+async function load(): Promise<Catalog> {
   // Go live any scheduled quiz whose time has come, so it appears in this very read
   // even when no external cron is running. The "live now" broadcast is slow on big
   // user bases, so it must not hold up the response.
@@ -76,27 +93,45 @@ async function load(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }
     console.error('[QuizCatalog] Failed to activate due quizzes:', err);
   }
 
-  const data = await loadCatalog();
-  return { data, nextDueAt };
+  const { data, matches } = await loadCatalog();
+  return { data, matches, nextDueAt };
 }
 
-async function loadCatalog(): Promise<CatalogQuiz[]> {
+type MatchRow = LiveMatchCard & { quizId: string; updatedAt: string };
+
+async function loadCatalog(): Promise<{ data: CatalogQuiz[]; matches: LiveMatchCard[] }> {
   const db = getAdminDb();
   // `*` rather than a column list: "announcedAt" comes from a migration that may not be applied yet
   // (db-tests/schema/06-20261019200000_quiz_announced_at.sql), and naming a missing column would
   // fail the whole read. The routes pick the fields they send, so other columns stay on the server.
-  const { data: rawQuizzes, error } = await db
-    .from('Quiz')
-    .select('*')
-    .in('status', ['active', 'upcoming', 'paused', 'scheduled'])
-    .order('createdAt', { ascending: false });
+  const [{ data: allQuizzes, error }, matchesRes] = await Promise.all([
+    db
+      .from('Quiz')
+      .select('*')
+      .in('status', ['active', 'upcoming', 'paused', 'scheduled'])
+      .order('createdAt', { ascending: false }),
+    db.from('LiveMatch').select('id, quizId, teamA, teamB, status, updatedAt'),
+  ]);
   if (error) throw error;
+  // Without it a live match's quiz would be listed as an ordinary quiz
+  if (matchesRes.error) throw matchesRes.error;
+
+  const now = Date.now();
+  const matchByQuiz = new Map(((matchesRes.data || []) as MatchRow[]).map((m) => [m.quizId, m]));
+  // Taken live (its quiz is active): listed while it is on, and for a while after it ends
+  const matches = (allQuizzes || []).flatMap((q: { id: string; title: string; status: string }): LiveMatchCard[] => {
+    const match = matchByQuiz.get(q.id);
+    if (!match || q.status !== 'active') return [];
+    const over = match.status === 'completed' || match.status === 'abandoned';
+    if (over && now - Date.parse(match.updatedAt) > FINISHED_MATCH_LISTED_MS) return [];
+    return [{ id: match.id, title: q.title, teamA: match.teamA, teamB: match.teamB, status: match.status }];
+  });
+  const rawQuizzes = (allQuizzes || []).filter((q: { id: string }) => !matchByQuiz.has(q.id));
 
   // Include upcoming, and scheduled quizzes once players were told about them (listed as upcoming:
   // the quiz routes refuse their questions until the scheduler makes them active). Include
   // active/paused only within their (duration + timeUpDuration) window from pushedAt
-  const now = Date.now();
-  const quizzes = (rawQuizzes || []).filter((q: any) => {
+  const quizzes = rawQuizzes.filter((q: any) => {
     if (q.status === 'scheduled') return !!q.announcedAt;
     if (q.status === 'upcoming') return true;
     // Never-pushed quizzes: active ones stay listed as before; paused ones were hidden
@@ -111,7 +146,7 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
   });
 
   const ids = quizzes.map((q: { id: string }) => q.id);
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { data: [], matches };
   const prizeIds = [...new Set(quizzes.map((q: { prizeId?: string | null }) => q.prizeId).filter(Boolean))] as string[];
 
   const [questionsRes, countsRes, prizesRes, settingsRes] = await Promise.all([
@@ -180,7 +215,7 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
   }
 
   type QuizRow = Omit<CatalogQuiz, 'questions' | 'closedQuestionCount' | 'ended' | 'totalAttempts' | 'entriesClosed' | 'prizeName'> & { prizeId?: string | null };
-  return quizzes.flatMap((q: QuizRow): CatalogQuiz[] => {
+  const data = quizzes.flatMap((q: QuizRow): CatalogQuiz[] => {
     const questions = byQuiz.get(q.id) || [];
     const closedQuestionCount = closedByQuiz.get(q.id) || 0;
     // Saving the result (or settling) doesn't change the quiz's status, so an active quiz can be over.
@@ -204,9 +239,10 @@ async function loadCatalog(): Promise<CatalogQuiz[]> {
       prizeName: (q.prizeId && prizeNames.get(q.prizeId)) || null,
     }];
   });
+  return { data, matches };
 }
 
-function refresh(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }> {
+function refresh(): Promise<Catalog> {
   if (!inflight) {
     inflight = load()
       .then((result) => { cache = { at: Date.now(), ...result }; return result; })
@@ -215,10 +251,10 @@ function refresh(): Promise<{ data: CatalogQuiz[]; nextDueAt: number | null }> {
   return inflight;
 }
 
-export async function getActiveQuizCatalog(): Promise<CatalogQuiz[]> {
+async function getCatalog(): Promise<Catalog> {
   const now = Date.now();
   if (cache && (cache.nextDueAt === null || now < cache.nextDueAt)) {
-    if (now - cache.at < TTL_MS) return cache.data;
+    if (now - cache.at < TTL_MS) return cache;
     // Stale: answer from it at once and refresh in the background. A refresh is several sequential
     // round trips to the database (Hostinger in Paris, Supabase in Tokyo), and every request that
     // arrived meanwhile used to wait for it: a 1-2 s stall every 15 s. A quiz whose start time has
@@ -227,10 +263,19 @@ export async function getActiveQuizCatalog(): Promise<CatalogQuiz[]> {
       if (!inflight) {
         refresh().catch((err) => console.error('[QuizCatalog] Background refresh failed, serving the previous catalogue:', err));
       }
-      return cache.data;
+      return cache;
     }
   }
-  return (await refresh()).data;
+  return refresh();
+}
+
+export async function getActiveQuizCatalog(): Promise<CatalogQuiz[]> {
+  return (await getCatalog()).data;
+}
+
+/** The matches players can see, newest first (from the same cached read as the quizzes). */
+export async function getLiveMatches(): Promise<LiveMatchCard[]> {
+  return (await getCatalog()).matches;
 }
 
 export async function getCatalogQuiz(quizId: string): Promise<CatalogQuiz | undefined> {
