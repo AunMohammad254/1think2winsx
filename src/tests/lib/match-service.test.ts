@@ -127,6 +127,9 @@ describe('matchView', () => {
     expect(view.match).toEqual({ ...ROW, createdAt: undefined, title: 'Lahore vs Karachi', published: false });
     // Not asked for
     expect(view.players).toBeNull();
+    // How much of Gemini's limits this server used, for the console
+    const { wordingUsage } = await import('@/lib/match-wording');
+    expect(view.wording).toEqual(wordingUsage(process.env, NOW));
     expect(db.callsTo('QuizAdminSettings')).toHaveLength(0);
     expect(db.callsTo('QuizEntryCount')).toHaveLength(0);
     expect(view.innings.map((i) => [i.battingTeam, i.runs, i.wickets, i.oversText, i.target, i.endReason])).toEqual([
