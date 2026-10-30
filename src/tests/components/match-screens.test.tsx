@@ -1,6 +1,6 @@
 import '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { jsonResponse } from '@/tests/helpers/ui';
 import type { MatchView } from '@/lib/match-service';
 
@@ -116,6 +116,11 @@ describe('MatchConsole', () => {
     }],
     questions: [],
     drafts: [],
+    wording: {
+      on: false, model: 'gemini-3.1-flash-lite', limits: { rpm: 5, tpm: 25_000, rpd: 100 },
+      thisMinute: { requests: 0, tokens: 0 }, today: { requests: 0, peakRequestsPerMinute: 0, peakTokensPerMinute: 0 },
+      pausedUntil: null, pausedForDay: false,
+    },
     serverNow: new Date().toISOString(),
     ...over,
   });
@@ -524,5 +529,48 @@ describe('MatchConsole', () => {
     expect(await screen.findByText('10 of 5,000 joined')).toBeInTheDocument();
     expect(patches()).toEqual([{ maxEntries: 5000 }]);
     expect(confirm).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MatchConsole: Gemini usage', () => {
+  const base = {
+    match: {
+      id: 'm1', quizId: 'quiz1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 20, questionsPerOver: 2,
+      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'setup' as const, autoSend: false, version: 1, published: false,
+    },
+    settled: false, players: null, innings: [], questions: [], drafts: [], serverNow: new Date().toISOString(),
+  };
+  const usage = (over: Partial<MatchView['wording']> = {}): MatchView['wording'] => ({
+    on: true, model: 'gemini-3.1-flash-lite', limits: { rpm: 5, tpm: 25_000, rpd: 100 },
+    thisMinute: { requests: 1, tokens: 640 }, today: { requests: 12, peakRequestsPerMinute: 2, peakTokensPerMinute: 1_300 },
+    pausedUntil: null, pausedForDay: false, ...over,
+  });
+  const show = async (wording: MatchView['wording']) => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ...base, wording })));
+    render(<MatchConsole matchId="m1" />);
+    await screen.findByText('Lahore vs Karachi');
+  };
+
+  it("says when Gemini is off, and otherwise how much of each limit it used", async () => {
+    await show(usage({ on: false }));
+    expect(screen.getByText(/Gemini wording is off \(no MATCH_GEMINI_API_KEY\)/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Gemini usage')).toBeNull();
+  });
+
+  it('shows the requests today, this minute and the peaks against the limits', async () => {
+    await show(usage());
+    const box = screen.getByLabelText('Gemini usage');
+    expect(box).toHaveTextContent('Gemini (gemini-3.1-flash-lite): 12 of 100 requests today · this minute 1 of 5 requests and 640 of 25,000 input tokens');
+    expect(box).toHaveTextContent('Peaks today: 2 requests and 1,300 input tokens in a minute');
+    expect(box).not.toHaveTextContent('Paused');
+  });
+
+  it("says when Google's limit paused it, for the day or until a time", async () => {
+    await show(usage({ pausedForDay: true }));
+    expect(screen.getByLabelText('Gemini usage')).toHaveTextContent("Paused by Google's limit until its day ends (midnight Pacific time)");
+    cleanup();
+    const until = new Date(Date.now() + 30_000).toISOString();
+    await show(usage({ pausedUntil: until }));
+    expect(screen.getByLabelText('Gemini usage')).toHaveTextContent(`until ${new Date(until).toLocaleTimeString()}`);
   });
 });

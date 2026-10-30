@@ -3,7 +3,7 @@ import { logQuizAction } from '@/lib/admin-action-log';
 import { DEFAULT_MAX_ENTRIES } from '@/lib/quiz-entries';
 import type { QuizAction } from '@/lib/admin-action-labels';
 import { overQuestions } from '@/lib/match-questions';
-import { aiWording, wordingProblem } from '@/lib/match-wording';
+import { aiWording, wordingProblem, wordingUsage, type WordingUsage } from '@/lib/match-wording';
 import {
   applyEvent,
   reopenable,
@@ -224,6 +224,8 @@ export interface MatchView {
   }>;
   /** Over questions written but not out: waiting for review, too late to send now, or skipped */
   drafts: Array<Omit<MatchDraft, 'skipped'> & { state: DraftState; line: number | null }>;
+  /** How much of Gemini's limits this server has used (src/lib/match-wording.ts) */
+  wording: WordingUsage;
   /** The server's clock, so the console counts down to close times correctly */
   serverNow: string;
 }
@@ -288,6 +290,7 @@ export function matchView(loaded: LoadedMatch, now = Date.now()): MatchView {
       line: typeof draft.params.line === 'number' ? draft.params.line : null,
       state: skipped ? 'skipped' as const : stillSendable(state, draft, Date.parse(draft.closesAt), now) ? 'waiting' as const : 'too_late' as const,
     })),
+    wording: wordingUsage(process.env, now),
     serverNow: new Date(now).toISOString(),
   };
 }

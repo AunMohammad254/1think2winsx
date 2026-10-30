@@ -113,6 +113,29 @@ function PlayerLimit({ players, busy, onSave }: { players: NonNullable<MatchView
   );
 }
 
+/** How much of Gemini's limits (requests a minute, input tokens a minute, requests a day) has been used */
+function GeminiUsage({ usage }: { usage: MatchView['wording'] }) {
+  if (!usage.on) {
+    return <p className="text-xs text-gray-400">Gemini wording is off (no MATCH_GEMINI_API_KEY): questions use the built-in wording.</p>;
+  }
+  const n = (value: number) => value.toLocaleString();
+  return (
+    <div aria-label="Gemini usage" className="space-y-0.5 text-xs text-gray-400">
+      <p>
+        Gemini ({usage.model}): {n(usage.today.requests)} of {n(usage.limits.rpd)} requests today · this minute {n(usage.thisMinute.requests)} of{' '}
+        {n(usage.limits.rpm)} requests and {n(usage.thisMinute.tokens)} of {n(usage.limits.tpm)} input tokens
+      </p>
+      <p>Peaks today: {n(usage.today.peakRequestsPerMinute)} requests and {n(usage.today.peakTokensPerMinute)} input tokens in a minute</p>
+      {(usage.pausedForDay || usage.pausedUntil) && (
+        <p className="text-amber-200">
+          Paused by Google&apos;s limit {usage.pausedForDay ? 'until its day ends (midnight Pacific time)' : `until ${new Date(usage.pausedUntil!).toLocaleTimeString()}`}:
+          questions use the built-in wording.
+        </p>
+      )}
+    </div>
+  );
+}
+
 interface Editing { ball: ViewBall; innings: number; over: number; position: number }
 
 /**
@@ -244,6 +267,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
             Send questions automatically, without review
           </label>
         )}
+        {!view.settled && <GeminiUsage usage={view.wording} />}
         {view.innings.map((innings) => (
           <p key={innings.innings} className="text-lg text-white">
             <span className="font-semibold">{innings.battingTeam}</span> {innings.runs}/{innings.wickets}{' '}
