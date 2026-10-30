@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, memo } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { podiumCardVariants, springGentle, getRankGlow } from '../animations';
 import { Trophy, HelpCircle, Award } from 'lucide-react';
@@ -48,7 +48,10 @@ function CrownIcon() {
   );
 }
 
-export default function PodiumSection({
+// ⚡ Bolt Performance Optimization:
+// Wrapped PodiumSection in React.memo to prevent unnecessary re-renders of the complex
+// framer-motion UI elements when the parent page re-renders (e.g. from timer updates or other data re-fetches).
+export default memo(function PodiumSection({
   entries,
   playCounter,
 }: {
@@ -300,4 +303,4 @@ export default function PodiumSection({
       )}
     </motion.div>
   );
-}
+});
