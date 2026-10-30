@@ -2,7 +2,7 @@ import type { PublicMatch } from '@/lib/match-feed';
 
 /**
  * A live match's feed, read for the quiz page's stream pop-up (src/hooks/useMatchPush.ts): which over takes
- * answers now, and the score line its header shows.
+ * answers now, the score line its header shows, and the questions this device locked in.
  */
 
 export type FeedQuestion = PublicMatch['questions'][number];
@@ -34,6 +34,30 @@ export function openOver(questions: FeedQuestion[], now: number): OpenOver | nul
   const last = open.reduce((a, b) => (b.innings * 1000 + b.over > a.innings * 1000 + a.over ? b : a));
   const group = open.filter((q) => q.innings === last.innings && q.over === last.over);
   return { innings: last.innings, over: last.over, closesAtMs: Math.min(...group.map((q) => Date.parse(q.closesAt!))), questions: group };
+}
+
+const ANSWERED_KEY = (owner: string, quizId: string) => `t2w:match-answered:${owner}:${quizId}`;
+
+/**
+ * The match questions this player locked in on this device. Kept here rather than read from the server: at
+ * Go live every player on the quiz page would ask at once. Another device doesn't know them; locking one
+ * in again there changes nothing (the server keeps the first answer). Empty when storage is unavailable.
+ */
+export function readAnswered(owner: string, quizId: string): Set<string> {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(ANSWERED_KEY(owner, quizId)) ?? '[]');
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function rememberAnswered(owner: string, quizId: string, ids: Set<string>): void {
+  try {
+    localStorage.setItem(ANSWERED_KEY(owner, quizId), JSON.stringify([...ids]));
+  } catch {
+    // Private mode or storage full: a locked-in over may pop up again after a reload
+  }
 }
 
 /** "Lahore 48/2 (6.0 overs, target 150)": the innings being played */

@@ -373,21 +373,22 @@ describe('quizzes page: live updates', () => {
     const feed = {
       match: { id: 'm1', quizId: 'mq1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 20, status: 'live', settled: false, entriesClosed: false },
       innings: [{ innings: 1, battingTeam: 'Lahore', endReason: null, runs: 48, wickets: 2, oversText: '6.0', target: null, overs: [] }],
-      questions: [{ id: 'r', innings: 1, over: 7, text: 'Will over 7 go for 8 or more runs?', textRomanUrdu: 'Kya over 7 mein 8 ya zyada runs banenge?', options: ['Yes', 'No'], state: 'open', closesAt, correctOption: null }],
+      questions: [{ id: 'r', innings: 1, over: 7, text: 'Will over 7 go for 8 or more runs?', textRomanUrdu: 'Kya over 7 mein 8 ya zyada runs banenge?', options: ['Yes', 'No'], optionsRomanUrdu: ['Haan', 'Nahi'], state: 'open', closesAt, correctOption: null }],
       // This file mocks Date.now, not new Date()
       serverNow: new Date(Date.now()).toISOString(),
     };
     h.liveFetch.mockImplementation(async (url: string) => {
       if (url === '/api/live/matches/m1') return jsonResponse(feed);
-      if (url === '/api/quizzes/mq1/answers') return jsonResponse({ answers: [] });
       return jsonResponse({ version: 'm-a', quizzes: [], matches: [{ id: 'm1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', status: 'live' }] });
     });
     render(<QuizzesPage />);
     await loaded();
     await act(async () => { await livePoll().task(); });
     await waitFor(() => expect(h.push.match).toHaveBeenCalledWith(expect.objectContaining({
-      key: 'm1:1.7', quizId: 'mq1', matchTitle: 'Lahore vs Karachi', over: 7, score: 'Lahore 48/2 (6.0 overs)',
+      key: 'm1:r', quizId: 'mq1', matchTitle: 'Lahore vs Karachi', over: 7, score: 'Lahore 48/2 (6.0 overs)',
     })));
+    // The pop-up tells the page what was locked in, so it isn't asked again after a reload
+    expect(h.liveProps).toMatchObject({ onMatchLocked: expect.any(Function) });
     expect(h.liveFetch).toHaveBeenCalledWith('/api/live/matches/m1', { credentials: 'omit' });
     // Polled every 3 s while a match is on
     expect(h.polls[3_000].opts).toMatchObject({ enabled: true });

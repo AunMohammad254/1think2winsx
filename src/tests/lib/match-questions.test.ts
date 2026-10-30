@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { overQuestions, runsLine, YES_NO, type OverContext } from '@/lib/match-questions';
+import { overQuestions, romanUrduOption, runsLine, YES_NO, type OverContext } from '@/lib/match-questions';
 import { MARKET_NAMES } from '@/lib/match-engine';
 import { wordingProblem } from '@/lib/match-wording';
 
@@ -53,5 +53,12 @@ describe('overQuestions', () => {
         expect(wordingProblem(q, over, q.params)).toBeNull();
       }
     }
+  });
+});
+
+describe('romanUrduOption', () => {
+  it('gives every option the questions use in Roman Urdu, and nothing for one it does not know', () => {
+    expect(YES_NO.map(romanUrduOption)).toEqual(['Haan', 'Nahi']);
+    expect(romanUrduOption('Maybe')).toBeNull();
   });
 });

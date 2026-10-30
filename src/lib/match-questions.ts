@@ -1,5 +1,11 @@
 import { BALLS_PER_OVER, type InningsNumber } from '@/lib/match-engine';
 
+/** Every market's options are Yes / No: their Roman Urdu, which players see with the English */
+const ROMAN_URDU_OPTIONS: Record<string, string> = { Yes: 'Haan', No: 'Nahi' };
+
+/** An option in Roman Urdu, or null for one that has none */
+export const romanUrduOption = (option: string): string | null => ROMAN_URDU_OPTIONS[option] ?? null;
+
 /**
  * The questions an over gets (match mode). Every one is a prediction about an over that hasn't started,
  * so it can't be looked up, with Yes / No options and a line set to make both answers about as likely:

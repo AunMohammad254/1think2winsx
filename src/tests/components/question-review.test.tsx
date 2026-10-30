@@ -44,8 +44,8 @@ describe('QuestionReview', () => {
   it("shows an over's questions with who worded them and the time left to send", () => {
     setup([runs(), wicket()]);
     const over = screen.getByRole('group', { name: 'Over 4 questions' });
-    // 100 s left, less the 10 s players need to answer
-    expect(over).toHaveTextContent('Send within 1:30, and before the 5th ball of over 3');
+    // 100 s left, less the 50 s players need: the pop-up's margin, its feed, and time to answer
+    expect(over).toHaveTextContent('Send within 0:50, and before the 5th ball of over 3');
     expect(over).toHaveTextContent('Worded by Gemini: check it');
     expect(over).toHaveTextContent('Built-in wording');
     expect(within(over).getAllByRole('textbox')[0]).toHaveValue('Lahore ko runs chahiye: over 4 mein 9 ya zyada?');
@@ -55,7 +55,7 @@ describe('QuestionReview', () => {
   });
 
   it('warns in red under 30 seconds, and words over 1 differently', () => {
-    setup([wicket({ over: 1, closesAt: new Date(NOW + 35_000).toISOString() })]);
+    setup([wicket({ over: 1, closesAt: new Date(NOW + 75_000).toISOString() })]);
     const text = screen.getByText(/Send within 0:25, and before over 1 starts/);
     expect(text).toHaveClass('text-red-300');
   });

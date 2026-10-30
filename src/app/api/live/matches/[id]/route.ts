@@ -16,8 +16,8 @@ const NO_STORE = { 'Cache-Control': 'no-store' };
 /**
  * GET /api/live/matches/[id] - a live match as players see it (src/lib/match-feed.ts): the score and the
  * questions sent so far. No sign-in and nothing per player, so one cached copy serves everyone watching;
- * the quiz page polls it every few seconds and pops each over up on the stream. A player's own answers
- * come from the signed-in /api/quizzes/[id]/answers, and answering goes through the signed-in submit route.
+ * the quiz page polls it every few seconds and pops each over up on the stream. Answering goes through the
+ * signed-in submit route.
  *
  * `serverNow` is the time of this response: a copy Cloudflare kept is older by its Age header.
  */

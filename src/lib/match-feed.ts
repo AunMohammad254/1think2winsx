@@ -1,5 +1,6 @@
 import { loadMatch, matchView, type QuestionState } from '@/lib/match-service';
 import type { EndReason, InningsNumber, MatchStatus } from '@/lib/match-engine';
+import { romanUrduOption } from '@/lib/match-questions';
 
 /**
  * What players see of a live match (GET /api/live/matches/[id], read by the quiz page to pop each over's
@@ -43,6 +44,8 @@ export interface PublicMatch {
     text: string;
     textRomanUrdu: string | null;
     options: string[];
+    /** Each option in Roman Urdu, or null where it has none */
+    optionsRomanUrdu: Array<string | null>;
     state: QuestionState;
     closesAt: string | null;
     /** Only once settled */
@@ -75,7 +78,7 @@ export async function buildPublicMatch(matchId: string, now = Date.now()): Promi
     })),
     questions: view.questions.map((q) => ({
       id: q.id, innings: q.innings, over: q.over, text: q.text, textRomanUrdu: q.textRomanUrdu, options: q.options,
-      state: q.state, closesAt: q.closesAt, correctOption: q.correctOption,
+      optionsRomanUrdu: q.options.map(romanUrduOption), state: q.state, closesAt: q.closesAt, correctOption: q.correctOption,
     })),
     serverNow: view.serverNow,
   };

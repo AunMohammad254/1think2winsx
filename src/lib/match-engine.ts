@@ -85,8 +85,18 @@ export interface MatchState {
   draftSlots?: Array<{ innings: InningsNumber; over: number }>;
 }
 
-/** Questions must give players at least this long to answer */
-export const MIN_ANSWER_SECONDS = 10;
+/**
+ * The live-stream pop-up's countdown ends this long before a match question closes: the server has no grace
+ * period for them, so the answers it locks in at that deadline (spread over most of this) still arrive in
+ * time. src/components/quiz/LiveQuizPush.tsx.
+ */
+export const MATCH_POPUP_MARGIN_SECONDS = 30;
+
+/**
+ * Questions must have at least this long left when sent: the pop-up's margin, the few seconds its feed takes
+ * to show them (cached at the edge, polled every 3 s), and time to answer.
+ */
+export const MIN_ANSWER_SECONDS = MATCH_POPUP_MARGIN_SECONDS + 20;
 
 /**
  * Whether a reviewed question about `slot` can still go out at `now`: its innings is being played, its

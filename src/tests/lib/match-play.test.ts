@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
-import { clockOffset, openOver, scoreLine, type FeedQuestion } from '@/lib/match-play';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { clockOffset, openOver, readAnswered, rememberAnswered, scoreLine, type FeedQuestion } from '@/lib/match-play';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const q = (over: Partial<FeedQuestion> = {}): FeedQuestion => ({
-  id: 'q1', innings: 1, over: 3, text: 'Will a wicket fall in over 3?', textRomanUrdu: null, options: ['Yes', 'No'],
+  id: 'q1', innings: 1, over: 3, text: 'Will a wicket fall in over 3?', textRomanUrdu: null, options: ['Yes', 'No'], optionsRomanUrdu: ['Haan', 'Nahi'],
   state: 'open', closesAt: '2026-10-29T12:01:00Z', correctOption: null, ...over,
 });
 
@@ -51,5 +51,31 @@ describe('scoreLine', () => {
 
   it("names the match before an innings starts", () => {
     expect(scoreLine({ match, innings: [] })).toBe('Lahore vs Karachi');
+  });
+});
+
+describe('readAnswered and rememberAnswered', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("remembers this player's locked-in questions for a match, on this device", () => {
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) });
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set());
+    rememberAnswered('u1', 'mq1', new Set(['a', 'b']));
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set(['a', 'b']));
+    // Another player on the same device, or another match: their own
+    expect(readAnswered('u2', 'mq1')).toEqual(new Set());
+    expect(store.get('t2w:match-answered:u1:mq1')).toBe('["a","b"]');
+    // Anything odd kept there reads as nothing answered
+    store.set('t2w:match-answered:u1:mq1', '{"a":1}');
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set());
+    store.set('t2w:match-answered:u1:mq1', '["a",7]');
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set(['a']));
+  });
+
+  it('carries on without storage (private mode, storage full)', () => {
+    vi.stubGlobal('localStorage', { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('full'); } });
+    expect(readAnswered('u1', 'mq1')).toEqual(new Set());
+    expect(() => rememberAnswered('u1', 'mq1', new Set(['a']))).not.toThrow();
   });
 });

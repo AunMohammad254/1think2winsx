@@ -360,7 +360,7 @@ function QuizzesPageInner() {
     }
   }, [debouncedFreshFetch]);
   useJitteredPolling(checkLive, { intervalMs: 5_000, jitterMs: 2_000, enabled: !!userId });
-  useMatchPush(liveMatches, liveQuizPushRef);
+  const rememberMatchAnswers = useMatchPush(liveMatches, liveQuizPushRef, userId);
 
   // Deep link from the notification bell / a "View Details" link on a
   // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
@@ -588,7 +588,7 @@ function QuizzesPageInner() {
                   <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" onAvailabilityChange={setStreamAvailable} />
                 </Suspense>
               </div>
-              <LiveQuizPush ref={attachLiveQuizPush} onAnswered={() => fetchQuizzesData(true)} canUseSharedCopy={canUseSharedCopy} />
+              <LiveQuizPush ref={attachLiveQuizPush} onAnswered={() => fetchQuizzesData(true)} canUseSharedCopy={canUseSharedCopy} onMatchLocked={rememberMatchAnswers} />
             </div>
           </div>
         </div>
