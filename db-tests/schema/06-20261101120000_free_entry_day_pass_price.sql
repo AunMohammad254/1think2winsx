@@ -1,7 +1,12 @@
 -- =============================================================================
 -- Free-entry quizzes never set the day pass price
 --
--- Not applied to production yet.
+-- Applied to production (eclivawqhdovsndlngfo) on 2026-10-30 as migration 20261030003819, owner-approved,
+-- BEFORE the code that uses it (PR #87) was deployed. Checked after: pay_quiz_access's body md5 is
+-- 672f2ff1d085a019b0cedade7ff45f04 (this file's), it is still SECURITY DEFINER with search_path public,
+-- callable by signed-in players and not by anon. The one active quiz then was not free entry (price 2,
+-- unchanged) and the wallet was off. submit_quiz_attempt (fc6332cd7da3b8fc892722d4d41cb369) and
+-- apply_match_change (db7793e7a9570d0c68e0d3063134c269) were untouched.
 --
 -- pay_quiz_access charges the price of the quiz it is given, or else of the OLDEST active quiz. A live
 -- match's quiz (match mode, migration 20261029120000_match_mode) has free entry and the default price,
