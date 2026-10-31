@@ -1,6 +1,6 @@
 {
-  "description": "Live quiz snapshot (/api/live), shared quiz copies (/api/live/quizzes/*) and live matches (/api/live/matches/*): cache for the time their Cache-Control allows, never an answer without one (deploy/CLOUDFLARE_PAGE_CACHE.md)",
-  "expression": "(http.host in {\"1think2win.com\" \"www.1think2win.com\"} and (http.request.uri.path eq \"/api/live\" or starts_with(http.request.uri.path, \"/api/live/quizzes/\") or starts_with(http.request.uri.path, \"/api/live/matches/\")))",
+  "description": "Live quiz snapshot (/api/live), shared quiz copies (/api/live/quizzes/*), live matches (/api/live/matches/*), and stream availability (/api/streaming/active): cache for the time their Cache-Control allows, never an answer without one (deploy/CLOUDFLARE_PAGE_CACHE.md)",
+  "expression": "(http.host in {\"1think2win.com\" \"www.1think2win.com\"} and (http.request.uri.path eq \"/api/live\" or starts_with(http.request.uri.path, \"/api/live/quizzes/\") or starts_with(http.request.uri.path, \"/api/live/matches/\") or http.request.uri.path eq \"/api/streaming/active\"))",
   "action": "set_cache_settings",
   "action_parameters": {
     "cache": true,

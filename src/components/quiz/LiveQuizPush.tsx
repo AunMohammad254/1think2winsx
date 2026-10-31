@@ -119,7 +119,7 @@ const TIME_UP_MESSAGE = 'The time is up for the quiz. You cannot lock in answer.
  * At the deadline the viewer's answers are locked in after a random wait of up to this long, inside the
  * server's 30 s grace period, so a crowd whose countdowns all reach zero together doesn't submit at once.
  */
-const AUTO_LOCK_SPREAD_MS = 15_000;
+const AUTO_LOCK_SPREAD_MS = 22_000;
 
 /**
  * A live match's questions close at their own time, with no grace period: the countdown ends this long
@@ -251,6 +251,13 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             }
             const { quiz: loaded } = await res.json();
             setQuiz({ id: loaded.id, title: loaded.title, questions: loaded.questions });
+            try {
+                if (localStorage.getItem('1t2w_sub_' + loaded.id) === '1') {
+                    setLocked(true);
+                }
+            } catch {
+                // Ignore storage read errors
+            }
             // The server's answering window, corrected for this device's clock when the personal route
             // sends its own time (the cached copy can't)
             setLive({
@@ -304,6 +311,11 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const notify = useCallback((quizId: string, quizTitle: string, endsAt: string | null = null, durationMinutes = 0) => {
         // The announcement for this quiz is over: it is live now
         setUpcoming((u) => (u?.id === quizId ? null : u));
+        try {
+            localStorage.removeItem('1t2w_sub_' + quizId);
+        } catch {
+            // Ignore storage errors
+        }
         arrive({ id: quizId, title: quizTitle, endsAtMs: parseMs(endsAt), windowMs: durationMinutes * 60_000 || null });
     }, [arrive]);
 
@@ -411,6 +423,14 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         // Loaded: the button only shows for a loaded quiz, and the deadline lock-in is only set up for one
         // (startFresh, the only thing that unloads it, also cancels that lock-in)
         const loaded = quiz!;
+        try {
+            if (localStorage.getItem('1t2w_sub_' + loaded.id) === '1') {
+                setLocked(true);
+                return;
+            }
+        } catch {
+            // Ignore storage read errors
+        }
         // The countdown reads "Time's up": say so instead of sending a submit the server refuses
         const timeUp = () => isWindowClosed(live?.endsAtMs ?? null, Date.now());
         if (!atDeadline && timeUp()) {
@@ -426,6 +446,11 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         const picked = loaded.questions.filter((q) => answers[q.id] !== undefined);
         setSubmitting(true);
         try {
+            localStorage.setItem('1t2w_sub_' + loaded.id, '1');
+        } catch {
+            // Ignore storage write errors (e.g. storage full or private browsing)
+        }
+        try {
             const csrfToken = await getCSRFToken();
             // Submitting is idempotent (one attempt per user and quiz is enforced in the database),
             // so overload responses (502/503/504) are retried with jittered backoff. 429 is
@@ -438,6 +463,11 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                 }),
             }, { retries: 4, retryOn: [502, 503, 504] });
             if (!res.ok) {
+                try {
+                    localStorage.removeItem('1t2w_sub_' + loaded.id);
+                } catch {
+                    // Ignore storage errors
+                }
                 const data = await res.json().catch(() => ({}));
                 // Locked in on the last second and refused: the window closed while it was on its way
                 toast.error(!atDeadline && timeUp() ? TIME_UP_MESSAGE : data.error || 'Failed to submit');
@@ -454,6 +484,11 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             if (live?.match) onMatchLocked?.(loaded.id, picked.map((q) => q.id));
             else onAnswered?.();
         } catch (err) {
+            try {
+                localStorage.removeItem('1t2w_sub_' + loaded.id);
+            } catch {
+                // Ignore storage errors
+            }
             toast.error(err instanceof Error ? err.message : 'Failed to submit your answer');
         } finally {
             setSubmitting(false);

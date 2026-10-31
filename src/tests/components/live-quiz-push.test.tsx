@@ -44,6 +44,7 @@ beforeEach(() => {
   h.chime.mockReset();
   h.soundOn = true;
   window.innerWidth = 1024;
+  localStorage.clear();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -515,9 +516,33 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(screen.getByRole('button', { name: 'Lock in answer' })).toBeEnabled();
   });
 
+  it('records 1t2w_sub_ flag in localStorage upon submission and locks immediately on reopen', async () => {
+    setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
+    let resolveSubmit: (res: Response) => void;
+    const submitPromise = new Promise<Response>((resolve) => { resolveSubmit = resolve; });
+    h.fetchWithRetry.mockReturnValueOnce(submitPromise);
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    // Flag is set immediately when submission starts (protecting fast refresh during request flight)
+    expect(localStorage.getItem('1t2w_sub_q1')).toBe('1');
+    resolveSubmit!(jsonResponse({ ok: true }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
+    expect(localStorage.getItem('1t2w_sub_q1')).toBe('1');
+
+    // On reopen (simulating fast refresh), loadQuiz sees the flag and locks
+    fireEvent.click(screen.getByTitle('Close'));
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    expect(screen.getByText('Answer locked in — waiting for results')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Lock in answer' })).toBeNull();
+  });
+
   it('locks in what was answered when time runs out, after a random wait inside the grace period', async () => {
     fakeClock();
-    vi.spyOn(Math, 'random').mockReturnValue(0.5); // 7.5 s into the 15 s spread
+    vi.spyOn(Math, 'random').mockReturnValue(0.5); // 11 s into the 22 s spread
     h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
     const { onAnswered } = setup();
     act(() => ref.current!.open('q1'));
@@ -537,7 +562,7 @@ describe('LiveQuizPush: loading and submitting', () => {
 
     h.fetchWithRetry.mockClear();
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
-    await tick(6_000);
+    await tick(10_000);
     expect(h.fetchWithRetry).not.toHaveBeenCalled();
     await tick(2_000);
     expect(h.fetchWithRetry).toHaveBeenCalledTimes(1);

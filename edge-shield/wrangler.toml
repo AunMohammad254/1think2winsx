@@ -12,6 +12,9 @@ compatibility_date = "2026-10-06"
 workers_dev = false
 upload_source_maps = true
 
+[limits]
+cpu_ms = 50
+
 # www redirects to the apex (a Redirect Rule, which runs before Workers), so only the apex is routed.
 # Paths Cloudflare serves from its cache, and the webhooks, get routes without this Worker (README.md).
 [[routes]]

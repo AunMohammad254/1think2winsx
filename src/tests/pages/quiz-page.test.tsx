@@ -106,6 +106,25 @@ describe('quiz page: loading', () => {
     }
     expect(h.router.push).toHaveBeenCalledWith('/quizzes');
   });
+
+  it('loads from the shared cached copy /api/live/quizzes/[id] with credentials omit first', async () => {
+    fetchMock.mockImplementationOnce(async (url: string) => (url.includes('/api/live/quizzes')
+      ? jsonResponse({ quiz: quiz({ title: 'Live Edge Quiz' }) })
+      : jsonResponse({ message: 'Synced!' })));
+    render(<QuizPage />);
+    expect(await screen.findByText('Live Edge Quiz')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/live/quizzes/q1', { credentials: 'omit' });
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+  });
+
+  it('bypasses the shared cached copy when 1t2w_sub_ flag is present in localStorage', async () => {
+    localStorage.setItem('1t2w_sub_q1', '1');
+    fetchMock.mockImplementation(async () => jsonResponse({ quiz: quiz({ title: 'Edge Quiz Should Not Load' }) }));
+    h.fetchWithRetry.mockImplementationOnce(async () => jsonResponse({ completed: true, attempt: { score: 90 } }, 403));
+    render(<QuizPage />);
+    await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/quiz/q1/results?score=90'));
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/live/quizzes/q1', expect.anything());
+  });
 });
 
 describe('quiz page: before starting', () => {
@@ -171,6 +190,7 @@ describe('quiz page: answering', () => {
     submit();
     expect(await screen.findByText('Your predictions have been successfully submitted!')).toBeInTheDocument();
     expect(screen.getByText('answered 3')).toBeInTheDocument();
+    expect(localStorage.getItem('1t2w_sub_q1')).toBe('1');
   });
 
   it('shows submit failures and lets the player dismiss them', async () => {
