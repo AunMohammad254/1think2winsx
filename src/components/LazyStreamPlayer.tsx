@@ -83,7 +83,7 @@ export default function LazyStreamPlayer({
   useEffect(() => {
     const checkStreamAvailability = async () => {
       try {
-        const response = await fetch('/api/streaming/active');
+        const response = await fetch('/api/streaming/active', { credentials: 'omit' });
         const data = await response.json();
         setHasStreamAvailable(data.hasActiveStream);
         onAvailabilityChangeRef.current?.(!!data.hasActiveStream);
