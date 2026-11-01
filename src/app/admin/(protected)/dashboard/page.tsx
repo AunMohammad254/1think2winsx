@@ -19,6 +19,11 @@ import {
   Ticket,
   Radio,
   Image as ImageIcon,
+
+
+
+  Receipt,
+
 } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
@@ -123,6 +128,11 @@ const navItems = [
   { href: '/admin/security', label: 'Security', icon: Shield },
   { href: '/admin/support', label: 'User Support', icon: LifeBuoy },
   { href: '/admin/tickets', label: 'Support Tickets', icon: Ticket },
+
+
+
+  { href: '/admin/expenses', label: 'Expense Manager', icon: Receipt },
+
 ];
 
 const quickActions = [
@@ -135,6 +145,11 @@ const quickActions = [
   { href: '/admin/media', label: 'Manage Media', icon: ImageIcon, color: 'fuchsia' },
   { href: '/admin/newsletter', label: 'Send Newsletter', icon: Mail, color: 'blue' },
   { href: '/admin/streaming', label: 'Live Streaming', icon: Video, color: 'red' },
+
+
+
+  { href: '/admin/expenses', label: 'Expense Manager', icon: Receipt, color: 'teal' },
+
 ];
 
 // ============================================
