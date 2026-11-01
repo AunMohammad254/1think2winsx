@@ -540,6 +540,20 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(screen.queryByRole('button', { name: 'Lock in answer' })).toBeNull();
   });
 
+  it('locks immediately and aborts submission if 1t2w_sub_ flag is found in localStorage during send', async () => {
+    setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
+    // Simulate submission happened in another tab/window while answering
+    localStorage.setItem('1t2w_sub_q1', '1');
+    h.fetchWithRetry.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
+    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+  });
+
   it('locks in what was answered when time runs out, after a random wait inside the grace period', async () => {
     fakeClock();
     vi.spyOn(Math, 'random').mockReturnValue(0.5); // 11 s into the 22 s spread

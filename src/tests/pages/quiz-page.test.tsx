@@ -125,6 +125,20 @@ describe('quiz page: loading', () => {
     await waitFor(() => expect(h.router.push).toHaveBeenCalledWith('/quiz/q1/results?score=90'));
     expect(fetchMock).not.toHaveBeenCalledWith('/api/live/quizzes/q1', expect.anything());
   });
+
+  it('falls back to personal route when shared cached copy returns non-ok or throws network error', async () => {
+    fetchMock.mockImplementationOnce(async () => jsonResponse({}, 404));
+    const { unmount } = render(<QuizPage />);
+    expect(await screen.findByText('Cricket Cup')).toBeInTheDocument();
+    expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q1', undefined, { retries: 3 });
+    unmount();
+
+    h.fetchWithRetry.mockClear();
+    fetchMock.mockImplementationOnce(async () => { throw new Error('offline/edge down'); });
+    render(<QuizPage />);
+    expect(await screen.findByText('Cricket Cup')).toBeInTheDocument();
+    expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q1', undefined, { retries: 3 });
+  });
 });
 
 describe('quiz page: before starting', () => {
