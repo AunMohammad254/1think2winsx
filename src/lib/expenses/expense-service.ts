@@ -28,7 +28,7 @@ export const DEFAULT_SUBSCRIPTIONS: Subscription[] = [
     paymentMethod: 'Mastercard ending in 4112',
     planName: 'Pro Tier + Compute Add-on',
     portalUrl: 'https://supabase.com/dashboard/org/billing',
-    description: 'PostgreSQL instance (Mumbai region), Auth engine, and Edge functions.',
+    description: 'PostgreSQL instance, Auth engine, and Edge functions.',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-11-01T00:00:00Z',
   },
