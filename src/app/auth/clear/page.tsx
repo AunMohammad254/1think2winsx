@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, CheckCircle2, AlertTriangle, LogIn } from 'lucide-react';
 import Link from 'next/link';
+import BrandLogo from '@/components/brand/Logo';
 
 export default function ClearAuthPage() {
     const [status, setStatus] = useState<'clearing' | 'success' | 'error'>('clearing');
@@ -77,13 +78,12 @@ export default function ClearAuthPage() {
                 <div className="w-full max-w-md">
                     {/* Logo */}
                     <div className="text-center mb-8">
-                        <Link href="/" className="inline-block group">
+                        <Link href="/" className="inline-flex flex-col items-center gap-3 group">
                             <div className="relative">
                                 <div className="absolute -inset-2 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full blur opacity-75 group-hover:opacity-100 transition duration-300 animate-pulse"></div>
-                                <div className="relative bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-full font-bold text-xl shadow-lg transform group-hover:scale-105 transition-all duration-200">
-                                    Kheelo Or Jeeto
-                                </div>
+                                <BrandLogo size="md" alt="" className="relative shadow-lg transform group-hover:scale-105 transition-all duration-200" />
                             </div>
+                            <span className="font-bold text-xl text-white">1Think 2Win</span>
                         </Link>
                     </div>
 

@@ -1,6 +1,7 @@
 'use client';
 
-import { Sparkles, X, Download } from 'lucide-react';
+import { X, Download } from 'lucide-react';
+import BrandLogo from '@/components/brand/Logo';
 import { usePWA } from '@/contexts/PWAContext';
 import logger from '@/lib/logger';
 
@@ -36,9 +37,7 @@ export default function InstallPromptBanner() {
 
         <div className="flex gap-4">
           {/* Logo/Icon Container */}
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0 border border-white/20 shadow-lg shadow-purple-500/20">
-            <Sparkles className="w-6 h-6 text-white" />
-          </div>
+          <BrandLogo alt="" className="flex-shrink-0 shadow-lg shadow-purple-500/20" />
 
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-bold text-white mb-1 pr-6">Install 1Think2Win App</h4>

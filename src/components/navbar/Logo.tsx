@@ -1,21 +1,14 @@
 import Link from 'next/link';
+import BrandLogo from '@/components/brand/Logo';
 
 export default function Logo({ prefetch }: { prefetch?: false }) {
   return (
     <Link href="/" prefetch={prefetch} className="group flex items-center gap-3">
       <div className="logo-mark-enter relative">
-        {/* Logo Icon Container */}
-        <div className="relative w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 p-0.5 shadow-lg shadow-purple-500/25 group-hover:shadow-purple-500/40 transition-shadow duration-300">
-          <div className="w-full h-full rounded-[10px] bg-black/80 backdrop-blur-sm flex items-center justify-center">
-            {/* Stylized "1T" Logo */}
-            <span className="text-lg md:text-xl font-black bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent font-poppins">
-              1T
-            </span>
-          </div>
-        </div>
-        
         {/* Glow effect on hover */}
-        <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 opacity-0 group-hover:opacity-30 blur-xl transition-opacity duration-300" />
+        <div className="absolute inset-0 rounded-full bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 opacity-0 group-hover:opacity-30 blur-xl transition-opacity duration-300" />
+
+        <BrandLogo eager className="relative w-10 h-10 md:w-12 md:h-12 shadow-lg shadow-purple-500/25 group-hover:shadow-purple-500/40 transition-shadow duration-300" />
       </div>
 
       <div className="logo-text-enter hidden sm:block">

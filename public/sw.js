@@ -1,5 +1,6 @@
 // v3: the activate step below deletes v2, which could hold page data and dev chunks from older code
-const CACHE_NAME = '1think2wins-cache-v3';
+// v4: the icons under /Favicon/ were redrawn at the same URLs, and they are served cache-first
+const CACHE_NAME = '1think2wins-cache-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',

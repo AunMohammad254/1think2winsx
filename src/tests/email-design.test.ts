@@ -36,8 +36,12 @@ describe('every email follows the design rules', () => {
         expect(html, name).toMatch(/<title>[^<]+<\/title>/);
         // email clients block or strip these, and they would be a privacy/safety risk
         expect(html, name).not.toMatch(/<script/i);
-        expect(html, name).not.toMatch(/<img\b/i);
         expect(html, name).not.toMatch(/<link\b/i);
+        // one image, the brain logo from the site itself: no tracking pixels, no other hosts
+        const images = html.match(/<img\b[^>]*>/gi) ?? [];
+        expect(images, name).toHaveLength(1);
+        expect(images[0], name).toMatch(/ src="(https:\/\/1think2win\.com|\{\{ \.SiteURL \}\})\/images\/brand\/logo-96\.png" /);
+        expect(images[0], name).toContain(' alt="" ');
         expect(html, name).not.toMatch(/@import|url\(/i);
         // the app's palette, not the old yellow-on-grey look
         expect(html, name).toContain(EMAIL_COLORS.pageBg);

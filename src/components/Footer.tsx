@@ -5,6 +5,7 @@ import { memo, useState } from 'react';
 import { toast } from 'sonner';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { Reveal } from '@/components/landing/Primitives';
+import BrandLogo from '@/components/brand/Logo';
 import { useLinkPrefetch } from '@/hooks/useLinkPrefetch';
 
 const quickLinks = [
@@ -74,9 +75,7 @@ const Footer = memo(function Footer() {
           <Reveal delay={0} className="sm:col-span-2 md:col-span-3 lg:col-span-4">
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6">
               <div className="flex items-center gap-3">
-                <span className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-xl shadow-lg">
-                  🏏
-                </span>
+                <BrandLogo alt="" className="shadow-lg shadow-purple-500/25" />
                 <div>
                   <p className="font-display text-lg font-bold text-white">1Think 2Win</p>
                   <p className="text-xs text-blue-400/80">Think Smart, Win Big</p>

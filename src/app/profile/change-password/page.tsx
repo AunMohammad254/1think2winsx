@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { getCSRFToken } from '@/lib/csrf';
 import { validatePasswordData, formatErrorMessage } from '@/utils/validation';
 import Link from 'next/link';
+import BrandLogo from '@/components/brand/Logo';
 import { getUserAuthMethods, getProviderDisplayName, type AuthMethods } from '@/lib/auth-helpers';
 import SetPasswordByEmail from '@/components/profile/SetPasswordByEmail';
 import TurnstileWidget, { type TurnstileHandle } from '@/components/auth/TurnstileWidget';
@@ -194,6 +195,7 @@ export default function ChangePasswordPage() {
         <div className="text-center mb-8">
           {/* No prefetch on signed-in pages: Cloudflare can't cache it (src/lib/link-prefetch.ts) */}
           <Link href="/" prefetch={false} className="inline-block group">
+            <BrandLogo alt="" className="mx-auto mb-3" />
             <div className="relative">
               <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-transparent mb-2 md:group-hover:scale-105 md:transition-transform md:duration-300">
                 1think2win

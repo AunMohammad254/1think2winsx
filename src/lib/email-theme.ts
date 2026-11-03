@@ -3,11 +3,13 @@
  *
  * Every email the product sends (our own transactional emails, the newsletter and the Supabase auth
  * emails) is built from these pieces so they all look like the app: deep navy "ink" backgrounds,
- * emerald as the action colour, amber as the accent, and the "1T" mark from the navbar.
+ * emerald as the action colour, amber as the accent, and the brain logo from the navbar.
  *
  * Email-client rules this follows (so it renders in Gmail, Outlook and Apple Mail):
  *  - table layout with inline styles; the <style> block only adds mobile tweaks (nice to have, never required)
- *  - no images, web fonts or scripts: the logo is built from a table cell, fonts fall back safely
+ *  - one image, the logo: a PNG on the site itself (Outlook has no WebP). Its alt is empty because the
+ *    "1Think 2Win" wordmark sits next to it, so a client that blocks images loses nothing
+ *  - no web fonts or scripts: fonts fall back safely
  *  - solid colours only (gradients are not reliable); `bgcolor` attributes repeat the background colours
  *  - every interpolated value goes through escapeHtml; Supabase `{{ .Placeholder }}` text passes through unchanged
  *
@@ -31,6 +33,9 @@ export const EMAIL_COLORS = {
     amberSoft: '#fbbf24',
     onEmerald: '#050814', // dark text on the emerald button (contrast 7:1)
 } as const;
+
+/** The brain mark at 96 px (2x the 44 px it is shown at), under the site root (scripts/generate-brand-assets.ts makes it). */
+export const EMAIL_LOGO_PATH = '/images/brand/logo-96.png';
 
 /** Poppins is the app's heading font; clients without it fall back to the system sans-serif. */
 export const EMAIL_FONT = "Poppins,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
@@ -160,7 +165,7 @@ ${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden
                 <td colspan="2" class="px" style="padding:28px 40px 4px 40px;">
                   <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                     <tr>
-                      <td width="44" height="44" align="center" valign="middle" bgcolor="${C.emerald}" style="width:44px;height:44px;background-color:${C.emerald};border-radius:12px;font-family:${EMAIL_FONT};font-size:19px;font-weight:800;line-height:44px;color:${C.onEmerald};">1T</td>
+                      <td width="44" height="44" valign="middle" style="width:44px;height:44px;"><img src="${base}${EMAIL_LOGO_PATH}" width="44" height="44" alt="" style="display:block;width:44px;height:44px;border:0;outline:none;text-decoration:none;"></td>
                       <td style="padding-left:12px;font-family:${EMAIL_FONT};">
                         <div style="font-size:19px;line-height:22px;font-weight:700;color:${C.heading};">1Think 2Win</div>
                         <div style="font-size:10px;line-height:14px;letter-spacing:2px;color:${C.muted};">SPORTS EXCELLENCE</div>
