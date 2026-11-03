@@ -16,8 +16,10 @@ import {
   ShieldAlert,
   Globe,
   Radio,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
-import type { GroupedSubscriptionExpenses, ExpenseCategory } from '@/types/expense';
+import type { GroupedSubscriptionExpenses, ExpenseCategory, ExpenseItem, Subscription } from '@/types/expense';
 import ExpenseItemRow from './ExpenseItemRow';
 
 interface SubscriptionExpenseCardProps {
@@ -25,6 +27,11 @@ interface SubscriptionExpenseCardProps {
   currency: 'USD' | 'PKR';
   exchangeRate: number;
   onAddItem: (subscriptionId: string) => void;
+  onEdit: (subscription: Subscription) => void;
+  /** Removes the subscription and its items */
+  onDelete: (group: GroupedSubscriptionExpenses) => void;
+  onEditItem: (item: ExpenseItem) => void;
+  onDeleteItem: (item: ExpenseItem) => void;
 }
 
 const CATEGORY_ICONS: Record<ExpenseCategory, React.ElementType> = {
@@ -56,6 +63,10 @@ export default function SubscriptionExpenseCard({
   currency,
   exchangeRate,
   onAddItem,
+  onEdit,
+  onDelete,
+  onEditItem,
+  onDeleteItem,
 }: SubscriptionExpenseCardProps) {
   const { subscription, items, totalCharges, totalDeductions, netTotal } = group;
   const CategoryIcon = CATEGORY_ICONS[subscription.category] || Server;
@@ -148,6 +159,22 @@ export default function SubscriptionExpenseCard({
             <Plus className="w-3.5 h-3.5" />
             <span>Add Item</span>
           </button>
+          <button
+            onClick={() => onEdit(subscription)}
+            aria-label={`Edit subscription ${subscription.name}`}
+            title="Edit subscription"
+            className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onDelete(group)}
+            aria-label={`Delete subscription ${subscription.name}`}
+            title="Delete subscription"
+            className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -169,6 +196,8 @@ export default function SubscriptionExpenseCard({
               item={item}
               currency={currency}
               exchangeRate={exchangeRate}
+              onEdit={onEditItem}
+              onDelete={onDeleteItem}
             />
           ))
         )}

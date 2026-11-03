@@ -2,56 +2,148 @@
 
 import React, { useState } from 'react';
 import { X, Plus, AlertCircle, Loader2 } from 'lucide-react';
-import type { Subscription, ExpenseCategory, ExpenseItemType, BillingCycle } from '@/types/expense';
+import type {
+  Subscription,
+  ExpenseItem,
+  ExpenseCategory,
+  ExpenseItemType,
+  BillingCycle,
+  SubscriptionStatus,
+} from '@/types/expense';
+
+/** An existing entry the modal edits instead of adding a new one */
+export type EditTarget =
+  | { kind: 'item'; item: ExpenseItem }
+  | { kind: 'subscription'; subscription: Subscription };
 
 interface AddExpenseModalProps {
   isOpen: boolean;
   onClose: () => void;
   subscriptions: Subscription[];
   defaultSubscriptionId?: string;
-  onExpenseAdded: () => Promise<void>;
+  /** The tab it opens on; without one, line items unless there is no subscription to add them to */
+  initialTab?: 'item' | 'subscription';
+  editing?: EditTarget | null;
+  /** After a save the server accepted */
+  onSaved: () => Promise<void>;
   getCSRFHeaders: () => Promise<Record<string, string>>;
 }
 
+const inDays = (days: number) => new Date(Date.now() + days * 86400000).toISOString().split('T')[0];
+
+const CATEGORY_OPTIONS = (
+  <>
+    <option value="infrastructure">Infrastructure</option>
+    <option value="database">Database</option>
+    <option value="ai">AI / LLM</option>
+    <option value="email">Email</option>
+    <option value="media">Media & Assets</option>
+    <option value="monitoring">Monitoring</option>
+    <option value="security">Security</option>
+    <option value="domain">Domain</option>
+    <option value="other">Other</option>
+  </>
+);
+
+function SubmitButton({ loading, label, busyLabel }: { loading: boolean; label: string; busyLabel: string }) {
+  return (
+    <div className="pt-2">
+      <button
+        type="submit"
+        disabled={loading}
+        className="w-full py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>{busyLabel}</span>
+          </>
+        ) : (
+          <>
+            <Plus className="w-4 h-4" />
+            <span>{label}</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Adds a line item (charge or deduction) or a subscription, or edits an existing one (`editing`). The
+ * parent mounts it afresh for every opening, so its fields start from what it is opened for.
+ */
 export default function AddExpenseModal({
   isOpen,
   onClose,
   subscriptions,
   defaultSubscriptionId,
-  onExpenseAdded,
+  initialTab,
+  editing,
+  onSaved,
   getCSRFHeaders,
 }: AddExpenseModalProps) {
-  const [tab, setTab] = useState<'item' | 'subscription'>('item');
+  const item = editing?.kind === 'item' ? editing.item : null;
+  const sub = editing?.kind === 'subscription' ? editing.subscription : null;
+
+  const [tab, setTab] = useState<'item' | 'subscription'>(
+    editing?.kind ?? initialTab ?? (subscriptions.length > 0 ? 'item' : 'subscription')
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Item form state
   const [subscriptionId, setSubscriptionId] = useState(
-    defaultSubscriptionId || (subscriptions[0]?.id ?? '')
+    item?.subscriptionId ?? defaultSubscriptionId ?? subscriptions[0]?.id ?? ''
   );
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState<ExpenseItemType>('charge');
-  const [amount, setAmount] = useState('');
-  const [dueDate, setDueDate] = useState(
-    new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
-  );
-  const [category, setCategory] = useState<ExpenseCategory>('infrastructure');
-  const [notes, setNotes] = useState('');
+  const [title, setTitle] = useState(item?.title ?? '');
+  const [type, setType] = useState<ExpenseItemType>(item?.type ?? 'charge');
+  const [amount, setAmount] = useState(item ? String(item.amount) : '');
+  const [dueDate, setDueDate] = useState(item?.dueDate ?? inDays(14));
+  const [category, setCategory] = useState<ExpenseCategory>(item?.category ?? 'infrastructure');
+  const [notes, setNotes] = useState(item?.notes ?? '');
 
   // Subscription form state
-  const [subName, setSubName] = useState('');
-  const [subProvider, setSubProvider] = useState('');
-  const [subPlanName, setSubPlanName] = useState('');
-  const [subCategory, setSubCategory] = useState<ExpenseCategory>('infrastructure');
-  const [subBillingCycle, setSubBillingCycle] = useState<BillingCycle>('monthly');
-  const [subNextBillingDate, setSubNextBillingDate] = useState(
-    new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]
-  );
-  const [subPaymentMethod, setSubPaymentMethod] = useState('Corporate Card');
-  const [subPortalUrl, setSubPortalUrl] = useState('');
-  const [subDescription, setSubDescription] = useState('');
+  const [subName, setSubName] = useState(sub?.name ?? '');
+  const [subProvider, setSubProvider] = useState(sub?.provider ?? '');
+  const [subPlanName, setSubPlanName] = useState(sub?.planName ?? '');
+  const [subCategory, setSubCategory] = useState<ExpenseCategory>(sub?.category ?? 'infrastructure');
+  const [subBillingCycle, setSubBillingCycle] = useState<BillingCycle>(sub?.billingCycle ?? 'monthly');
+  const [subNextBillingDate, setSubNextBillingDate] = useState(sub?.nextBillingDate ?? inDays(30));
+  const [subStatus, setSubStatus] = useState<SubscriptionStatus>(sub?.status ?? 'active');
+  const [subAutoRenew, setSubAutoRenew] = useState(sub?.autoRenew ?? true);
+  const [subPaymentMethod, setSubPaymentMethod] = useState(sub?.paymentMethod ?? 'Corporate Card');
+  const [subPortalUrl, setSubPortalUrl] = useState(sub?.portalUrl ?? '');
+  const [subDescription, setSubDescription] = useState(sub?.description ?? '');
 
   if (!isOpen) return null;
+
+  const save = async (method: 'POST' | 'PUT', body: unknown, failure: string) => {
+    setLoading(true);
+    try {
+      const csrfHeaders = await getCSRFHeaders();
+      const res = await fetch('/api/admin/expenses', {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...csrfHeaders,
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || failure);
+      }
+
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmitItem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,46 +158,11 @@ export default function AddExpenseModal({
       return;
     }
 
-    setLoading(true);
-    try {
-      const csrfHeaders = await getCSRFHeaders();
-      const res = await fetch('/api/admin/expenses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...csrfHeaders,
-        },
-        body: JSON.stringify({
-          entity: 'expense_item',
-          data: {
-            subscriptionId,
-            title: title.trim(),
-            type,
-            amount: parsedAmount,
-            currency: 'USD',
-            dueDate,
-            category,
-            notes: notes.trim() || undefined,
-          },
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to add expense item');
-      }
-
-      await onExpenseAdded();
-      onClose();
-      // Reset form
-      setTitle('');
-      setAmount('');
-      setNotes('');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
+    const data = { subscriptionId, title: title.trim(), type, amount: parsedAmount, dueDate, category };
+    await (item
+      // An edit sends empty notes too, so clearing them sticks
+      ? save('PUT', { entity: 'expense_item', id: item.id, data: { ...data, notes: notes.trim() } }, 'Failed to save changes')
+      : save('POST', { entity: 'expense_item', data: { ...data, currency: 'USD', notes: notes.trim() || undefined } }, 'Failed to add expense item'));
   };
 
   const handleSubmitSubscription = async (e: React.FormEvent) => {
@@ -116,54 +173,38 @@ export default function AddExpenseModal({
       return;
     }
 
-    setLoading(true);
-    try {
-      const csrfHeaders = await getCSRFHeaders();
-      const res = await fetch('/api/admin/expenses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...csrfHeaders,
-        },
-        body: JSON.stringify({
+    const data = {
+      name: subName.trim(),
+      provider: subProvider.trim(),
+      planName: subPlanName.trim() || 'Standard Tier',
+      category: subCategory,
+      billingCycle: subBillingCycle,
+      nextBillingDate: subNextBillingDate,
+      paymentMethod: subPaymentMethod.trim() || 'Corporate Card',
+      status: subStatus,
+      autoRenew: subAutoRenew,
+    };
+    await (sub
+      ? save('PUT', {
+          entity: 'subscription',
+          id: sub.id,
+          data: { ...data, portalUrl: subPortalUrl.trim(), description: subDescription.trim() },
+        }, 'Failed to save changes')
+      : save('POST', {
           entity: 'subscription',
           data: {
-            name: subName.trim(),
-            provider: subProvider.trim(),
-            planName: subPlanName.trim() || 'Standard Tier',
-            category: subCategory,
-            billingCycle: subBillingCycle,
-            nextBillingDate: subNextBillingDate,
-            paymentMethod: subPaymentMethod.trim() || 'Corporate Card',
+            ...data,
             portalUrl: subPortalUrl.trim() || undefined,
             description: subDescription.trim() || undefined,
             currency: 'USD',
-            status: 'active',
-            autoRenew: true,
           },
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to add subscription');
-      }
-
-      await onExpenseAdded();
-      onClose();
-      setSubName('');
-      setSubProvider('');
-      setSubPlanName('');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
+        }, 'Failed to add subscription'));
   };
 
   const inputClass =
     'w-full px-3 py-2 bg-gray-950/60 border border-white/10 rounded-xl text-white text-sm placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-colors';
   const labelClass = 'block text-xs font-medium text-gray-300 mb-1';
+  const heading = item ? 'Edit Line Item' : sub ? 'Edit Subscription' : 'Add Expense or Subscription';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -171,42 +212,47 @@ export default function AddExpenseModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div>
-            <h2 className="text-lg font-bold text-white">Add Expense or Subscription</h2>
-            <p className="text-xs text-gray-400">Record upcoming charges or discounts</p>
+            <h2 className="text-lg font-bold text-white">{heading}</h2>
+            <p className="text-xs text-gray-400">
+              {editing ? 'Change what is recorded for the upcoming cycle' : 'Record upcoming charges or discounts'}
+            </p>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab switch */}
-        <div className="grid grid-cols-2 p-1.5 mx-6 mt-4 bg-gray-950/50 border border-white/10 rounded-xl">
-          <button
-            type="button"
-            onClick={() => setTab('item')}
-            className={`py-1.5 text-xs font-medium rounded-lg transition-all ${
-              tab === 'item'
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Add Line Item (Charge/Deduction)
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('subscription')}
-            className={`py-1.5 text-xs font-medium rounded-lg transition-all ${
-              tab === 'subscription'
-                ? 'bg-purple-600 text-white shadow-md'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Add New Subscription
-          </button>
-        </div>
+        {/* Tab switch: not while editing, which is one kind of entry */}
+        {!editing && (
+          <div className="grid grid-cols-2 p-1.5 mx-6 mt-4 bg-gray-950/50 border border-white/10 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setTab('item')}
+              className={`py-1.5 text-xs font-medium rounded-lg transition-all ${
+                tab === 'item'
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Add Line Item (Charge/Deduction)
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('subscription')}
+              className={`py-1.5 text-xs font-medium rounded-lg transition-all ${
+                tab === 'subscription'
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Add New Subscription
+            </button>
+          </div>
+        )}
 
         {/* Error notification */}
         {error && (
@@ -293,15 +339,7 @@ export default function AddExpenseModal({
                     onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
                     className={inputClass}
                   >
-                    <option value="infrastructure">Infrastructure</option>
-                    <option value="database">Database</option>
-                    <option value="ai">AI / LLM</option>
-                    <option value="email">Email</option>
-                    <option value="media">Media & Assets</option>
-                    <option value="monitoring">Monitoring</option>
-                    <option value="security">Security</option>
-                    <option value="domain">Domain</option>
-                    <option value="other">Other</option>
+                    {CATEGORY_OPTIONS}
                   </select>
                 </div>
               </div>
@@ -317,25 +355,11 @@ export default function AddExpenseModal({
                 />
               </div>
 
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Saving Line Item...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4" />
-                      <span>Add Line Item</span>
-                    </>
-                  )}
-                </button>
-              </div>
+              <SubmitButton
+                loading={loading}
+                label={item ? 'Save Changes' : 'Add Line Item'}
+                busyLabel={item ? 'Saving Changes...' : 'Saving Line Item...'}
+              />
             </form>
           ) : (
             <form onSubmit={handleSubmitSubscription} className="space-y-4">
@@ -382,15 +406,7 @@ export default function AddExpenseModal({
                     onChange={(e) => setSubCategory(e.target.value as ExpenseCategory)}
                     className={inputClass}
                   >
-                    <option value="infrastructure">Infrastructure</option>
-                    <option value="database">Database</option>
-                    <option value="ai">AI / LLM</option>
-                    <option value="email">Email</option>
-                    <option value="media">Media & Assets</option>
-                    <option value="monitoring">Monitoring</option>
-                    <option value="security">Security</option>
-                    <option value="domain">Domain</option>
-                    <option value="other">Other</option>
+                    {CATEGORY_OPTIONS}
                   </select>
                 </div>
               </div>
@@ -418,6 +434,31 @@ export default function AddExpenseModal({
                     required
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Status</label>
+                  <select
+                    value={subStatus}
+                    onChange={(e) => setSubStatus(e.target.value as SubscriptionStatus)}
+                    className={inputClass}
+                  >
+                    <option value="active">Active</option>
+                    <option value="trial">Trial</option>
+                    <option value="canceling">Canceling</option>
+                    <option value="paused">Paused</option>
+                  </select>
+                </div>
+                <label className="flex items-center gap-2 self-end pb-2 text-xs font-medium text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={subAutoRenew}
+                    onChange={(e) => setSubAutoRenew(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600"
+                  />
+                  Renews automatically
+                </label>
               </div>
 
               <div>
@@ -453,25 +494,11 @@ export default function AddExpenseModal({
                 />
               </div>
 
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium text-sm transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Creating Subscription...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-4 h-4" />
-                      <span>Create Subscription</span>
-                    </>
-                  )}
-                </button>
-              </div>
+              <SubmitButton
+                loading={loading}
+                label={sub ? 'Save Changes' : 'Create Subscription'}
+                busyLabel={sub ? 'Saving Changes...' : 'Creating Subscription...'}
+              />
             </form>
           )}
         </div>
@@ -479,4 +506,3 @@ export default function AddExpenseModal({
     </div>
   );
 }
-

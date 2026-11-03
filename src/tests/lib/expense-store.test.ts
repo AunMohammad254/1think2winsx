@@ -146,6 +146,45 @@ describe('expense-service: changes', () => {
     expect(adminDb.callsTo('AppSettings', 'upsert')).toHaveLength(saves);
   });
 
+  it("keeps a subscription's id and creation time, whatever the update says", async () => {
+    const service = await fresh();
+    const updated = await service.updateSubscription('sub-1', { id: 'other', createdAt: '2020-01-01T00:00:00Z', name: 'Renamed' }, 'boss@example.test');
+    expect(updated).toMatchObject({ id: 'sub-1', createdAt: SUB.createdAt, name: 'Renamed' });
+  });
+
+  it('changes only the entry it names, leaving the others as they are', async () => {
+    const other = { ...SUB, id: 'sub-2', name: 'Brevo' };
+    const otherItem = { ...SAVED.expenses[0], id: 'e2', subscriptionId: 'sub-2' };
+    adminDb = createSupabaseMock({ tables: { AppSettings: [row({ ...SAVED, subscriptions: [SUB, other], expenses: [...SAVED.expenses, otherItem] }), { data: null, error: null }] } });
+    const service = await fresh();
+    await service.updateSubscription('sub-1', { status: 'paused' }, 'boss@example.test');
+    await service.updateExpenseItem('e1', { amount: 99 }, 'boss@example.test');
+    const saved = JSON.parse(upserted().value) as ExpenseManagerData;
+    expect(saved.subscriptions[1]).toEqual(other);
+    expect(saved.expenses[1]).toEqual(otherItem);
+    expect(saved.subscriptions[0].status).toBe('paused');
+    expect(saved.expenses[0].amount).toBe(99);
+  });
+
+  it('deletes a subscription with its items, and nothing for one it has not', async () => {
+    const service = await fresh();
+    expect(await service.deleteSubscription('sub-404', 'boss@example.test')).toBe(false);
+    expect(adminDb.callsTo('AppSettings', 'upsert')).toHaveLength(0);
+    expect(await service.deleteSubscription('sub-1', 'boss@example.test')).toBe(true);
+    expect(JSON.parse(upserted().value)).toMatchObject({ subscriptions: [], expenses: [] });
+  });
+
+  it('updates and deletes an expense item, keeping its id, and nothing for one it has not', async () => {
+    const service = await fresh();
+    expect(await service.updateExpenseItem('e1', { amount: 30, id: 'other' } as never, 'boss@example.test')).toMatchObject({ id: 'e1', amount: 30, title: 'Pro plan' });
+    expect(JSON.parse(upserted().value).expenses[0]).toMatchObject({ id: 'e1', amount: 30 });
+    expect(await service.updateExpenseItem('e404', { amount: 1 }, 'boss@example.test')).toBeNull();
+    expect(await service.deleteExpenseItem('e404', 'boss@example.test')).toBe(false);
+    expect(await service.deleteExpenseItem('e1', 'boss@example.test')).toBe(true);
+    expect(JSON.parse(upserted().value).expenses).toEqual([]);
+    expect(JSON.parse(upserted().value).subscriptions).toEqual([SUB]);
+  });
+
   it('updates the settings, stamped with the admin', async () => {
     const service = await fresh();
     const settings = await service.updateExpenseSettings({ alertThresholdUSD: 50 }, 'boss@example.test');
@@ -162,24 +201,30 @@ describe('expense-service: changes', () => {
     await expect(service.addSubscription(SUB, 'boss@example.test')).rejects.toThrow(failed);
     await expect(service.updateSubscription('sub-1', { status: 'paused' }, 'boss@example.test')).rejects.toThrow(failed);
     await expect(service.updateExpenseSettings({ alertThresholdUSD: 1 }, 'boss@example.test')).rejects.toThrow(failed);
+    await expect(service.updateExpenseItem('e1', { amount: 1 }, 'boss@example.test')).rejects.toThrow(failed);
+    await expect(service.deleteExpenseItem('e1', 'boss@example.test')).rejects.toThrow(failed);
+    await expect(service.deleteSubscription('sub-1', 'boss@example.test')).rejects.toThrow(failed);
     expect(await service.getExpenseManagerData()).toEqual(before);
   });
 
-  it('never changes the seeded defaults it started from', async () => {
+  it('starts empty, and never changes the defaults it started from', async () => {
     adminDb = createSupabaseMock({ tables: { AppSettings: { data: null, error: null } } });
     const service = await fresh();
-    const seeded = structuredClone({ subscriptions: service.DEFAULT_SUBSCRIPTIONS, expenses: service.DEFAULT_EXPENSES, settings: service.DEFAULT_CONFIG });
-    const first = service.DEFAULT_SUBSCRIPTIONS[0].id;
-    await service.addExpenseItem({ ...SAVED.expenses[0], subscriptionId: first }, 'boss@example.test');
-    await service.addSubscription(SUB, 'boss@example.test');
-    await service.updateSubscription(first, { status: 'paused' }, 'boss@example.test');
+    const start = await service.getExpenseManagerData();
+    expect(start).toMatchObject({ subscriptions: [], expenses: [] });
+    const config = structuredClone(service.DEFAULT_CONFIG);
+    const { id: _id, createdAt: _c, updatedAt: _u, ...input } = SUB;
+    const sub = await service.addSubscription(input, 'boss@example.test');
+    await service.addExpenseItem({ ...SAVED.expenses[0], subscriptionId: sub.id }, 'boss@example.test');
+    await service.updateSubscription(sub.id, { status: 'paused' }, 'boss@example.test');
     await service.updateExpenseSettings({ alertThresholdUSD: 1 }, 'boss@example.test');
-    expect({ subscriptions: service.DEFAULT_SUBSCRIPTIONS, expenses: service.DEFAULT_EXPENSES, settings: service.DEFAULT_CONFIG }).toEqual(seeded);
+    expect(service.DEFAULT_SUBSCRIPTIONS).toEqual([]);
+    expect(service.DEFAULT_EXPENSES).toEqual([]);
+    expect(service.DEFAULT_CONFIG).toEqual(config);
     // The changes themselves were saved, one on top of the other
     const saved = JSON.parse(upserted().value) as ExpenseManagerData;
-    expect(saved.expenses).toHaveLength(seeded.expenses.length + 1);
-    expect(saved.subscriptions).toHaveLength(seeded.subscriptions.length + 1);
-    expect(saved.subscriptions[0].status).toBe('paused');
+    expect(saved.subscriptions).toEqual([expect.objectContaining({ id: sub.id, status: 'paused' })]);
+    expect(saved.expenses).toHaveLength(1);
     expect(saved.settings.alertThresholdUSD).toBe(1);
   });
 });

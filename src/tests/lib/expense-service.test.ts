@@ -3,6 +3,7 @@ import {
   groupExpensesBySubscription,
   calculateExpenseSummary,
   DEFAULT_SUBSCRIPTIONS,
+  DEFAULT_EXPENSES,
 } from '@/lib/expenses/expense-service';
 import type { Subscription, ExpenseItem } from '@/types/expense';
 
@@ -202,12 +203,9 @@ describe('expense-service calculations and grouping', () => {
     expect(summary.totalActiveSubscriptions).toBe(0);
   });
 
-  it('verifies seeded default subscriptions include core project infrastructure', () => {
-    const providers = DEFAULT_SUBSCRIPTIONS.map((s) => s.provider);
-    expect(providers).toContain('Supabase Inc.');
-    expect(providers).toContain('Hostinger International');
-    expect(providers).toContain('Amazon Web Services');
-    expect(providers).toContain('Cloudinary Ltd.');
+  it('starts with no subscriptions or charges: no example figures before an admin adds real ones', () => {
+    expect(DEFAULT_SUBSCRIPTIONS).toEqual([]);
+    expect(DEFAULT_EXPENSES).toEqual([]);
   });
 });
 

@@ -144,6 +144,63 @@ describe('ExpenseManager', () => {
     expect(container.querySelectorAll('input[type="number"]')[1]).toHaveValue(150);
   });
 
+  it('starts with an invitation to add the first subscription, on the subscription tab', () => {
+    render(<ExpenseManager initialSummary={{ ...SUMMARY, totalProjectedCostUSD: 0 }} initialGroupedExpenses={[]} initialSubscriptions={[]} initialExpenses={[]} initialSettings={SETTINGS} />);
+    expect(screen.getByText('No subscriptions yet')).toBeInTheDocument();
+    expect(screen.queryByText('No subscriptions matched')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a subscription' }));
+    expect(screen.getByPlaceholderText('e.g. Supabase Pro')).toBeInTheDocument();
+  });
+
+  it('opens a subscription or a line item to edit it', () => {
+    renderManager();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit subscription Database' }));
+    expect(screen.getByRole('heading', { name: 'Edit Subscription' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('e.g. Supabase Pro')).toHaveValue('Database');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Egress credit' }));
+    expect(screen.getByRole('heading', { name: 'Edit Line Item' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Monthly Standard License/)).toHaveValue('Egress credit');
+    // Adding afterwards is adding again
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Expense' }));
+    expect(screen.getByRole('heading', { name: 'Add Expense or Subscription' })).toBeInTheDocument();
+  });
+
+  it('deletes after a confirmation, then refreshes; says why when it cannot', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
+    renderManager();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete subscription Database' }));
+    expect(confirm).toHaveBeenCalledWith('Delete the subscription "Database" and its line items (1)? This can\'t be undone.');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(jsonResponse({ success: true, summary: SUMMARY, groupedExpenses: [groupOf(SUB)], subscriptions: [SUB], expenses: [], settings: SETTINGS }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete subscription Database' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Subscription deleted'));
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'tok' } });
+    expect(sentBody()).toEqual({ entity: 'subscription', id: 'sub-2' });
+    expect(shown()).toEqual(['Subscription: Cloud Plan']);
+
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(jsonResponse({ success: true, summary: SUMMARY, groupedExpenses: [{ ...groupOf(SUB), items: [] }], subscriptions: [SUB], expenses: [], settings: SETTINGS }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Monthly fee' }));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Line item deleted'));
+    expect(confirm).toHaveBeenLastCalledWith('Delete the line item "Monthly fee"? This can\'t be undone.');
+    expect(sentBody(2)).toEqual({ entity: 'expense_item', id: 'i-sub-1' });
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: false, error: 'Subscription not found' }, 404));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete subscription Cloud Plan' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Subscription not found'));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: false }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete subscription Cloud Plan' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Failed to delete'));
+    confirm.mockRestore();
+  });
+
   it('refreshes once an expense is added', async () => {
     renderManager();
     fireEvent.click(screen.getByRole('button', { name: 'Add Expense' }));
@@ -177,11 +234,11 @@ describe('ExpenseManager', () => {
 describe('AddExpenseModal', () => {
   const setup = (props: Partial<Parameters<typeof AddExpenseModal>[0]> = {}) => {
     const onClose = vi.fn();
-    const onExpenseAdded = vi.fn(async () => {});
+    const onSaved = vi.fn(async () => {});
     const utils = render(
-      <AddExpenseModal isOpen onClose={onClose} subscriptions={[SUB, DB]} onExpenseAdded={onExpenseAdded} getCSRFHeaders={csrf} {...props} />
+      <AddExpenseModal isOpen onClose={onClose} subscriptions={[SUB, DB]} onSaved={onSaved} getCSRFHeaders={csrf} {...props} />
     );
-    return { ...utils, onClose, onExpenseAdded };
+    return { ...utils, onClose, onSaved };
   };
   const itemForm = () => screen.getByPlaceholderText('29.99').closest('form')!;
 
@@ -201,14 +258,14 @@ describe('AddExpenseModal', () => {
   });
 
   it('needs a subscription to add an item to', () => {
-    setup({ subscriptions: [] });
+    setup({ subscriptions: [], initialTab: 'item' });
     fireEvent.change(screen.getByPlaceholderText('29.99'), { target: { value: '5' } });
     fireEvent.submit(itemForm());
     expect(screen.getByText('Please select an associated subscription.')).toBeInTheDocument();
   });
 
   it('sends a line item with every field, then refreshes and closes', async () => {
-    const { onClose, onExpenseAdded, container } = setup({ defaultSubscriptionId: 'sub-2' });
+    const { onClose, onSaved, container } = setup({ defaultSubscriptionId: 'sub-2' });
     const [subscription, type, category] = screen.getAllByRole('combobox');
     expect(subscription).toHaveValue('sub-2');
     fireEvent.change(subscription, { target: { value: 'sub-1' } });
@@ -224,7 +281,7 @@ describe('AddExpenseModal', () => {
     expect(await screen.findByText('Saving Line Item...')).toBeInTheDocument();
     reply.resolve(jsonResponse({ success: true, item: { id: 'new' } }, 201));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(onExpenseAdded).toHaveBeenCalled();
+    expect(onSaved).toHaveBeenCalled();
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/admin/expenses');
     expect(init.headers).toEqual({ 'Content-Type': 'application/json', 'X-CSRF-Token': 'tok' });
@@ -232,8 +289,6 @@ describe('AddExpenseModal', () => {
       entity: 'expense_item',
       data: { subscriptionId: 'sub-1', title: 'Promo credit', type: 'deduction', amount: 5.5, currency: 'USD', dueDate: '2026-12-05', category: 'security', notes: 'first month' },
     });
-    // The form starts empty again
-    expect(screen.getByPlaceholderText('29.99')).toHaveValue(null);
   });
 
   it('leaves out empty notes, and shows why an item was refused', async () => {
@@ -250,7 +305,7 @@ describe('AddExpenseModal', () => {
   });
 
   it('creates a subscription with the defaults, or as typed', async () => {
-    const { onClose, onExpenseAdded, container } = setup();
+    const { onClose, onSaved, container } = setup();
     fireEvent.click(screen.getByRole('button', { name: 'Add New Subscription' }));
     const form = () => screen.getByPlaceholderText('e.g. Supabase Pro').closest('form')!;
     fireEvent.submit(form());
@@ -262,7 +317,7 @@ describe('AddExpenseModal', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ success: true }, 201));
     fireEvent.submit(form());
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(onExpenseAdded).toHaveBeenCalledTimes(1);
+    expect(onSaved).toHaveBeenCalledTimes(1);
     expect(sentBody(0).data).toMatchObject({
       name: 'Brevo', provider: 'Brevo SAS', planName: 'Standard Tier', category: 'infrastructure', billingCycle: 'monthly',
       paymentMethod: 'Corporate Card', currency: 'USD', status: 'active', autoRenew: true,
@@ -273,9 +328,11 @@ describe('AddExpenseModal', () => {
     fireEvent.change(screen.getByPlaceholderText('e.g. Supabase Pro'), { target: { value: 'Sentry' } });
     fireEvent.change(screen.getByPlaceholderText('e.g. Supabase Inc.'), { target: { value: 'Functional Software' } });
     fireEvent.change(screen.getByPlaceholderText('e.g. Standard Tier'), { target: { value: 'Team' } });
-    const [category, cycle] = screen.getAllByRole('combobox');
+    const [category, cycle, status] = screen.getAllByRole('combobox');
     fireEvent.change(category, { target: { value: 'monitoring' } });
     fireEvent.change(cycle, { target: { value: 'annual' } });
+    fireEvent.change(status, { target: { value: 'trial' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Renews automatically' }));
     fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2027-01-01' } });
     fireEvent.change(screen.getByPlaceholderText(/Corporate Visa ending/), { target: { value: 'Amex' } });
     fireEvent.change(screen.getByPlaceholderText('https://...'), { target: { value: 'https://sentry.example/billing' } });
@@ -288,8 +345,76 @@ describe('AddExpenseModal', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(2));
     expect(sentBody(1).data).toMatchObject({
       name: 'Sentry', planName: 'Team', category: 'monitoring', billingCycle: 'annual', nextBillingDate: '2027-01-01',
-      paymentMethod: 'Amex', portalUrl: 'https://sentry.example/billing', description: 'Errors',
+      paymentMethod: 'Amex', portalUrl: 'https://sentry.example/billing', description: 'Errors', status: 'trial', autoRenew: false,
     });
+  });
+
+  it('opens on the subscription tab when there is no subscription to add an item to', () => {
+    setup({ subscriptions: [] });
+    expect(screen.getByPlaceholderText('e.g. Supabase Pro')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('29.99')).toBeNull();
+  });
+
+  it('edits a line item: filled in, without the tabs, sent as a change that can clear its notes', async () => {
+    const item = { id: 'i-9', subscriptionId: 'sub-2', title: 'Egress', type: 'deduction' as const, amount: 4.5, currency: 'USD' as const, dueDate: '2026-12-01', category: 'database' as const, notes: 'Promo' };
+    const { onClose, onSaved } = setup({ editing: { kind: 'item', item } });
+    expect(screen.getByRole('heading', { name: 'Edit Line Item' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add New Subscription' })).toBeNull();
+    expect(screen.getAllByRole('combobox').map((el) => (el as HTMLSelectElement).value)).toEqual(['sub-2', 'deduction', 'database']);
+    expect(screen.getByPlaceholderText('29.99')).toHaveValue(4.5);
+    fireEvent.change(screen.getByPlaceholderText(/Additional context/), { target: { value: '' } });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: false }));
+    fireEvent.submit(screen.getByRole('button', { name: 'Save Changes' }).closest('form')!);
+    expect(await screen.findByText('Failed to save changes')).toBeInTheDocument();
+    const reply = deferred();
+    fetchMock.mockReturnValueOnce(reply.promise);
+    fireEvent.submit(screen.getByRole('button', { name: 'Save Changes' }).closest('form')!);
+    expect(await screen.findByText('Saving Changes...')).toBeInTheDocument();
+    reply.resolve(jsonResponse({ success: true, item }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onSaved).toHaveBeenCalled();
+    expect(fetchMock.mock.calls[1][1].method).toBe('PUT');
+    expect(sentBody(1)).toEqual({
+      entity: 'expense_item', id: 'i-9',
+      data: { subscriptionId: 'sub-2', title: 'Egress', type: 'deduction', amount: 4.5, dueDate: '2026-12-01', category: 'database', notes: '' },
+    });
+  });
+
+  it('edits a subscription: filled in, sent as a change that can clear its link and description', async () => {
+    const { onClose } = setup({ editing: { kind: 'subscription', subscription: { ...DB, status: 'paused', autoRenew: false } } });
+    expect(screen.getByRole('heading', { name: 'Edit Subscription' })).toBeInTheDocument();
+    expect(screen.getByText('Change what is recorded for the upcoming cycle')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('e.g. Supabase Pro')).toHaveValue('Database');
+    expect(screen.getByRole('checkbox', { name: 'Renews automatically' })).not.toBeChecked();
+    fireEvent.change(screen.getByPlaceholderText('https://...'), { target: { value: '' } });
+    fireEvent.change(screen.getByPlaceholderText(/Notes on usage/), { target: { value: ' ' } });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ success: false }));
+    fireEvent.submit(screen.getByRole('button', { name: 'Save Changes' }).closest('form')!);
+    expect(await screen.findByText('Failed to save changes')).toBeInTheDocument();
+    const reply = deferred();
+    fetchMock.mockReturnValueOnce(reply.promise);
+    fireEvent.submit(screen.getByRole('button', { name: 'Save Changes' }).closest('form')!);
+    expect(await screen.findByText('Saving Changes...')).toBeInTheDocument();
+    reply.resolve(jsonResponse({ success: true }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(sentBody(1)).toEqual({
+      entity: 'subscription', id: 'sub-2',
+      data: {
+        name: 'Database', provider: 'Supabase Inc.', planName: 'Pro', category: 'database', billingCycle: 'monthly',
+        nextBillingDate: '2026-11-20', paymentMethod: 'Visa 4242', status: 'paused', autoRenew: false, portalUrl: '', description: '',
+      },
+    });
+  });
+
+  it('edits a subscription that has no link or description', () => {
+    setup({ editing: { kind: 'subscription', subscription: { ...DB, portalUrl: undefined, description: undefined } } });
+    expect(screen.getByPlaceholderText('https://...')).toHaveValue('');
+    expect(screen.getByPlaceholderText(/Notes on usage/)).toHaveValue('');
+  });
+
+  it('edits a line item that has no notes', () => {
+    setup({ editing: { kind: 'item', item: { id: 'i-1', subscriptionId: 'sub-1', title: 'Fee', type: 'charge', amount: 1, currency: 'USD', dueDate: '2026-12-01', category: 'other' } } });
+    expect(screen.getByPlaceholderText(/Additional context/)).toHaveValue('');
   });
 
   it('shows why a subscription was refused, and switches back to line items', async () => {
@@ -366,7 +491,8 @@ describe('SubscriptionExpenseCard and the KPI cards', () => {
   it('shows a paused, manually renewed subscription without items, in PKR, and asks to add an item to it', () => {
     const onAddItem = vi.fn();
     const subscription = { ...SUB, status: 'paused', autoRenew: false, portalUrl: undefined, description: undefined, category: 'unknown' } as unknown as Subscription;
-    render(<SubscriptionExpenseCard group={{ subscription, items: [], totalCharges: 10, totalDeductions: 2, netTotal: 8 }} currency="PKR" exchangeRate={300} onAddItem={onAddItem} />);
+    render(<SubscriptionExpenseCard group={{ subscription, items: [], totalCharges: 10, totalDeductions: 2, netTotal: 8 }} currency="PKR" exchangeRate={300}
+      onAddItem={onAddItem} onEdit={vi.fn()} onDelete={vi.fn()} onEditItem={vi.fn()} onDeleteItem={vi.fn()} />);
     expect(screen.getByText('paused')).toHaveClass('text-amber-400');
     expect(screen.getByText('Manual renewal')).toBeInTheDocument();
     expect(screen.queryByTitle('Open provider billing portal')).toBeNull();
@@ -374,6 +500,20 @@ describe('SubscriptionExpenseCard and the KPI cards', () => {
     expect(screen.getByText('₨ 2,400')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add Item' }));
     expect(onAddItem).toHaveBeenCalledWith('sub-1');
+  });
+
+  it('edits or deletes the subscription and each of its line items', () => {
+    const handlers = { onAddItem: vi.fn(), onEdit: vi.fn(), onDelete: vi.fn(), onEditItem: vi.fn(), onDeleteItem: vi.fn() };
+    const group = groupOf(SUB);
+    render(<SubscriptionExpenseCard group={group} currency="USD" exchangeRate={300} {...handlers} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit subscription Cloud Plan' }));
+    expect(handlers.onEdit).toHaveBeenCalledWith(SUB);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete subscription Cloud Plan' }));
+    expect(handlers.onDelete).toHaveBeenCalledWith(group);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Monthly fee' }));
+    expect(handlers.onEditItem).toHaveBeenCalledWith(group.items[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Monthly fee' }));
+    expect(handlers.onDeleteItem).toHaveBeenCalledWith(group.items[0]);
   });
 
   it('shows "None pending" without an upcoming billing date', () => {

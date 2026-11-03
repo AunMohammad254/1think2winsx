@@ -1,16 +1,18 @@
 'use client';
 
 import React from 'react';
-import { ArrowDownRight, ArrowUpRight, Calendar, Tag } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, Calendar, Pencil, Tag, Trash2 } from 'lucide-react';
 import type { ExpenseItem } from '@/types/expense';
 
 interface ExpenseItemRowProps {
   item: ExpenseItem;
   currency: 'USD' | 'PKR';
   exchangeRate: number;
+  onEdit: (item: ExpenseItem) => void;
+  onDelete: (item: ExpenseItem) => void;
 }
 
-export default function ExpenseItemRow({ item, currency, exchangeRate }: ExpenseItemRowProps) {
+export default function ExpenseItemRow({ item, currency, exchangeRate, onEdit, onDelete }: ExpenseItemRowProps) {
   const isDeduction = item.type === 'deduction';
 
   const displayAmount =
@@ -70,17 +72,39 @@ export default function ExpenseItemRow({ item, currency, exchangeRate }: Expense
         </div>
       </div>
 
-      <div className="mt-2 sm:mt-0 text-left sm:text-right shrink-0">
-        <span
-          className={`text-sm sm:text-base font-semibold font-mono tracking-tight ${
-            isDeduction ? 'text-emerald-400' : 'text-white'
-          }`}
-        >
-          {isDeduction ? `-${displayAmount}` : displayAmount}
-        </span>
-        <span className="block text-[10px] text-gray-500 uppercase tracking-wider">
-          {item.currency}
-        </span>
+      <div className="mt-2 sm:mt-0 flex items-center gap-3 shrink-0">
+        <div className="text-left sm:text-right">
+          <span
+            className={`text-sm sm:text-base font-semibold font-mono tracking-tight ${
+              isDeduction ? 'text-emerald-400' : 'text-white'
+            }`}
+          >
+            {isDeduction ? `-${displayAmount}` : displayAmount}
+          </span>
+          <span className="block text-[10px] text-gray-500 uppercase tracking-wider">
+            {item.currency}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onEdit(item)}
+            aria-label={`Edit ${item.title}`}
+            title="Edit"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(item)}
+            aria-label={`Delete ${item.title}`}
+            title="Delete"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   );

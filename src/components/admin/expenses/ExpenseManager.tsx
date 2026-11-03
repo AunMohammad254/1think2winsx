@@ -23,7 +23,7 @@ import type {
 } from '@/types/expense';
 import ExpenseKPICards from './ExpenseKPICards';
 import SubscriptionExpenseCard from './SubscriptionExpenseCard';
-import AddExpenseModal from './AddExpenseModal';
+import AddExpenseModal, { type EditTarget } from './AddExpenseModal';
 import ExpenseSettingsModal from './ExpenseSettingsModal';
 
 interface ExpenseManagerProps {
@@ -69,10 +69,13 @@ export default function ExpenseManager({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedSubIdForAdd, setSelectedSubIdForAdd] = useState<string | undefined>();
   const [addModalKey, setAddModalKey] = useState(0);
+  const [addModalTab, setAddModalTab] = useState<'item' | 'subscription' | undefined>();
+  const [editing, setEditing] = useState<EditTarget | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsModalKey, setSettingsModalKey] = useState(0);
 
-  const reloadData = useCallback(async () => {
+  // `done`: what the toast says once the data is in
+  const reloadData = useCallback(async (done = 'Expense data refreshed successfully') => {
     setRefreshing(true);
     try {
       const res = await fetch('/api/admin/expenses');
@@ -85,7 +88,7 @@ export default function ExpenseManager({
       setSubscriptions(data.subscriptions);
       setExpenses(data.expenses);
       setSettings(data.settings);
-      toast.success('Expense data refreshed successfully');
+      toast.success(done);
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -112,11 +115,44 @@ export default function ExpenseManager({
     });
   }, [groupedExpenses, selectedCategory, search]);
 
-  const handleOpenAddModal = (subId?: string) => {
-    setSelectedSubIdForAdd(subId);
+  const openAddModal = (options: { subId?: string; tab?: 'item' | 'subscription'; editing?: EditTarget }) => {
+    setSelectedSubIdForAdd(options.subId);
+    setAddModalTab(options.tab);
+    setEditing(options.editing ?? null);
     setAddModalKey((key) => key + 1);
     setIsAddModalOpen(true);
   };
+  const handleOpenAddModal = (subId?: string) => openAddModal({ subId });
+
+  const deleteEntry = async (entity: 'expense_item' | 'subscription', id: string, question: string, done: string) => {
+    if (!window.confirm(question)) return;
+    try {
+      const res = await fetch('/api/admin/expenses', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...(await getCSRFHeaders()) },
+        body: JSON.stringify({ entity, id }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to delete');
+      }
+      await reloadData(done);
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+  const deleteSubscription = (group: GroupedSubscriptionExpenses) => deleteEntry(
+    'subscription',
+    group.subscription.id,
+    `Delete the subscription "${group.subscription.name}" and its line items (${group.items.length})? This can't be undone.`,
+    'Subscription deleted',
+  );
+  const deleteItem = (item: ExpenseItem) => deleteEntry(
+    'expense_item',
+    item.id,
+    `Delete the line item "${item.title}"? This can't be undone.`,
+    'Line item deleted',
+  );
 
   const handleOpenSettingsModal = () => {
     setSettingsModalKey((key) => key + 1);
@@ -198,7 +234,7 @@ export default function ExpenseManager({
 
           {/* Refresh Button */}
           <button
-            onClick={reloadData}
+            onClick={() => void reloadData()}
             disabled={refreshing}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:text-white hover:bg-white/10 text-xs font-medium transition-colors disabled:opacity-50"
             title="Refresh billing data"
@@ -306,7 +342,21 @@ export default function ExpenseManager({
 
       {/* Subscription Expense Groups */}
       <div className="space-y-5">
-        {filteredGroups.length === 0 ? (
+        {groupedExpenses.length === 0 ? (
+          <div className="p-12 text-center rounded-2xl border border-white/10 bg-gray-900/40 backdrop-blur-xl">
+            <Receipt className="w-10 h-10 text-gray-600 mx-auto mb-3" />
+            <h3 className="text-base font-semibold text-white">No subscriptions yet</h3>
+            <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
+              Add the services this project pays for, then their upcoming charges and discounts.
+            </p>
+            <button
+              onClick={() => openAddModal({ tab: 'subscription' })}
+              className="mt-4 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold"
+            >
+              Add a subscription
+            </button>
+          </div>
+        ) : filteredGroups.length === 0 ? (
           <div className="p-12 text-center rounded-2xl border border-white/10 bg-gray-900/40 backdrop-blur-xl">
             <Receipt className="w-10 h-10 text-gray-600 mx-auto mb-3" />
             <h3 className="text-base font-semibold text-white">No subscriptions matched</h3>
@@ -332,6 +382,10 @@ export default function ExpenseManager({
               currency={currency}
               exchangeRate={summary.exchangeRateUsdToPkr}
               onAddItem={handleOpenAddModal}
+              onEdit={(subscription) => openAddModal({ editing: { kind: 'subscription', subscription } })}
+              onDelete={(g) => void deleteSubscription(g)}
+              onEditItem={(item) => openAddModal({ editing: { kind: 'item', item } })}
+              onDeleteItem={(item) => void deleteItem(item)}
             />
           ))
         )}
@@ -347,7 +401,9 @@ export default function ExpenseManager({
         }}
         subscriptions={subscriptions}
         defaultSubscriptionId={selectedSubIdForAdd}
-        onExpenseAdded={reloadData}
+        initialTab={addModalTab}
+        editing={editing}
+        onSaved={() => reloadData()}
         getCSRFHeaders={getCSRFHeaders}
       />
 

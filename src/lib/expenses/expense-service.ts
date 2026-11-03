@@ -12,354 +12,11 @@ const EXPENSE_SETTINGS_KEY = 'expense_manager_data';
 const DEFAULT_EXCHANGE_RATE = 278.5; // USD to PKR current approximate bank rate
 
 /**
- * Default seeded project subscriptions reflecting the actual infrastructure of 1Think 2Win.
+ * Nothing until an admin adds it: the page shows only real subscriptions and charges, never example figures.
  */
-export const DEFAULT_SUBSCRIPTIONS: Subscription[] = [
-  {
-    id: 'sub-supabase',
-    name: 'Supabase Database & Auth',
-    provider: 'Supabase Inc.',
-    category: 'database',
-    billingCycle: 'monthly',
-    nextBillingDate: '2026-11-15',
-    status: 'active',
-    currency: 'USD',
-    autoRenew: true,
-    paymentMethod: 'Mastercard ending in 4112',
-    planName: 'Pro Tier + Compute Add-on',
-    portalUrl: 'https://supabase.com/dashboard/org/billing',
-    description: 'PostgreSQL instance, Auth engine, and Edge functions.',
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-  },
-  {
-    id: 'sub-hostinger',
-    name: 'Hostinger Cloud & VPS Hosting',
-    provider: 'Hostinger International',
-    category: 'infrastructure',
-    billingCycle: 'monthly',
-    nextBillingDate: '2026-11-18',
-    status: 'active',
-    currency: 'USD',
-    autoRenew: true,
-    paymentMethod: 'Corporate Visa ending in 9821',
-    planName: 'KVM 2 Cloud VPS',
-    portalUrl: 'https://hpanel.hostinger.com/billing',
-    description: 'Next.js application runtime, PM2 process management, and reverse proxy.',
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-  },
-  {
-    id: 'sub-aws-ses',
-    name: 'Amazon Web Services (SES & Cloud)',
-    provider: 'Amazon Web Services',
-    category: 'email',
-    billingCycle: 'monthly',
-    nextBillingDate: '2026-11-30',
-    status: 'active',
-    currency: 'USD',
-    autoRenew: true,
-    paymentMethod: 'AWS Consolidated Billing',
-    planName: 'Production SES (ap-southeast-2 Sydney)',
-    portalUrl: 'https://console.aws.amazon.com/costmanagement/home',
-    description: 'Transactional notifications, daily user digests, and SNS bounce tracking.',
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-  },
-  {
-    id: 'sub-brevo',
-    name: 'Brevo (Sendinblue) Email Backup',
-    provider: 'Brevo SAS',
-    category: 'email',
-    billingCycle: 'monthly',
-    nextBillingDate: '2026-11-22',
-    status: 'active',
-    currency: 'USD',
-    autoRenew: true,
-    paymentMethod: 'Corporate Visa ending in 9821',
-    planName: 'Starter Plan (40k emails/month)',
-    portalUrl: 'https://app.brevo.com/billing',
-    description: 'High-availability email failover and marketing announcements.',
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-  },
-  {
-    id: 'sub-cloudinary',
-    name: 'Cloudinary Media Storage',
-    provider: 'Cloudinary Ltd.',
-    category: 'media',
-    billingCycle: 'monthly',
-    nextBillingDate: '2026-11-10',
-    status: 'active',
-    currency: 'USD',
-    autoRenew: true,
-    paymentMethod: 'Mastercard ending in 4112',
-    planName: 'Plus Plan (Transformations & CDN)',
-    portalUrl: 'https://cloudinary.com/console/billing',
-    description: 'Quiz prize imagery, winner proof media, and avatar asset optimization.',
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-  },
-  {
-    id: 'sub-sentry',
-    name: 'Sentry Application Monitoring',
-    provider: 'Functional Software, Inc.',
-    category: 'monitoring',
-    billingCycle: 'monthly',
-    nextBillingDate: '2026-11-14',
-    status: 'active',
-    currency: 'USD',
-    autoRenew: true,
-    paymentMethod: 'Corporate Visa ending in 9821',
-    planName: 'Team Tier',
-    portalUrl: 'https://sentry.io/settings/billing',
-    description: 'Real-time frontend and edge server exception tracking and performance tracing.',
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-  },
-  {
-    id: 'sub-google-gemini',
-    name: 'Google Cloud Gemini AI Studio',
-    provider: 'Google Cloud Platform',
-    category: 'ai',
-    billingCycle: 'monthly',
-    nextBillingDate: '2026-11-28',
-    status: 'active',
-    currency: 'USD',
-    autoRenew: true,
-    paymentMethod: 'Google Payments Account',
-    planName: 'Pay-as-you-go API (Gemini 2.5/3.1)',
-    portalUrl: 'https://console.cloud.google.com/billing',
-    description: 'Match mode live question wording, translation, and user chatbot queries.',
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-  },
-  {
-    id: 'sub-cloudflare',
-    name: 'Cloudflare Edge Shield & Domain',
-    provider: 'Cloudflare, Inc.',
-    category: 'security',
-    billingCycle: 'monthly',
-    nextBillingDate: '2026-11-25',
-    status: 'active',
-    currency: 'USD',
-    autoRenew: true,
-    paymentMethod: 'Corporate Visa ending in 9821',
-    planName: 'Pro Domain + Turnstile Enterprise Tier',
-    portalUrl: 'https://dash.cloudflare.com/billing',
-    description: 'DDoS mitigation, Turnstile CAPTCHA bot protection, and edge SSL caching.',
-    createdAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-11-01T00:00:00Z',
-  },
-];
+export const DEFAULT_SUBSCRIPTIONS: Subscription[] = [];
 
-/**
- * Default seeded expenses for the upcoming billing cycle showing both charges and deductions/discounts.
- */
-export const DEFAULT_EXPENSES: ExpenseItem[] = [
-  // Supabase
-  {
-    id: 'exp-sup-1',
-    subscriptionId: 'sub-supabase',
-    title: 'Base Pro Plan Subscription',
-    type: 'charge',
-    amount: 25.0,
-    currency: 'USD',
-    dueDate: '2026-11-15',
-    category: 'database',
-    notes: 'Monthly fixed platform fee including 8GB database and Auth',
-  },
-  {
-    id: 'exp-sup-2',
-    subscriptionId: 'sub-supabase',
-    title: 'Compute Add-on (Small Instance)',
-    type: 'charge',
-    amount: 10.0,
-    currency: 'USD',
-    dueDate: '2026-11-15',
-    category: 'database',
-    notes: 'High-availability compute add-on for quiz concurrency',
-  },
-  {
-    id: 'exp-sup-3',
-    subscriptionId: 'sub-supabase',
-    title: 'Promotional Compute Credit',
-    type: 'deduction',
-    amount: 10.0,
-    currency: 'USD',
-    dueDate: '2026-11-15',
-    category: 'database',
-    notes: 'Platform loyalty compute voucher applied automatically',
-  },
-
-  // Hostinger
-  {
-    id: 'exp-hos-1',
-    subscriptionId: 'sub-hostinger',
-    title: 'VPS KVM 2 Monthly Renewal',
-    type: 'charge',
-    amount: 19.99,
-    currency: 'USD',
-    dueDate: '2026-11-18',
-    category: 'infrastructure',
-    notes: 'Linux virtual machine dedicated hosting',
-  },
-  {
-    id: 'exp-hos-2',
-    subscriptionId: 'sub-hostinger',
-    title: 'Long-term Commitment Discount',
-    type: 'deduction',
-    amount: 5.0,
-    currency: 'USD',
-    dueDate: '2026-11-18',
-    category: 'infrastructure',
-    notes: 'Special partner renewal deduction',
-  },
-
-  // AWS SES
-  {
-    id: 'exp-aws-1',
-    subscriptionId: 'sub-aws-ses',
-    title: 'Projected SES Email Deliveries',
-    type: 'charge',
-    amount: 15.0,
-    currency: 'USD',
-    dueDate: '2026-11-30',
-    category: 'email',
-    notes: 'Forecasted volume from AWS Cost Explorer cache ($0.10 / 1000 emails)',
-  },
-  {
-    id: 'exp-aws-2',
-    subscriptionId: 'sub-aws-ses',
-    title: 'AWS Free Usage Tier Credit',
-    type: 'deduction',
-    amount: 2.5,
-    currency: 'USD',
-    dueDate: '2026-11-30',
-    category: 'email',
-    notes: 'Deduction for first 62,000 outgoing messages',
-  },
-
-  // Brevo
-  {
-    id: 'exp-brevo-1',
-    subscriptionId: 'sub-brevo',
-    title: 'Starter Monthly Email Subscription',
-    type: 'charge',
-    amount: 15.0,
-    currency: 'USD',
-    dueDate: '2026-11-22',
-    category: 'email',
-    notes: 'Secondary backup SMTP pipeline',
-  },
-  {
-    id: 'exp-brevo-2',
-    subscriptionId: 'sub-brevo',
-    title: 'Annual Loyalty Deduction',
-    type: 'deduction',
-    amount: 3.0,
-    currency: 'USD',
-    dueDate: '2026-11-22',
-    category: 'email',
-    notes: 'Account retention promotion',
-  },
-
-  // Cloudinary
-  {
-    id: 'exp-cld-1',
-    subscriptionId: 'sub-cloudinary',
-    title: 'Plus Plan Monthly License',
-    type: 'charge',
-    amount: 89.0,
-    currency: 'USD',
-    dueDate: '2026-11-10',
-    category: 'media',
-    notes: 'Storage for user prize redemption photos and videos',
-  },
-  {
-    id: 'exp-cld-2',
-    subscriptionId: 'sub-cloudinary',
-    title: 'Bandwidth Optimizer Rebate',
-    type: 'deduction',
-    amount: 15.0,
-    currency: 'USD',
-    dueDate: '2026-11-10',
-    category: 'media',
-    notes: 'Automatic caching discount',
-  },
-
-  // Sentry
-  {
-    id: 'exp-sen-1',
-    subscriptionId: 'sub-sentry',
-    title: 'Team Plan Subscription',
-    type: 'charge',
-    amount: 26.0,
-    currency: 'USD',
-    dueDate: '2026-11-14',
-    category: 'monitoring',
-    notes: 'Includes 50k error events and 100k transactions',
-  },
-  {
-    id: 'exp-sen-2',
-    subscriptionId: 'sub-sentry',
-    title: 'Startup Program Discount',
-    type: 'deduction',
-    amount: 6.0,
-    currency: 'USD',
-    dueDate: '2026-11-14',
-    category: 'monitoring',
-    notes: 'Eligible software program discount applied',
-  },
-
-  // Google Cloud Gemini
-  {
-    id: 'exp-gem-1',
-    subscriptionId: 'sub-google-gemini',
-    title: 'Estimated AI API Usage Fee',
-    type: 'charge',
-    amount: 35.0,
-    currency: 'USD',
-    dueDate: '2026-11-28',
-    category: 'ai',
-    notes: 'Live match Urdu translation and quiz question generation',
-  },
-  {
-    id: 'exp-gem-2',
-    subscriptionId: 'sub-google-gemini',
-    title: 'Google Cloud Monthly Free Tier',
-    type: 'deduction',
-    amount: 10.0,
-    currency: 'USD',
-    dueDate: '2026-11-28',
-    category: 'ai',
-    notes: 'Complimentary monthly developer credit',
-  },
-
-  // Cloudflare
-  {
-    id: 'exp-cf-1',
-    subscriptionId: 'sub-cloudflare',
-    title: 'Pro Plan Zone Subscription',
-    type: 'charge',
-    amount: 20.0,
-    currency: 'USD',
-    dueDate: '2026-11-25',
-    category: 'security',
-    notes: 'WAF, rate limiting, and Turnstile enterprise protection',
-  },
-  {
-    id: 'exp-cf-2',
-    subscriptionId: 'sub-cloudflare',
-    title: 'Multi-Product Bundle Deduction',
-    type: 'deduction',
-    amount: 5.0,
-    currency: 'USD',
-    dueDate: '2026-11-25',
-    category: 'security',
-    notes: 'Discount for DNS + Turnstile + Edge Shield package',
-  },
-];
+export const DEFAULT_EXPENSES: ExpenseItem[] = [];
 
 export const DEFAULT_CONFIG: ExpenseConfigSettings = {
   defaultCurrency: 'USD',
@@ -612,14 +269,64 @@ export async function updateSubscription(
   const idx = data.subscriptions.findIndex((s) => s.id === id);
   if (idx === -1) return null;
 
+  const current = data.subscriptions[idx];
+  // Its id and creation time stay whatever the update says
   const updatedSub = {
-    ...data.subscriptions[idx],
+    ...current,
     ...updates,
+    id: current.id,
+    createdAt: current.createdAt,
     updatedAt: new Date().toISOString(),
   };
 
   await commit({ ...data, subscriptions: data.subscriptions.map((s, i) => (i === idx ? updatedSub : s)) }, adminEmail);
   return updatedSub;
+}
+
+/**
+ * Removes a subscription and its expense items. False when there is none with that id.
+ */
+export async function deleteSubscription(id: string, adminEmail: string): Promise<boolean> {
+  const data = await getExpenseManagerData();
+  if (!data.subscriptions.some((s) => s.id === id)) return false;
+
+  await commit(
+    {
+      ...data,
+      subscriptions: data.subscriptions.filter((s) => s.id !== id),
+      expenses: data.expenses.filter((e) => e.subscriptionId !== id),
+    },
+    adminEmail
+  );
+  return true;
+}
+
+/**
+ * Updates an expense item. Null when there is none with that id.
+ */
+export async function updateExpenseItem(
+  id: string,
+  updates: Partial<Omit<ExpenseItem, 'id'>>,
+  adminEmail: string
+): Promise<ExpenseItem | null> {
+  const data = await getExpenseManagerData();
+  const current = data.expenses.find((e) => e.id === id);
+  if (!current) return null;
+
+  const updatedItem: ExpenseItem = { ...current, ...updates, id: current.id };
+  await commit({ ...data, expenses: data.expenses.map((e) => (e.id === id ? updatedItem : e)) }, adminEmail);
+  return updatedItem;
+}
+
+/**
+ * Removes an expense item. False when there is none with that id.
+ */
+export async function deleteExpenseItem(id: string, adminEmail: string): Promise<boolean> {
+  const data = await getExpenseManagerData();
+  if (!data.expenses.some((e) => e.id === id)) return false;
+
+  await commit({ ...data, expenses: data.expenses.filter((e) => e.id !== id) }, adminEmail);
+  return true;
 }
 
 /**

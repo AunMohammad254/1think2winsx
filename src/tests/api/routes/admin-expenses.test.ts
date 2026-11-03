@@ -13,6 +13,9 @@ const h = vi.hoisted(() => ({
   addSubscription: vi.fn(),
   updateSubscription: vi.fn(),
   updateExpenseSettings: vi.fn(),
+  updateExpenseItem: vi.fn(),
+  deleteSubscription: vi.fn(),
+  deleteExpenseItem: vi.fn(),
 }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => h.requireCSRFToken(...a) }));
 vi.mock('@/lib/admin-session', () => ({
@@ -26,16 +29,13 @@ vi.mock('@/lib/expenses/expense-service', async (importOriginal) => ({
   addSubscription: (...a: unknown[]) => h.addSubscription(...a),
   updateSubscription: (...a: unknown[]) => h.updateSubscription(...a),
   updateExpenseSettings: (...a: unknown[]) => h.updateExpenseSettings(...a),
+  updateExpenseItem: (...a: unknown[]) => h.updateExpenseItem(...a),
+  deleteSubscription: (...a: unknown[]) => h.deleteSubscription(...a),
+  deleteExpenseItem: (...a: unknown[]) => h.deleteExpenseItem(...a),
 }));
 
-import { GET, POST, PUT } from '@/app/api/admin/expenses/route';
-import {
-  getExpenseDashboardData,
-  modifySubscription,
-  recordExpenseItem,
-  recordSubscription,
-  saveExpenseSettings,
-} from '@/actions/expense-actions';
+import { DELETE, GET, POST, PUT } from '@/app/api/admin/expenses/route';
+import { getExpenseDashboardData } from '@/actions/expense-actions';
 
 const ADMIN = 'boss@example.test';
 const SUB: Subscription = {
@@ -53,6 +53,7 @@ const NEW_SUB = { name: 'Brevo', provider: 'Brevo SAS', category: 'email', billi
 
 const post = (body: unknown) => POST(makeRequest('/api/admin/expenses', { method: 'POST', body }));
 const put = (body: unknown) => PUT(makeRequest('/api/admin/expenses', { method: 'PUT', body }));
+const del = (body: unknown) => DELETE(makeRequest('/api/admin/expenses', { method: 'DELETE', body }));
 
 beforeEach(() => {
   for (const fn of Object.values(h)) fn.mockReset();
@@ -144,13 +145,39 @@ describe('PUT /api/admin/expenses', () => {
     expect((await bad.json()).error).toBe('Invalid settings payload');
   });
 
-  it('updates a subscription, and answers 404 for one that does not exist', async () => {
+  it('updates only the fields a subscription change names, and answers 404 for one that does not exist', async () => {
     h.updateSubscription.mockResolvedValueOnce({ ...SUB, status: 'paused' });
     const res = await put({ entity: 'subscription', id: 'sub-1', data: { status: 'paused' } });
     expect(res.status).toBe(200);
     expect((await res.json()).subscription.status).toBe('paused');
+    // No defaults filled in: currency and auto-renew stay as they are
+    expect(h.updateSubscription).toHaveBeenCalledWith('sub-1', { status: 'paused' }, ADMIN);
     h.updateSubscription.mockResolvedValueOnce(null);
     expect((await put({ entity: 'subscription', id: 'sub-404', data: {} })).status).toBe(404);
+  });
+
+  it('refuses a subscription change with a bad value or a field it may not change', async () => {
+    for (const data of [{ status: 'gone' }, { id: 'other' }, { createdAt: '2020-01-01' }]) {
+      const res = await put({ entity: 'subscription', id: 'sub-1', data });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('Invalid subscription payload');
+    }
+    expect(h.updateSubscription).not.toHaveBeenCalled();
+  });
+
+  it('updates an expense item, refuses a bad one, and answers 404 for one that does not exist', async () => {
+    h.updateExpenseItem.mockResolvedValueOnce({ id: 'e1', ...ITEM, amount: 4 });
+    const res = await put({ entity: 'expense_item', id: 'e1', data: { amount: 4, notes: '' } });
+    expect(res.status).toBe(200);
+    expect((await res.json()).item.amount).toBe(4);
+    expect(h.updateExpenseItem).toHaveBeenCalledWith('e1', { amount: 4, notes: '' }, ADMIN);
+    const bad = await put({ entity: 'expense_item', id: 'e1', data: { amount: 0 } });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toBe('Invalid expense item payload');
+    h.updateExpenseItem.mockResolvedValueOnce(null);
+    const missing = await put({ entity: 'expense_item', id: 'e404', data: { amount: 4 } });
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).error).toBe('Expense item not found');
   });
 
   it('refuses an update it does not know, and answers 500 when the body cannot be read', async () => {
@@ -161,6 +188,43 @@ describe('PUT /api/admin/expenses', () => {
   });
 });
 
+describe('DELETE /api/admin/expenses', () => {
+  it('refuses a request without a valid CSRF token, and anyone who is not an admin', async () => {
+    h.requireCSRFToken.mockResolvedValueOnce(NextResponse.json({ error: 'csrf' }, { status: 403 }));
+    expect((await del({ entity: 'subscription', id: 'sub-1' })).status).toBe(403);
+    h.validateAdminSession.mockResolvedValueOnce({ valid: false });
+    expect((await del({ entity: 'subscription', id: 'sub-1' })).status).toBe(401);
+    expect(h.deleteSubscription).not.toHaveBeenCalled();
+  });
+
+  it('deletes a subscription or an expense item as the signed-in admin', async () => {
+    h.deleteSubscription.mockResolvedValueOnce(true);
+    const res = await del({ entity: 'subscription', id: 'sub-1' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true });
+    expect(h.deleteSubscription).toHaveBeenCalledWith('sub-1', ADMIN);
+    h.deleteExpenseItem.mockResolvedValueOnce(true);
+    expect((await del({ entity: 'expense_item', id: 'e1' })).status).toBe(200);
+    expect(h.deleteExpenseItem).toHaveBeenCalledWith('e1', ADMIN);
+  });
+
+  it('answers 404 for one that does not exist, 400 for a bad request, and 500 when it fails', async () => {
+    h.deleteSubscription.mockResolvedValueOnce(false);
+    const sub = await del({ entity: 'subscription', id: 'sub-404' });
+    expect(sub.status).toBe(404);
+    expect((await sub.json()).error).toBe('Subscription not found');
+    h.deleteExpenseItem.mockResolvedValueOnce(false);
+    expect((await (await del({ entity: 'expense_item', id: 'e404' })).json()).error).toBe('Expense item not found');
+    const bad = await del({ entity: 'settings', id: 'x' });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toBe('Invalid delete request');
+    h.deleteExpenseItem.mockRejectedValueOnce(new Error('The expense data could not be saved'));
+    const failed = await del({ entity: 'expense_item', id: 'e1' });
+    expect(failed.status).toBe(500);
+    expect((await failed.json()).error).toBe('Failed to delete expense entry');
+  });
+});
+
 describe('expense server actions', () => {
   it('builds the dashboard for an admin', async () => {
     const data = await getExpenseDashboardData();
@@ -168,28 +232,5 @@ describe('expense server actions', () => {
     expect(data.groupedExpenses[0]).toMatchObject({ netTotal: 25, items: DATA.expenses });
     expect(data.summary).toMatchObject({ totalProjectedCostUSD: 25, totalProjectedCostPKR: 7000 });
     expect(data.settings).toBe(DATA.settings);
-  });
-
-  it('records items, subscriptions and settings as the signed-in admin', async () => {
-    h.addExpenseItem.mockResolvedValueOnce({ id: 'e2' });
-    expect(await recordExpenseItem(ITEM as never)).toEqual({ success: true, item: { id: 'e2' } });
-    expect(h.addExpenseItem).toHaveBeenCalledWith(ITEM, ADMIN);
-    h.addSubscription.mockResolvedValueOnce({ id: 'sub-2' });
-    expect(await recordSubscription(NEW_SUB as never)).toEqual({ success: true, subscription: { id: 'sub-2' } });
-    h.updateSubscription.mockResolvedValueOnce({ id: 'sub-1' });
-    expect(await modifySubscription('sub-1', { status: 'paused' })).toEqual({ success: true, subscription: { id: 'sub-1' } });
-    h.updateExpenseSettings.mockResolvedValueOnce(DATA.settings);
-    expect(await saveExpenseSettings({ alertThresholdUSD: 300 })).toEqual({ success: true, settings: DATA.settings });
-  });
-
-  it('reports a missing subscription, and every failure as its message', async () => {
-    h.updateSubscription.mockResolvedValueOnce(null);
-    expect(await modifySubscription('sub-404', {})).toEqual({ success: false, error: 'Subscription not found' });
-    h.requireAdminSession.mockRejectedValue(new Error('Not an admin'));
-    const refused = { success: false, error: 'Not an admin' };
-    expect(await recordExpenseItem(ITEM as never)).toEqual(refused);
-    expect(await recordSubscription(NEW_SUB as never)).toEqual(refused);
-    expect(await modifySubscription('sub-1', {})).toEqual(refused);
-    expect(await saveExpenseSettings({})).toEqual(refused);
   });
 });
