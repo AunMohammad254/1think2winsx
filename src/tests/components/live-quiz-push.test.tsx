@@ -14,7 +14,7 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
 vi.mock('@/lib/csrf', () => ({ getCSRFToken: () => h.getCSRFToken() }));
-vi.mock('@/lib/fetch-retry', () => ({ fetchWithRetry: (...a: unknown[]) => h.fetchWithRetry(...a) }));
+vi.mock('@/lib/fetch-retry', () => ({ CLOUDFLARE_ORIGIN_ERRORS: [520, 521, 522, 523, 524], fetchWithRetry: (...a: unknown[]) => h.fetchWithRetry(...a) }));
 vi.mock('@/lib/notification-sound', () => ({ playChime: () => h.chime(), isNotificationSoundOn: () => h.soundOn }));
 
 import LiveQuizPush, { type LiveQuizPushHandle, type MatchPush } from '@/components/quiz/LiveQuizPush';
@@ -34,6 +34,8 @@ const fakeClock = () => vi.useFakeTimers({ now: T0, toFake: ['setTimeout', 'clea
 const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
 const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 const banner = () => screen.queryByText('New quiz just dropped');
+/** Ends a request held open by a test */
+type Settle = { resolve: (res: Response) => void; reject: (err: unknown) => void };
 const option = (name: string) => screen.getByRole('radio', { name });
 
 beforeEach(() => {
@@ -146,7 +148,9 @@ describe('LiveQuizPush: answering', () => {
     expect(url).toBe('/api/quizzes/q1/submit');
     expect(init.headers['X-CSRF-Token']).toBe('tok');
     expect(JSON.parse(init.body)).toEqual({ answers: [{ questionId: 'a', selectedOption: 1 }, { questionId: 'b', selectedOption: 0 }] });
-    expect(opts).toEqual({ retries: 4, retryOn: [502, 503, 504] });
+    // No answering window: nothing caps the retries
+    expect(opts).toEqual({ retries: 6, retryOn: [502, 503, 504, 520, 521, 522, 523, 524], giveUpAt: undefined });
+    expect(init.keepalive).toBe(false);
     expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
     expect(onAnswered).toHaveBeenCalled();
     // Locked in: the answers are final, and every option says so
@@ -659,6 +663,51 @@ describe('LiveQuizPush: loading and submitting', () => {
     await flush();
     expect(h.toast.error).toHaveBeenCalledWith('The time is up for the quiz. You cannot lock in answer.');
     expect(h.fetchWithRetry).not.toHaveBeenCalled();
+    expect(screen.queryByText('Answer locked in — waiting for results')).toBeNull();
+  });
+
+  it('after a deadline lock-in that failed before the server judged it, Lock in sends the answers given again until the server stops taking them', async () => {
+    fakeClock();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
+    setup();
+    act(() => ref.current!.open('q1'));
+    await flush();
+    fireEvent.click(option('Babar')); // one of two
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ error: 'Server is busy, please retry shortly' }, 503));
+    await tick(61_000);
+    await tick(1_000);
+    expect(h.toast.error).toHaveBeenCalledWith('Server is busy, please retry shortly');
+    // Retried until 2 s before the grace ends
+    expect(h.fetchWithRetry.mock.calls.at(-1)![2]).toMatchObject({ giveUpAt: T0 + 88_000 });
+    expect(screen.getByRole('button', { name: 'Lock in answer' })).toBeEnabled();
+    // The grace is over: Lock in needs every question again
+    await tick(28_000);
+    expect(screen.getByRole('button', { name: 'Answer all 2 questions' })).toBeDisabled();
+  });
+
+  it.each([
+    { ending: 'is refused', settle: (r: Settle) => r.resolve(new Response('x', { status: 500 })), toast: 'error' as const, message: 'Failed to submit' },
+    { ending: 'loses its connection', settle: (r: Settle) => r.reject(new Error('network down')), toast: 'error' as const, message: 'network down' },
+    { ending: 'is saved', settle: (r: Settle) => r.resolve(jsonResponse({ ok: true })), toast: 'success' as const, message: 'Answer locked in!' },
+  ])('a lock-in still on its way when its quiz makes way for the next one leaves that one alone when it $ending', async ({ settle, toast, message }) => {
+    setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
+    let release!: Settle;
+    h.fetchWithRetry.mockReturnValueOnce(new Promise<Response>((resolve, reject) => { release = { resolve, reject }; }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await screen.findByRole('button', { name: 'Submitting...' });
+    act(() => ref.current!.notify('q2', 'Next quiz'));
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ quiz: { ...quiz, id: 'q2', title: 'Next quiz' } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Play it now' }));
+    // The next quiz can be answered at once
+    expect(await screen.findByRole('button', { name: 'Answer all 2 questions' })).toBeDisabled();
+    await act(async () => settle(release));
+    await waitFor(() => expect(h.toast[toast]).toHaveBeenCalledWith(message));
+    expect(screen.getByRole('button', { name: 'Answer all 2 questions' })).toBeInTheDocument();
     expect(screen.queryByText('Answer locked in — waiting for results')).toBeNull();
   });
 

@@ -5,6 +5,8 @@
  * Provides helpers for fetching and managing CSRF tokens in the frontend
  */
 
+import { CLOUDFLARE_ORIGIN_ERRORS, fetchWithRetry } from '@/lib/fetch-retry';
+
 // The server issues a random token with a 1 h expiry and validates it by format + Origin check
 // (see /api/csrf-token and csrf-protection.ts). It is not bound to a request, so one token can
 // safely serve every mutation until it nears expiry. Fetching a fresh one before EVERY
@@ -13,12 +15,16 @@
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 const FALLBACK_TTL_MS = 30 * 60 * 1000;
 
+// A mutation without a token is refused, so a token request that meets overload, a restart or a dropped
+// connection is tried again (the request changes nothing on the server)
+const RETRY = { retries: 3, retryOn: [429, 502, 503, 504, ...CLOUDFLARE_ORIGIN_ERRORS] };
+
 let cachedToken: { value: string; expiresAt: number } | null = null;
 let inflight: Promise<string | null> | null = null;
 
 async function fetchToken(): Promise<string | null> {
     try {
-        const response = await fetch('/api/csrf-token');
+        const response = await fetchWithRetry('/api/csrf-token', undefined, RETRY);
         if (!response.ok) throw new Error('Failed to fetch CSRF token');
         const data = await response.json();
         if (!data?.csrfToken) return null;
