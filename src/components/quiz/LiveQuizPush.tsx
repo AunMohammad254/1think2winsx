@@ -129,6 +129,31 @@ const AUTO_LOCK_SPREAD_MS = 22_000;
 const MATCH_MARGIN_MS = MATCH_POPUP_MARGIN_SECONDS * 1000;
 const MATCH_LOCK_SPREAD_MS = MATCH_MARGIN_MS - 5_000;
 
+/**
+ * This device locked in a quiz (src/app/quiz/[id]/page.tsx keeps the same mark). The shared copy shows every
+ * question unanswered, so a quiz reopened after its lock-in loads from the personal route instead: that knows
+ * what was answered, and a re-attempt gets only the questions added since. Never set for a live match's over:
+ * every over answers to the same quiz, and the page remembers the overs itself (onMatchLocked).
+ */
+const lockedInKey = (quizId: string) => `1t2w_sub_${quizId}`;
+
+function lockedInHere(quizId: string): boolean {
+    try {
+        return localStorage.getItem(lockedInKey(quizId)) === '1';
+    } catch {
+        return false;
+    }
+}
+
+function markLockedIn(quizId: string, on: boolean) {
+    try {
+        if (on) localStorage.setItem(lockedInKey(quizId), '1');
+        else localStorage.removeItem(lockedInKey(quizId));
+    } catch {
+        // Private mode or storage full: a reopened quiz may use the shared copy, whose lock-in the server refuses
+    }
+}
+
 const parseMs = (iso: string | null | undefined) => {
     const ms = iso ? Date.parse(iso) : NaN;
     return Number.isFinite(ms) ? ms : null;
@@ -230,7 +255,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const loadQuiz = useCallback(async (quizId: string) => {
         try {
             let res: Response | null = null;
-            if (canUseSharedCopy?.(quizId)) {
+            if (canUseSharedCopy?.(quizId) && !lockedInHere(quizId)) {
                 // One cached copy serves everyone who opens the quiz at once. Anything but the copy or
                 // "not started yet" (a refusal, an error, no network) falls back to the personal route.
                 const shared = await fetch(`/api/live/quizzes/${quizId}`, { credentials: 'omit' }).catch(() => null);
@@ -251,13 +276,6 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             }
             const { quiz: loaded } = await res.json();
             setQuiz({ id: loaded.id, title: loaded.title, questions: loaded.questions });
-            try {
-                if (localStorage.getItem('1t2w_sub_' + loaded.id) === '1') {
-                    setLocked(true);
-                }
-            } catch {
-                // Ignore storage read errors
-            }
             // The server's answering window, corrected for this device's clock when the personal route
             // sends its own time (the cached copy can't)
             setLive({
@@ -311,11 +329,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const notify = useCallback((quizId: string, quizTitle: string, endsAt: string | null = null, durationMinutes = 0) => {
         // The announcement for this quiz is over: it is live now
         setUpcoming((u) => (u?.id === quizId ? null : u));
-        try {
-            localStorage.removeItem('1t2w_sub_' + quizId);
-        } catch {
-            // Ignore storage errors
-        }
+        markLockedIn(quizId, false);
         arrive({ id: quizId, title: quizTitle, endsAtMs: parseMs(endsAt), windowMs: durationMinutes * 60_000 || null });
     }, [arrive]);
 
@@ -423,14 +437,6 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         // Loaded: the button only shows for a loaded quiz, and the deadline lock-in is only set up for one
         // (startFresh, the only thing that unloads it, also cancels that lock-in)
         const loaded = quiz!;
-        try {
-            if (localStorage.getItem('1t2w_sub_' + loaded.id) === '1') {
-                setLocked(true);
-                return;
-            }
-        } catch {
-            // Ignore storage read errors
-        }
         // The countdown reads "Time's up": say so instead of sending a submit the server refuses
         const timeUp = () => isWindowClosed(live?.endsAtMs ?? null, Date.now());
         if (!atDeadline && timeUp()) {
@@ -445,11 +451,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         // Every question for a Lock in; at the deadline, those answered (an unanswered one was never sent)
         const picked = loaded.questions.filter((q) => answers[q.id] !== undefined);
         setSubmitting(true);
-        try {
-            localStorage.setItem('1t2w_sub_' + loaded.id, '1');
-        } catch {
-            // Ignore storage write errors (e.g. storage full or private browsing)
-        }
+        // Marked before it is sent, so a reload while it is on its way doesn't reopen the shared copy
+        if (!live?.match) markLockedIn(loaded.id, true);
         try {
             const csrfToken = await getCSRFToken();
             // Submitting is idempotent (one attempt per user and quiz is enforced in the database),
@@ -463,11 +466,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                 }),
             }, { retries: 4, retryOn: [502, 503, 504] });
             if (!res.ok) {
-                try {
-                    localStorage.removeItem('1t2w_sub_' + loaded.id);
-                } catch {
-                    // Ignore storage errors
-                }
+                markLockedIn(loaded.id, false);
                 const data = await res.json().catch(() => ({}));
                 // Locked in on the last second and refused: the window closed while it was on its way
                 toast.error(!atDeadline && timeUp() ? TIME_UP_MESSAGE : data.error || 'Failed to submit');
@@ -484,11 +483,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             if (live?.match) onMatchLocked?.(loaded.id, picked.map((q) => q.id));
             else onAnswered?.();
         } catch (err) {
-            try {
-                localStorage.removeItem('1t2w_sub_' + loaded.id);
-            } catch {
-                // Ignore storage errors
-            }
+            markLockedIn(loaded.id, false);
             toast.error(err instanceof Error ? err.message : 'Failed to submit your answer');
         } finally {
             setSubmitting(false);
