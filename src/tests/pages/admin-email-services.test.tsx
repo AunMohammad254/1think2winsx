@@ -16,7 +16,8 @@ const baseOverview = (): EmailServicesOverview => ({
   active: 'brevo',
   sesConfigured: true,
   sesRegion: 'ap-southeast-2',
-  limits: { brevo: 299, ses: 45000, reserve: 20 },
+  cloudflareConfigured: false,
+  limits: { brevo: 299, ses: 45000, cloudflare: 99, reserve: 20 },
   quota: { used: 120, limit: 299, reserve: 20, cap: 279, remaining: 179, capRemaining: 159, nextFreeAt: '2099-01-01T15:15:00Z' },
   totals: [
     { provider: 'brevo', period: '24h', status: 'accepted', count: 100 },
@@ -28,6 +29,7 @@ const baseOverview = (): EmailServicesOverview => ({
   recentFailures: { count: 0, lastError: null, lastAt: null },
   ses: { ok: true, data: { max24HourSend: 50000, maxSendRate: 14, sentLast24Hours: 12, productionAccess: true, sendingEnabled: true, enforcementStatus: 'HEALTHY' } },
   brevo: { ok: true, data: [{ type: 'free', credits: 300, creditsType: 'sendLimit', endDate: null }, { type: 'sms', credits: 5, creditsType: 'credits', endDate: '2026-12-01' }] },
+  cloudflare: null,
   awsCost: { configured: true, error: null, refreshAvailableAt: null, cost: { monthToDate: { amount: 1.5, unit: 'USD', estimated: true }, forecastRest: { amount: 2.25, unit: 'USD' }, fetchedAt: '2099-01-01T10:00:00Z' } },
 });
 
@@ -69,7 +71,12 @@ describe('admin email services page', () => {
     expect(screen.getByText('Loading email services…')).toBeInTheDocument();
     await loaded();
     expect(screen.getByRole('button', { name: /Brevo \(selected\)/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Amazon SES/ })).toHaveTextContent('Daily limit 45,000 emails · ap-southeast-2');
+    expect(screen.getByRole('button', { name: /Amazon SES/ })).toHaveTextContent('Daily limit 45,000 emails · main · ap-southeast-2');
+    expect(screen.getByRole('button', { name: /Brevo/ })).toHaveTextContent('Daily limit 299 emails · backup');
+    expect(screen.getByRole('button', { name: /^Cloudflare/ })).toBeDisabled();
+    expect(screen.getByText('Not set up: add the Cloudflare account ID and API token in hPanel')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Cloudflare daily limit')).toBeNull();
+    expect(screen.queryByText(/Cloudflare quota/)).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
 
     const sent = section('Emails sent');
@@ -86,6 +93,8 @@ describe('admin email services page', () => {
     expect(billing.getByText(/\(estimated\)/)).toBeInTheDocument();
     expect(billing.getByText(/300 emails left/)).toBeInTheDocument();
     expect(billing.getByText(/5 credits left · renews 2026-12-01/)).toBeInTheDocument();
+    expect(billing.getByText('No Cloudflare API token on the server.')).toBeInTheDocument();
+    expect(billing.getByText(/\$5 a month, with 3,000 emails included, then \$0\.35 per 1,000/)).toBeInTheDocument();
 
     const log = section('Email log');
     expect(await log.findByText('fan@example.test')).toBeInTheDocument();
@@ -169,7 +178,7 @@ describe('admin email services page', () => {
     };
     const { unmount } = render(<AdminEmailServicesPage />);
     await loaded();
-    expect(screen.getByText('Amazon SES is selected but has no access key on the server, so emails go through Brevo.')).toBeInTheDocument();
+    expect(screen.getByText("Amazon SES is selected but isn't set up on the server, so emails go through Brevo.")).toBeInTheDocument();
     expect(screen.getByText('AWS SES is still in its sandbox: it only sends to verified addresses, at most 200 a day.')).toBeInTheDocument();
     expect(screen.getByText('AWS reports a problem with this account: sending is paused, status unknown.')).toBeInTheDocument();
     unmount();
@@ -198,6 +207,95 @@ describe('admin email services page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save limit' }));
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('The SES daily limit is saved.'));
     expect(JSON.parse(calls('/api/admin/email-services').find(([, i]) => i?.method === 'PUT')![1].body)).toEqual({ sesDailyLimit: 40000 });
+  });
+
+  it('offers Cloudflare as the second backup once set up, with its quota and limit', async () => {
+    overview = {
+      ...baseOverview(),
+      cloudflareConfigured: true,
+      cloudflare: { ok: true, data: { quota: { value: 1000, unit: 'day' }, usage: { sent: 12, overQuota: false, resetsAt: null } } },
+      totals: [{ provider: 'cloudflare', period: '24h', status: 'accepted', count: 3 }],
+    };
+    render(<AdminEmailServicesPage />);
+    await loaded();
+    const button = screen.getByRole('button', { name: /^Cloudflare/ });
+    expect(button).toHaveTextContent('Daily limit 99 emails · second backup');
+    expect(button).toBeEnabled();
+    expect(section('Emails sent').getByText('Cloudflare quota: 12 of 1,000 a day')).toBeInTheDocument();
+    expect(section('Emails sent').getByText('3 sent')).toBeInTheDocument();
+    expect(section('Billing').queryByText('No Cloudflare API token on the server.')).toBeNull();
+    expect(section('Email log').getByRole('option', { name: 'Cloudflare' })).toHaveValue('cloudflare');
+
+    fireEvent.click(button);
+    expect(confirm).toHaveBeenLastCalledWith("Send all email through Cloudflare from now on? Its daily limit is 99 emails. Newsletters can't be sent while it is selected.");
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Emails now go through Cloudflare (within a minute on every server).'));
+    expect(JSON.parse(calls('/api/admin/email-services').find(([, i]) => i?.method === 'PUT')![1].body)).toEqual({ provider: 'cloudflare' });
+  });
+
+  it('saves the Cloudflare daily limit, and refuses something that is not a whole number', async () => {
+    overview = { ...baseOverview(), cloudflareConfigured: true };
+    render(<AdminEmailServicesPage />);
+    await loaded();
+    const field = screen.getByLabelText('Cloudflare daily limit');
+    expect(field).toHaveValue(99);
+    const save = screen.getAllByRole('button', { name: 'Save limit' })[1];
+    fireEvent.change(field, { target: { value: '2.5' } });
+    fireEvent.click(save);
+    expect(h.toast.error).toHaveBeenCalledWith('Enter a whole number of emails.');
+    fireEvent.change(field, { target: { value: '150' } });
+    fireEvent.click(save);
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('The Cloudflare daily limit is saved.'));
+    expect(JSON.parse(calls('/api/admin/email-services').find(([, i]) => i?.method === 'PUT')![1].body)).toEqual({ cloudflareDailyLimit: 150 });
+  });
+
+  it('warns while Cloudflare is the service, and offers both other services when it fails', async () => {
+    overview = {
+      ...baseOverview(),
+      selected: 'cloudflare',
+      active: 'cloudflare',
+      cloudflareConfigured: true,
+      cloudflare: { ok: true, data: { quota: { value: 100, unit: 'day' }, usage: { sent: 100, overQuota: true, resetsAt: '2099-01-02T00:00:00Z' } } },
+      recentFailures: { count: 2, lastError: 'Cloudflare is throttling sends (the rate limit was reached)', lastAt: '2099-01-01T09:59:00Z' },
+    };
+    const { unmount } = render(<AdminEmailServicesPage />);
+    await loaded();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('2 emails failed through Cloudflare in the last hour.');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Switch to Amazon SES', 'Switch to Brevo']);
+    expect(screen.getByText("Newsletters can't be sent while Cloudflare is the service: it only sends account emails.")).toBeInTheDocument();
+    expect(screen.getByText(/^Cloudflare's daily quota is used up; it resets /)).toBeInTheDocument();
+    unmount();
+
+    overview = { ...overview, cloudflare: { ok: true, data: { quota: { value: 100, unit: 'day' }, usage: { sent: 100, overQuota: true, resetsAt: null } } } };
+    const second = render(<AdminEmailServicesPage />);
+    await loaded();
+    expect(screen.getByText("Cloudflare's daily quota is used up.")).toBeInTheDocument();
+    second.unmount();
+
+    overview = { ...overview, cloudflare: { ok: false, error: 'Cloudflare answered 403: Authentication error' } };
+    const third = render(<AdminEmailServicesPage />);
+    await loaded();
+    expect(screen.getByText('Cloudflare status: Cloudflare answered 403: Authentication error')).toBeInTheDocument();
+    expect(screen.queryByText(/Cloudflare quota/)).toBeNull();
+    third.unmount();
+
+    overview = { ...overview, cloudflare: { ok: true, data: { quota: null, usage: null } } };
+    const fourth = render(<AdminEmailServicesPage />);
+    await loaded();
+    expect(screen.getByText('Cloudflare quota: not set yet (Cloudflare sets it once the domain is ready to send)')).toBeInTheDocument();
+    fourth.unmount();
+
+    overview = { ...overview, cloudflare: { ok: true, data: { quota: { value: 500, unit: 'day' }, usage: null } } };
+    const fifth = render(<AdminEmailServicesPage />);
+    await loaded();
+    expect(screen.getByText('Cloudflare quota: 500 a day')).toBeInTheDocument();
+    fifth.unmount();
+
+    overview = { ...baseOverview(), selected: 'cloudflare', active: 'brevo' };
+    render(<AdminEmailServicesPage />);
+    await loaded();
+    expect(screen.getByText("Cloudflare is selected but isn't set up on the server, so emails go through Brevo.")).toBeInTheDocument();
+    expect(screen.queryByText(/Newsletters can't be sent/)).toBeNull();
   });
 
   it('shows billing states: no forecast yet, other currencies, errors, and Brevo problems', async () => {

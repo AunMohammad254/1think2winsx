@@ -1,12 +1,13 @@
 import { getAdminDb } from '@/lib/supabase/db';
 import { awsClient, awsError, sesRegion } from './aws';
 import { brevoApiKey } from './providers/brevo';
+import { cloudflareCredentials, cloudflareEmailUrl } from './providers/cloudflare';
 
 /**
  * What the admin Email services page shows about each service: the SES sending quota, Brevo's plan
- * and credits, and the AWS bill this month. Each lookup is cached; Cost Explorer charges $0.01 per
- * request, so its result is kept for a day (in AppSettings, shared by every server) and a manual
- * refresh is allowed once an hour.
+ * and credits, Cloudflare's daily quota, and the AWS bill this month. Each lookup is cached; Cost
+ * Explorer charges $0.01 per request, so its result is kept for a day (in AppSettings, shared by every
+ * server) and a manual refresh is allowed once an hour.
  */
 export type Lookup<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -26,6 +27,12 @@ export interface BrevoPlan {
   endDate: string | null;
 }
 
+/** Cloudflare's daily sending quota for the account; null parts until Cloudflare has worked them out. */
+export interface CloudflareQuota {
+  quota: { value: number; unit: string } | null;
+  usage: { sent: number; overQuota: boolean; resetsAt: string | null } | null;
+}
+
 export interface AwsCost {
   /** Cost this month up to yesterday (AWS updates it about once a day) */
   monthToDate: { amount: number; unit: string; estimated: boolean };
@@ -36,6 +43,7 @@ export interface AwsCost {
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const SES_TTL_MS = 5 * 60_000;
+const CLOUDFLARE_TTL_MS = 5 * 60_000;
 const BREVO_TTL_MS = 60 * 60_000;
 export const COST_TTL_MS = 24 * 60 * 60_000;
 export const COST_REFRESH_GAP_MS = 60 * 60_000;
@@ -43,6 +51,7 @@ const COST_KEY = 'aws_cost_cache';
 
 let sesCache: { value: Lookup<SesAccount>; at: number } | null = null;
 let brevoCache: { value: Lookup<BrevoPlan[]>; at: number } | null = null;
+let cloudflareCache: { value: Lookup<CloudflareQuota>; at: number } | null = null;
 // A failed Cost Explorer lookup isn't repeated on every page view (each try costs $0.02)
 let costFailure: { error: string; at: number } | null = null;
 
@@ -50,6 +59,7 @@ let costFailure: { error: string; at: number } | null = null;
 export function clearStatusCaches(): void {
   sesCache = null;
   brevoCache = null;
+  cloudflareCache = null;
   costFailure = null;
 }
 
@@ -120,6 +130,39 @@ export async function getBrevoPlans(now = Date.now()): Promise<Lookup<BrevoPlan[
     value = { ok: false, error: `Brevo could not be reached: ${message(error)}` };
   }
   brevoCache = { value, at: now };
+  return value;
+}
+
+/** Cloudflare's daily quota and today's use (GET …/email/sending/limits); null without its token. */
+export async function getCloudflareQuota(now = Date.now()): Promise<Lookup<CloudflareQuota> | null> {
+  const credentials = cloudflareCredentials();
+  if (!credentials) return null;
+  if (cloudflareCache && now - cloudflareCache.at < CLOUDFLARE_TTL_MS) return cloudflareCache.value;
+
+  let value: Lookup<CloudflareQuota>;
+  try {
+    const response = await fetch(cloudflareEmailUrl(credentials.accountId, 'limits'), {
+      headers: { authorization: `Bearer ${credentials.token}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.success === false) {
+      const first = data.errors?.[0];
+      value = { ok: false, error: `Cloudflare answered ${response.status}: ${first?.message || 'no reason given'}` };
+    } else {
+      const { quota, usage } = data.result ?? {};
+      value = {
+        ok: true,
+        data: {
+          quota: quota ? { value: Number(quota.value ?? 0), unit: String(quota.unit ?? 'day') } : null,
+          usage: usage ? { sent: Number(usage.sent ?? 0), overQuota: usage.over_quota === true, resetsAt: usage.resets_at ?? null } : null,
+        },
+      };
+    }
+  } catch (error) {
+    value = { ok: false, error: `Cloudflare could not be reached: ${message(error)}` };
+  }
+  cloudflareCache = { value, at: now };
   return value;
 }
 

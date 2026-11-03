@@ -2,8 +2,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { awsClient, awsError, sesConfigured, sesRegion } from '@/lib/mail/aws';
 import { brevoApiKey, sendViaBrevo } from '@/lib/mail/providers/brevo';
+import { cloudflareConfigured, cloudflareCredentials, sendViaCloudflare } from '@/lib/mail/providers/cloudflare';
 import { defaultSleep, sendViaSes } from '@/lib/mail/providers/ses';
-import { EMAIL_PROVIDERS, PROVIDER_NAMES } from '@/lib/mail/types';
+import { EMAIL_PROVIDERS, isEmailProvider, PROVIDER_NAMES } from '@/lib/mail/types';
 
 const email = {
   from: { email: 'support@1think2win.test', name: '1Think "2Win"' },
@@ -25,16 +26,121 @@ beforeEach(() => {
   vi.stubEnv('AWS_SES_SECRET_ACCESS_KEY', 'secret');
   vi.stubEnv('AWS_SES_REGION', '');
   vi.stubEnv('BREVO_API_KEY', 'brevo-key');
+  vi.stubEnv('CLOUDFLARE_EMAIL_ACCOUNT_ID', 'acc123');
+  vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', 'cf-token');
 });
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe('provider names', () => {
-  it('lists both services with readable names', () => {
-    expect(EMAIL_PROVIDERS).toEqual(['ses', 'brevo']);
-    expect(PROVIDER_NAMES).toEqual({ ses: 'Amazon SES', brevo: 'Brevo' });
+  it('lists the three services in fallback order, with readable names', () => {
+    expect(EMAIL_PROVIDERS).toEqual(['ses', 'brevo', 'cloudflare']);
+    expect(PROVIDER_NAMES).toEqual({ ses: 'Amazon SES', brevo: 'Brevo', cloudflare: 'Cloudflare' });
+  });
+
+  it('knows a service id when it sees one', () => {
+    expect(['ses', 'brevo', 'cloudflare'].every(isEmailProvider)).toBe(true);
+    expect([' ses', 'mailgun', undefined, null, 1].some(isEmailProvider)).toBe(false);
+  });
+});
+
+describe('Cloudflare', () => {
+  const cfSent = (result: Record<string, unknown> = {}) =>
+    json({ success: true, errors: [], messages: [], result: { message_id: '<cf-1@1think2win.com>', delivered: ['fan@example.test'], queued: [], permanent_bounces: [], suppressed_recipients: [], ...result } });
+
+  it('needs both the account id and the token', () => {
+    expect(cloudflareCredentials()).toEqual({ accountId: 'acc123', token: 'cf-token' });
+    expect(cloudflareConfigured()).toBe(true);
+    vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', ' ');
+    expect(cloudflareCredentials()).toBeNull();
+    expect(cloudflareConfigured()).toBe(false);
+    vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', 'cf-token');
+    vi.stubEnv('CLOUDFLARE_EMAIL_ACCOUNT_ID', '');
+    expect(cloudflareConfigured()).toBe(false);
+  });
+
+  it('sends one email through the REST API with its headers and returns the message id', async () => {
+    fetchMock.mockResolvedValue(cfSent());
+    expect(await sendViaCloudflare(email)).toEqual({ ok: true, messageId: '<cf-1@1think2win.com>' });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acc123/email/sending/send');
+    expect(init.method).toBe('POST');
+    expect(init.headers.authorization).toBe('Bearer cf-token');
+    expect(JSON.parse(init.body)).toEqual({
+      from: { address: 'support@1think2win.test', name: '1Think "2Win"' },
+      to: 'fan@example.test',
+      subject: 'Hello',
+      html: '<p>Hi</p>',
+      text: 'Hi',
+      headers: { 'List-Unsubscribe': '<https://x.test/u>' },
+    });
+  });
+
+  it('leaves out the text part and headers when there are none, and takes a queued email', async () => {
+    fetchMock.mockResolvedValue(json({ success: true, result: { delivered: [], queued: ['fan@example.test'] } }));
+    expect(await sendViaCloudflare({ ...email, text: undefined, headers: undefined })).toEqual({ ok: true, messageId: null });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).not.toHaveProperty('text');
+    expect(body).not.toHaveProperty('headers');
+    fetchMock.mockResolvedValue(json({ success: true, result: null }));
+    expect(await sendViaCloudflare(email)).toEqual({ ok: true, messageId: null });
+  });
+
+  it('counts a bounced or suppressed address as failed', async () => {
+    fetchMock.mockResolvedValueOnce(cfSent({ delivered: [], permanent_bounces: ['fan@example.test'] }));
+    expect(await sendViaCloudflare(email)).toEqual({ ok: false, error: 'The address bounced: the mailbox does not exist or refused the email' });
+    fetchMock.mockResolvedValueOnce(cfSent({ delivered: [], suppressed_recipients: ['fan@example.test'] }));
+    expect(await sendViaCloudflare(email)).toEqual({
+      ok: false, error: 'Cloudflare did not send it: the address is on its suppression list (it bounced or complained before)',
+    });
+  });
+
+  it('explains a refusal in plain words, by error code', async () => {
+    fetchMock.mockResolvedValueOnce(json({ success: false, errors: [{ code: 10105, message: 'authentication.not_entitled' }], result: null }, 403));
+    expect(await sendViaCloudflare(email)).toEqual({
+      ok: false, error: 'This Cloudflare account has no Email Sending (it needs the Workers Paid plan): authentication.not_entitled',
+    });
+    fetchMock.mockResolvedValueOnce(json({ success: false, errors: [{ code: 10203 }] }, 403));
+    expect(await sendViaCloudflare(email)).toEqual({ ok: false, error: 'Email Sending is turned off for this domain or account' });
+    fetchMock.mockResolvedValueOnce(json({ success: false, errors: [{ code: 99999, message: 'odd' }] }, 400));
+    expect(await sendViaCloudflare(email)).toEqual({ ok: false, error: 'Cloudflare refused the email (400): odd' });
+    fetchMock.mockResolvedValueOnce(new Response('<html>Bad gateway</html>', { status: 502 }));
+    expect(await sendViaCloudflare(email)).toEqual({ ok: false, error: 'Cloudflare refused the email (502)' });
+    fetchMock.mockResolvedValueOnce(json({ success: false, errors: [] }, 200));
+    expect(await sendViaCloudflare(email)).toEqual({ ok: false, error: 'Cloudflare refused the email (200)' });
+  });
+
+  it('retries throttling and its auth outage, but never a 500', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    fetchMock
+      .mockResolvedValueOnce(json({ success: false, errors: [{ code: 10004, message: 'throttled' }] }, 429))
+      .mockResolvedValueOnce(json({ success: false, errors: [{ code: 10100 }] }, 503))
+      .mockResolvedValueOnce(cfSent());
+    expect(await sendViaCloudflare(email, { retries: 3 })).toEqual({ ok: true, messageId: '<cf-1@1think2win.com>' });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    fetchMock.mockReset().mockResolvedValue(json({ success: false, errors: [{ code: 10002, message: 'internal_server' }] }, 500));
+    expect(await sendViaCloudflare(email, { retries: 3 })).toEqual({ ok: false, error: 'Cloudflare refused the email (500): internal_server' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset().mockResolvedValue(json({ success: false, errors: [{ code: 10004, message: 'throttled' }] }, 429));
+    expect(await sendViaCloudflare(email, { retries: 1 })).toEqual({ ok: false, error: 'Cloudflare is throttling sends (the rate limit was reached): throttled' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a timeout without retrying, an unreachable Cloudflare and missing keys', async () => {
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }));
+    expect(await sendViaCloudflare(email, { timeoutMs: 3500, retries: 3 })).toEqual({ ok: false, error: 'Cloudflare could not be reached: The operation was aborted due to timeout' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockRejectedValueOnce('socket hang up');
+    expect(await sendViaCloudflare(email)).toEqual({ ok: false, error: 'Cloudflare could not be reached: socket hang up' });
+    vi.stubEnv('CLOUDFLARE_EMAIL_ACCOUNT_ID', '');
+    expect(await sendViaCloudflare(email)).toEqual({
+      ok: false, error: 'Cloudflare is not configured (CLOUDFLARE_EMAIL_ACCOUNT_ID or CLOUDFLARE_EMAIL_API_TOKEN is missing)',
+    });
   });
 });
 

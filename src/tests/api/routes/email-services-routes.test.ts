@@ -247,10 +247,12 @@ describe('/api/admin/email-services', () => {
     expect(h.updateEmailServices).toHaveBeenCalledWith({ provider: 'ses' }, 'boss@example.test');
     await put({ sesDailyLimit: 45000 });
     expect(h.updateEmailServices).toHaveBeenLastCalledWith({ sesDailyLimit: 45000 }, 'boss@example.test');
+    await put({ provider: 'cloudflare', cloudflareDailyLimit: 150 });
+    expect(h.updateEmailServices).toHaveBeenLastCalledWith({ provider: 'cloudflare', cloudflareDailyLimit: 150 }, 'boss@example.test');
   });
 
   it('refuses an empty or invalid change', async () => {
-    for (const body of [{}, { provider: 'mailgun' }, { sesDailyLimit: 0 }, { sesDailyLimit: 1.5 }]) {
+    for (const body of [{}, { other: 1 }, { provider: 'mailgun' }, { sesDailyLimit: 0 }, { sesDailyLimit: 1.5 }, { cloudflareDailyLimit: 0 }]) {
       expect((await put(body)).status).toBe(400);
     }
     expect((await (await services.PUT(makeRequest('/x', { method: 'PUT', rawBody: 'nope' }))).json()).message).toBe('Invalid input: expected object, received null');
@@ -302,6 +304,8 @@ describe('GET /api/admin/email-log', () => {
     expect(h.listEmailLog).toHaveBeenCalledWith({ page: 2, q: 'fan', provider: 'ses', kind: 'registration' });
     await emailLog.GET(makeRequest('/api/admin/email-log'));
     expect(h.listEmailLog).toHaveBeenLastCalledWith({ page: 1 });
+    await emailLog.GET(makeRequest('/api/admin/email-log?provider=cloudflare'));
+    expect(h.listEmailLog).toHaveBeenLastCalledWith({ page: 1, provider: 'cloudflare' });
   });
 
   it('refuses a bad filter, needs an admin, and reports failures', async () => {

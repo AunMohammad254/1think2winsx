@@ -102,6 +102,23 @@ describe('sendNewsletterEmail resilience', () => {
     expect(await sendNewsletterEmail({ senderEmail: 'n@x.test', subject: 's', content: 'c', recipients: undefined as unknown as string[] })).toMatchObject({ failedCount: 0 });
   });
 
+  it('sends no newsletter while Cloudflare is the service', async () => {
+    dbState.provider = 'cloudflare';
+    vi.stubEnv('CLOUDFLARE_EMAIL_ACCOUNT_ID', 'acc123');
+    vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', 'cf-token');
+    const f = vi.fn();
+    vi.stubGlobal('fetch', f);
+    const res = await send(['a@x.test', 'b@x.test']);
+    expect(res).toEqual({
+      success: false,
+      sentCount: 0,
+      failedCount: 2,
+      error: "Newsletters can't go through Cloudflare (it only sends account emails). Switch to Amazon SES or Brevo on the Email services page to send one.",
+    });
+    expect(f).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
   it('reports a failure that is not an Error object', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue('socket hang up'));
     const res = await send(['a@x.test']);

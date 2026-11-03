@@ -4,6 +4,7 @@ import { validateAdminSession } from '@/lib/admin-session';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { EmailServicesError, getEmailServicesOverview, updateEmailServices } from '@/lib/mail/admin';
+import { EMAIL_PROVIDERS } from '@/lib/mail/types';
 
 const unauthorized = () => NextResponse.json({ success: false, message: 'Unauthorized. Admin session required.' }, { status: 401 });
 
@@ -23,14 +24,17 @@ export async function GET(request: NextRequest) {
   }
 }
 
+const dailyLimit = z.number().int().min(1).max(10_000_000).optional();
+
 const ChangeSchema = z
   .object({
-    provider: z.enum(['ses', 'brevo']).optional(),
-    sesDailyLimit: z.number().int().min(1).max(10_000_000).optional(),
+    provider: z.enum(EMAIL_PROVIDERS).optional(),
+    sesDailyLimit: dailyLimit,
+    cloudflareDailyLimit: dailyLimit,
   })
-  .refine((change) => change.provider !== undefined || change.sesDailyLimit !== undefined, 'Nothing to change.');
+  .refine((change) => Object.values(change).some((value) => value !== undefined), 'Nothing to change.');
 
-/** An admin switches the service (Brevo or Amazon SES) or sets the SES daily limit. */
+/** An admin switches the service (Amazon SES, Brevo or Cloudflare) or sets the SES or Cloudflare daily limit. */
 export async function PUT(request: NextRequest) {
   try {
     const csrfValidation = await requireCSRFToken(request);

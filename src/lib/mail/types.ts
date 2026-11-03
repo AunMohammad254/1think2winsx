@@ -2,11 +2,15 @@
  * Shared shapes for the mail layer (src/lib/mail). One email goes to one address: newsletters send
  * one per subscriber so each carries its own unsubscribe link.
  */
-export type EmailProviderId = 'ses' | 'brevo';
+export type EmailProviderId = 'ses' | 'brevo' | 'cloudflare';
 
-export const EMAIL_PROVIDERS: readonly EmailProviderId[] = ['ses', 'brevo'];
+/** In the order an admin falls back to them: Amazon SES, then Brevo, then Cloudflare. */
+export const EMAIL_PROVIDERS = ['ses', 'brevo', 'cloudflare'] as const satisfies readonly EmailProviderId[];
 
-export const PROVIDER_NAMES: Record<EmailProviderId, string> = { ses: 'Amazon SES', brevo: 'Brevo' };
+export const PROVIDER_NAMES: Record<EmailProviderId, string> = { ses: 'Amazon SES', brevo: 'Brevo', cloudflare: 'Cloudflare' };
+
+export const isEmailProvider = (value: unknown): value is EmailProviderId =>
+  (EMAIL_PROVIDERS as readonly unknown[]).includes(value);
 
 export interface OutgoingEmail {
   from: { email: string; name: string };
