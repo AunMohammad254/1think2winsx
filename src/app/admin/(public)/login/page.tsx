@@ -3,7 +3,7 @@
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Trophy } from 'lucide-react';
+import BrandLogo from '@/components/brand/Logo';
 
 function AdminLoginForm() {
     const router = useRouter();
@@ -70,11 +70,7 @@ function AdminLoginForm() {
                         <Link href="/" className="group touch-manipulation">
                             <div className="relative">
                                 <div className="absolute -inset-2 bg-gradient-to-r from-red-400 via-orange-400 to-yellow-400 rounded-full blur opacity-75 hidden md:block md:group-hover:opacity-100 transition duration-300"></div>
-                                <div className="relative">
-                                    <div className="w-20 h-20 rounded-full bg-white/5 md:bg-white/10 md:backdrop-blur-xl p-2 border border-white/10 md:border-white/20 shadow-lg md:shadow-2xl flex items-center justify-center transform md:group-hover:scale-110 transition-all duration-300">
-                                        <Trophy className="w-10 h-10 text-amber-400" />
-                                    </div>
-                                </div>
+                                <BrandLogo size="md" className="relative shadow-lg md:shadow-2xl transform md:group-hover:scale-110 transition-all duration-300" />
                             </div>
                         </Link>
                     </div>

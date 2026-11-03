@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { ImageResponse } from 'next/og';
+import { brandLogoDataUri } from '@/lib/brand-logo';
 import { getAdminDb } from '@/lib/supabase/db';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 
@@ -88,6 +89,8 @@ export async function GET(
       return 'Needs Practice';
     };
 
+    const logo = await brandLogoDataUri();
+
     return new ImageResponse(
       (
         <div
@@ -163,7 +166,11 @@ export async function GET(
                   alignItems: 'center',
                 }}
               >
-                🏏 1Think2Win
+                {logo && (
+                  // eslint-disable-next-line @next/next/no-img-element -- satori draws plain <img>, next/image can't run here
+                  <img src={logo} width={44} height={44} alt="" style={{ marginRight: '12px' }} />
+                )}
+                1Think2Win
               </span>
               <span
                 style={{

@@ -3,8 +3,8 @@
 import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
+import BrandLogo from '@/components/brand/Logo';
 import LoginForm from '@/components/auth/LoginForm';
 import RegisterForm from '@/components/auth/RegisterForm';
 
@@ -93,22 +93,16 @@ function AuthPageContent() {
                         <Link href="/" className="inline-block mb-8 group">
                             <div className="relative">
                                 <div className="absolute -inset-3 bg-gradient-to-r from-purple-400 via-blue-400 to-pink-400 rounded-full blur-lg opacity-60 group-hover:opacity-100 transition duration-300" />
-                                <div className="relative">
-                                    <Image
-                                        src="https://res.cloudinary.com/dszrz6s6u/image/upload/v1790752176/assets/auth-logo.avif"
-                                        alt="Kheelo Or Jeeto Logo"
-                                        width={100}
-                                        height={100}
-                                        unoptimized
-                                        className="rounded-full bg-white/10 backdrop-blur-xl p-2 border border-white/20 shadow-2xl transform group-hover:scale-110 transition-all duration-300"
-                                    />
-                                </div>
+                                <BrandLogo
+                                    size="lg"
+                                    className="relative shadow-2xl transform group-hover:scale-110 transition-all duration-300"
+                                />
                             </div>
                         </Link>
 
                         {/* Title */}
                         <h1 className="text-5xl font-bold bg-gradient-to-r from-purple-400 via-blue-400 to-pink-400 bg-clip-text text-transparent mb-6">
-                            Kheelo Or Jeeto
+                            1Think 2Win
                         </h1>
                         <p className="text-xl text-slate-300 mb-8 leading-relaxed">
                             Play exciting quizzes, test your knowledge, and win amazing prizes!
@@ -144,14 +138,7 @@ function AuthPageContent() {
                         <Link href="/" className="inline-block group">
                             <div className="relative">
                                 <div className="absolute -inset-2 bg-gradient-to-r from-purple-400 via-blue-400 to-pink-400 rounded-full blur opacity-60" />
-                                <Image
-                                    src="https://res.cloudinary.com/dszrz6s6u/image/upload/v1790752176/assets/auth-logo.avif"
-                                    alt="Kheelo Or Jeeto Logo"
-                                    width={70}
-                                    height={70}
-                                    unoptimized
-                                    className="relative rounded-full bg-white/10 backdrop-blur-xl p-1 border border-white/20 shadow-xl"
-                                />
+                                <BrandLogo size="md" className="relative shadow-xl" />
                             </div>
                         </Link>
                     </div>

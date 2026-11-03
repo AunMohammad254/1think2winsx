@@ -25,6 +25,14 @@ function textOf(node: ReactNode): string {
   return '';
 }
 
+/** The src of every <img> in a JSX tree. */
+function imagesOf(node: ReactNode): string[] {
+  if (Array.isArray(node)) return node.flatMap(imagesOf);
+  if (!isValidElement(node)) return [];
+  const props = node.props as { src?: string; children?: ReactNode };
+  return [...(node.type === 'img' ? [props.src as string] : []), ...imagesOf(props.children)];
+}
+
 beforeEach(() => {
   adminDb = createSupabaseMock();
   applyRateLimit.mockReset().mockResolvedValue(null);
@@ -171,6 +179,17 @@ describe('GET /api/quizzes/[id]/share-card', () => {
     expect((await card('a2')).text).toContain('50/10');
     adminDb.client.from.mockImplementation(() => { throw new Error('db down'); });
     expect((await card('a3', '?name=Fallback')).text).toContain('Fallback');
+  });
+
+  it('draws the brain logo from public/, and still draws the card when the file is missing', async () => {
+    let { res } = await card('temp');
+    expect(imagesOf(res.element)).toEqual([expect.stringMatching(/^data:image\/png;base64,iVBORw0KGgo/)]);
+
+    vi.spyOn(process, 'cwd').mockReturnValueOnce('/no-such-app');
+    ({ res } = await card('temp'));
+    expect(imagesOf(res.element)).toEqual([]);
+    expect(textOf(res.element)).toContain('1Think2Win');
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('[Brand logo] Not readable'), expect.anything());
   });
 
   it('is rate limited per IP and answers 500 if rendering fails', async () => {
