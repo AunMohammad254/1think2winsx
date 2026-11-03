@@ -114,6 +114,36 @@ describe('ExpenseManager', () => {
     expect(screen.getByRole('heading', { name: 'Add Expense or Subscription' })).toBeInTheDocument();
   });
 
+  it('opens Add Item on the subscription it was clicked for, and every opening starts afresh', () => {
+    renderManager();
+    const heading = () => screen.getByRole('heading', { name: 'Add Expense or Subscription' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add Item' })[1]);
+    expect(screen.getAllByRole('combobox')[0]).toHaveValue('sub-2');
+    fireEvent.change(screen.getByPlaceholderText('29.99'), { target: { value: '7' } });
+    fireEvent.click(within(heading().closest('div.flex')!).getByRole('button'));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add Item' })[0]);
+    expect(screen.getAllByRole('combobox')[0]).toHaveValue('sub-1');
+    expect(screen.getByPlaceholderText('29.99')).toHaveValue(null);
+    fireEvent.click(within(heading().closest('div.flex')!).getByRole('button'));
+    // From the header: the first subscription
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add Item' })[1]);
+    fireEvent.click(within(heading().closest('div.flex')!).getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Expense' }));
+    expect(screen.getAllByRole('combobox')[0]).toHaveValue('sub-1');
+  });
+
+  it('opens the settings as last loaded, not as they were when the page opened', async () => {
+    const { container } = renderManager();
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      success: true, summary: SUMMARY, groupedExpenses: [groupOf(SUB)], subscriptions: [SUB], expenses: [],
+      settings: { ...SETTINGS, alertThresholdUSD: 150 },
+    }));
+    fireEvent.click(screen.getByTitle('Refresh billing data'));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Expense data refreshed successfully'));
+    fireEvent.click(screen.getByTitle('Configure exchange rate & budget threshold'));
+    expect(container.querySelectorAll('input[type="number"]')[1]).toHaveValue(150);
+  });
+
   it('refreshes once an expense is added', async () => {
     renderManager();
     fireEvent.click(screen.getByRole('button', { name: 'Add Expense' }));

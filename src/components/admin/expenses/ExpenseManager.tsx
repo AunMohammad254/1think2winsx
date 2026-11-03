@@ -64,10 +64,13 @@ export default function ExpenseManager({
   const [selectedCategory, setSelectedCategory] = useState<ExpenseCategory | 'all'>('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Modals state
+  // Modals state. Each opening mounts its form afresh (the keys), so it starts from what is current:
+  // the subscription whose Add Item was clicked, and the settings as last loaded.
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedSubIdForAdd, setSelectedSubIdForAdd] = useState<string | undefined>();
+  const [addModalKey, setAddModalKey] = useState(0);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsModalKey, setSettingsModalKey] = useState(0);
 
   const reloadData = useCallback(async () => {
     setRefreshing(true);
@@ -111,7 +114,13 @@ export default function ExpenseManager({
 
   const handleOpenAddModal = (subId?: string) => {
     setSelectedSubIdForAdd(subId);
+    setAddModalKey((key) => key + 1);
     setIsAddModalOpen(true);
+  };
+
+  const handleOpenSettingsModal = () => {
+    setSettingsModalKey((key) => key + 1);
+    setIsSettingsModalOpen(true);
   };
 
   const handleSettingsSaved = (updated: ExpenseConfigSettings) => {
@@ -200,7 +209,7 @@ export default function ExpenseManager({
 
           {/* Settings Button */}
           <button
-            onClick={() => setIsSettingsModalOpen(true)}
+            onClick={handleOpenSettingsModal}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:text-white hover:bg-white/10 text-xs font-medium transition-colors"
             title="Configure exchange rate & budget threshold"
           >
@@ -237,7 +246,7 @@ export default function ExpenseManager({
             </p>
           </div>
           <button
-            onClick={() => setIsSettingsModalOpen(true)}
+            onClick={handleOpenSettingsModal}
             className="text-xs px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 font-medium text-amber-100 shrink-0"
           >
             Adjust Threshold
@@ -330,6 +339,7 @@ export default function ExpenseManager({
 
       {/* Modals */}
       <AddExpenseModal
+        key={`add-${addModalKey}`}
         isOpen={isAddModalOpen}
         onClose={() => {
           setIsAddModalOpen(false);
@@ -342,6 +352,7 @@ export default function ExpenseManager({
       />
 
       <ExpenseSettingsModal
+        key={`settings-${settingsModalKey}`}
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         settings={settings}

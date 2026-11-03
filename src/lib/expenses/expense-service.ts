@@ -554,6 +554,16 @@ export function calculateExpenseSummary(
 }
 
 /**
+ * Saves a changed copy of the data, or throws. The changes below never touch the cached data (or the
+ * seeded defaults it may be), so a save that fails leaves everything as it was and is reported as a failure.
+ */
+async function commit(next: ExpenseManagerData, adminEmail: string): Promise<void> {
+  if (!(await saveExpenseManagerData(next, adminEmail))) {
+    throw new Error('The expense data could not be saved');
+  }
+}
+
+/**
  * Adds a new expense item to a subscription.
  */
 export async function addExpenseItem(
@@ -566,8 +576,7 @@ export async function addExpenseItem(
     id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
   };
 
-  data.expenses.push(newItem);
-  await saveExpenseManagerData(data, adminEmail);
+  await commit({ ...data, expenses: [...data.expenses, newItem] }, adminEmail);
   return newItem;
 }
 
@@ -587,8 +596,7 @@ export async function addSubscription(
     updatedAt: now,
   };
 
-  data.subscriptions.push(newSub);
-  await saveExpenseManagerData(data, adminEmail);
+  await commit({ ...data, subscriptions: [...data.subscriptions, newSub] }, adminEmail);
   return newSub;
 }
 
@@ -610,8 +618,7 @@ export async function updateSubscription(
     updatedAt: new Date().toISOString(),
   };
 
-  data.subscriptions[idx] = updatedSub;
-  await saveExpenseManagerData(data, adminEmail);
+  await commit({ ...data, subscriptions: data.subscriptions.map((s, i) => (i === idx ? updatedSub : s)) }, adminEmail);
   return updatedSub;
 }
 
@@ -623,14 +630,14 @@ export async function updateExpenseSettings(
   adminEmail: string
 ): Promise<ExpenseConfigSettings> {
   const data = await getExpenseManagerData();
-  data.settings = {
+  const updated: ExpenseConfigSettings = {
     ...data.settings,
     ...settings,
     lastUpdated: new Date().toISOString(),
     updatedBy: adminEmail,
   };
 
-  await saveExpenseManagerData(data, adminEmail);
-  return data.settings;
+  await commit({ ...data, settings: updated }, adminEmail);
+  return updated;
 }
 

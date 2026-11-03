@@ -150,6 +150,37 @@ describe('expense-service: changes', () => {
     const service = await fresh();
     const settings = await service.updateExpenseSettings({ alertThresholdUSD: 50 }, 'boss@example.test');
     expect(settings).toMatchObject({ alertThresholdUSD: 50, exchangeRateUsdToPkr: 280, updatedBy: 'boss@example.test' });
+    expect(JSON.parse(upserted().value).settings).toMatchObject({ alertThresholdUSD: 50 });
+  });
+
+  it('reports a change it could not save, and keeps the data as it was', async () => {
+    adminDb = createSupabaseMock({ tables: { AppSettings: [row(SAVED), { data: null, error: { message: 'disk full' } }] } });
+    const service = await fresh();
+    const before = structuredClone(await service.getExpenseManagerData());
+    const failed = 'The expense data could not be saved';
+    await expect(service.addExpenseItem(SAVED.expenses[0], 'boss@example.test')).rejects.toThrow(failed);
+    await expect(service.addSubscription(SUB, 'boss@example.test')).rejects.toThrow(failed);
+    await expect(service.updateSubscription('sub-1', { status: 'paused' }, 'boss@example.test')).rejects.toThrow(failed);
+    await expect(service.updateExpenseSettings({ alertThresholdUSD: 1 }, 'boss@example.test')).rejects.toThrow(failed);
+    expect(await service.getExpenseManagerData()).toEqual(before);
+  });
+
+  it('never changes the seeded defaults it started from', async () => {
+    adminDb = createSupabaseMock({ tables: { AppSettings: { data: null, error: null } } });
+    const service = await fresh();
+    const seeded = structuredClone({ subscriptions: service.DEFAULT_SUBSCRIPTIONS, expenses: service.DEFAULT_EXPENSES, settings: service.DEFAULT_CONFIG });
+    const first = service.DEFAULT_SUBSCRIPTIONS[0].id;
+    await service.addExpenseItem({ ...SAVED.expenses[0], subscriptionId: first }, 'boss@example.test');
+    await service.addSubscription(SUB, 'boss@example.test');
+    await service.updateSubscription(first, { status: 'paused' }, 'boss@example.test');
+    await service.updateExpenseSettings({ alertThresholdUSD: 1 }, 'boss@example.test');
+    expect({ subscriptions: service.DEFAULT_SUBSCRIPTIONS, expenses: service.DEFAULT_EXPENSES, settings: service.DEFAULT_CONFIG }).toEqual(seeded);
+    // The changes themselves were saved, one on top of the other
+    const saved = JSON.parse(upserted().value) as ExpenseManagerData;
+    expect(saved.expenses).toHaveLength(seeded.expenses.length + 1);
+    expect(saved.subscriptions).toHaveLength(seeded.subscriptions.length + 1);
+    expect(saved.subscriptions[0].status).toBe('paused');
+    expect(saved.settings.alertThresholdUSD).toBe(1);
   });
 });
 
