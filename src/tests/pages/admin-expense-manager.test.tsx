@@ -2,11 +2,16 @@ import '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { resolveServerTree } from '@/tests/helpers/server-render';
+import { createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 const h = vi.hoisted(() => ({
   requireAdminSession: vi.fn(),
   validateAdminSession: vi.fn(),
 }));
+
+// Never a real database: CI sets NEXT_PUBLIC_SUPABASE_URL, and a real client there hangs until the test times out
+let adminDb: SupabaseMock;
+vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client }));
 
 vi.mock('@/lib/admin-session', () => ({
   requireAdminSession: () => h.requireAdminSession(),
@@ -99,6 +104,8 @@ describe('Admin Expense Manager Page and Components', () => {
   };
 
   beforeEach(() => {
+    // No saved expense data: the service falls back to its seeded defaults
+    adminDb = createSupabaseMock({ tables: { AppSettings: { data: null, error: null } } });
     h.requireAdminSession.mockReset().mockResolvedValue('admin@1think2win.com');
     h.validateAdminSession.mockReset().mockResolvedValue({
       valid: true,
@@ -115,6 +122,7 @@ describe('Admin Expense Manager Page and Components', () => {
     render(pageTree);
 
     expect(h.requireAdminSession).toHaveBeenCalled();
+    expect(eqValue(adminDb.calls.find((call) => call.table === 'AppSettings'), 'key')).toBeDefined();
     expect(screen.getByRole('heading', { name: 'Expense Manager' })).toBeInTheDocument();
     expect(
       screen.getByText(/All subscriptions, expected deductions, and scheduled charges/i)
