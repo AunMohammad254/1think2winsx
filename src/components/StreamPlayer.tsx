@@ -51,7 +51,7 @@ export default function StreamPlayer({ className = '', onError, fullscreenTarget
 
   const fetchStreamData = useCallback(async () => {
     try {
-      const response = await fetch('/api/streaming/active');
+      const response = await fetch('/api/streaming/active', { credentials: 'omit' });
       const data = await response.json();
       if (data.hasActiveStream && data.stream) {
         const s = data.stream.facebookLiveVideo

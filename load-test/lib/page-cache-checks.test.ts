@@ -157,7 +157,8 @@ describe('the rules for shared JSON and ad landings (deploy/cloudflare-*-rule.js
     const rule = read('cloudflare-live-api-cache-rule.json');
     expect(rule.expression).toBe(
       '(http.host in {"1think2win.com" "www.1think2win.com"} and (http.request.uri.path eq "/api/live" or '
-      + 'starts_with(http.request.uri.path, "/api/live/quizzes/") or starts_with(http.request.uri.path, "/api/live/matches/")))'
+      + 'starts_with(http.request.uri.path, "/api/live/quizzes/") or starts_with(http.request.uri.path, "/api/live/matches/") or '
+      + 'http.request.uri.path eq "/api/streaming/active"))'
     );
     // An answer without Cache-Control is never kept
     expect(rule.action_parameters).toEqual(pageRule.action_parameters);

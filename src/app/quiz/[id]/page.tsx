@@ -87,33 +87,57 @@ export default function QuizPage() {
 
   const fetchQuiz = useCallback(async () => {
     try {
-      // Retries 429/502/503/504 with jittered backoff (the server sheds load with 503 + Retry-After)
-      const response = await fetchWithRetry(`/api/quizzes/${quizId}`, undefined, { retries: 3 });
-      if (!response.ok) {
-        if (response.status === 403) {
-          const errorData = await response.json();
-          // Check if user has already completed this quiz and there are no new questions
-          if (errorData.completed && errorData.attempt) {
-            // Redirect to results page, passing the question count only when the server sent it
-            const resultParams = new URLSearchParams({ score: String(errorData.attempt.score || 0) });
-            if (typeof errorData.totalQuestions === 'number') {
-              resultParams.set('total', String(errorData.totalQuestions));
+      let data: any = null;
+
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      const hasPendingSubmit = typeof window !== 'undefined' && user?.id && localStorage.getItem(`pending_submit_${quizId}_${user.id}`);
+      const hasLocalSubmit = typeof window !== 'undefined' && localStorage.getItem(`1t2w_sub_${quizId}`) === '1';
+
+      // Attempt to fetch edge-cached copy first (no credentials so Cloudflare edge caches can serve it globally)
+      if (!isOffline && !hasPendingSubmit && !hasLocalSubmit) {
+        try {
+          const shared = await fetch(`/api/live/quizzes/${quizId}`, { credentials: 'omit' });
+          if (shared.ok) {
+            const parsed = await shared.json();
+            if (parsed?.quiz) {
+              data = parsed;
             }
-            router.push(`/quiz/${quizId}/results?${resultParams}`);
-            return;
           }
-          throw new Error('You need to pay to access this quiz');
+        } catch {
+          // Fall back to personal route on network failure or edge miss
         }
-        if (response.status === 409) {
-          const errorData = await response.json().catch(() => ({}));
-          if (errorData.upcoming && errorData.startsAt) {
-            throw new Error(`This quiz hasn't started yet. It goes live ${new Date(errorData.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`);
-          }
-          throw new Error(errorData.error || "This quiz hasn't started yet.");
-        }
-        throw new Error('Failed to fetch quiz');
       }
-      const data = await response.json();
+
+      // If shared copy is not available (e.g. wallet enabled, reattempt, 403, 404, 409, or edge error), fetch via personal route
+      if (!data) {
+        // Retries 429/502/503/504 with jittered backoff (the server sheds load with 503 + Retry-After)
+        const response = await fetchWithRetry(`/api/quizzes/${quizId}`, undefined, { retries: 3 });
+        if (!response.ok) {
+          if (response.status === 403) {
+            const errorData = await response.json();
+            // Check if user has already completed this quiz and there are no new questions
+            if (errorData.completed && errorData.attempt) {
+              // Redirect to results page, passing the question count only when the server sent it
+              const resultParams = new URLSearchParams({ score: String(errorData.attempt.score || 0) });
+              if (typeof errorData.totalQuestions === 'number') {
+                resultParams.set('total', String(errorData.totalQuestions));
+              }
+              router.push(`/quiz/${quizId}/results?${resultParams}`);
+              return;
+            }
+            throw new Error('You need to pay to access this quiz');
+          }
+          if (response.status === 409) {
+            const errorData = await response.json().catch(() => ({}));
+            if (errorData.upcoming && errorData.startsAt) {
+              throw new Error(`This quiz hasn't started yet. It goes live ${new Date(errorData.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`);
+            }
+            throw new Error(errorData.error || "This quiz hasn't started yet.");
+          }
+          throw new Error('Failed to fetch quiz');
+        }
+        data = await response.json();
+      }
       setQuiz(data.quiz);
 
       // Initialize answers array for the questions being shown (new questions in reattempt)
@@ -127,7 +151,7 @@ export default function QuizPage() {
     } finally {
       setLoading(false);
     }
-  }, [quizId, router]);
+  }, [quizId, router, user]);
 // Fetch quiz data
 
   // Resolves to true only when the server accepted the answers
@@ -179,6 +203,11 @@ export default function QuizPage() {
       }
 
       const result = await response.json();
+      try {
+        localStorage.setItem(`1t2w_sub_${quizId}`, '1');
+      } catch {
+        // Ignore storage write errors (e.g. storage full or private browsing)
+      }
 
       // For prediction-based quizzes, show results component instead of redirecting
       // This is a prediction-based quiz system, so we show submission confirmation
