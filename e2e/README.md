@@ -1,7 +1,8 @@
 # End-to-end tests
 
-`bun run test:e2e` runs the page checks in this folder against `bun run build && bun run start`
-(see `playwright.config.ts`). They need no database.
+`bun run test:e2e` runs the page checks in this folder against `bun run build && bun run start` on
+port 3300 (see `playwright.config.ts`). They need no database. The build gets Cloudflare's always-pass
+Turnstile test key, so test browsers never load the live widget.
 
 ## The quiz test (`play-quiz.spec.ts`)
 

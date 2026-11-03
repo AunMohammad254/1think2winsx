@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Its own port, so a run never reuses the dev server on 3000, which shows the live Turnstile widget
+const PORT = 3300;
+
 /**
  * See https://playwright.dev/docs/test-configuration
  */
@@ -29,7 +32,7 @@ export default defineConfig({
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
     use: {
         /* Base URL to use in actions like `await page.goto('/')`. */
-        baseURL: 'http://localhost:3000',
+        baseURL: `http://localhost:${PORT}`,
 
         /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
         trace: 'on-first-retry',
@@ -64,11 +67,15 @@ export default defineConfig({
     ],
 
     /* Run your local dev server before starting the tests */
-    /* CI workflows already run `bun run build` in a prior step, so only start the server there */
+    /* CI workflows already run `bun run build` in a prior step (with the same Turnstile key), so only start the server there */
     webServer: {
-        command: process.env.CI ? 'bun run start' : 'bun run build && bun run start',
-        url: 'http://localhost:3000',
+        command: process.env.CI ? `bun run start -p ${PORT}` : `bun run build && bun run start -p ${PORT}`,
+        url: `http://localhost:${PORT}`,
         reuseExistingServer: !process.env.CI,
         timeout: (process.env.CI ? 120 : 300) * 1000,
+        // Cloudflare's always-pass Turnstile test key. With the live key these browsers fill the widget's
+        // analytics with unsolved "bot" challenges. Next.js bakes it into the build, so the local .next then
+        // shows the test widget, and Supabase refuses its tokens: rebuild before signing in on `bun run start`.
+        env: { NEXT_PUBLIC_TURNSTILE_SITE_KEY: '1x00000000000000000000AA' },
     },
 });
