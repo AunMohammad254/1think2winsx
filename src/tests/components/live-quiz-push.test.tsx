@@ -516,42 +516,77 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(screen.getByRole('button', { name: 'Lock in answer' })).toBeEnabled();
   });
 
-  it('records 1t2w_sub_ flag in localStorage upon submission and locks immediately on reopen', async () => {
+  it('marks a quiz locked in on this device as it is sent, and unmarks it when the server refuses', async () => {
     setup();
     act(() => ref.current!.open('q1'));
     await screen.findByText('1. Who?');
     fireEvent.click(option('Babar'));
     fireEvent.click(option('2009'));
     let resolveSubmit: (res: Response) => void;
-    const submitPromise = new Promise<Response>((resolve) => { resolveSubmit = resolve; });
-    h.fetchWithRetry.mockReturnValueOnce(submitPromise);
+    h.fetchWithRetry.mockReturnValueOnce(new Promise<Response>((resolve) => { resolveSubmit = resolve; }));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
-    // Flag is set immediately when submission starts (protecting fast refresh during request flight)
+    // Marked while on its way, so a reload meanwhile doesn't reopen the shared copy
     expect(localStorage.getItem('1t2w_sub_q1')).toBe('1');
-    resolveSubmit!(jsonResponse({ ok: true }));
+    resolveSubmit!(jsonResponse({ error: 'Too many submissions' }, 429));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Too many submissions'));
+    expect(localStorage.getItem('1t2w_sub_q1')).toBeNull();
+    h.fetchWithRetry.mockRejectedValueOnce(new Error('network down'));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('network down'));
+    expect(localStorage.getItem('1t2w_sub_q1')).toBeNull();
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
     expect(localStorage.getItem('1t2w_sub_q1')).toBe('1');
-
-    // On reopen (simulating fast refresh), loadQuiz sees the flag and locks
-    fireEvent.click(screen.getByTitle('Close'));
-    act(() => ref.current!.open('q1'));
-    await screen.findByText('1. Who?');
-    expect(screen.getByText('Answer locked in — waiting for results')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Lock in answer' })).toBeNull();
+    // A new push of it starts afresh
+    act(() => ref.current!.notify('q1', 'Live Cricket'));
+    expect(localStorage.getItem('1t2w_sub_q1')).toBeNull();
   });
 
-  it('locks immediately and aborts submission if 1t2w_sub_ flag is found in localStorage during send', async () => {
-    setup();
-    act(() => ref.current!.open('q1'));
-    await screen.findByText('1. Who?');
-    fireEvent.click(option('Babar'));
-    fireEvent.click(option('2009'));
-    // Simulate submission happened in another tab/window while answering
+  it('reopens a quiz locked in here from the personal route, and a re-attempt there still locks in', async () => {
+    const shared = vi.fn(async () => jsonResponse({ quiz }));
+    vi.stubGlobal('fetch', shared);
     localStorage.setItem('1t2w_sub_q1', '1');
-    h.fetchWithRetry.mockClear();
+    // The personal route sends only the question added since the first lock-in
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ quiz: { ...quiz, questions: [quiz.questions[1]] } }));
+    ref = createRef<LiveQuizPushHandle>();
+    render(<LiveQuizPush ref={ref} canUseSharedCopy={() => true} />);
+    act(() => ref.current!.open('q1'));
+    expect(await screen.findByText('1. When?')).toBeInTheDocument();
+    expect(shared).not.toHaveBeenCalled();
+    expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q1', undefined, { retries: 3 });
+    // The mark never answers for the server
+    fireEvent.click(option('2009'));
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
-    expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
-    expect(h.fetchWithRetry).not.toHaveBeenCalled();
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
+    expect(JSON.parse(h.fetchWithRetry.mock.calls.at(-1)![1].body)).toEqual({ answers: [{ questionId: 'b', selectedOption: 1 }] });
+  });
+
+  it('opens and locks in without storage (private mode): from the shared copy, as before the mark', async () => {
+    const shared = vi.fn(async () => jsonResponse({ quiz }));
+    vi.stubGlobal('fetch', shared);
+    const broken = () => { throw new Error('SecurityError'); };
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(broken);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(broken);
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(broken);
+    try {
+      ref = createRef<LiveQuizPushHandle>();
+      render(<LiveQuizPush ref={ref} canUseSharedCopy={() => true} />);
+      act(() => ref.current!.notify('q1', 'Live Cricket'));
+      act(() => ref.current!.open('q1'));
+      expect(await screen.findByText('1. Who?')).toBeInTheDocument();
+      expect(shared).toHaveBeenCalledTimes(1);
+      fireEvent.click(option('Babar'));
+      fireEvent.click(option('2009'));
+      h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+      await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
+    } finally {
+      vi.mocked(Storage.prototype.getItem).mockRestore();
+      vi.mocked(Storage.prototype.setItem).mockRestore();
+      vi.mocked(Storage.prototype.removeItem).mockRestore();
+    }
   });
 
   it('locks in what was answered when time runs out, after a random wait inside the grace period', async () => {
@@ -799,6 +834,29 @@ describe('LiveQuizPush: a live match over', () => {
     expect(within(panel(8)).getByRole('radio', { name: 'Maybe' })).not.toBeChecked();
     expect(within(panel(8)).getByRole('radio', { name: 'Haan · Yes' })).toBeInTheDocument();
     expect(within(panel(8)).getByRole('radio', { name: 'Shayad' })).toBeInTheDocument();
+  });
+
+  it('locks in every over to the same quiz, never only the first: an over leaves no lock-in mark', async () => {
+    const { onMatchLocked } = setupMatch();
+    h.fetchWithRetry.mockResolvedValue(jsonResponse({ message: 'ok' }));
+    act(() => ref.current!.match(push()));
+    fireEvent.click(overBanner()!);
+    const [yesRuns, , yesWicket] = within(panel()).getAllByRole('radio');
+    fireEvent.click(yesRuns);
+    fireEvent.click(yesWicket);
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(onMatchLocked).toHaveBeenCalledTimes(1));
+    expect(localStorage.getItem('1t2w_sub_mq1')).toBeNull();
+
+    act(() => ref.current!.match(push({ key: 'm1:x', over: 8, questions: [{ ...RUNS, id: 'x', text: 'Will over 8 go for 8 or more runs?' }] })));
+    fireEvent.click(overBanner(8)!);
+    fireEvent.click(within(panel(8)).getAllByRole('radio')[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+    await waitFor(() => expect(onMatchLocked).toHaveBeenCalledTimes(2));
+    expect(h.fetchWithRetry).toHaveBeenCalledTimes(2);
+    expect(h.fetchWithRetry.mock.calls[1][0]).toBe('/api/quizzes/mq1/submit');
+    expect(JSON.parse(h.fetchWithRetry.mock.calls[1][1].body)).toEqual({ answers: [{ questionId: 'x', selectedOption: 1 }] });
+    expect(onMatchLocked).toHaveBeenLastCalledWith('mq1', ['x']);
   });
 
   it('waits as "next" while the viewer is answering something else, comes with its questions, and follows its close time there', async () => {
