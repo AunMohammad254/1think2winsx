@@ -30,12 +30,20 @@ export interface RetryOptions {
    * could deliver twice.
    */
   retryOnTimeout?: boolean;
+  /**
+   * Device time (ms since the epoch) by which the last attempt must start, e.g. the end of a quiz's answering
+   * window: a wait that would end later is cut short, Retry-After included, and no attempt starts after it.
+   */
+  giveUpAt?: number;
   /** Injected for tests. */
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
 }
 
 const DEFAULT_RETRY_ON = [429, 502, 503, 504] as const;
+
+/** Cloudflare's own answers when it gets none from the origin: down, restarting, refusing or too slow. */
+export const CLOUDFLARE_ORIGIN_ERRORS = [520, 521, 522, 523, 524] as const;
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -70,6 +78,7 @@ export async function fetchWithRetry(
     retryOn = DEFAULT_RETRY_ON,
     timeoutMs,
     retryOnTimeout = true,
+    giveUpAt = Infinity,
     sleep = defaultSleep,
     random = Math.random,
   } = options;
@@ -88,15 +97,16 @@ export async function fetchWithRetry(
     }
 
     const retryable = networkError !== null || (response !== null && retryOn.includes(response.status));
-    if (!retryable || attempt >= retries) {
+    const timeLeft = giveUpAt - Date.now();
+    if (!retryable || attempt >= retries || timeLeft <= 0) {
       if (response) return response;
       throw networkError;
     }
 
     const serverHint = response ? retryAfterMs(response) : null;
     const backoff = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
-    // Full jitter on the exponential step; honour the server's Retry-After as a floor.
-    const wait = Math.min(maxDelayMs, Math.max(serverHint ?? 0, random() * backoff));
+    // Full jitter on the exponential step; honour the server's Retry-After as a floor, unless that misses giveUpAt.
+    const wait = Math.min(maxDelayMs, timeLeft, Math.max(serverHint ?? 0, random() * backoff));
     attempt++;
     await sleep(wait);
   }

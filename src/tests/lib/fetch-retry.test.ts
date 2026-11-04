@@ -5,6 +5,7 @@ import { fetchWithRetry } from '@/lib/fetch-retry';
 const res = (status: number, headers: Record<string, string> = {}) => new Response('{}', { status, headers });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -81,6 +82,26 @@ describe('fetchWithRetry', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(fetchWithRetry('/x', undefined, { retries: 2, sleep: async () => {} })).rejects.toThrow('network down');
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('cuts a wait short to start the last attempt by giveUpAt, Retry-After included, and starts none after it', async () => {
+    vi.useFakeTimers({ now: 0, toFake: ['Date'] });
+    const fetchMock = vi.fn().mockResolvedValue(res(503, { 'Retry-After': '6' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const sleep = vi.fn(async (ms: number) => { vi.setSystemTime(Date.now() + ms); });
+    const r = await fetchWithRetry('/x', undefined, { retries: 10, giveUpAt: 10_000, sleep, random: () => 0 });
+    expect(r.status).toBe(503);
+    expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([6_000, 4_000]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('rethrows a network error at once once giveUpAt has passed', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('network down'));
+    vi.stubGlobal('fetch', fetchMock);
+    const sleep = vi.fn();
+    await expect(fetchWithRetry('/x', undefined, { giveUpAt: Date.now() - 1, sleep })).rejects.toThrow('network down');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it('does not retry when the caller aborted the request', async () => {

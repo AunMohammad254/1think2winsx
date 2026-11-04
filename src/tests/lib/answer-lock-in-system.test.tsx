@@ -8,7 +8,8 @@ import '@/tests/helpers/ui';
  * waits is the browser. Picks live only in React state until "Lock in"; when the countdown ends the
  * answers given are locked in after a random wait (up to 22 s for a quiz, inside the database's 30 s
  * grace; up to 25 s for a match over, before it closes), so a crowd's lock-ins arrive spread out instead of
- * all at once. The quiz page keeps an offline submit in localStorage and sends it when the connection
+ * all at once. A lock-in still waiting goes at once when the viewer leaves the page or the quiz makes way
+ * for another. The quiz page keeps an offline submit in localStorage and sends it when the connection
  * returns.
  *
  * Only the edges are stand-ins. The network is a fetch that hands submits to the route and can drop a
@@ -153,8 +154,8 @@ const answersOf = (player: string) => Object.fromEntries([...saved]
 type Fault = 'drop' | 'lost-response' | { status: number; retryAfter?: number; html?: boolean };
 /** What the next submits meet, one each, before the route */
 let faults: Fault[];
-/** /api/csrf-token is shed */
-let csrfDown: boolean;
+/** How many of the next /api/csrf-token requests are shed */
+let csrfShed: number;
 /** Every request, with the device time it left (ms after T0) and how it ended */
 let traffic: Array<{ at: number; path: string; status: number | 'dropped' }>;
 const submits = () => traffic.filter((t) => t.path.endsWith('/submit'));
@@ -173,7 +174,7 @@ async function network(input: RequestInfo | URL, init: RequestInit = {}): Promis
   const url = new URL(String(input), 'http://localhost');
   const log = (status: number | 'dropped') => traffic.push({ at: Date.now() - T0, path: url.pathname, status });
   if (url.pathname === '/api/csrf-token') {
-    const res = csrfDown ? failure({ status: 503, retryAfter: 2 }) : jsonResponse({ csrfToken: 'csrf-token', expiresAt: Date.now() + 3_600_000 });
+    const res = csrfShed-- > 0 ? failure({ status: 503, retryAfter: 2 }) : jsonResponse({ csrfToken: 'csrf-token', expiresAt: Date.now() + 3_600_000 });
     log(res.status);
     return res;
   }
@@ -245,7 +246,7 @@ beforeEach(() => {
   outcomes = [];
   serverAheadMs = 0;
   faults = [];
-  csrfDown = false;
+  csrfShed = 0;
   traffic = [];
   h.player = 'viewer-1';
   h.toast.success.mockReset();
@@ -281,8 +282,8 @@ describe('answer lock-in: what waits, and where', () => {
     expect(submits()).toEqual([{ at: 5_000, path: '/api/quizzes/quiz-1/submit', status: 200 }]);
     expect(db.rpcCalls).toHaveLength(1);
     expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
-    // A page's first lock-in also fetches a CSRF token (kept for an hour): a second request to Hostinger
-    expect(traffic.filter((t) => t.path === '/api/csrf-token')).toEqual([{ at: 5_000, path: '/api/csrf-token', status: 200 }]);
+    // The CSRF token the lock-in needs was fetched as the quiz opened (and is kept for an hour), not with it
+    expect(traffic.filter((t) => t.path === '/api/csrf-token')).toEqual([{ at: 0, path: '/api/csrf-token', status: 200 }]);
     expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
   });
 
@@ -379,29 +380,43 @@ describe('answer lock-in: restarts, retries and duplicates', () => {
     expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was locked in.");
   });
 
-  it.each([
-    { what: "Cloudflare's 522 (Hostinger down or restarting)", status: 522 },
-    { what: "Hostinger's HTML 403 block (its ~100 req/s limit)", status: 403 },
-  ])('KNOWN GAP: a deadline lock-in that meets $what is not retried, and Lock in then refuses while the server would still take it', async ({ status }) => {
+  it("a deadline lock-in that meets Cloudflare's 522 (Hostinger down or restarting) is retried and saved inside the grace", async () => {
     fakeClock();
     randomWait(0); // sent the moment the countdown ends: 30 s of grace left
     const v = viewer();
     await v.open();
     v.pick('Babar', '2009');
-    faults = [{ status, html: true }];
+    faults = [{ status: 522, html: true }, { status: 524, html: true }];
     await tick(60_000);
     await tick(1_000);
-    expect(submits().map((s) => s.status)).toEqual([status]);
-    expect(h.toast.error).toHaveBeenCalledWith('Failed to submit');
-
-    v.lockIn();
-    await tick(0);
-    expect(h.toast.error).toHaveBeenLastCalledWith(TIME_UP);
-    expect(submits()).toHaveLength(1);
-    expect(saved.size).toBe(0);
+    expect(submits().map((s) => s.status)).toEqual([522, 524, 200]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 2 answers were locked in.");
+    expect(h.toast.error).not.toHaveBeenCalled();
   });
 
-  it('KNOWN GAP: a lock-in late in the spread that is shed twice (503, Retry-After 6 s) reaches the database after the grace and is refused', async () => {
+  it("a deadline lock-in that meets Hostinger's HTML 403 block (its ~100 req/s limit) is not retried, but Lock in sends it again while the server still takes it", async () => {
+    fakeClock();
+    randomWait(0);
+    const v = viewer();
+    await v.open();
+    v.pick('Babar');
+    faults = [{ status: 403, html: true }];
+    await tick(60_000);
+    await tick(1_000);
+    // Retrying feeds the block, which lasts about 19 minutes
+    expect(submits().map((s) => s.status)).toEqual([403]);
+    expect(h.toast.error).toHaveBeenCalledWith('Failed to submit');
+
+    // Only one of two answered, and time is up: Lock in sends the one answered
+    v.lockIn();
+    await tick(0);
+    expect(submits().map((s) => s.status)).toEqual([403, 200]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0 });
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was locked in.");
+  });
+
+  it('a lock-in late in the spread that is shed twice (503, Retry-After 6 s) cuts its last wait short, and arrives 2 s before the grace ends', async () => {
     fakeClock();
     randomWait(0.99); // 21.8 s into the spread
     const v = viewer();
@@ -410,14 +425,12 @@ describe('answer lock-in: restarts, retries and duplicates', () => {
     faults = [{ status: 503, retryAfter: 6 }, { status: 503, retryAfter: 6 }];
     await tick(60_000);
     await tick(40_000);
-    expect(submits().map((s) => s.status)).toEqual([503, 503, 403]);
-    expect(submits()[2].at).toBeGreaterThan(60_000 + GRACE_MS);
-    expect(outcomes).toEqual([expect.objectContaining({ code: 'closed' })]);
-    expect(h.toast.error).toHaveBeenCalledWith(ENDED);
-    expect(saved.size).toBe(0);
+    expect(submits().map(({ at, status }) => [at, status])).toEqual([[81_780, 503], [87_780, 503], [88_000, 200]]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0 });
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was locked in.");
   });
 
-  it('KNOWN GAP: a match lock-in late in its 25 s spread that is shed once (503, Retry-After 6 s) is too late for the over', async () => {
+  it('a match lock-in late in its 25 s spread that is shed once (503, Retry-After 6 s) cuts its wait short, and reaches the over 2 s before it closes', async () => {
     fakeClock();
     matchOver(T0 + 90_000);
     randomWait(0.98); // 24.5 s into the spread: 5.5 s before the over closes
@@ -428,9 +441,26 @@ describe('answer lock-in: restarts, retries and duplicates', () => {
     faults = [{ status: 503, retryAfter: 6 }];
     await tick(60_000);
     await tick(40_000);
-    expect(submits().map((s) => s.status)).toEqual([503, 409]);
-    expect(h.toast.error).toHaveBeenCalledWith('Too late for over 7: answers closed before yours arrived.');
-    expect(saved.size).toBe(0);
+    expect(submits().map(({ at, status }) => [at, status])).toEqual([[84_500, 503], [88_000, 200]]);
+    expect(answersOf('viewer-1')).toEqual({ r: 0 });
+  });
+
+  it('a lock-in shed until the server stops taking answers is not sent again after that', async () => {
+    fakeClock();
+    randomWait(0.99);
+    const v = viewer();
+    await v.open();
+    v.pick('Babar', '2009');
+    faults = Array.from({ length: 10 }, () => ({ status: 503, retryAfter: 6 }));
+    await tick(60_000);
+    await tick(40_000);
+    expect(submits().map((s) => s.at)).toEqual([81_780, 87_780, 88_000]);
+    expect(h.toast.error).toHaveBeenCalledWith('Server is busy, please retry shortly');
+    // Its last chance passed with the grace: Lock in says so instead of sending
+    v.lockIn();
+    await tick(0);
+    expect(h.toast.error).toHaveBeenLastCalledWith(TIME_UP);
+    expect(submits()).toHaveLength(3);
   });
 
   it('KNOWN GAP: one closed question sinks the whole lock-in: nothing is saved, and the pop-up cannot send the rest again as the refusal asks', async () => {
@@ -456,19 +486,37 @@ describe('answer lock-in: restarts, retries and duplicates', () => {
     expect(submits()).toHaveLength(1);
   });
 
-  it('KNOWN GAP: when the CSRF token request is shed at the deadline, the lock-in goes without a token, is refused, and is not retried', async () => {
+  it('fetches the CSRF token as the quiz opens and retries it when shed, so the deadline lock-in goes with one', async () => {
     fakeClock();
     randomWait(0);
-    csrfDown = true;
+    csrfShed = 2;
     const v = viewer();
     await v.open();
     v.pick('Babar', '2009');
     await tick(60_000);
     await tick(1_000);
-    expect(traffic.filter((t) => t.path === '/api/csrf-token').map((t) => t.status)).toEqual([503]);
+    // Retry-After 2 s each time
+    expect(traffic.filter((t) => t.path === '/api/csrf-token').map(({ at, status }) => [at, status])).toEqual([[0, 503], [2_000, 503], [4_000, 200]]);
+    expect(submits().map(({ at, status }) => [at, status])).toEqual([[60_000, 200]]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
+  });
+
+  it('a lock-in sent without a CSRF token (the token request failed every time) is refused, and Lock in sends it again with a fresh one', async () => {
+    fakeClock();
+    randomWait(0);
+    csrfShed = 8; // the request on opening and the one with the lock-in, each tried 4 times
+    const v = viewer();
+    await v.open();
+    v.pick('Babar', '2009');
+    await tick(60_000);
+    await tick(10_000);
     expect(submits().map((s) => s.status)).toEqual([403]);
     expect(h.toast.error).toHaveBeenCalledWith('CSRF validation failed');
-    expect(saved.size).toBe(0);
+
+    v.lockIn();
+    await tick(0);
+    expect(submits().map((s) => s.status)).toEqual([403, 200]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
   });
 
   it('KNOWN GAP: a second tab or device that locks in other picks is told "locked in", though only the first picks count', async () => {
@@ -507,16 +555,50 @@ describe('answer lock-in: answers that never leave the browser', () => {
     return v;
   }
 
-  it('KNOWN GAP: leaving the quizzes page while the deadline lock-in waits cancels it, and nothing is kept to send later', async () => {
+  /** The submit requests, as the browser was asked to send them */
+  const submitInits = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/submit')).map(([, init]) => init);
+
+  it('leaving the quizzes page while the deadline lock-in waits sends it at once, as a request that outlives the page', async () => {
     const v = await waitingLockIn();
     v.unmount();
+    await tick(0);
+    expect(submits()).toEqual([{ at: 61_000, path: '/api/quizzes/quiz-1/submit', status: 200 }]);
+    expect(submitInits()).toEqual([expect.objectContaining({ keepalive: true })]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0 });
+    // Shown on the page the viewer went to
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was locked in.");
     await tick(GRACE_MS);
+    expect(submits()).toHaveLength(1);
+  });
+
+  it('closing or reloading the tab while the deadline lock-in waits sends it at once, as a request that outlives the page', async () => {
+    const v = await waitingLockIn();
+    act(() => void window.dispatchEvent(new Event('pagehide')));
+    await tick(0);
+    expect(submits()).toEqual([{ at: 61_000, path: '/api/quizzes/quiz-1/submit', status: 200 }]);
+    expect(submitInits()).toEqual([expect.objectContaining({ keepalive: true })]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0 });
+    // A page kept in the back-forward cache shows it locked in when it comes back
+    expect(v.view.getByText('Answer locked in — waiting for results')).toBeInTheDocument();
+    await tick(GRACE_MS);
+    expect(submits()).toHaveLength(1);
+  });
+
+  it('KNOWN GAP: closing the tab before the countdown ends loses the picks: nothing is kept or sent', async () => {
+    fakeClock();
+    const v = viewer();
+    await v.open();
+    v.pick('Babar');
+    await tick(30_000);
+    act(() => void window.dispatchEvent(new Event('pagehide')));
+    v.unmount();
+    await tick(60_000);
     expect(submits()).toEqual([]);
     expect(saved.size).toBe(0);
     expect(localStorage.length).toBe(0);
   });
 
-  it('KNOWN GAP: a quiz pushed while the deadline lock-in waits with the pop-up closed replaces it, picks and all', async () => {
+  it('a quiz pushed while the deadline lock-in waits with the pop-up closed sends it at once, then takes its place afresh', async () => {
     fakeClock();
     randomWait(0.5);
     const v = viewer();
@@ -524,22 +606,35 @@ describe('answer lock-in: answers that never leave the browser', () => {
     v.pick('Babar');
     fireEvent.click(v.view.getByTitle('Close'));
     await tick(63_000);
-    // The deadline lock-in drew its random wait: it is due at 74 s
+    // The deadline lock-in drew its random wait: it is due at 71 s
     expect(Math.random).toHaveBeenCalledTimes(1);
     act(() => v.ref.current!.notify('quiz-2', 'Next quiz', new Date(T0 + 600_000).toISOString(), 10));
+    await tick(0);
+    expect(submits()).toEqual([{ at: 63_000, path: '/api/quizzes/quiz-1/submit', status: 200 }]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0 });
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was locked in.");
+
+    // The new quiz is not locked in by the lock-in that went for the one before
+    fireEvent.click(v.view.getByText('New quiz just dropped'));
+    await tick(0);
+    expect(v.view.getByRole('button', { name: 'Answer all 2 questions' })).toBeDisabled();
+    expect(v.view.queryByText('Answer locked in — waiting for results')).toBeNull();
     await tick(GRACE_MS);
-    expect(submits()).toEqual([]);
-    expect(saved.size).toBe(0);
+    expect(submits()).toHaveLength(1);
   });
 
-  it('KNOWN GAP: "Play it now" on the next quiz while the deadline lock-in waits drops it', async () => {
+  it('"Play it now" on the next quiz while the deadline lock-in waits sends it at once, then plays the next one afresh', async () => {
     const v = await waitingLockIn();
     act(() => v.ref.current!.notify('quiz-2', 'Next quiz', new Date(T0 + 600_000).toISOString(), 10));
     expect(v.view.getByText('Next quiz ready:')).toBeInTheDocument();
     fireEvent.click(v.view.getByRole('button', { name: 'Play it now' }));
+    await tick(0);
+    expect(submits()).toEqual([{ at: 61_000, path: '/api/quizzes/quiz-1/submit', status: 200 }]);
+    expect(answersOf('viewer-1')).toEqual({ a: 0 });
+    expect(v.view.getByRole('button', { name: 'Answer all 2 questions' })).toBeDisabled();
+    expect(v.view.queryByText('Answer locked in — waiting for results')).toBeNull();
     await tick(GRACE_MS);
-    expect(submits()).toEqual([]);
-    expect(saved.size).toBe(0);
+    expect(submits()).toHaveLength(1);
   });
 
   it('KNOWN GAP: a phone asleep through the deadline and the grace locks in when it wakes, and is refused', async () => {
@@ -570,7 +665,7 @@ describe('answer lock-in: answers that never leave the browser', () => {
     const shared = viewer({ canUseSharedCopy: () => true });
     await personal.open();
     await shared.open();
-    expect(traffic.map((t) => t.path)).toEqual(['/api/quizzes/quiz-1', '/api/live/quizzes/quiz-1']);
+    expect(traffic.map((t) => t.path).filter((path) => path !== '/api/csrf-token')).toEqual(['/api/quizzes/quiz-1', '/api/live/quizzes/quiz-1']);
     personal.pick('Babar');
     shared.pick('Rizwan');
     // Each act ends on a countdown's end, where its deadline effect runs

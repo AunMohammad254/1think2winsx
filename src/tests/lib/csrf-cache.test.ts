@@ -54,6 +54,24 @@ describe('client CSRF token cache', () => {
     spy.mockRestore();
   });
 
+  it('retries a token request that is shed, dropped or meets Cloudflare\'s 522, then caches the token', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0); // no backoff wait
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('busy', { status: 503 }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(new Response('<html>', { status: 522 }))
+      .mockResolvedValueOnce(tokenResponse('tok-1', Date.now() + 3_600_000));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      expect(await csrf.getCSRFToken()).toBe('tok-1');
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(await csrf.getCSRFToken()).toBe('tok-1');
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.mocked(Math.random).mockRestore();
+    }
+  });
+
   it('getCSRFHeaders returns the header shape callers spread into fetch', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(tokenResponse('tok-h', Date.now() + 3_600_000)));
     expect(await csrf.getCSRFHeaders()).toEqual({ 'x-csrf-token': 'tok-h' });

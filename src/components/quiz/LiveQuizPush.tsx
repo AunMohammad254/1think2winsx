@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useRef, forwardRef, 
 import { X, Loader2, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
-import { fetchWithRetry } from '@/lib/fetch-retry';
+import { CLOUDFLARE_ORIGIN_ERRORS, fetchWithRetry } from '@/lib/fetch-retry';
 import { isWindowClosed, localWindowEnd } from '@/lib/quiz-clock';
 import { ENTRIES_CLOSED_MESSAGE } from '@/lib/quiz-entries';
 import { describeStart, formatClock } from '@/lib/live-countdown';
@@ -129,6 +129,25 @@ const AUTO_LOCK_SPREAD_MS = 22_000;
 const MATCH_MARGIN_MS = MATCH_POPUP_MARGIN_SECONDS * 1000;
 const MATCH_LOCK_SPREAD_MS = MATCH_MARGIN_MS - 5_000;
 
+/** submit_quiz_attempt takes a quiz's answers until this long after its countdown ends. */
+const QUIZ_GRACE_MS = 30_000;
+
+/**
+ * A lock-in is retried on overload and restarts (Hostinger's 502/503/504, Cloudflare's 520-524 when it can't
+ * reach Hostinger) until this long before the server stops taking its answers, so the last try gets there.
+ */
+const SUBMIT_RETRY_ON = [502, 503, 504, ...CLOUDFLARE_ORIGIN_ERRORS];
+const LAST_TRY_MARGIN_MS = 2_000;
+
+/** Device time the server stops taking `entry`'s answers, or null when it has no answering window. */
+function answersCloseAt(entry: LiveEntry | null): number | null {
+    if (entry?.match) return entry.match.closesAtMs;
+    return entry?.endsAtMs != null ? entry.endsAtMs + QUIZ_GRACE_MS : null;
+}
+
+/** A live match's over the scorer closed: the server takes no more of its answers. */
+const overClosed = (entry: LiveEntry) => !!entry.match && Date.now() >= entry.match.closesAtMs;
+
 /**
  * This device locked in a quiz (src/app/quiz/[id]/page.tsx keeps the same mark). The shared copy shows every
  * question unanswered, so a quiz reopened after its lock-in loads from the personal route instead: that knows
@@ -210,15 +229,19 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const [submitting, setSubmitting] = useState(false);
     // Time is up and the answers given are about to be locked in (see AUTO_LOCK_SPREAD_MS)
     const [autoLocking, setAutoLocking] = useState(false);
+    // The last lock-in failed before the server judged its answers: once time is up, Lock in sends them again
+    const [sendFailed, setSendFailed] = useState(false);
     const [now, setNow] = useState(() => Date.now());
     const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // The deadline lock-in waiting its turn in the spread; null once it has gone
     const autoLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // The answering window (quiz and end time) whose answers were already handed to the deadline lock-in
     const autoLockKeyRef = useRef<string | null>(null);
-    useEffect(() => () => {
-        clearTimeout(bannerTimerRef.current!);
-        clearTimeout(autoLockTimerRef.current!);
-    }, []);
+    // Counts the quizzes started here (startFresh): a lock-in still on its way when its quiz makes way for
+    // another leaves the new one's panel alone
+    const entryRef = useRef(0);
+    // The latest `send` (set once it is defined, below): the deadline lock-in sends the answers as they are then
+    const sendRef = useRef<((atDeadline: boolean, keepalive?: boolean) => Promise<void>) | null>(null);
 
     // Latest state for the handle, which the page calls from its live check. A layout effect, so it is
     // current as soon as a render commits (a push right after "Lock in" must see the lock)
@@ -226,6 +249,37 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     useLayoutEffect(() => {
         stateRef.current = { panel, banner, live, next, quiz, locked, answers, submitting, autoLocking };
     }, [panel, banner, live, next, quiz, locked, answers, submitting, autoLocking]);
+
+    // The deadline lock-in goes: at its turn in the spread, or before it when its quiz makes way for another or
+    // the viewer leaves the page. `keepalive`: the request outlives the page.
+    const sendAutoLock = useCallback(async (keepalive = false) => {
+        autoLockTimerRef.current = null;
+        const entry = entryRef.current;
+        try {
+            if (!overClosed(stateRef.current.live!)) await sendRef.current!(true, keepalive);
+        } finally {
+            if (entryRef.current === entry) setAutoLocking(false);
+        }
+    }, []);
+
+    // A deadline lock-in still waiting its turn goes at once, instead of being lost with its picks
+    const flushAutoLock = useCallback((keepalive: boolean) => {
+        if (autoLockTimerRef.current === null) return;
+        clearTimeout(autoLockTimerRef.current);
+        void sendAutoLock(keepalive);
+    }, [sendAutoLock]);
+
+    // The page going away (the tab closed or reloaded, another site opened) or the viewer opening another
+    // of the app's pages
+    useEffect(() => {
+        const leave = () => flushAutoLock(true);
+        window.addEventListener('pagehide', leave);
+        return () => {
+            window.removeEventListener('pagehide', leave);
+            clearTimeout(bannerTimerRef.current!);
+            leave();
+        };
+    }, [flushAutoLock]);
 
     // One tick a second while something counts down
     const counting = live?.endsAtMs != null || upcoming !== null;
@@ -293,14 +347,18 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
 
     // Starts `entry` from scratch (a new push, or the queued one). A live match's over brings its questions.
     const startFresh = useCallback((entry: LiveEntry) => {
+        // The answers of the quiz making way: a deadline lock-in still waiting its turn goes now
+        flushAutoLock(false);
+        entryRef.current++;
         setLive(entry);
         setQuiz(entry.match?.quiz ?? null);
         setAnswers({});
         setLocked(false);
         setLoadError(null);
-        clearTimeout(autoLockTimerRef.current!);
+        setSubmitting(false);
         setAutoLocking(false);
-    }, []);
+        setSendFailed(false);
+    }, [flushAutoLock]);
 
     // A pushed quiz, or a live match's over, arrives: banner first
     const arrive = useCallback((entry: LiveEntry) => {
@@ -433,9 +491,10 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     // The submit button only shows for a loaded, unlocked quiz, and stays disabled until
     // every question is answered and while a submit is in flight. `atDeadline`: time is up, and the
     // effect below locks in the questions answered so far (the server's grace period still takes them).
-    const send = useCallback(async (atDeadline: boolean) => {
+    // `keepalive`: the request outlives the page (the viewer is leaving it).
+    const send = useCallback(async (atDeadline: boolean, keepalive = false) => {
         // Loaded: the button only shows for a loaded quiz, and the deadline lock-in is only set up for one
-        // (startFresh, the only thing that unloads it, also cancels that lock-in)
+        // (startFresh, the only thing that unloads it, sends that lock-in first)
         const loaded = quiz!;
         // The countdown reads "Time's up": say so instead of sending a submit the server refuses
         const timeUp = () => isWindowClosed(live?.endsAtMs ?? null, Date.now());
@@ -450,32 +509,41 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         }
         // Every question for a Lock in; at the deadline, those answered (an unanswered one was never sent)
         const picked = loaded.questions.filter((q) => answers[q.id] !== undefined);
+        // Still this quiz's panel: one this lock-in's quiz made way for keeps its own state
+        const entry = entryRef.current;
+        const own = () => entryRef.current === entry;
         setSubmitting(true);
+        setSendFailed(false);
         // Marked before it is sent, so a reload while it is on its way doesn't reopen the shared copy
         if (!live?.match) markLockedIn(loaded.id, true);
         try {
             const csrfToken = await getCSRFToken();
+            const closesAt = answersCloseAt(live);
             // Submitting is idempotent (one attempt per user and quiz is enforced in the database),
-            // so overload responses (502/503/504) are retried with jittered backoff. 429 is
-            // deliberately NOT retried: that is the per-user submission limit, not overload.
+            // so overload and restarts are retried with jittered backoff while the server still takes the
+            // answers. 429 is deliberately NOT retried: that is the per-user submission limit, not overload.
             const res = await fetchWithRetry(`/api/quizzes/${loaded.id}/submit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
                 body: JSON.stringify({
                     answers: picked.map((q) => ({ questionId: q.id, selectedOption: answers[q.id] })),
                 }),
-            }, { retries: 4, retryOn: [502, 503, 504] });
+                keepalive,
+            }, { retries: 6, retryOn: SUBMIT_RETRY_ON, giveUpAt: closesAt === null ? undefined : closesAt - LAST_TRY_MARGIN_MS });
             if (!res.ok) {
                 markLockedIn(loaded.id, false);
-                const data = await res.json().catch(() => ({}));
+                // The app answers in JSON; Cloudflare's and Hostinger's error and block pages don't
+                const data = await res.json().catch(() => null);
+                // Not judged (an error or block page, or sent without a token): it may be taken if sent again
+                if (own()) setSendFailed(data === null || res.status >= 500 || !csrfToken);
                 // Locked in on the last second and refused: the window closed while it was on its way
-                toast.error(!atDeadline && timeUp() ? TIME_UP_MESSAGE : data.error || 'Failed to submit');
+                toast.error(!atDeadline && timeUp() ? TIME_UP_MESSAGE : data?.error || 'Failed to submit');
                 return;
             }
             // They are one of its players now: questions added later stay open to them even once it is full
             enteredRef.current.add(loaded.id);
             closedEntriesRef.current.delete(loaded.id);
-            setLocked(true);
+            if (own()) setLocked(true);
             const n = picked.length;
             toast.success(atDeadline ? `Time's up: your ${n} answer${n === 1 ? ' was' : 's were'} locked in.` : 'Answer locked in!');
             // Not the page's refresh for a live match's over: every player locks one in each over, and the
@@ -484,14 +552,12 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             else onAnswered?.();
         } catch (err) {
             markLockedIn(loaded.id, false);
+            if (own()) setSendFailed(true);
             toast.error(err instanceof Error ? err.message : 'Failed to submit your answer');
         } finally {
-            setSubmitting(false);
+            if (own()) setSubmitting(false);
         }
     }, [quiz, answers, live, onAnswered, onMatchLocked]);
-    const submit = useCallback(() => send(false), [send]);
-    // The deadline lock-in runs from a timer: it must use the answers as they are when it fires
-    const sendRef = useRef(send);
     useLayoutEffect(() => {
         sendRef.current = send;
     }, [send]);
@@ -513,20 +579,24 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         // A Lock in already on its way covers it, and so does one already done
         if (!s.quiz || s.locked || s.submitting || !s.quiz.questions.some((q) => s.answers[q.id] !== undefined)) return;
         // A live match's over the scorer closed early: the server takes no more answers
-        const closed = () => {
-            const entry = stateRef.current.live!;
-            return !!entry.match && Date.now() >= entry.match.closesAtMs;
-        };
-        if (closed()) return;
+        if (overClosed(s.live!)) return;
         setAutoLocking(true);
-        autoLockTimerRef.current = setTimeout(async () => {
-            try {
-                if (!closed()) await sendRef.current(true);
-            } finally {
-                setAutoLocking(false);
-            }
-        }, Math.random() * (s.live!.match ? MATCH_LOCK_SPREAD_MS : AUTO_LOCK_SPREAD_MS));
-    }, [timeIsUp, deadlineKey]);
+        autoLockTimerRef.current = setTimeout(() => void sendAutoLock(), Math.random() * (s.live!.match ? MATCH_LOCK_SPREAD_MS : AUTO_LOCK_SPREAD_MS));
+    }, [timeIsUp, deadlineKey, sendAutoLock]);
+
+    // Time is up and a lock-in failed before the server judged it (see send): Lock in sends the answers given
+    // again while the server still takes them
+    const closesAt = answersCloseAt(live);
+    const resend = sendFailed && timeIsUp && closesAt !== null && now < closesAt;
+    const submit = useCallback(() => send(resend), [send, resend]);
+    const sendable = allAnswered || resend;
+
+    // The CSRF token a lock-in needs, fetched as the quiz opens rather than at the deadline, where a shed token
+    // request would sink the lock-in. It is kept for the tab: one request an hour.
+    const quizOnShow = panel !== 'hidden' && quiz !== null;
+    useEffect(() => {
+        if (quizOnShow) void getCSRFToken();
+    }, [quizOnShow]);
 
     // Pills under the stream (over it, in fullscreen) for what the banners announced
     const livePill = panel === 'hidden' && banner !== 'live' && !locked && liveLeft !== null && liveLeft > 0;
@@ -658,9 +728,9 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                         <button
                                             className="qp-submit"
                                             onClick={submit}
-                                            disabled={!allAnswered || submitting || autoLocking}
+                                            disabled={!sendable || submitting || autoLocking}
                                         >
-                                            {submitting || autoLocking ? 'Submitting...' : (allAnswered ? 'Lock in answer' : `Answer all ${quiz.questions.length} questions`)}
+                                            {submitting || autoLocking ? 'Submitting...' : (sendable ? 'Lock in answer' : `Answer all ${quiz.questions.length} questions`)}
                                         </button>
                                     )}
                                 </>

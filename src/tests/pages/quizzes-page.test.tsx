@@ -33,7 +33,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => { if (h.suspend) throw new Promise(() => {}); return h.params; },
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
-vi.mock('@/lib/fetch-retry', () => ({ fetchWithRetry: (...a: unknown[]) => h.fetchWithRetry(...a) }));
+vi.mock('@/lib/fetch-retry', () => ({ CLOUDFLARE_ORIGIN_ERRORS: [520, 521, 522, 523, 524], fetchWithRetry: (...a: unknown[]) => h.fetchWithRetry(...a) }));
 vi.mock('@/hooks/useJitteredPolling', () => ({ useJitteredPolling: (task: () => Promise<boolean>, opts: Record<string, unknown>) => { h.polls[opts.intervalMs as number] = { task, opts }; } }));
 vi.mock('@/components/LazyStreamPlayer', () => ({ default: (props: { onAvailabilityChange?: (available: boolean) => void }) => { h.streamProps = props; return null; } }));
 vi.mock('@/actions/wallet-deduction-actions', () => ({
