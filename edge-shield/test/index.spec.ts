@@ -1,4 +1,5 @@
 import { createExecutionContext, createScheduledController, waitOnExecutionContext } from 'cloudflare:test';
+import { env as bindings } from 'cloudflare:workers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 
@@ -21,6 +22,12 @@ function makeEnv(allow = true, allowIp = allow, { allowOrigin = true, enforce = 
 		SITE_URL: ORIGIN,
 		ENFORCE: enforce,
 		CRON_SECRET: 'test-secret',
+		// The lock-in path is off here (test/lockin.spec.ts covers it), so these are never used
+		LOCKIN_EDGE: 'false',
+		LOCKIN_QUEUE: bindings.LOCKIN_QUEUE,
+		LOCKIN_TALLY: bindings.LOCKIN_TALLY,
+		SUPABASE_URL: 'https://eclivawqhdovsndlngfo.supabase.co',
+		SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
 	};
 	return { env, submit, api, perIp, budget };
 }
