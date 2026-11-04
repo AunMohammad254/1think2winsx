@@ -14,6 +14,8 @@ const prize = (winnerId: string, claim: Record<string, unknown> | null, over: Re
   ...over,
 });
 
+const form = () => screen.getByRole('dialog').querySelector('form')!;
+
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   fetchMock = vi.fn();
@@ -88,6 +90,42 @@ describe('QuizPrizes', () => {
     expect(JSON.parse(init.body)).toEqual({ fullName: 'Ali Raza', whatsappNumber: '+92 300 1234567', address: 'House 12, Street 4, Lahore' });
   });
 
+  it('opens the form as a dialog over the whole page that names the prize, not inside the prizes card', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ prizes: [prize('w1', null, { rank: 3 })] }));
+    render(<QuizPrizes />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add delivery details' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Delivery details for Smartwatch' });
+    // Inside the card, its backdrop-blur made the card the form's containing block and overflow-hidden clipped it
+    expect(screen.getByRole('region', { name: 'Prizes you won', hidden: true })).not.toContainElement(dialog);
+    expect(dialog).toHaveAccessibleDescription(/^3rd place in “Cricket night”\./);
+    expect(within(dialog).getByRole('button', { name: 'Send details' })).toBeInTheDocument();
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('stays open while the details are sending', async () => {
+    let release!: (r: Response) => void;
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ prizes: [prize('w1', null)] }))
+      .mockReturnValueOnce(new Promise<Response>((r) => (release = r)))
+      .mockResolvedValueOnce(jsonResponse({ prizes: [prize('w1', { status: 'pending' })] }));
+    render(<QuizPrizes />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add delivery details' }));
+    const dialog = screen.getByRole('dialog');
+
+    fireEvent.submit(form());
+    expect(await within(dialog).findByRole('button', { name: 'Sending…' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Close delivery details' })).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    release(jsonResponse({}, 201));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   it('thanks the player even when the reply carries no message', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ prizes: [prize('w1', null)] }))
@@ -95,7 +133,7 @@ describe('QuizPrizes', () => {
       .mockResolvedValueOnce(jsonResponse({ prizes: [prize('w1', { status: 'pending' })] }));
     render(<QuizPrizes />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add delivery details' }));
-    fireEvent.submit(screen.getByRole('dialog'));
+    fireEvent.submit(form());
     expect(await screen.findByRole('status')).toHaveTextContent('Thanks! We have your delivery details.');
   });
 
@@ -109,11 +147,11 @@ describe('QuizPrizes', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Add delivery details' }));
     const dialog = screen.getByRole('dialog');
 
-    fireEvent.submit(dialog);
+    fireEvent.submit(form());
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Enter a valid WhatsApp number');
-    fireEvent.submit(dialog);
+    fireEvent.submit(form());
     await waitFor(() => expect(within(dialog).getByRole('alert')).toHaveTextContent('Could not save your delivery details. Please try again.'));
-    fireEvent.submit(dialog);
+    fireEvent.submit(form());
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     expect(within(dialog).getByRole('alert')).toHaveTextContent('Could not save your delivery details. Please try again.');
 

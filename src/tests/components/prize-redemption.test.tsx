@@ -144,7 +144,7 @@ describe('PrizeRedemption', () => {
     render(<PrizeRedemption />);
     await screen.findByText('Watch');
     fireEvent.click(screen.getByRole('img', { name: 'Watch' }).closest('div[class*="cursor-pointer"]')!);
-    const dialog = screen.getByText('Prize Details').closest('div.fixed') as HTMLElement;
+    const dialog = screen.getByRole('dialog', { name: 'Prize Details' });
     expect(within(dialog).getByText('300 points')).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Redeem This Prize' }));
     expect(screen.queryByText('Prize Details')).toBeNull();
@@ -156,8 +156,7 @@ describe('PrizeRedemption', () => {
     await screen.findByText('Bike');
     fireEvent.click(screen.getByRole('img', { name: 'Bike' }).closest('div[class*="cursor-pointer"]')!);
     expect(screen.getByRole('button', { name: 'Need 8500 more points' })).toBeDisabled();
-    const header = screen.getByText('Prize Details').parentElement!;
-    fireEvent.click(within(header).getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close prize details' }));
     expect(screen.queryByText('Prize Details')).toBeNull();
   });
 
@@ -166,7 +165,7 @@ describe('PrizeRedemption', () => {
     render(<PrizeRedemption />);
     await screen.findByText('Watch');
     fireEvent.click(screen.getByRole('img', { name: 'Watch' }).closest('div[class*="cursor-pointer"]')!);
-    const dialog = screen.getByText('Prize Details').closest('div.fixed') as HTMLElement;
+    const dialog = screen.getByRole('dialog', { name: 'Prize Details' });
     expect(within(dialog).getByText('0 points')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Need 300 more points' })).toBeDisabled();
   });
