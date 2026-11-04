@@ -20,6 +20,8 @@ vi.mock('@/lib/supabase/db', async () => {
 });
 
 vi.mock('@/lib/quiz-catalog', () => ({ invalidateQuizCatalog: () => invalidateQuizCatalog() }));
+const lockinDrain = vi.fn();
+vi.mock('@/lib/lockin-drain', () => ({ lockinDrain: (...a: unknown[]) => lockinDrain(...a) }));
 
 const lib = await import('@/lib/quiz-settlement');
 
@@ -36,6 +38,8 @@ beforeEach(() => {
   createNotification.mockReset().mockResolvedValue({ id: 'n1' });
   invalidateQuizCatalog.mockReset();
   createBatchForUsers.mockReset().mockResolvedValue(undefined);
+  // The edge queue is off unless a test says otherwise
+  lockinDrain.mockReset().mockResolvedValue(null);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -312,6 +316,33 @@ describe('saveQuizResult', () => {
       expect(r).toMatchObject({ ok: false, status: 400, code: 'invalid' });
     }
     expect(await lib.saveQuizResult('q1', { a: 1 }, false, NOW)).toMatchObject({ error: 'Choose the correct option for: Wicket?' });
+  });
+
+  it('waits until every lock-in queued at the edge is in the database', async () => {
+    setup();
+    lockinDrain.mockResolvedValueOnce({ received: 50_000, processed: 48_210 });
+    expect(await lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).toEqual({
+      ok: false, status: 409, code: 'answers_arriving', error: 'Answers are still arriving: 48,210 of 50,000 saved. Try again in a minute.',
+    });
+    expect(lockinDrain).toHaveBeenCalledWith('q1');
+    // Ending the quiz early waits for them too: they arrived while it took answers
+    lockinDrain.mockResolvedValueOnce({ received: 10, processed: 9 });
+    setup({ pushedAt: minutesAgo(1) });
+    expect(await lib.saveQuizResult('q1', { a: 1, b: 0 }, true, NOW)).toMatchObject({ ok: false, code: 'answers_arriving' });
+    expect(adminDb.rpcCalls.some((c) => c.fn === 'save_quiz_result')).toBe(false);
+    // Drained (a redelivered batch can count one twice): the result is saved
+    setup();
+    lockinDrain.mockResolvedValueOnce({ received: 50_000, processed: 50_001 });
+    expect(await lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).toEqual({ ok: true });
+  });
+
+  it("refuses when the queue can't be checked, rather than closing questions on a guess", async () => {
+    setup();
+    lockinDrain.mockRejectedValueOnce(new Error('lockin-status answered 503'));
+    expect(await lib.saveQuizResult('q1', { a: 1, b: 0 }, false, NOW)).toEqual({
+      ok: false, status: 503, code: 'drain_unknown', error: "Couldn't check that every queued answer is saved. Try again in a minute.",
+    });
+    expect(adminDb.rpcCalls.some((c) => c.fn === 'save_quiz_result')).toBe(false);
   });
 
   it('throws when the database refuses, without refreshing the catalogue', async () => {
