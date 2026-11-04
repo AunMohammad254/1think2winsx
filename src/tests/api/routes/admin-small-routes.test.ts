@@ -10,6 +10,7 @@ const recordSecurityEvent = vi.fn();
 const validateAdminSession = vi.fn();
 const auth = vi.fn();
 const findByUserId = vi.fn();
+const requireCSRFToken = vi.fn();
 const logger = { logUnauthorizedAccess: vi.fn(), logSecurityEvent: vi.fn() };
 
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, prizeRedemptionDb: { findByUserId: (...a: unknown[]) => findByUserId(...a) } }));
@@ -19,6 +20,7 @@ vi.mock('@/lib/auth', () => ({ auth: (...a: unknown[]) => auth(...a) }));
 vi.mock('@/lib/rate-limiter', () => ({ rateLimiters: { admin: 'admin' }, applyRateLimit: (...a: unknown[]) => applyRateLimit(...a) }));
 vi.mock('@/lib/security-monitoring', () => ({ recordSecurityEvent: (...a: unknown[]) => recordSecurityEvent(...a) }));
 vi.mock('@/lib/security-logger', () => ({ securityLogger: logger }));
+vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
 
 const stats = await import('@/app/api/admin/stats/route');
 const dbStats = await import('@/app/api/admin/db-stats/route');
@@ -31,7 +33,8 @@ const recent = (call: { ops: { op: string }[] }) => call.ops.some((o) => o.op ==
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [requireAuth, applyRateLimit, recordSecurityEvent, validateAdminSession, auth, findByUserId, ...Object.values(logger)]) fn.mockReset();
+  for (const fn of [requireAuth, applyRateLimit, recordSecurityEvent, validateAdminSession, auth, findByUserId, requireCSRFToken, ...Object.values(logger)]) fn.mockReset();
+  requireCSRFToken.mockResolvedValue(null);
   requireAuth.mockResolvedValue(authOk('admin-1', 'boss@example.test'));
   applyRateLimit.mockResolvedValue(null);
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -179,6 +182,12 @@ describe('/api/admin/stream-embed', () => {
     expect((await (await embed.POST(makeRequest('/x', { method: 'POST', rawBody: 'bad' }))).json()).error).toMatch(/JSON|Unexpected/);
     requireAuth.mockRejectedValueOnce('odd');
     expect((await (await post({ embedUrl: 'u' })).json()).error).toBe('Failed to save embed code');
+  });
+
+  it('POST requires a CSRF token before saving', async () => {
+    requireCSRFToken.mockResolvedValueOnce(NextResponse.json({}, { status: 403 }));
+    expect((await post({ embedUrl: 'https://youtube.com/live' })).status).toBe(403);
+    expect(adminDb.rpcCalls).toHaveLength(0);
   });
 });
 

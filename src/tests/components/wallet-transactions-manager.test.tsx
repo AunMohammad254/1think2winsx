@@ -259,8 +259,10 @@ describe('WalletTransactionsManager', () => {
       upload(container);
       await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('✅ Statement reconciled: 1 transaction(s) auto-approved from 7 statement entries.', { duration: 6000 }));
       expect(h.toast.warning).toHaveBeenCalledWith(expect.stringContaining('1 pending deposit(s) could not be matched'), { duration: 8000 });
-      const form = fetchMock.mock.calls.find(([u]) => u.endsWith('/reconcile'))![1].body as FormData;
-      expect(form.get('auto_approve')).toBe('true');
+      const sent = fetchMock.mock.calls.find(([u]) => u.endsWith('/reconcile'))![1];
+      expect((sent.body as FormData).get('auto_approve')).toBe('true');
+      // The CSRF header only: the browser must set the multipart Content-Type itself
+      expect(sent.headers).toEqual({ 'x-csrf-token': 'csrf-test-token' });
     });
 
     it('selects matches for review when not auto-approving', async () => {

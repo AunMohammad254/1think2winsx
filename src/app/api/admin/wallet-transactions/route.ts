@@ -105,7 +105,12 @@ export async function GET(request: NextRequest) {
 
 /**
  * PATCH /api/admin/wallet-transactions
- * Approve or reject a wallet transaction
+ * Approve or reject a wallet transaction.
+ *
+ * Only through approve_wallet_transaction / reject_wallet_transaction: they lock the row, refuse a
+ * deposit that is no longer pending, and change the balance and the status in one transaction. When the
+ * call fails the admin sees an error and can try again. There is deliberately no direct-write fallback:
+ * it used to read the balance and write the total back, which could credit a deposit twice.
  */
 export async function PATCH(request: NextRequest) {
     try {
@@ -131,195 +136,64 @@ export async function PATCH(request: NextRequest) {
         }
 
         const supabase = getAdminDb();
+        const processedBy = adminSession.email || 'admin';
 
-        // Try RPC first for approval (which needs atomic balance update)
-        if (action === 'approve') {
-            try {
-                const { data, error } = await supabase.rpc('approve_wallet_transaction', {
-                    p_transaction_id: transactionId,
-                    p_processed_by: adminSession.email || 'admin'
-                });
+        const { data, error } = action === 'approve'
+            ? await supabase.rpc('approve_wallet_transaction', {
+                p_transaction_id: transactionId,
+                p_processed_by: processedBy,
+            })
+            : await supabase.rpc('reject_wallet_transaction', {
+                p_transaction_id: transactionId,
+                p_processed_by: processedBy,
+                p_reason: notes || null,
+            });
 
-                if (!error && data?.success) {
-                    // Try to send notification
-                    try {
-                        const { data: txData } = await supabase
-                            .from('WalletTransaction')
-                            .select('userId, amount')
-                            .eq('id', transactionId)
-                            .single();
-                            
-                        if (txData) {
-                            await notificationDb.create(txData.userId, {
-                                title: 'Deposit Approved',
-                                message: `Your deposit of ${txData.amount} PKR has been approved and added to your wallet.`,
-                                type: 'wallet_deposit',
-                                link: '/profile/wallet'
-                            });
-                        }
-                    } catch (notifErr) {
-                        console.error('Failed to send notification:', notifErr);
-                    }
+        if (error) throw error;
 
-                    return NextResponse.json({
-                        success: true,
-                        message: 'Transaction approved successfully',
-                        status: 'approved',
-                        newBalance: data.new_balance,
-                    });
-                }
-
-                if (data && !data.success) {
-                    return NextResponse.json({ error: data.error || 'Failed to approve' }, { status: 400 });
-                }
-            } catch (rpcError) {
-                console.warn('RPC fallback for approval:', rpcError);
-            }
+        const result = data as { success?: boolean; error?: string; new_balance?: number } | null;
+        if (!result?.success) {
+            return NextResponse.json({ error: result?.error || `Failed to ${action}` }, { status: 400 });
         }
 
-        // Try RPC for rejection
-        if (action === 'reject') {
-            try {
-                const { data, error } = await supabase.rpc('reject_wallet_transaction', {
-                    p_transaction_id: transactionId,
-                    p_processed_by: adminSession.email || 'admin',
-                    p_reason: notes || null
-                });
-
-                if (!error && data?.success) {
-                    // Try to send notification
-                    try {
-                        const { data: txData } = await supabase
-                            .from('WalletTransaction')
-                            .select('userId, amount')
-                            .eq('id', transactionId)
-                            .single();
-                            
-                        if (txData) {
-                            await notificationDb.create(txData.userId, {
-                                title: 'Deposit Rejected',
-                                message: `Your deposit of ${txData.amount} PKR was rejected. Reason: ${notes || 'Not provided'}`,
-                                type: 'wallet_deposit',
-                                link: '/profile/wallet'
-                            });
-                        }
-                    } catch (notifErr) {
-                        console.error('Failed to send notification:', notifErr);
-                    }
-
-                    return NextResponse.json({
-                        success: true,
-                        message: 'Transaction rejected',
-                    });
-                }
-
-                if (data && !data.success) {
-                    return NextResponse.json({ error: data.error || 'Failed to reject' }, { status: 400 });
-                }
-            } catch (rpcError) {
-                console.warn('RPC fallback for rejection:', rpcError);
-            }
-        }
-
-        // Fallback to direct queries
-        const { data: transaction, error: fetchError } = await supabase
-            .from('WalletTransaction')
-            .select('*, User:userId (id, walletBalance)')
-            .eq('id', transactionId)
-            .single();
-
-        if (fetchError || !transaction) {
-            return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
-        }
-
-        if (transaction.status !== 'pending') {
-            return NextResponse.json(
-                { error: `Transaction is already ${transaction.status}` },
-                { status: 400 }
-            );
-        }
-
-        if (action === 'approve') {
-            const user = Array.isArray(transaction.User) ? transaction.User[0] : transaction.User;
-            const newBalance = (user?.walletBalance || 0) + transaction.amount;
-
-            // Update user balance
-            await supabase
-                .from('User')
-                .update({
-                    walletBalance: newBalance,
-                    updatedAt: new Date().toISOString()
-                })
-                .eq('id', transaction.userId);
-
-            // Update transaction
-            const { data: updatedTransaction, error: updateError } = await supabase
+        // Tell the player (best effort: the transaction is already processed)
+        try {
+            const { data: txData } = await supabase
                 .from('WalletTransaction')
-                .update({
-                    status: 'approved',
-                    processedAt: new Date().toISOString(),
-                    processedBy: adminSession.email,
-                    updatedAt: new Date().toISOString(),
-                })
+                .select('userId, amount')
                 .eq('id', transactionId)
-                .select()
                 .single();
 
-            if (updateError) throw updateError;
-
-            // Send notification
-            try {
-                await notificationDb.create(transaction.userId, {
-                    title: 'Deposit Approved',
-                    message: `Your deposit of ${transaction.amount} PKR has been approved and added to your wallet.`,
-                    type: 'wallet_deposit',
-                    link: '/profile/wallet'
-                });
-            } catch (notifErr) {
-                console.error('Failed to send notification:', notifErr);
+            if (txData) {
+                await notificationDb.create(txData.userId, action === 'approve'
+                    ? {
+                        title: 'Deposit Approved',
+                        message: `Your deposit of ${txData.amount} PKR has been approved and added to your wallet.`,
+                        type: 'wallet_deposit',
+                        link: '/profile/wallet'
+                    }
+                    : {
+                        title: 'Deposit Rejected',
+                        message: `Your deposit of ${txData.amount} PKR was rejected. Reason: ${notes || 'Not provided'}`,
+                        type: 'wallet_deposit',
+                        link: '/profile/wallet'
+                    });
             }
+        } catch (notifErr) {
+            console.error('Failed to send notification:', notifErr);
+        }
 
-            return NextResponse.json({
+        return NextResponse.json(action === 'approve'
+            ? {
                 success: true,
                 message: 'Transaction approved successfully',
-                transaction: updatedTransaction,
-                newBalance,
-            });
-        } else {
-            // Reject transaction
-            const { data: updatedTransaction, error: updateError } = await supabase
-                .from('WalletTransaction')
-                .update({
-                    status: 'rejected',
-                    adminNotes: notes || null,
-                    processedAt: new Date().toISOString(),
-                    processedBy: adminSession.email,
-                    updatedAt: new Date().toISOString(),
-                })
-                .eq('id', transactionId)
-                .select()
-                .single();
-
-            if (updateError) throw updateError;
-
-            // Send notification
-            try {
-                await notificationDb.create(transaction.userId, {
-                    title: 'Deposit Rejected',
-                    message: `Your deposit of ${transaction.amount} PKR was rejected. Reason: ${notes || 'Not provided'}`,
-                    type: 'wallet_deposit',
-                    link: '/profile/wallet'
-                });
-            } catch (notifErr) {
-                console.error('Failed to send notification:', notifErr);
+                status: 'approved',
+                newBalance: result.new_balance,
             }
-
-            return NextResponse.json({
+            : {
                 success: true,
                 message: 'Transaction rejected',
-                transaction: updatedTransaction,
             });
-        }
     } catch (error) {
         console.error('Error processing wallet transaction:', error);
         return NextResponse.json(

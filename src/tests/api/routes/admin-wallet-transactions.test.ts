@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextResponse } from 'next/server';
-import { createSupabaseMock, makeRequest, argOf, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { createSupabaseMock, makeRequest, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
 const validateAdminSession = vi.fn();
@@ -153,61 +153,29 @@ describe('PATCH /api/admin/wallet-transactions', () => {
     expect(await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).toEqual({ error: 'Already processed' });
     adminDb.setRpc('approve_wallet_transaction', { data: { success: false } });
     expect(await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).toEqual({ error: 'Failed to approve' });
+    adminDb.setRpc('approve_wallet_transaction', { data: null });
+    expect(await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).toEqual({ error: 'Failed to approve' });
     adminDb.setRpc('reject_wallet_transaction', { data: { success: false } });
-    expect(await (await patch({ transactionId: 'tx-1', action: 'reject' })).json()).toEqual({ error: 'Failed to reject' });
+    const refused = await patch({ transactionId: 'tx-1', action: 'reject' });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: 'Failed to reject' });
+    expect(notify).not.toHaveBeenCalled();
   });
 
-  it('falls back to a NON-atomic read-then-write approval when the RPC errors', async () => {
+  it('fails without touching the balance when the RPC errors or throws (no direct-write fallback)', async () => {
+    adminDb.setTable('WalletTransaction', { data: pendingTx() });
     adminDb.setRpc('approve_wallet_transaction', { error: { message: 'timeout' } });
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx() }, { data: { id: 'tx-1', status: 'approved' } }]);
-
-    const body = await (await patch({ transactionId: 'tx-1', action: 'approve' })).json();
-
-    // balance is read (100) and written back as 100 + 500 in a separate query
-    expect(argOf(adminDb.callsTo('User', 'update')[0], 'update')).toMatchObject({ walletBalance: 600 });
-    const statusUpdate = adminDb.callsTo('WalletTransaction', 'update')[0];
-    expect(argOf(statusUpdate, 'update')).toMatchObject({ status: 'approved', processedBy: 'admin@example.test' });
-    // the status update is not conditional on the row still being pending
-    expect(eqValue(statusUpdate, 'status')).toBeUndefined();
-    expect(body).toMatchObject({ success: true, newBalance: 600, transaction: { status: 'approved' } });
-  });
-
-  it('fallback approval handles array joins, missing users and notification failures', async () => {
-    adminDb.client.rpc.mockImplementation(() => { throw new Error('rpc down'); });
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx({ User: [{ walletBalance: 50 }] }) }, { data: {} }]);
-    notify.mockRejectedValue(new Error('x'));
-    expect((await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).newBalance).toBe(550);
-
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx({ User: null }) }, { data: {} }]);
-    expect((await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).newBalance).toBe(500);
-  });
-
-  it('fallback rejection stores the notes', async () => {
-    adminDb.setRpc('reject_wallet_transaction', { error: { message: 'x' } });
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx() }, { data: { status: 'rejected' } }]);
-    notify.mockRejectedValue(new Error('x'));
-    const body = await (await patch({ transactionId: 'tx-1', action: 'reject' })).json();
-    expect(argOf(adminDb.callsTo('WalletTransaction', 'update')[0], 'update')).toMatchObject({ status: 'rejected', adminNotes: null });
-    expect(body).toMatchObject({ success: true, transaction: { status: 'rejected' } });
-    expect(adminDb.callsTo('User', 'update')).toHaveLength(0);
-  });
-
-  it('fallback refuses missing or already-processed transactions', async () => {
-    adminDb.client.rpc.mockImplementation(() => { throw new Error('rpc down'); });
-    adminDb.setTable('WalletTransaction', { data: null, error: { message: 'none' } });
-    expect((await patch({ transactionId: 'tx-1', action: 'approve' })).status).toBe(404);
-    adminDb.setTable('WalletTransaction', { data: pendingTx({ status: 'approved' }) });
-    const res = await patch({ transactionId: 'tx-1', action: 'reject' });
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('Transaction is already approved');
-  });
-
-  it('fallback returns 500 when the status update fails', async () => {
-    adminDb.client.rpc.mockImplementation(() => { throw new Error('rpc down'); });
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx() }, { error: { message: 'x' } }]);
     expect((await patch({ transactionId: 'tx-1', action: 'approve' })).status).toBe(500);
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx() }, { error: { message: 'x' } }]);
-    expect((await patch({ transactionId: 'tx-1', action: 'reject' })).status).toBe(500);
+    adminDb.setRpc('reject_wallet_transaction', { error: { message: 'timeout' } });
+    expect((await patch({ transactionId: 'tx-1', action: 'reject', notes: 'x' })).status).toBe(500);
+    adminDb.client.rpc.mockImplementation(() => { throw new Error('rpc down'); });
+    const res = await patch({ transactionId: 'tx-1', action: 'approve' });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to process transaction' });
+
+    expect(adminDb.callsTo('User')).toHaveLength(0);
+    expect(adminDb.callsTo('WalletTransaction')).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
   });
 
   it('validates the request and guards on session and CSRF', async () => {

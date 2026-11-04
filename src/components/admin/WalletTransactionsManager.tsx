@@ -245,6 +245,8 @@ export default function WalletTransactionsManager() {
 
             const response = await fetch('/api/admin/wallet-transactions/reconcile', {
                 method: 'POST',
+                // No Content-Type: the browser sets the multipart boundary for FormData
+                headers: await getCSRFHeaders(),
                 body: formData,
             });
 
