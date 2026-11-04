@@ -3,13 +3,13 @@
  * way it does are in deploy/CLOUDFLARE_PAGE_CACHE.md).
  *
  * The Cache Rule serves the public prerendered pages, and Next's prefetches of them, to visitors without
- * a Supabase session cookie. These checks prove that it does, that each cached copy is the build the
- * origin runs now (a stale one points at deleted JS chunks), and that nothing personal comes from the
- * cache. They also check that the home page's pictures are static files Cloudflare caches, not
+ * a Supabase session cookie, and /quizzes to everyone, signed in or not. These checks prove that it does,
+ * that each cached copy is the build the origin runs now (a stale one points at deleted JS chunks), and
+ * that nothing personal comes from the cache: no cached response sets a cookie. They also check that the home page's pictures are static files Cloudflare caches, not
  * /_next/image (resized on Hostinger, never cached), that static files are plain HITs (not rechecked with
  * Hostinger), that the leaderboard API and the manifest come from the cache, and that an ad landing (?utm_…)
  * gets the cached page while any other query string does not.
- * Like the smoke check: one request at a time (38), no sign-in, no writes, no secrets.
+ * Like the smoke check: one request at a time (40), no sign-in, no writes, no secrets.
  */
 import {
   CACHED_STATUSES, PRODUCTION_URL, cacheStatus, check, expectCacheControl, expectCached, expectStatus, parseOrigin, probe,
@@ -20,8 +20,13 @@ import {
 export const CACHED_PAGES = ['/', '/faq', '/how-to-play', '/prizes', '/leaderboard', '/terms', '/privacy', '/disclaimer', '/contact'];
 /** What Next sends for a prerendered page. A browser max-age here would keep old HTML after a deploy. */
 export const PAGE_CACHE_CONTROL = 's-maxage=31536000';
+/**
+ * Pages the rule serves from the cache to signed-in visitors too: prerendered, and the proxy never refreshes
+ * a session or sets a cookie on them (SHARED_PAGES in src/lib/supabase/middleware.ts).
+ */
+export const SHARED_PAGES = ['/quizzes'];
 /** Routes the rule must leave alone, with the status an anonymous visitor gets. */
-export const UNCACHED_PATHS: Record<string, number> = { '/quizzes': 307, '/login': 307, '/auth': 200, '/api/health': 200 };
+export const UNCACHED_PATHS: Record<string, number> = { '/login': 307, '/auth': 200, '/api/health': 200 };
 /** A query string keeps a page out of the cache, so this always reaches Hostinger: the build the origin runs. */
 export const ORIGIN_PROBE = '/?page-cache-check=1';
 /** The tree prefetch of /faq that the home page sends (lowercase names, as the probe expects). */
@@ -173,6 +178,30 @@ function checkCachedTwice(name: string, first: Probe | Error, second: Probe | Er
   });
 }
 
+/** A shared page asked for with a session cookie: the copy everyone gets, which sets no cookie. */
+function checkCachedWithSession(name: string, res: Probe | Error, originBuild: string | null) {
+  return check(name, res, (page, problems) => {
+    expectStatus(page, 200, problems);
+    expectContentType(page, 'text/html', problems);
+    if (page.headers.has('set-cookie')) problems.push('a cached response sets a cookie');
+    expectCached(page, problems);
+    expectBuild(page, originBuild, problems);
+    return cacheStatus(page);
+  });
+}
+
+/** Every response Cloudflare answered from its cache during the run: none may set a cookie. */
+function checkNoCachedCookies(responses: Array<{ url: string; res: Probe }>): CheckResult {
+  const cached = responses.filter(({ res }) => isCached(res));
+  const problems = cached
+    .filter(({ res }) => res.headers.has('set-cookie'))
+    .map(({ url, res }) => `${url} (${cacheStatus(res)}) sets a cookie: a cached copy could hand one visitor's session to the next`);
+  return {
+    name: 'No cached response sets a cookie', outcome: problems.length ? 'fail' : 'pass', status: null,
+    detail: `${cached.length} cached responses`, problems,
+  };
+}
+
 /** A response that must come from the origin, never the page cache. */
 function checkNotCached(name: string, res: Probe | Error, status: number, contentType?: string) {
   return check(name, res, (page, problems) => {
@@ -288,9 +317,12 @@ export async function runPageCacheChecks(
     report(result);
   };
   let requests = 0;
+  const responses: Array<{ url: string; res: Probe }> = [];
   const get = async (url: string, headers?: Record<string, string>) => {
     if (requests++ > 0 && options.pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, options.pauseMs));
-    return probe(fetcher, url, options.timeoutMs, headers);
+    const res = await probe(fetcher, url, options.timeoutMs, headers);
+    if (!(res instanceof Error)) responses.push({ url, res });
+    return res;
   };
 
   const origin = await get(`${base}${ORIGIN_PROBE}`);
@@ -310,6 +342,12 @@ export async function runPageCacheChecks(
   add(checkCachedTwice('GET /faq?_rsc= (prefetch, twice)', first, await get(prefetchUrl, PREFETCH_HEADERS), 'text/x-component', originBuild));
   add(checkNotCached('GET /faq?_rsc= without the RSC header', await get(prefetchUrl), 200, 'text/html'));
   add(checkNotCached('GET /faq with a session cookie', await get(`${base}/faq`, { cookie: SESSION_COOKIE }), 200, 'text/html'));
+
+  for (const path of SHARED_PAGES) {
+    const firstShared = await get(`${base}${path}`);
+    add(checkCachedTwice(`GET ${path} (twice)`, firstShared, await get(`${base}${path}`), 'text/html', originBuild));
+    add(checkCachedWithSession(`GET ${path} with a session cookie`, await get(`${base}${path}`, { cookie: SESSION_COOKIE }), originBuild));
+  }
 
   for (const [path, status] of Object.entries(UNCACHED_PATHS)) {
     add(checkNotCached(`GET ${path}`, await get(`${base}${path}`), status));
@@ -334,5 +372,6 @@ export async function runPageCacheChecks(
   const firstLanding = await get(`${base}${AD_LANDING}`);
   add(checkCachedTwice(`GET ${AD_LANDING} (ad landing, twice)`, firstLanding, await get(`${base}${AD_LANDING}`), 'text/html', originBuild));
   add(checkNotCached(`GET ${MIXED_LANDING}`, await get(`${base}${MIXED_LANDING}`), 200, 'text/html'));
+  add(checkNoCachedCookies(responses));
   return results;
 }

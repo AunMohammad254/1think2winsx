@@ -46,6 +46,18 @@ export interface LiveQuiz {
   prizeName: string | null;
   isBumperPrize: boolean;
   accessPrice: number;
+  /** Needs no day pass even while the wallet is on (submit_quiz_attempt skips it for such a quiz). */
+  freeEntry: boolean;
+}
+
+/**
+ * Live mode, for a big event: the personal requests every player makes (their quiz list, the bell's
+ * count) run every `personalPollS` instead of every few minutes, and the page starts from this snapshot.
+ * Hostinger blocks the whole site at about 100 requests a second, and 50,000 players polling every
+ * 5 minutes are about 170.
+ */
+export interface LiveMode {
+  personalPollS: number;
 }
 
 export interface LiveSnapshot {
@@ -55,6 +67,13 @@ export interface LiveSnapshot {
   walletEnabled: boolean;
   /** Live matches players can see (match mode), each played on its own screen. Missing from a copy cached before they existed. */
   matches?: LiveMatchCard[];
+  /** Set while a big event is on (see LiveMode); missing otherwise. */
+  liveMode?: LiveMode;
+}
+
+/** A live mode poll's timing: `personalPollS` ±10%, for useJitteredPolling (which adds 0 to `jitterMs`). */
+export function liveModePolling(liveMode: LiveMode): { intervalMs: number; jitterMs: number } {
+  return { intervalMs: liveMode.personalPollS * 900, jitterMs: liveMode.personalPollS * 200 };
 }
 
 // Same shape the personal list sends (Dates serialised as ISO strings), so merged and fetched
@@ -89,6 +108,7 @@ export function toLiveQuiz(quiz: CatalogQuiz): LiveQuiz {
     prizeName: quiz.prizeName ?? null,
     isBumperPrize: !!quiz.isBumperPrize,
     accessPrice: Number(quiz.accessPrice) || 0,
+    freeEntry: !!quiz.freeEntry,
   };
 }
 
@@ -98,6 +118,8 @@ export interface LiveListItem {
   questionCount: number;
   hasAccess: boolean;
   isCompleted?: boolean;
+  hasNewQuestions?: boolean;
+  newQuestionsCount?: number;
   pushStatus?: PushStatus;
 }
 
@@ -108,19 +130,29 @@ export interface LiveListItem {
  *
  * `needsPersonalFetch`: questions were added to or removed from a quiz this player completed, which
  * changes its "new questions" badge, and only the personal list knows which questions they answered.
+ * With `estimate` (live mode, where a crowd's refetches would trip Hostinger's limit) the badge follows
+ * the change in the question count instead, and the next personal poll puts it right.
  */
 export function mergeLiveQuizzes<T extends LiveListItem>(
   list: T[],
   live: LiveQuiz[],
   hasAccess: boolean,
+  estimate = false,
 ): { list: T[]; needsPersonalFetch: boolean } {
   const byId = new Map(list.map((q) => [q.id, q]));
   let needsPersonalFetch = false;
   const merged = live.map((quiz) => {
     const prev = byId.get(quiz.id);
     const isCompleted = !!prev?.isCompleted;
-    if (prev && isCompleted && prev.questionCount !== quiz.questionCount) needsPersonalFetch = true;
-    const playerFields = prev ?? { hasAccess, isCompleted: false, hasNewQuestions: false, newQuestionsCount: 0, lastAttemptDate: null };
+    let playerFields: object = prev ?? { hasAccess, isCompleted: false, hasNewQuestions: false, newQuestionsCount: 0, lastAttemptDate: null };
+    if (prev && isCompleted && prev.questionCount !== quiz.questionCount) {
+      if (estimate) {
+        const newQuestionsCount = Math.max(0, (prev.newQuestionsCount ?? 0) + quiz.questionCount - prev.questionCount);
+        playerFields = { ...prev, hasNewQuestions: newQuestionsCount > 0, newQuestionsCount };
+      } else {
+        needsPersonalFetch = true;
+      }
+    }
     return { ...playerFields, ...quiz, pushStatus: computePushStatus(quiz.status, quiz.pushedAt, isCompleted) } as unknown as T;
   });
   return { list: merged, needsPersonalFetch };
@@ -138,3 +170,9 @@ export const UNREAD_COUNT_EVENT = 'quizzes:unread-count';
  * instead of waiting for its next poll.
  */
 export const NEW_NOTICE_EVENT = 'quizzes:new-notice';
+
+/**
+ * Window event the quiz page fires with each new snapshot's live mode (`detail`: LiveMode, or null when it
+ * is off), so the bell polls on the same schedule.
+ */
+export const LIVE_MODE_EVENT = 'quizzes:live-mode';

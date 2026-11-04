@@ -34,14 +34,15 @@ unchanged. On 2026-10-21 each page sent this to an anonymous visitor:
 Two anonymous fetches of `/` differ only in Cloudflare's email obfuscation, which Cloudflare applies at the edge
 after the cache.
 
-**Never cached by this rule:** `/quizzes`, `/quiz/*`, `/profile*`, `/login` (a redirect to `/auth`), `/register`,
+**Never cached by this rule (as applied):** `/quizzes` (until the change in "Signed-in `/quizzes`" below is applied), `/quiz/*`, `/profile*`, `/login` (a redirect to `/auth`), `/register`,
 `/auth*`, `/forgot-*`, `/update-password`, `/unsubscribe`, `/admin*` and `/api/*`. They are simply not in the
 path list. `/api/live*` has a rule of its own ("The live API rule" below).
 
 ## The rule
 
-The exact API body is in [`cloudflare-page-cache-rule.json`](./cloudflare-page-cache-rule.json). A unit test keeps
-its path list equal to the list that `bun run cache:check` verifies.
+The API body as applied is the expression below; [`cloudflare-page-cache-rule.json`](./cloudflare-page-cache-rule.json)
+now also holds the `/quizzes` clause that is not applied yet (see "Signed-in `/quizzes`" below). A unit test keeps
+its path lists equal to the lists that `bun run cache:check` verifies.
 
 | Setting | Value |
 |---|---|
@@ -91,6 +92,52 @@ What each part is for:
 
 Plan limits: this made 2 of the 10 Cache Rules on the Free plan. With the rules below, the zone uses 5 of 10
 Cache Rules and 1 of 10 URL Rewrite Rules. No Cache Response Rules or custom cache keys are needed.
+
+## Signed-in `/quizzes` (in the repo, NOT applied yet)
+
+For a 50,000-player event, every player's `/quizzes` page view (and the `?_rsc=` payload of a client navigation
+to it) would reach Hostinger, because their session cookie keeps them out of the rule above. The rule body in
+[`cloudflare-page-cache-rule.json`](./cloudflare-page-cache-rule.json) now also caches `/quizzes` **with or
+without** an `-auth-token` cookie, with the same two request shapes and settings:
+
+```
+(http.host eq "1think2win.com"
+ and (
+   (http.request.uri.path in {"/" "/faq" "/how-to-play" "/prizes" "/leaderboard" "/terms" "/privacy" "/disclaimer" "/contact"}
+    and not http.cookie contains "-auth-token")
+   or http.request.uri.path eq "/quizzes"
+ )
+ and ( …the same two request shapes as above… ))
+```
+
+Why that is safe:
+
+- **The HTML is the same for every user.** `src/app/quizzes/page.tsx` is a client component whose
+  `useSearchParams` sits inside `<Suspense>`, under the same root layout as the nine public pages, which reads no
+  cookie or header. It is prerendered at build time (`next build` lists it as static, `○`), and everything
+  personal (the list, access, the unread count) loads in the browser from `/api/live` and `/api/quizzes`.
+- **The proxy never refreshes a session, sets a cookie or redirects on `/quizzes`** (`SHARED_PAGES` in
+  `src/lib/supabase/middleware.ts`). The browser's Supabase client keeps the session fresh, and the page sends a
+  signed-out visitor to `/login` itself. Before this change the proxy answered an anonymous `/quizzes` with a 307
+  and refreshed expiring sessions there with `Set-Cookie`.
+- **Nothing with `Set-Cookie` is stored.** Cloudflare refuses to cache such a response unless an Edge TTL
+  overrides the origin, which this rule doesn't, and `cache:check` now fails if any cached response carries one.
+- **Query strings still reach Hostinger** (`/quizzes?openQuiz=…`, `?upcoming=…` from notifications): the
+  request shapes only allow an empty query or `_rsc=`.
+
+**Apply (owner), in this order:**
+
+1. Deploy the build with the proxy change and purge (`bun run cache:purge`). Applying the rule first is not
+   unsafe (the old proxy's refreshes carry `Set-Cookie` and are never stored), but its 307s for signed-out
+   visitors would make `cache:check` fail.
+2. `PATCH` the *Public pages for visitors without a session* rule (by its ID in the cache settings entrypoint)
+   with the JSON file as the body, or paste the expression in the dashboard. It stays 1 rule: the zone still uses
+   5 of 10 Cache Rules.
+3. `bun run cache:check`: it now makes 40 requests, and checks `/quizzes` twice anonymously, once with a fake
+   session cookie (it must be the cached copy, with no `Set-Cookie`), and that no cached response sets a cookie.
+
+**Rollback:** `PATCH` the rule back to the expression in "The rule" above. Every deploy still needs
+`bun run cache:purge`, which now also clears `/quizzes`.
 
 ## Static files, shared JSON and ad landings (live since 2026-10-29)
 

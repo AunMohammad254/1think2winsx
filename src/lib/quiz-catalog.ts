@@ -43,6 +43,8 @@ export interface CatalogQuiz {
   totalAttempts: number;
   /** The quiz has as many players as its (admin-only) entry limit: new players are turned away. */
   entriesClosed: boolean;
+  /** Needs no day pass even while the wallet is on ("Quiz"."freeEntry"). */
+  freeEntry: boolean;
   /** Name of the linked lucky-draw prize, for public listings such as the landing page. */
   prizeName: string | null;
 }
@@ -68,7 +70,9 @@ const TTL_MS = 15_000;
 const STALE_MAX_MS = 5 * 60_000;
 // `nextDueAt`: start time of the next scheduled/upcoming quiz. The cache is dropped at
 // that moment so a quiz going live is never held back by the TTL.
-type Catalog = { data: CatalogQuiz[]; matches: LiveMatchCard[]; nextDueAt: number | null };
+// `maxOpenEntries`: the highest entry limit of a quiz live or announced (0 with none), kept apart from the
+// quizzes so the limit can never reach a player with one (see getMaxOpenEntryLimit).
+type Catalog = { data: CatalogQuiz[]; matches: LiveMatchCard[]; maxOpenEntries: number; nextDueAt: number | null };
 let cache: ({ at: number } & Catalog) | null = null;
 let inflight: Promise<Catalog> | null = null;
 
@@ -93,13 +97,13 @@ async function load(): Promise<Catalog> {
     console.error('[QuizCatalog] Failed to activate due quizzes:', err);
   }
 
-  const { data, matches } = await loadCatalog();
-  return { data, matches, nextDueAt };
+  const { data, matches, maxOpenEntries } = await loadCatalog();
+  return { data, matches, maxOpenEntries, nextDueAt };
 }
 
 type MatchRow = LiveMatchCard & { quizId: string; updatedAt: string };
 
-async function loadCatalog(): Promise<{ data: CatalogQuiz[]; matches: LiveMatchCard[] }> {
+async function loadCatalog(): Promise<Omit<Catalog, 'nextDueAt'>> {
   const db = getAdminDb();
   // `*` rather than a column list: "announcedAt" comes from a migration that may not be applied yet
   // (db-tests/schema/06-20261019200000_quiz_announced_at.sql), and naming a missing column would
@@ -146,7 +150,7 @@ async function loadCatalog(): Promise<{ data: CatalogQuiz[]; matches: LiveMatchC
   });
 
   const ids = quizzes.map((q: { id: string }) => q.id);
-  if (ids.length === 0) return { data: [], matches };
+  if (ids.length === 0) return { data: [], matches, maxOpenEntries: 0 };
   const prizeIds = [...new Set(quizzes.map((q: { prizeId?: string | null }) => q.prizeId).filter(Boolean))] as string[];
 
   const [questionsRes, countsRes, prizesRes, settingsRes] = await Promise.all([
@@ -214,7 +218,7 @@ async function loadCatalog(): Promise<{ data: CatalogQuiz[]; matches: LiveMatchC
     }
   }
 
-  type QuizRow = Omit<CatalogQuiz, 'questions' | 'closedQuestionCount' | 'ended' | 'totalAttempts' | 'entriesClosed' | 'prizeName'> & { prizeId?: string | null };
+  type QuizRow = Omit<CatalogQuiz, 'questions' | 'closedQuestionCount' | 'ended' | 'totalAttempts' | 'entriesClosed' | 'freeEntry' | 'prizeName'> & { prizeId?: string | null; freeEntry?: boolean | null };
   const data = quizzes.flatMap((q: QuizRow): CatalogQuiz[] => {
     const questions = byQuiz.get(q.id) || [];
     const closedQuestionCount = closedByQuiz.get(q.id) || 0;
@@ -236,10 +240,15 @@ async function loadCatalog(): Promise<{ data: CatalogQuiz[]; matches: LiveMatchC
       totalAttempts: counts.get(q.id) || 0,
       // Counts or limits failing leave every quiz open here; submit_quiz_attempt still enforces the limit
       entriesClosed: !countsRes.error && limitsKnown && (counts.get(q.id) || 0) >= (limits.get(q.id) ?? DEFAULT_MAX_ENTRIES),
+      freeEntry: !!q.freeEntry,
       prizeName: (q.prizeId && prizeNames.get(q.prizeId)) || null,
     }];
   });
-  return { data, matches };
+  // Live (active) or announced (upcoming) quizzes only: one that is over (paused) is no event any more
+  const maxOpenEntries = Math.max(0, ...data
+    .filter((q) => q.status === 'active' || q.status === 'upcoming')
+    .map((q) => limits.get(q.id) ?? DEFAULT_MAX_ENTRIES));
+  return { data, matches, maxOpenEntries };
 }
 
 function refresh(): Promise<Catalog> {
@@ -276,6 +285,14 @@ export async function getActiveQuizCatalog(): Promise<CatalogQuiz[]> {
 /** The matches players can see, newest first (from the same cached read as the quizzes). */
 export async function getLiveMatches(): Promise<LiveMatchCard[]> {
   return (await getCatalog()).matches;
+}
+
+/**
+ * The highest entry limit of a quiz live or announced (0 with none), from the same cached read. Server-side
+ * only, never sent to players: /api/live turns it into live mode for a big event (src/lib/live-mode.ts).
+ */
+export async function getMaxOpenEntryLimit(): Promise<number> {
+  return (await getCatalog()).maxOpenEntries;
 }
 
 export async function getCatalogQuiz(quizId: string): Promise<CatalogQuiz | undefined> {

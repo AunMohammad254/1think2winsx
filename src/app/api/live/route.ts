@@ -1,8 +1,9 @@
 /* v8 ignore next -- an import line has no logic; Vitest's rewrite of it reports a phantom branch */
 import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { getActiveQuizCatalog, getLiveMatches } from '@/lib/quiz-catalog';
+import { getActiveQuizCatalog, getLiveMatches, getMaxOpenEntryLimit } from '@/lib/quiz-catalog';
 import { toLiveQuiz } from '@/lib/live-catalog';
+import { isEventMode, liveModeFor } from '@/lib/live-mode';
 import { isWalletEnabled } from '@/lib/wallet/service';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 
@@ -21,14 +22,24 @@ const CACHE_HEADERS = { 'Cache-Control': 'public, max-age=0, s-maxage=5, stale-w
  * off every quiz is free. The flag comes from its own process cache, like the catalogue.
  *
  * It also lists the live matches players can see, for their cards on the quiz list (match mode).
+ *
+ * During a big event it carries `liveMode` (src/lib/live-mode.ts): players then poll their personal
+ * routes every 30 minutes. It stays one URL with no query string, cached as before (a WAF rule blocks
+ * /api/live* with a query: deploy/CLOUDFLARE_PAGE_CACHE.md).
  */
 export async function GET() {
   try {
-    const [catalog, matches, walletEnabled] = await Promise.all([getActiveQuizCatalog(), getLiveMatches(), isWalletEnabled()]);
+    const [catalog, matches, walletEnabled, maxOpenEntries, eventMode] = await Promise.all([
+      getActiveQuizCatalog(), getLiveMatches(), isWalletEnabled(), getMaxOpenEntryLimit(), isEventMode(),
+    ]);
     const quizzes = catalog.map(toLiveQuiz);
+    const liveMode = liveModeFor(maxOpenEntries, eventMode);
     // Players compare versions and only touch their list when something changed
-    const version = createHash('sha1').update(JSON.stringify({ walletEnabled, quizzes, matches })).digest('base64url');
-    return createSecureJsonResponse({ version, quizzes, walletEnabled, matches }, { status: 200, headers: CACHE_HEADERS });
+    const version = createHash('sha1').update(JSON.stringify({ walletEnabled, quizzes, matches, liveMode })).digest('base64url');
+    return createSecureJsonResponse(
+      { version, quizzes, walletEnabled, matches, ...(liveMode ? { liveMode } : {}) },
+      { status: 200, headers: CACHE_HEADERS }
+    );
   } catch (error) {
     console.error('Live quiz snapshot error:', error);
     // Not cached, and the poller backs off on failure

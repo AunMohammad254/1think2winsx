@@ -39,13 +39,30 @@ describe('updateSession', () => {
   });
 
   it('redirects signed-out visitors away from protected pages without calling Supabase', async () => {
-    for (const path of ['/profile', '/quiz/abc', '/quizzes']) {
+    for (const path of ['/profile', '/quiz/abc']) {
       const res = await updateSession(req(path));
       expect(location(res)).toBe(`http://localhost/login?redirect=${encodeURIComponent(path)}`);
     }
     expect(createServerClient).not.toHaveBeenCalled();
     // '/quizzesX' is not under a protected prefix
     expect(location(await updateSession(req('/quizzesX')))).toBeNull();
+  });
+
+  it('serves /quizzes the same to everyone (Cloudflare caches it): no session check, refresh, cookie or redirect', async () => {
+    // Signed out (the page sends them to /login itself), signed in, expiring, and unreadable sessions
+    const visitors: Record<string, string>[] = [
+      {}, { 'sb-ref-auth-token': sessionCookie(nowS() + 3600) }, { 'sb-ref-auth-token': sessionCookie(nowS() + 10) },
+      { 'sb-ref-auth-token': 'not-a-session' },
+    ];
+    for (const cookies of visitors) {
+      const res = await updateSession(req('/quizzes', cookies));
+      expect(res.status).toBe(200);
+      expect(location(res)).toBeNull();
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(res.headers.get('x-middleware-next')).toBe('1');
+    }
+    expect(createServerClient).not.toHaveBeenCalled();
+    expect(getClaims).not.toHaveBeenCalled();
   });
 
   it('lets signed-out visitors open the login and register pages', async () => {
@@ -62,8 +79,8 @@ describe('updateSession', () => {
 
   it('redirects to login when the claims are missing', async () => {
     getClaims.mockResolvedValue({ data: null, error: null });
-    const res = await updateSession(req('/quizzes', { 'sb-ref-auth-token': sessionCookie(nowS() + 3600) }));
-    expect(location(res)).toBe('http://localhost/login?redirect=%2Fquizzes');
+    const res = await updateSession(req('/profile', { 'sb-ref-auth-token': sessionCookie(nowS() + 3600) }));
+    expect(location(res)).toBe('http://localhost/login?redirect=%2Fprofile');
   });
 
   it('sends signed-in players from /login and /register to /quizzes', async () => {
