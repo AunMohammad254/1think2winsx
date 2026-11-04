@@ -11,11 +11,13 @@ const h = vi.hoisted(() => ({
   getCSRFToken: vi.fn(),
   chime: vi.fn(),
   soundOn: true,
+  refreshSession: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: h.toast }));
 vi.mock('@/lib/csrf', () => ({ getCSRFToken: () => h.getCSRFToken() }));
 vi.mock('@/lib/fetch-retry', () => ({ CLOUDFLARE_ORIGIN_ERRORS: [520, 521, 522, 523, 524], fetchWithRetry: (...a: unknown[]) => h.fetchWithRetry(...a) }));
 vi.mock('@/lib/notification-sound', () => ({ playChime: () => h.chime(), isNotificationSoundOn: () => h.soundOn }));
+vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: { refreshSession: h.refreshSession } }) }));
 
 import LiveQuizPush, { type LiveQuizPushHandle, type MatchPush } from '@/components/quiz/LiveQuizPush';
 import { STREAM_FULLSCREEN_ATTR } from '@/lib/stream-fullscreen';
@@ -41,6 +43,7 @@ const option = (name: string) => screen.getByRole('radio', { name });
 beforeEach(() => {
   h.fetchWithRetry.mockReset().mockImplementation(async () => jsonResponse({ quiz }));
   h.getCSRFToken.mockReset().mockResolvedValue('tok');
+  h.refreshSession.mockReset().mockResolvedValue({ data: {}, error: null });
   h.toast.success.mockReset();
   h.toast.error.mockReset();
   h.chime.mockReset();
@@ -129,6 +132,9 @@ describe('LiveQuizPush: answering', () => {
     fireEvent.click(screen.getByText('New quiz just dropped'));
     expect(await screen.findByText('1. Who?')).toBeInTheDocument();
     expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes/q1', undefined, { retries: 3 });
+    // No CSRF token request as the quiz opens: a crowd opening it at once would all send one (the edge
+    // Worker answers the one the lock-in asks for)
+    expect(h.getCSRFToken).not.toHaveBeenCalled();
     const submit = screen.getByRole('button', { name: 'Answer all 2 questions' });
     expect(submit).toBeDisabled();
     // Each question is a group of options named by the question
@@ -147,12 +153,15 @@ describe('LiveQuizPush: answering', () => {
     const [url, init, opts] = h.fetchWithRetry.mock.calls.at(-1)!;
     expect(url).toBe('/api/quizzes/q1/submit');
     expect(init.headers['X-CSRF-Token']).toBe('tok');
+    expect(h.getCSRFToken).toHaveBeenCalledTimes(1);
+    // A quiz's lock-in may go to the edge Worker's queue
+    expect(init.headers).not.toHaveProperty('X-Lockin-Direct');
     expect(JSON.parse(init.body)).toEqual({ answers: [{ questionId: 'a', selectedOption: 1 }, { questionId: 'b', selectedOption: 0 }] });
     // No answering window: nothing caps the retries
     expect(opts).toEqual({ retries: 6, retryOn: [502, 503, 504, 520, 521, 522, 523, 524], giveUpAt: undefined });
     expect(init.keepalive).toBe(false);
     expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
-    expect(onAnswered).toHaveBeenCalled();
+    expect(onAnswered).toHaveBeenCalledWith('q1');
     // Locked in: the answers are final, and every option says so
     for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
     fireEvent.click(screen.getByText('Babar'));
@@ -797,6 +806,88 @@ describe('LiveQuizPush: loading and submitting', () => {
   });
 });
 
+describe('LiveQuizPush: lock-ins through the edge Worker', () => {
+  const received = () => jsonResponse({ results: { status: 'received' } }, 202);
+  const sessionExpired = () => jsonResponse({ error: 'Your session has expired', code: 'session_expired' }, 401);
+  const submits = () => h.fetchWithRetry.mock.calls.filter(([url]) => String(url).endsWith('/submit'));
+  async function answerBoth() {
+    const { onAnswered } = setup();
+    act(() => ref.current!.open('q1'));
+    await screen.findByText('1. Who?');
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
+    return onAnswered;
+  }
+  const lockIn = () => fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
+
+  it('counts a 202 (taken into the queue, saved shortly) as locked in, and says the answer was received', async () => {
+    const onAnswered = await answerBoth();
+    h.fetchWithRetry.mockResolvedValueOnce(received());
+    lockIn();
+    expect(await screen.findByText('Answer received — waiting for results')).toBeInTheDocument();
+    expect(h.toast.success).toHaveBeenCalledWith('Answer received');
+    expect(onAnswered).toHaveBeenCalledWith('q1');
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Lock in answer' })).toBeNull();
+    // Marked on this device, so a reload reopens it from the personal route
+    expect(localStorage.getItem('1t2w_sub_q1')).toBe('1');
+    expect(h.refreshSession).not.toHaveBeenCalled();
+  });
+
+  it('says how many answers were received when the deadline lock-in is taken into the queue', async () => {
+    fakeClock();
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
+    setup();
+    act(() => ref.current!.open('q1'));
+    await flush();
+    fireEvent.click(option('Babar'));
+    fireEvent.click(option('2009'));
+    h.fetchWithRetry.mockImplementation(async () => received());
+    await tick(60_000);
+    await tick(1_000);
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 2 answers were received.");
+    expect(screen.getByText('Answer received — waiting for results')).toBeInTheDocument();
+  });
+
+  it('refreshes a lapsed session (401 session_expired) with the browser client and sends the lock-in once more', async () => {
+    const onAnswered = await answerBoth();
+    h.fetchWithRetry.mockResolvedValueOnce(sessionExpired()).mockResolvedValueOnce(received());
+    lockIn();
+    expect(await screen.findByText('Answer received — waiting for results')).toBeInTheDocument();
+    expect(h.refreshSession).toHaveBeenCalledTimes(1);
+    expect(submits()).toHaveLength(2);
+    // The same answers, the same way
+    expect(submits()[1][1].body).toBe(submits()[0][1].body);
+    expect(submits()[1][2]).toEqual(submits()[0][2]);
+    expect(h.toast.error).not.toHaveBeenCalled();
+    expect(onAnswered).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a lock-in whose session can't be refreshed, sends no more, and lets Lock in try again", async () => {
+    await answerBoth();
+    h.refreshSession.mockResolvedValueOnce({ data: {}, error: new Error('Invalid Refresh Token') });
+    h.fetchWithRetry.mockResolvedValueOnce(sessionExpired());
+    lockIn();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith('Your session has expired'));
+    expect(submits()).toHaveLength(1);
+    expect(localStorage.getItem('1t2w_sub_q1')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Lock in answer' })).toBeEnabled();
+    // Signed in again (another tab): the next Lock in goes through
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    lockIn();
+    expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
+  });
+
+  it('keeps the 200 path for the kill switch (submits sent to Hostinger as before)', async () => {
+    await answerBoth();
+    h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ message: 'Quiz predictions submitted successfully' }));
+    lockIn();
+    expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
+    expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
+  });
+});
+
 describe('LiveQuizPush: a live match over', () => {
   const RUNS = { id: 'r', text: 'Will over 7 go for 8 or more runs?', textRomanUrdu: 'Kya over 7 mein 8 ya zyada runs banenge?', options: ['Yes', 'No'], optionsRomanUrdu: ['Haan', 'Nahi'] };
   const WICKET = { id: 'w', text: 'Will a wicket fall in over 7?', textRomanUrdu: 'Kya over 7 mein koi wicket giray ga?', options: ['Yes', 'No'], optionsRomanUrdu: ['Haan', 'Nahi'] };
@@ -865,6 +956,8 @@ describe('LiveQuizPush: a live match over', () => {
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
     const [url, init] = h.fetchWithRetry.mock.calls[0];
     expect(url).toBe('/api/quizzes/mq1/submit');
+    // Straight to Hostinger, past the edge Worker's queue: each over's questions close at their own time
+    expect(init.headers['X-Lockin-Direct']).toBe('1');
     expect(JSON.parse(init.body)).toEqual({ answers: [{ questionId: 'r', selectedOption: 0 }, { questionId: 'w', selectedOption: 1 }] });
     expect(onMatchLocked).toHaveBeenCalledWith('mq1', ['r', 'w']);
     expect(onAnswered).not.toHaveBeenCalled();

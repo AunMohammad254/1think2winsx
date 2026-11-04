@@ -16,8 +16,8 @@ const NO_STORE = { 'Cache-Control': 'no-store' };
  * moment it goes live. The personal route (/api/quizzes/[id]) costs several database round trips per
  * player; this costs none at the edge and an in-memory catalogue read on a miss.
  *
- * Only while the wallet is off: with it on, opening a quiz needs a day pass, which only the personal
- * route can check. The page uses this copy only for quizzes its list shows as unanswered and falls
+ * Only while the wallet is off, or for a free-entry quiz: with the wallet on, opening any other quiz needs
+ * a day pass, which only the personal route can check. The page uses this copy only for quizzes its list shows as unanswered and falls
  * back to the personal route on any refusal. Submitting still goes through the signed-in route, which
  * enforces the answering window, the payment and one answer per question.
  */
@@ -25,7 +25,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   try {
     const [walletEnabled, quiz] = await Promise.all([isWalletEnabled(), getCatalogQuiz(id)]);
-    if (walletEnabled) {
+    if (walletEnabled && !quiz?.freeEntry) {
       return NextResponse.json({ error: 'Open this quiz from your account', personal: true }, { status: 403, headers: NO_STORE });
     }
     if (!quiz) {

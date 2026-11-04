@@ -4,13 +4,20 @@ import '@/tests/helpers/ui';
  *   picks in the browser (LiveQuizPush, or the quiz page) -> fetchWithRetry -> CSRF token client ->
  *   POST /api/quizzes/[id]/submit (the real route) -> submit_quiz_attempt.
  *
- * There is no server-side buffer or batch: one lock-in is one request and one RPC, written at once. What
- * waits is the browser. Picks live only in React state until "Lock in"; when the countdown ends the
+ * Without the edge Worker there is no server-side buffer or batch: one lock-in is one request and one RPC,
+ * written at once. What waits is the browser. Picks live only in React state until "Lock in"; when the countdown ends the
  * answers given are locked in after a random wait (up to 22 s for a quiz, inside the database's 30 s
  * grace; up to 25 s for a match over, before it closes), so a crowd's lock-ins arrive spread out instead of
  * all at once. A lock-in still waiting goes at once when the viewer leaves the page or the quiz makes way
  * for another. The quiz page keeps an offline submit in localStorage and sends it when the connection
  * returns.
+ *
+ * With the edge Worker (edge-shield/) in front, a quiz's lock-in stops at Cloudflare: the Worker answers
+ * 202 "received", queues it, and a batch function saves it 0-2 minutes later (`drainQueue` here). It only
+ * reads the session cookie, and answers 401 session_expired once the access token in it has lapsed: the
+ * browser refreshes the session and sends once more. A live match's over always goes to Hostinger
+ * (X-Lockin-Direct: 1). The Worker's kill switch sends every submit to Hostinger as before: every test
+ * without `edge`.
  *
  * Only the edges are stand-ins. The network is a fetch that hands submits to the route and can drop a
  * request, lose its response or answer for Cloudflare and Hostinger. The database is an in-memory
@@ -37,6 +44,8 @@ const h = vi.hoisted(() => ({
   auth: { user: { id: 'viewer-1' }, isLoading: false },
   router: { push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() },
   onExpire: null as null | (() => void),
+  // The browser's Supabase client refreshing the session (src/lib/lock-in.ts)
+  refreshSession: vi.fn(),
 }));
 let db: SupabaseMock;
 
@@ -63,6 +72,7 @@ vi.mock('@/hooks/useQuizCountdown', () => ({
 }));
 vi.mock('@/components/LazyStreamPlayer', () => ({ default: () => null }));
 vi.mock('@/components/QuizResults', () => ({ default: (p: { message: string }) => <p>{p.message}</p> }));
+vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: { refreshSession: h.refreshSession } }) }));
 
 import LiveQuizPush, { type LiveQuizPushHandle, type MatchPush } from '@/components/quiz/LiveQuizPush';
 import QuizPage from '@/app/quiz/[id]/page';
@@ -84,6 +94,7 @@ const attempts = new Map<string, string>(); // player -> attempt id
 const saved = new Map<string, number>(); // `${player}:${questionId}` -> option
 /** What each RPC answered, in order */
 let outcomes: Array<Record<string, unknown>>;
+const playerOf = () => (typeof h.player === 'function' ? h.player() : h.player);
 /** The server's clock minus this device's */
 let serverAheadMs: number;
 const serverNow = () => Date.now() + serverAheadMs;
@@ -150,6 +161,26 @@ const answersOf = (player: string) => Object.fromEntries([...saved]
   .filter(([key]) => key.startsWith(`${player}:`))
   .map(([key, option]) => [key.slice(player.length + 1), option]));
 
+// ── The edge Worker (edge-shield/), when `edge` is on ─────────────────────────────────────────────
+/** On: the Worker takes quiz lock-ins into its queue. Off: its kill switch, every submit reaches Hostinger */
+let edge: boolean;
+/** The access token in the session cookie has lapsed (the browser's refresh renews it) */
+let sessionLapsed: boolean;
+/** Lock-ins the Worker took, waiting for the batch function */
+let queue: Array<{ player: string; quizId: string; answers: unknown }>;
+/** The batch function: saves what the Worker queued, with submit_quiz_attempt's rules */
+function drainQueue() {
+  for (const item of queue.splice(0)) submitQuizAttempt({ p_user_id: item.player, p_quiz_id: item.quizId, p_answers: item.answers });
+}
+
+/** The Worker's answer to a submit it takes, or null when it passes the submit on to Hostinger */
+function edgeWorker(quizId: string, init: RequestInit): Response | null {
+  if (!edge || new Headers(init.headers).get('x-lockin-direct') === '1') return null;
+  if (sessionLapsed) return jsonResponse({ error: 'Your session has expired', code: 'session_expired' }, 401);
+  queue.push({ player: playerOf(), quizId, answers: JSON.parse(init.body as string).answers });
+  return jsonResponse({ results: { status: 'received' } }, 202);
+}
+
 // ── The network: Cloudflare + Hostinger in front of the route ──────────────────────────────────────
 type Fault = 'drop' | 'lost-response' | { status: number; retryAfter?: number; html?: boolean };
 /** What the next submits meet, one each, before the route */
@@ -180,6 +211,11 @@ async function network(input: RequestInfo | URL, init: RequestInit = {}): Promis
   }
   const submit = /^\/api\/quizzes\/([^/]+)\/submit$/.exec(url.pathname);
   if (submit) {
+    const atEdge = edgeWorker(submit[1], init);
+    if (atEdge) {
+      log(atEdge.status);
+      return atEdge;
+    }
     const fault = faults.shift();
     if (fault === 'drop') {
       log('dropped');
@@ -248,6 +284,13 @@ beforeEach(() => {
   faults = [];
   csrfShed = 0;
   traffic = [];
+  edge = false;
+  sessionLapsed = false;
+  queue = [];
+  h.refreshSession.mockReset().mockImplementation(async () => {
+    sessionLapsed = false;
+    return { data: {}, error: null };
+  });
   h.player = 'viewer-1';
   h.toast.success.mockReset();
   h.toast.error.mockReset();
@@ -282,8 +325,9 @@ describe('answer lock-in: what waits, and where', () => {
     expect(submits()).toEqual([{ at: 5_000, path: '/api/quizzes/quiz-1/submit', status: 200 }]);
     expect(db.rpcCalls).toHaveLength(1);
     expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
-    // The CSRF token the lock-in needs was fetched as the quiz opened (and is kept for an hour), not with it
-    expect(traffic.filter((t) => t.path === '/api/csrf-token')).toEqual([{ at: 0, path: '/api/csrf-token', status: 200 }]);
+    // The CSRF token the lock-in needs was fetched with it (and is kept for an hour), not as the quiz opened:
+    // a crowd opening a quiz at once would all send one
+    expect(traffic.filter((t) => t.path === '/api/csrf-token')).toEqual([{ at: 5_000, path: '/api/csrf-token', status: 200 }]);
     expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
   });
 
@@ -486,25 +530,27 @@ describe('answer lock-in: restarts, retries and duplicates', () => {
     expect(submits()).toHaveLength(1);
   });
 
-  it('fetches the CSRF token as the quiz opens and retries it when shed, so the deadline lock-in goes with one', async () => {
+  it('fetches the CSRF token with the deadline lock-in and retries it when shed, so the lock-in still goes with one inside the grace', async () => {
     fakeClock();
     randomWait(0);
     csrfShed = 2;
     const v = viewer();
     await v.open();
     v.pick('Babar', '2009');
+    // Nothing as the quiz opens
+    expect(traffic.filter((t) => t.path === '/api/csrf-token')).toEqual([]);
     await tick(60_000);
-    await tick(1_000);
+    await tick(5_000);
     // Retry-After 2 s each time
-    expect(traffic.filter((t) => t.path === '/api/csrf-token').map(({ at, status }) => [at, status])).toEqual([[0, 503], [2_000, 503], [4_000, 200]]);
-    expect(submits().map(({ at, status }) => [at, status])).toEqual([[60_000, 200]]);
+    expect(traffic.filter((t) => t.path === '/api/csrf-token').map(({ at, status }) => [at, status])).toEqual([[60_000, 503], [62_000, 503], [64_000, 200]]);
+    expect(submits().map(({ at, status }) => [at, status])).toEqual([[64_000, 200]]);
     expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
   });
 
   it('a lock-in sent without a CSRF token (the token request failed every time) is refused, and Lock in sends it again with a fresh one', async () => {
     fakeClock();
     randomWait(0);
-    csrfShed = 8; // the request on opening and the one with the lock-in, each tried 4 times
+    csrfShed = 4; // the one with the lock-in, tried 4 times
     const v = viewer();
     await v.open();
     v.pick('Babar', '2009');
@@ -731,6 +777,118 @@ describe('answer lock-in: results and settlement against lock-ins on their way',
     expect(submits().map((s) => s.status)).toEqual([409]);
     expect(h.toast.error).toHaveBeenCalledWith(QUIZ_ENDED_MESSAGE);
     expect(saved.size).toBe(0);
+  });
+});
+
+describe('answer lock-in: the edge Worker in front (edge-shield/)', () => {
+  beforeEach(() => {
+    edge = true;
+  });
+
+  it('a lock-in is received at once (202) and saved when the queue drains: nothing reaches Hostinger or the database before', async () => {
+    fakeClock();
+    const v = viewer();
+    await v.open();
+    v.pick('Babar', '2009');
+    v.lockIn();
+    await tick(0);
+    expect(submits()).toEqual([{ at: 0, path: '/api/quizzes/quiz-1/submit', status: 202 }]);
+    expect(h.toast.success).toHaveBeenCalledWith('Answer received');
+    expect(v.view.getByText('Answer received — waiting for results')).toBeInTheDocument();
+    expect(db.rpcCalls).toEqual([]);
+    expect(saved.size).toBe(0);
+
+    // The batch function, 0-2 minutes later
+    await tick(90_000);
+    drainQueue();
+    expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
+    // Received is final: nothing is sent again
+    expect(submits()).toHaveLength(1);
+  });
+
+  it("a crowd's deadline lock-ins are all received inside the 22 s spread, and the database sees none of them until the queue drains", async () => {
+    fakeClock();
+    const crowd = 20;
+    let n = 0;
+    h.player = () => `viewer-${++n}`;
+    const viewers = Array.from({ length: crowd }, () => viewer());
+    for (const v of viewers) await v.open();
+    for (const v of viewers) v.pick('Babar');
+    let draw = 0;
+    vi.spyOn(Math, 'random').mockImplementation(() => (draw++ + 0.5) / crowd);
+    await tick(60_000);
+    await tick(GRACE_MS);
+
+    expect(submits()).toHaveLength(crowd);
+    expect(submits().every((s) => s.status === 202 && s.at < 82_000)).toBe(true);
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was received.");
+    expect(db.rpcCalls).toEqual([]);
+    drainQueue();
+    expect(attempts.size).toBe(crowd);
+    expect(saved.size).toBe(crowd);
+  });
+
+  it('a lapsed session (401 session_expired) is refreshed by the browser, and the lock-in is received on its second try', async () => {
+    fakeClock();
+    sessionLapsed = true;
+    const v = viewer();
+    await v.open();
+    v.pick('Babar', '2009');
+    v.lockIn();
+    await tick(0);
+    expect(submits().map((s) => s.status)).toEqual([401, 202]);
+    expect(h.refreshSession).toHaveBeenCalledTimes(1);
+    expect(h.toast.success).toHaveBeenCalledWith('Answer received');
+    expect(h.toast.error).not.toHaveBeenCalled();
+    drainQueue();
+    expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
+  });
+
+  it('a session that cannot be refreshed (signed out elsewhere) is not sent again, and the viewer is told', async () => {
+    fakeClock();
+    sessionLapsed = true;
+    h.refreshSession.mockResolvedValue({ data: {}, error: new Error('Invalid Refresh Token') });
+    const v = viewer();
+    await v.open();
+    v.pick('Babar', '2009');
+    v.lockIn();
+    await tick(0);
+    expect(submits().map((s) => s.status)).toEqual([401]);
+    expect(h.toast.error).toHaveBeenCalledWith('Your session has expired');
+    expect(queue).toEqual([]);
+  });
+
+  it("a live match's over goes past the queue to Hostinger (X-Lockin-Direct: 1), and is saved at once", async () => {
+    fakeClock();
+    matchOver(T0 + 90_000);
+    const v = viewer();
+    act(() => v.ref.current!.match(overPush(T0 + 90_000)));
+    fireEvent.click(v.view.getByText('Over 7: what will happen?'));
+    v.pick('Yes', 'Not out');
+    v.lockIn();
+    await tick(0);
+    expect(submits().map((s) => s.status)).toEqual([200]);
+    expect(queue).toEqual([]);
+    expect(answersOf('viewer-1')).toEqual({ r: 0, w: 1 });
+    expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
+  });
+
+  it('the quiz page counts a 202 as submitted, after refreshing a lapsed session, and shows the answers received', async () => {
+    vi.setSystemTime(T0);
+    sessionLapsed = true;
+    render(<QuizPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Start Quiz/ }));
+    await screen.findByText('Who?');
+    fireEvent.click(screen.getByRole('button', { name: /Babar/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: /2009/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Submit Quiz/ }));
+    expect(await screen.findByText('Your answers were received!')).toBeInTheDocument();
+    expect(submits().map((s) => s.status)).toEqual([401, 202]);
+    expect(h.refreshSession).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('1t2w_sub_quiz-1')).toBe('1');
+    drainQueue();
+    expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
   });
 });
 

@@ -5,6 +5,7 @@ import { X, Loader2, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
 import { CLOUDFLARE_ORIGIN_ERRORS, fetchWithRetry } from '@/lib/fetch-retry';
+import { LOCK_IN_DIRECT_HEADER, LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
 import { isWindowClosed, localWindowEnd } from '@/lib/quiz-clock';
 import { ENTRIES_CLOSED_MESSAGE } from '@/lib/quiz-entries';
 import { describeStart, formatClock } from '@/lib/live-countdown';
@@ -95,11 +96,12 @@ export interface LiveQuizPushHandle {
 }
 
 interface LiveQuizPushProps {
-    /** Fires after a successful submit, so the parent can refresh badges/lists. */
-    onAnswered?: () => void;
+    /** Fires after a quiz's lock-in was taken, so the page can mark it answered on its card. */
+    onAnswered?: (quizId: string) => void;
     /**
      * True when this quiz may load from the shared copy Cloudflare caches (/api/live/quizzes/[id])
-     * instead of the personal route: quizzes are free and the viewer has not answered this one.
+     * instead of the personal route: it needs no day pass (quizzes are free, or it has free entry) and the
+     * viewer has not answered it.
      */
     canUseSharedCopy?: (quizId: string) => boolean;
     /** A live match's over was locked in: the questions answered, so they don't pop up again after a reload */
@@ -226,6 +228,8 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const [loadError, setLoadError] = useState<string | null>(null);
     const [answers, setAnswers] = useState<Record<string, number>>({});
     const [locked, setLocked] = useState(false);
+    // Locked in through the edge Worker's queue (202): saved within a couple of minutes
+    const [received, setReceived] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     // Time is up and the answers given are about to be locked in (see AUTO_LOCK_SPREAD_MS)
     const [autoLocking, setAutoLocking] = useState(false);
@@ -354,6 +358,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         setQuiz(entry.match?.quiz ?? null);
         setAnswers({});
         setLocked(false);
+        setReceived(false);
         setLoadError(null);
         setSubmitting(false);
         setAutoLocking(false);
@@ -522,14 +527,19 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             // Submitting is idempotent (one attempt per user and quiz is enforced in the database),
             // so overload and restarts are retried with jittered backoff while the server still takes the
             // answers. 429 is deliberately NOT retried: that is the per-user submission limit, not overload.
-            const res = await fetchWithRetry(`/api/quizzes/${loaded.id}/submit`, {
+            // A live match's over goes straight to Hostinger, past the edge Worker's queue (see lock-in.ts).
+            const res = await sendLockIn(() => fetchWithRetry(`/api/quizzes/${loaded.id}/submit`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': csrfToken || '',
+                    ...(live?.match ? { [LOCK_IN_DIRECT_HEADER]: '1' } : {}),
+                },
                 body: JSON.stringify({
                     answers: picked.map((q) => ({ questionId: q.id, selectedOption: answers[q.id] })),
                 }),
                 keepalive,
-            }, { retries: 6, retryOn: SUBMIT_RETRY_ON, giveUpAt: closesAt === null ? undefined : closesAt - LAST_TRY_MARGIN_MS });
+            }, { retries: 6, retryOn: SUBMIT_RETRY_ON, giveUpAt: closesAt === null ? undefined : closesAt - LAST_TRY_MARGIN_MS }));
             if (!res.ok) {
                 markLockedIn(loaded.id, false);
                 // The app answers in JSON; Cloudflare's and Hostinger's error and block pages don't
@@ -543,13 +553,21 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             // They are one of its players now: questions added later stay open to them even once it is full
             enteredRef.current.add(loaded.id);
             closedEntriesRef.current.delete(loaded.id);
-            if (own()) setLocked(true);
+            // 202: the edge Worker took it, and saves it shortly; 200: Hostinger saved it (the Worker's kill switch)
+            const queued = res.status === LOCK_IN_RECEIVED;
+            if (own()) {
+                setLocked(true);
+                setReceived(queued);
+            }
             const n = picked.length;
-            toast.success(atDeadline ? `Time's up: your ${n} answer${n === 1 ? ' was' : 's were'} locked in.` : 'Answer locked in!');
+            const outcome = queued ? 'received' : 'locked in';
+            toast.success(atDeadline
+                ? `Time's up: your ${n} answer${n === 1 ? ' was' : 's were'} ${outcome}.`
+                : queued ? 'Answer received' : 'Answer locked in!');
             // Not the page's refresh for a live match's over: every player locks one in each over, and the
             // refresh is a request to the server per player. The page remembers the over instead.
             if (live?.match) onMatchLocked?.(loaded.id, picked.map((q) => q.id));
-            else onAnswered?.();
+            else onAnswered?.(loaded.id);
         } catch (err) {
             markLockedIn(loaded.id, false);
             if (own()) setSendFailed(true);
@@ -590,13 +608,6 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const resend = sendFailed && timeIsUp && closesAt !== null && now < closesAt;
     const submit = useCallback(() => send(resend), [send, resend]);
     const sendable = allAnswered || resend;
-
-    // The CSRF token a lock-in needs, fetched as the quiz opens rather than at the deadline, where a shed token
-    // request would sink the lock-in. It is kept for the tab: one request an hour.
-    const quizOnShow = panel !== 'hidden' && quiz !== null;
-    useEffect(() => {
-        if (quizOnShow) void getCSRFToken();
-    }, [quizOnShow]);
 
     // Pills under the stream (over it, in fullscreen) for what the banners announced
     const livePill = panel === 'hidden' && banner !== 'live' && !locked && liveLeft !== null && liveLeft > 0;
@@ -713,7 +724,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                         ) : (
                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
                                         )}
-                                        <span>{locked ? 'Answer locked in — waiting for results' : 'Active'}</span>
+                                        <span>{locked ? `Answer ${received ? 'received' : 'locked in'} — waiting for results` : 'Active'}</span>
                                     </div>
 
                                     <LiveQuizQuestions

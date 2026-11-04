@@ -84,6 +84,33 @@ describe('quiz catalogue attempt counts', () => {
     expect(Object.keys(byId.q1)).not.toContain('maxEntries');
   });
 
+  it('keeps the highest entry limit of a quiz live or announced apart from the quizzes, for live mode', async () => {
+    tables.Quiz = { data: [
+      { ...quiz, id: 'live', status: 'active', freeEntry: true },
+      { ...quiz, id: 'soon' },
+      // Time-up: no event any more, whatever its limit
+      { ...quiz, id: 'over', status: 'paused', pushedAt: new Date().toISOString() },
+      // No saved limit: the default
+      { ...quiz, id: 'plain', status: 'active' },
+    ], error: null };
+    tables.Question = { data: [], error: null };
+    tables.QuizAdminSettings = { data: [{ quizId: 'live', maxEntries: 3000 }, { quizId: 'soon', maxEntries: 6000 }, { quizId: 'over', maxEntries: 90_000 }], error: null };
+    rpc.mockResolvedValue({ data: [], error: null });
+
+    const { getActiveQuizCatalog, getMaxOpenEntryLimit } = await import('@/lib/quiz-catalog');
+    expect(await getMaxOpenEntryLimit()).toBe(6000);
+    const byId = Object.fromEntries((await getActiveQuizCatalog()).map((q) => [q.id, q]));
+    expect(byId.live.freeEntry).toBe(true);
+    expect(byId.soon.freeEntry).toBe(false);
+    for (const q of Object.values(byId)) expect(Object.keys(q)).not.toContain('maxEntries');
+  });
+
+  it('reports no open entry limit while nothing is live or announced', async () => {
+    tables.Quiz = { data: [], error: null };
+    const { getMaxOpenEntryLimit } = await import('@/lib/quiz-catalog');
+    expect(await getMaxOpenEntryLimit()).toBe(0);
+  });
+
   it('keeps every quiz open (and logs) when the entry limits cannot be read: the database still enforces them', async () => {
     tables.Quiz = { data: [quiz], error: null };
     tables.Question = { data: [], error: null };

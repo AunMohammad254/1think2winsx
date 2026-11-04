@@ -19,7 +19,9 @@ const LiveQuizPush = dynamic(() => import('@/components/quiz/LiveQuizPush'), {
 import { getWalletBalanceForDeduction, deductWalletForQuizAccess, getQuizAccessPrice } from '@/actions/wallet-deduction-actions';
 import { fetchWithRetry } from '@/lib/fetch-retry';
 import { useJitteredPolling } from '@/hooks/useJitteredPolling';
-import { mergeLiveQuizzes, NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT, type LiveSnapshot } from '@/lib/live-catalog';
+import {
+  computePushStatus, liveModePolling, mergeLiveQuizzes, LIVE_MODE_EVENT, NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT, type LiveMode, type LiveSnapshot,
+} from '@/lib/live-catalog';
 import type { LiveMatchCard } from '@/lib/quiz-catalog';
 import { useMatchPush } from '@/hooks/useMatchPush';
 import { computeQuizEndsAt } from '@/lib/quiz-clock';
@@ -58,6 +60,14 @@ interface PaymentInfo {
 }
 
 type FilterTab = 'all' | 'available' | 'completed' | 'new';
+
+/** The personal list's safety-net poll outside live mode: 5 min + 0-1 min of jitter. */
+const PERSONAL_POLL = { intervalMs: 300_000, jitterMs: 60_000 };
+/**
+ * In live mode each player's personal list loads, and its poll starts, at a random moment this long after
+ * live mode came on (the page loading, or the snapshot switching it on), so a crowd's requests never line up.
+ */
+const LIVE_MODE_START_SPREAD_MS = 20 * 60_000;
 
 export default function QuizzesPage() {
   return (
@@ -148,10 +158,18 @@ function QuizzesPageInner() {
   // Live matches (match mode), from the live check: each over's questions pop up on the stream
   const [liveMatches, setLiveMatches] = useState<LiveMatchCard[]>([]);
 
+  // Live mode (src/lib/live-catalog.ts), from the live snapshot: the personal poll runs every
+  // `personalPollS` ±10%, starting at a random moment, and the page starts from the snapshot
+  const [liveMode, setLiveMode] = useState<LiveMode | null>(null);
+  const liveModeRef = useRef<LiveMode | null>(null);
+  const [livePollReady, setLivePollReady] = useState(false);
+
   // Fetch quizzes — pass `fresh=true` to bypass server-side cache (used by the live check)
   const refetchTimerRef = useRef<NodeJS.Timeout | null>(null);
-  // The live check needs the player's own fields (and access) from the first personal load
+  // The personal list (the player's own fields and access) has loaded; until then the list is the snapshot's
   const personalLoadedRef = useRef(false);
+  // Some list (the snapshot's or the personal one) is on screen
+  const listLoadedRef = useRef(false);
   const hasAccessRef = useRef(false);
   const liveQuizPushRef = useRef<LiveQuizPushHandle>(null);
   // A deep link that arrived before LiveQuizPush mounted (page skeleton, or its lazy chunk
@@ -165,7 +183,7 @@ function QuizzesPageInner() {
   const resolveUpcomingLink = useCallback(() => {
     const quizId = pendingUpcomingRef.current;
     const handle = liveQuizPushRef.current;
-    if (!quizId || !handle || !personalLoadedRef.current) return;
+    if (!quizId || !handle || !listLoadedRef.current) return;
     pendingUpcomingRef.current = null;
     const quiz = quizzesRef.current.find(q => q.id === quizId);
     if (!quiz) {
@@ -188,13 +206,15 @@ function QuizzesPageInner() {
   // false once LazyStreamPlayer finds nothing live: the section then drops its empty video box
   const [streamAvailable, setStreamAvailable] = useState<boolean | null>(null);
   // Opening a quiz can use the copy Cloudflare caches for everyone instead of one signed-in request
-  // per player, but only while quizzes are free (the server knows nothing of this player there) and
-  // for a quiz they have not answered: that copy has every question, a re-attempt only the new ones.
+  // per player, but only for a quiz that needs no day pass (the server knows nothing of this player
+  // there) and that they have not answered: that copy has every question, a re-attempt only the new ones.
+  // No day pass: quizzes are free (the wallet is off), or the quiz has free entry (from the latest snapshot).
   const walletEnabledRef = useRef<boolean | null>(null);
+  const freeEntryRef = useRef<Set<string>>(new Set());
   const canUseSharedCopy = useCallback((quizId: string) => {
-    if (walletEnabledRef.current !== false) return false;
+    const free = walletEnabledRef.current === false || (walletEnabledRef.current === true && freeEntryRef.current.has(quizId));
     const quiz = quizzesRef.current.find(q => q.id === quizId);
-    return !!quiz && quiz.status !== 'upcoming' && !quiz.isCompleted;
+    return free && !!quiz && quiz.status !== 'upcoming' && !quiz.isCompleted;
   }, []);
   // Last pushedAt we've already reacted to, per quiz - so re-fetches or
   // unrelated edits to an already-pushed quiz don't re-fire the toast.
@@ -232,12 +252,15 @@ function QuizzesPageInner() {
       const fetchedQuizzes: Quiz[] = data.quizzes || [];
       quizzesRef.current = fetchedQuizzes;
       setQuizzes(fetchedQuizzes);
+      // What was live or announced before the page knew of a quiz is not news. Quizzes it already knows
+      // are left to the live check, which pops up what changed (a list loaded after a push can't hide it).
       for (const q of fetchedQuizzes) {
-        seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
-        seenAnnouncedAtRef.current.set(q.id, q.announcedAt ?? null);
+        if (!seenPushedAtRef.current.has(q.id)) seenPushedAtRef.current.set(q.id, q.pushedAt ?? null);
+        if (!seenAnnouncedAtRef.current.has(q.id)) seenAnnouncedAtRef.current.set(q.id, q.announcedAt ?? null);
       }
       hasAccessRef.current = data.hasAccess || false;
       personalLoadedRef.current = true;
+      listLoadedRef.current = true;
       setHasAccess(data.hasAccess || false);
       // The navbar bell takes its badge from here instead of polling on its own
       if (typeof data.unreadNotifications === 'number') {
@@ -279,51 +302,51 @@ function QuizzesPageInner() {
     if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
   }, []);
 
-  // Redirect to login if not authenticated, and check wallet feature flag
-  useEffect(() => {
-    if (isLoading) return;
-
-    if (!userId) {
-      router.push('/login');
-      return;
-    }
-
-    // The wallet feature flag (disabled means quizzes are free, not blocked; it only controls
-    // whether the payment UI shows) now arrives in the /api/quizzes response itself, which
-    // also removes the old flag-then-quizzes request waterfall.
-    fetchQuizzesData();
-    // Depend on the user's id, not the object: Supabase hands out a new `user` object on tab
-    // refocus / token refresh, which used to re-run this and refetch for no reason.
-  }, [userId, isLoading, router, fetchQuizzesData]);
-
-  // Slow safety net for the player's own fields (completed, new questions, unread count); public
-  // changes arrive through the live check below. 5 min base + 0-1 min jitter so clients that loaded
-  // together drift apart, paused while the tab is hidden, and exponential backoff while the server
-  // is failing/shedding.
-  const pollQuizzes = useCallback(() => fetchQuizzesData(true, true), [fetchQuizzesData]);
-  useJitteredPolling(pollQuizzes, { intervalMs: 300_000, jitterMs: 60_000, enabled: !!userId });
-
   // Live updates: every few seconds, check the public quiz snapshot (Cloudflare caches it for 5 s)
   // and patch the list in place when it changed. No Realtime connection per player, and however many
   // players are online the origin sees about one request per Cloudflare location per 5 s.
   const liveVersionRef = useRef<string | null>(null);
+  // The first snapshot is where the page starts: quizzes it already shows live or announced are not news
+  const snapshotSeenRef = useRef(false);
   const checkLive = useCallback(async (): Promise<boolean> => {
-    // The merge keeps the player's own fields, and the first load fills seenPushedAtRef so quizzes
-    // that were already live do not pop up as "just went live"
-    if (!personalLoadedRef.current) return true;
     try {
       const response = await fetch('/api/live', { credentials: 'omit' });
       if (!response.ok) return false;
       const snapshot: LiveSnapshot = await response.json();
       if (snapshot.version === liveVersionRef.current) return true;
       liveVersionRef.current = snapshot.version;
+      const first = !snapshotSeenRef.current;
+      snapshotSeenRef.current = true;
+
+      const mode = snapshot.liveMode ?? null;
+      const wasLive = liveModeRef.current !== null;
+      liveModeRef.current = mode;
+      // The same object while the mode stays as it is, so the polls keep their timers
+      setLiveMode((prev) => (prev?.personalPollS === mode?.personalPollS ? prev : mode));
+      // The bell polls on the same schedule
+      window.dispatchEvent(new CustomEvent(LIVE_MODE_EVENT, { detail: mode }));
+      // Live mode ended before this player's personal list loaded (at its random moment): load it now
+      if (wasLive && !mode && !personalLoadedRef.current) void fetchQuizzesData();
+      freeEntryRef.current = new Set(snapshot.quizzes.filter((q) => q.freeEntry).map((q) => q.id));
+      // Until the personal list arrives, whether quizzes are free comes from here, and the list shows. With the
+      // wallet on only the personal list knows of a day pass: outside live mode, where it comes at once, the
+      // skeleton waits for it rather than tell a paying player to pay.
+      if (!personalLoadedRef.current && typeof snapshot.walletEnabled === 'boolean' && (mode !== null || !snapshot.walletEnabled)) {
+        walletEnabledRef.current = snapshot.walletEnabled;
+        setWalletEnabled(snapshot.walletEnabled);
+        hasAccessRef.current = !snapshot.walletEnabled;
+        setHasAccess(!snapshot.walletEnabled);
+      }
+
       // A match taken live: useMatchPush pops its overs up on the stream
       setLiveMatches(snapshot.matches ?? []);
       // Admin "push to live" (or a scheduled quiz going live): a pushedAt we have not reacted to yet
       // shows the live banner. A new announcedAt on an upcoming quiz shows the upcoming one.
       let notices = 0;
       for (const q of snapshot.quizzes) {
-        if (q.pushedAt && seenPushedAtRef.current.get(q.id) !== q.pushedAt) {
+        if (first && !seenPushedAtRef.current.has(q.id)) {
+          seenPushedAtRef.current.set(q.id, q.pushedAt);
+        } else if (q.pushedAt && seenPushedAtRef.current.get(q.id) !== q.pushedAt) {
           seenPushedAtRef.current.set(q.id, q.pushedAt);
           liveQuizPushRef.current?.notify(q.id, q.title, computeQuizEndsAt(q.pushedAt, q.duration), q.duration);
           toast.info(`New quiz live: ${q.title}`, {
@@ -336,7 +359,9 @@ function QuizzesPageInner() {
           });
           notices++;
         }
-        if (q.announcedAt && seenAnnouncedAtRef.current.get(q.id) !== q.announcedAt) {
+        if (first && !seenAnnouncedAtRef.current.has(q.id)) {
+          seenAnnouncedAtRef.current.set(q.id, q.announcedAt);
+        } else if (q.announcedAt && seenAnnouncedAtRef.current.get(q.id) !== q.announcedAt) {
           seenAnnouncedAtRef.current.set(q.id, q.announcedAt);
           liveQuizPushRef.current?.announce(q.id, q.title, q.startsAt);
           notices++;
@@ -350,17 +375,75 @@ function QuizzesPageInner() {
         const entered = !!quizzesRef.current.find((mine) => mine.id === q.id)?.isCompleted;
         liveQuizPushRef.current?.setEntriesClosed(q.id, !!q.entriesClosed && !entered);
       }
-      const merged = mergeLiveQuizzes(quizzesRef.current, snapshot.quizzes, hasAccessRef.current);
+      // The merge keeps the player's own fields. In live mode a changed question count only moves the
+      // "new questions" badge: a crowd refetching its lists at once would trip Hostinger's limit.
+      const merged = mergeLiveQuizzes(quizzesRef.current, snapshot.quizzes, hasAccessRef.current, mode !== null);
       quizzesRef.current = merged.list;
+      listLoadedRef.current = true;
       setQuizzes(merged.list);
       if (merged.needsPersonalFetch) debouncedFreshFetch();
       return true;
     } catch {
       return false;
     }
-  }, [debouncedFreshFetch]);
+  }, [debouncedFreshFetch, fetchQuizzesData]);
   useJitteredPolling(checkLive, { intervalMs: 5_000, jitterMs: 2_000, enabled: !!userId });
   const rememberMatchAnswers = useMatchPush(liveMatches, liveQuizPushRef, userId);
+
+  // Redirect to login if not authenticated. Signed in: the public snapshot first (Cloudflare's cached
+  // copy), which says whether live mode is on; then the personal list at once, or in live mode at a
+  // random moment (the effect below), so a crowd that opens the page together doesn't reach Hostinger
+  // together. The list response carries the wallet flag, so there is no separate flag request.
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (!userId) {
+      router.push('/login');
+      return;
+    }
+
+    let cancelled = false;
+    void checkLive().then(() => {
+      if (!cancelled && !liveModeRef.current) void fetchQuizzesData();
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Depend on the user's id, not the object: Supabase hands out a new `user` object on tab
+    // refocus / token refresh, which used to re-run this and refetch for no reason.
+  }, [userId, isLoading, router, fetchQuizzesData, checkLive]);
+
+  // Live mode came on (at load or later): the personal poll waits for a random moment in the next 20
+  // minutes, and the personal list loads then if the page has none yet
+  useEffect(() => {
+    setLivePollReady(false);
+    if (!liveMode) return;
+    const timer = setTimeout(() => {
+      if (!personalLoadedRef.current) void fetchQuizzesData();
+      setLivePollReady(true);
+    }, Math.random() * LIVE_MODE_START_SPREAD_MS);
+    return () => clearTimeout(timer);
+  }, [liveMode, fetchQuizzesData]);
+
+  // Slow safety net for the player's own fields (completed, new questions, unread count); public
+  // changes arrive through the live check above. 5 min base + 0-1 min jitter so clients that loaded
+  // together drift apart (in live mode personalPollS ±10%), paused while the tab is hidden, and
+  // exponential backoff while the server is failing/shedding.
+  const pollQuizzes = useCallback(() => fetchQuizzesData(true, true), [fetchQuizzesData]);
+  useJitteredPolling(pollQuizzes, {
+    ...(liveMode ? liveModePolling(liveMode) : PERSONAL_POLL),
+    enabled: !!userId && (!liveMode || livePollReady),
+  });
+
+  // A lock-in in the live popup was taken: the card shows the quiz answered at once. No refetch: in a
+  // crowd that is one request per player, and the next personal poll brings the score.
+  const markAnswered = useCallback((quizId: string) => {
+    const list = quizzesRef.current.map((q) => (q.id === quizId
+      ? { ...q, isCompleted: true, hasNewQuestions: false, newQuestionsCount: 0, pushStatus: computePushStatus(q.status, q.pushedAt, true) }
+      : q));
+    quizzesRef.current = list;
+    setQuizzes(list);
+  }, []);
 
   // Deep link from the notification bell / a "View Details" link on a
   // pushed-quiz notification (e.g. /quizzes?openQuiz=abc123): open it
@@ -398,6 +481,7 @@ function QuizzesPageInner() {
 
   // The day pass ran out (stable, so the banner's countdown is not restarted by every page render)
   const expireAccess = useCallback(() => {
+    hasAccessRef.current = false;
     setHasAccess(false);
     setPaymentInfo(null);
   }, []);
@@ -428,7 +512,7 @@ function QuizzesPageInner() {
 
   // ⚡ Bolt: Wrapped in useCallback to preserve stable function reference.
   // Impact: Essential for React.memo on QuizCard to work, preventing ~90% of re-renders.
-  const handleQuizClick = useCallback((quizId: string) => {
+  const handleQuizClick = useCallback(async (quizId: string) => {
     const clicked = quizzes.find(q => q.id === quizId);
     if (clicked?.status === 'upcoming') {
       const when = clicked.startsAt
@@ -437,12 +521,17 @@ function QuizzesPageInner() {
       toast.info(`"${clicked.title}" hasn't started yet. It goes live ${when}.`);
       return;
     }
-    if (hasAccess) {
+    // A free-entry quiz needs no day pass
+    const free = freeEntryRef.current.has(quizId);
+    // In live mode the list can show before the personal one, which says whether this player has a day
+    // pass: load it for them now (one request, when they tap)
+    if (!free && !hasAccessRef.current && !personalLoadedRef.current) await fetchQuizzesData();
+    if (free || hasAccessRef.current) {
       liveQuizPushRef.current?.open(quizId);
     } else {
       setShowPaymentModal(true);
     }
-  }, [quizzes, hasAccess]); // router is not strictly needed for App Router, but it is available.
+  }, [quizzes, fetchQuizzesData]);
 
   // Fetch wallet balance and access price when payment modal opens
   const fetchWalletData = async (): Promise<{ balance: number; price: number }> => {
@@ -491,6 +580,7 @@ function QuizzesPageInner() {
         throw new Error(result.error || 'Payment failed');
       }
 
+      hasAccessRef.current = true;
       setHasAccess(true);
       setWalletBalance(result.newBalance ?? 0);
       setShowConfirmationModal(false);
@@ -588,7 +678,7 @@ function QuizzesPageInner() {
                   <LazyStreamPlayer autoPlay={false} fullscreenTargetId="live-stream-fullscreen-target" onAvailabilityChange={setStreamAvailable} />
                 </Suspense>
               </div>
-              <LiveQuizPush ref={attachLiveQuizPush} onAnswered={() => fetchQuizzesData(true)} canUseSharedCopy={canUseSharedCopy} onMatchLocked={rememberMatchAnswers} />
+              <LiveQuizPush ref={attachLiveQuizPush} onAnswered={markAnswered} canUseSharedCopy={canUseSharedCopy} onMatchLocked={rememberMatchAnswers} />
             </div>
           </div>
         </div>
