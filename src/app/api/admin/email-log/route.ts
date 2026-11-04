@@ -4,11 +4,12 @@ import { validateAdminSession } from '@/lib/admin-session';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { EMAIL_LOG_PAGE_SIZE, listEmailLog } from '@/lib/mail/admin';
+import { EMAIL_PROVIDERS } from '@/lib/mail/types';
 
 const QuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   q: z.string().max(200).optional(),
-  provider: z.enum(['ses', 'brevo']).optional(),
+  provider: z.enum(EMAIL_PROVIDERS).optional(),
   status: z.enum(['accepted', 'failed', 'delivered', 'bounced', 'complained']).optional(),
   kind: z.enum(['registration', 'newsletter_signup', 'newsletter', 'password', 'account', 'support']).optional(),
 });

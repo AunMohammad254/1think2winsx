@@ -11,10 +11,15 @@ import { anon, countRows, createPool, errorAs, player, queryAs, resetData, servi
 
 const pool = createPool();
 const MIGRATION = path.join(__dirname, '..', 'supabase', 'migrations', '20261023120000_email_providers.sql');
+const DAILY_QUOTA = path.join(__dirname, '..', 'supabase', 'migrations', '20261022140000_email_daily_quota.sql');
 
-// email-quota.test.ts re-runs the older daily-limit migration, which puts back the older
-// email_quota_settings(); this file needs the one from this migration
-beforeAll(() => pool.query(fs.readFileSync(MIGRATION, 'utf8')));
+// The schema baseline ends with a newer email_quota_settings() (20261104120000_email_cloudflare), which
+// this migration's guard refuses, and email-quota.test.ts puts back the older one: start from the
+// daily-limit migration's version, then this one
+beforeAll(async () => {
+  await pool.query(fs.readFileSync(DAILY_QUOTA, 'utf8'));
+  await pool.query(fs.readFileSync(MIGRATION, 'utf8'));
+});
 afterAll(() => pool.end());
 beforeEach(() => resetData(pool));
 

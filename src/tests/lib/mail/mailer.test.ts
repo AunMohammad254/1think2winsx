@@ -5,9 +5,14 @@ import { createSupabaseMock, argOf, type SupabaseMock } from '@/tests/helpers/su
 let db: SupabaseMock;
 const sendViaSes = vi.fn();
 const sendViaBrevo = vi.fn();
+const sendViaCloudflare = vi.fn();
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => db.client }));
 vi.mock('@/lib/mail/providers/ses', () => ({ sendViaSes: (...a: unknown[]) => sendViaSes(...a) }));
 vi.mock('@/lib/mail/providers/brevo', () => ({ sendViaBrevo: (...a: unknown[]) => sendViaBrevo(...a) }));
+vi.mock('@/lib/mail/providers/cloudflare', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/mail/providers/cloudflare')>()),
+  sendViaCloudflare: (...a: unknown[]) => sendViaCloudflare(...a),
+}));
 
 const mailer = await import('@/lib/mail/mailer');
 
@@ -25,8 +30,11 @@ beforeEach(() => {
   mailer.invalidateProviderCache();
   sendViaSes.mockReset().mockResolvedValue({ ok: true, messageId: 'ses-1' });
   sendViaBrevo.mockReset().mockResolvedValue({ ok: true, messageId: 'brevo-1' });
+  sendViaCloudflare.mockReset().mockResolvedValue({ ok: true, messageId: 'cf-1' });
   vi.stubEnv('AWS_SES_ACCESS_KEY_ID', 'AKID');
   vi.stubEnv('AWS_SES_SECRET_ACCESS_KEY', 'secret');
+  vi.stubEnv('CLOUDFLARE_EMAIL_ACCOUNT_ID', 'acc123');
+  vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', 'cf-token');
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => {
@@ -35,12 +43,18 @@ afterEach(() => {
 });
 
 describe('the selected service', () => {
-  it('is Brevo unless an admin picked ses', async () => {
+  it('is Brevo unless an admin picked ses or cloudflare', async () => {
     expect(await mailer.selectedProvider()).toBe('brevo');
     mailer.invalidateProviderCache();
     selected(' ses ');
     expect(await mailer.selectedProvider()).toBe('ses');
     expect(argOf(settingsQueries()[1], 'eq')).toBe('key');
+    mailer.invalidateProviderCache();
+    selected('cloudflare');
+    expect(await mailer.selectedProvider()).toBe('cloudflare');
+    mailer.invalidateProviderCache();
+    selected('mailgun');
+    expect(await mailer.selectedProvider()).toBe('brevo');
   });
 
   it('is read once a minute, or at once after a switch', async () => {
@@ -75,6 +89,13 @@ describe('the selected service', () => {
     vi.stubEnv('AWS_SES_ACCESS_KEY_ID', '');
     expect(await mailer.activeProvider()).toBe('brevo');
   });
+
+  it('sends through Brevo while Cloudflare is selected but has no token', async () => {
+    selected('cloudflare');
+    expect(await mailer.activeProvider()).toBe('cloudflare');
+    vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', '');
+    expect(await mailer.activeProvider()).toBe('brevo');
+  });
 });
 
 describe('deliver', () => {
@@ -97,6 +118,16 @@ describe('deliver', () => {
   it('sends through Brevo by default', async () => {
     expect(await mailer.deliver(email, { kind: 'support' })).toEqual({ success: true, provider: 'brevo', messageId: 'brevo-1' });
     expect(sendViaSes).not.toHaveBeenCalled();
+    expect(sendViaCloudflare).not.toHaveBeenCalled();
+  });
+
+  it('sends through Cloudflare once an admin picks it, and logs it under Cloudflare', async () => {
+    selected('cloudflare');
+    expect(await mailer.deliver(email, { kind: 'password', timeoutMs: 3500 })).toEqual({ success: true, provider: 'cloudflare', messageId: 'cf-1' });
+    expect(sendViaCloudflare).toHaveBeenCalledWith(email, { timeoutMs: 3500 });
+    expect(sendViaSes).not.toHaveBeenCalled();
+    expect(sendViaBrevo).not.toHaveBeenCalled();
+    expect(logged()[0]).toEqual([expect.objectContaining({ provider: 'cloudflare', status: 'accepted', providerMessageId: 'cf-1' })]);
   });
 });
 

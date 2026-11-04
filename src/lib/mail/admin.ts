@@ -2,12 +2,16 @@ import { getAdminDb } from '@/lib/supabase/db';
 import { getEmailQuotaStatus, type EmailQuotaStatus } from '@/lib/email-quota';
 import { sesConfigured, sesRegion } from './aws';
 import { activeProvider, invalidateProviderCache, selectedProvider } from './mailer';
-import { getAwsCost, getBrevoPlans, getSesAccount, type AwsCostView, type BrevoPlan, type Lookup, type SesAccount } from './status';
+import { cloudflareConfigured } from './providers/cloudflare';
+import {
+  getAwsCost, getBrevoPlans, getCloudflareQuota, getSesAccount,
+  type AwsCostView, type BrevoPlan, type CloudflareQuota, type Lookup, type SesAccount,
+} from './status';
 import type { EmailProviderId } from './types';
 
 /**
  * Everything the admin Email services page shows, and the one change it makes: which service sends
- * the app's email (and the SES daily limit). Nothing here switches the service by itself.
+ * the app's email (and the SES and Cloudflare daily limits). Nothing here switches the service by itself.
  */
 export interface LogTotal { provider: EmailProviderId; period: '24h' | '30d'; status: string; count: number }
 
@@ -15,22 +19,29 @@ export interface EmailServicesOverview {
   /** False until the email log's database change (20261023120000_email_providers) is applied */
   logReady: boolean;
   selected: EmailProviderId;
-  /** The service emails really go through (Brevo when SES is selected but has no access key) */
+  /** The service emails really go through (Brevo when SES or Cloudflare is selected but has no key) */
   active: EmailProviderId;
   sesConfigured: boolean;
   sesRegion: string;
-  limits: { brevo: number; ses: number; reserve: number };
+  cloudflareConfigured: boolean;
+  limits: { brevo: number; ses: number; cloudflare: number; reserve: number };
   quota: EmailQuotaStatus | null;
   totals: LogTotal[];
   /** Failed sends through the active service in the last hour */
   recentFailures: { count: number; lastError: string | null; lastAt: string | null };
   ses: Lookup<SesAccount> | null;
   brevo: Lookup<BrevoPlan[]> | null;
+  cloudflare: Lookup<CloudflareQuota> | null;
   awsCost: AwsCostView;
 }
 
-const LIMIT_KEYS = { brevo: 'email_daily_limit', ses: 'email_daily_limit_ses', reserve: 'email_essential_reserve' } as const;
-const LIMIT_DEFAULTS = { brevo: 299, ses: 199, reserve: 20 };
+const LIMIT_KEYS = {
+  brevo: 'email_daily_limit',
+  ses: 'email_daily_limit_ses',
+  cloudflare: 'email_daily_limit_cloudflare',
+  reserve: 'email_essential_reserve',
+} as const;
+const LIMIT_DEFAULTS = { brevo: 299, ses: 199, cloudflare: 99, reserve: 20 };
 
 async function readLimits(): Promise<EmailServicesOverview['limits']> {
   const { data, error } = await getAdminDb().from('AppSettings').select('key, value').in('key', Object.values(LIMIT_KEYS));
@@ -42,6 +53,7 @@ async function readLimits(): Promise<EmailServicesOverview['limits']> {
   return {
     brevo: value(LIMIT_KEYS.brevo, LIMIT_DEFAULTS.brevo),
     ses: value(LIMIT_KEYS.ses, LIMIT_DEFAULTS.ses),
+    cloudflare: value(LIMIT_KEYS.cloudflare, LIMIT_DEFAULTS.cloudflare),
     reserve: value(LIMIT_KEYS.reserve, LIMIT_DEFAULTS.reserve),
   };
 }
@@ -82,13 +94,14 @@ async function readRecentFailures(provider: EmailProviderId, now: Date): Promise
 
 export async function getEmailServicesOverview(now = new Date()): Promise<EmailServicesOverview> {
   const [selected, active] = await Promise.all([selectedProvider(), activeProvider()]);
-  const [limits, quota, totals, recentFailures, ses, brevo, awsCost] = await Promise.all([
+  const [limits, quota, totals, recentFailures, ses, brevo, cloudflare, awsCost] = await Promise.all([
     readLimits(),
     getEmailQuotaStatus().catch(() => null),
     readTotals(),
     readRecentFailures(active, now),
     getSesAccount(now.getTime()),
     getBrevoPlans(now.getTime()),
+    getCloudflareQuota(now.getTime()),
     getAwsCost({ now }),
   ]);
   return {
@@ -97,27 +110,39 @@ export async function getEmailServicesOverview(now = new Date()): Promise<EmailS
     active,
     sesConfigured: sesConfigured(),
     sesRegion: sesRegion(),
+    cloudflareConfigured: cloudflareConfigured(),
     limits,
     quota,
     totals: totals ?? [],
     recentFailures: recentFailures ?? { count: 0, lastError: null, lastAt: null },
     ses,
     brevo,
+    cloudflare,
     awsCost,
   };
 }
 
 export class EmailServicesError extends Error {}
 
-/** Saves an admin's choice of service and/or the SES daily limit. */
-export async function updateEmailServices(change: { provider?: EmailProviderId; sesDailyLimit?: number }, adminEmail: string): Promise<void> {
+export interface EmailServicesChange {
+  provider?: EmailProviderId;
+  sesDailyLimit?: number;
+  cloudflareDailyLimit?: number;
+}
+
+/** Saves an admin's choice of service and/or the SES or Cloudflare daily limit. */
+export async function updateEmailServices(change: EmailServicesChange, adminEmail: string): Promise<void> {
   if (change.provider === 'ses' && !sesConfigured()) {
     throw new EmailServicesError("Amazon SES isn't set up on the server yet: add AWS_SES_ACCESS_KEY_ID and AWS_SES_SECRET_ACCESS_KEY in hPanel, then deploy.");
+  }
+  if (change.provider === 'cloudflare' && !cloudflareConfigured()) {
+    throw new EmailServicesError("Cloudflare isn't set up on the server yet: add CLOUDFLARE_EMAIL_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN in hPanel, then deploy.");
   }
   const updatedAt = new Date().toISOString();
   const rows = [
     ...(change.provider ? [{ key: 'email_provider', value: change.provider }] : []),
     ...(change.sesDailyLimit !== undefined ? [{ key: LIMIT_KEYS.ses, value: String(change.sesDailyLimit) }] : []),
+    ...(change.cloudflareDailyLimit !== undefined ? [{ key: LIMIT_KEYS.cloudflare, value: String(change.cloudflareDailyLimit) }] : []),
   ].map((row) => ({ ...row, updatedAt, updatedBy: adminEmail }));
   if (rows.length === 0) return;
 

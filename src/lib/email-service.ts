@@ -1,7 +1,8 @@
 /**
  * Email Dispatch Service
  * Sends newsletters through the service selected on the admin Email services page (Brevo or Amazon
- * SES; see ./mail/mailer), one email per subscriber.
+ * SES; see ./mail/mailer), one email per subscriber. Cloudflare's Email Service is for account emails,
+ * not bulk mail, so no newsletter goes out while it is the service.
  */
 import logger from '@/lib/logger';
 import { emailShell } from '@/lib/email-theme';
@@ -38,6 +39,9 @@ export async function sendNewsletterEmail({
     }
 
     const provider = await activeProvider();
+    if (provider === 'cloudflare') {
+      throw new Error("Newsletters can't go through Cloudflare (it only sends account emails). Switch to Amazon SES or Brevo on the Email services page to send one.");
+    }
     if (provider === 'brevo' && !brevoApiKey()) {
       throw new Error('BREVO_API_KEY is not configured in environment variables');
     }

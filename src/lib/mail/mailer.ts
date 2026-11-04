@@ -2,15 +2,16 @@ import { getAdminDb } from '@/lib/supabase/db';
 import type { EmailKind } from '@/lib/email-quota';
 import { sesConfigured } from './aws';
 import { sendViaBrevo } from './providers/brevo';
+import { cloudflareConfigured, sendViaCloudflare } from './providers/cloudflare';
 import { sendViaSes } from './providers/ses';
-import type { EmailProviderId, OutgoingEmail, ProviderResult, SendOptions } from './types';
+import { isEmailProvider, type EmailProviderId, type OutgoingEmail, type ProviderResult, type SendOptions } from './types';
 
 /**
  * Sends every app email through the service an admin selected on the Email services page
- * (AppSettings email_provider: brevo by default, or ses), and writes each one to "EmailLog".
+ * (AppSettings email_provider: brevo by default, ses or cloudflare), and writes each one to "EmailLog".
  *
  * There is no automatic fallback: when the selected service fails, the email is reported as failed
- * and the Email services page shows an alert, so an admin can switch to the other service.
+ * and the Email services page shows an alert, so an admin can switch to another service.
  */
 const PROVIDER_CACHE_TTL_MS = 60_000;
 let providerCache: { value: EmailProviderId; fetchedAt: number } | null = null;
@@ -22,7 +23,8 @@ export async function selectedProvider(): Promise<EmailProviderId> {
   try {
     const { data, error } = await getAdminDb().from('AppSettings').select('value').eq('key', 'email_provider').maybeSingle();
     if (error) throw error;
-    const value: EmailProviderId = data?.value?.trim() === 'ses' ? 'ses' : 'brevo';
+    const raw = data?.value?.trim();
+    const value: EmailProviderId = isEmailProvider(raw) ? raw : 'brevo';
     providerCache = { value, fetchedAt: now };
     return value;
   } catch (error) {
@@ -37,15 +39,20 @@ export function invalidateProviderCache(): void {
 }
 
 /**
- * The service emails actually go through: the selected one, except that SES without an access key
- * can't send, so Brevo does (the Email services page says so).
+ * The service emails actually go through: the selected one, except that SES without an access key or
+ * Cloudflare without its token can't send, so Brevo does (the Email services page says so).
  */
 export async function activeProvider(): Promise<EmailProviderId> {
-  return (await selectedProvider()) === 'ses' && sesConfigured() ? 'ses' : 'brevo';
+  const selected = await selectedProvider();
+  if (selected === 'ses') return sesConfigured() ? 'ses' : 'brevo';
+  if (selected === 'cloudflare') return cloudflareConfigured() ? 'cloudflare' : 'brevo';
+  return 'brevo';
 }
 
 export function sendThrough(provider: EmailProviderId, email: OutgoingEmail, options: SendOptions = {}): Promise<ProviderResult> {
-  return provider === 'ses' ? sendViaSes(email, options) : sendViaBrevo(email, options);
+  if (provider === 'ses') return sendViaSes(email, options);
+  if (provider === 'cloudflare') return sendViaCloudflare(email, options);
+  return sendViaBrevo(email, options);
 }
 
 export interface EmailLogEntry {

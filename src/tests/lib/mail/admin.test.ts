@@ -11,20 +11,27 @@ const h = vi.hoisted(() => ({
   getSesAccount: vi.fn(),
   getBrevoPlans: vi.fn(),
   getAwsCost: vi.fn(),
+  getCloudflareQuota: vi.fn(),
 }));
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => db.client }));
 vi.mock('@/lib/mail/mailer', () => ({ selectedProvider: h.selectedProvider, activeProvider: h.activeProvider, invalidateProviderCache: h.invalidateProviderCache }));
 vi.mock('@/lib/email-quota', () => ({ getEmailQuotaStatus: h.getEmailQuotaStatus }));
-vi.mock('@/lib/mail/status', () => ({ getSesAccount: h.getSesAccount, getBrevoPlans: h.getBrevoPlans, getAwsCost: h.getAwsCost }));
+vi.mock('@/lib/mail/status', () => ({ getSesAccount: h.getSesAccount, getBrevoPlans: h.getBrevoPlans, getAwsCost: h.getAwsCost, getCloudflareQuota: h.getCloudflareQuota }));
 
 const admin = await import('@/lib/mail/admin');
 
 const quota = { used: 5, limit: 299, reserve: 20, cap: 279, remaining: 294, capRemaining: 274, nextFreeAt: null };
 const awsCost = { configured: true, cost: null, error: null, refreshAvailableAt: null };
+const cloudflare = { ok: true, data: { quota: { value: 1000, unit: 'day' }, usage: null } };
 
 beforeEach(() => {
   db = createSupabaseMock({ rpc: { email_log_totals: { data: [{ provider: 'ses', period: '24h', status: 'accepted', count: 3 }] } } });
-  db.setTable('AppSettings', { data: [{ key: 'email_daily_limit', value: '299' }, { key: 'email_daily_limit_ses', value: ' 45000 ' }, { key: 'email_essential_reserve', value: 'twenty' }] });
+  db.setTable('AppSettings', { data: [
+    { key: 'email_daily_limit', value: '299' },
+    { key: 'email_daily_limit_ses', value: ' 45000 ' },
+    { key: 'email_daily_limit_cloudflare', value: '150' },
+    { key: 'email_essential_reserve', value: 'twenty' },
+  ] });
   db.setTable('EmailLog', { data: [{ error: 'AWS paused sending', sentAt: '2026-10-22T09:50:00Z' }], count: 4 });
   h.selectedProvider.mockResolvedValue('ses');
   h.activeProvider.mockResolvedValue('ses');
@@ -32,10 +39,13 @@ beforeEach(() => {
   h.getSesAccount.mockResolvedValue(null);
   h.getBrevoPlans.mockResolvedValue({ ok: true, data: [] });
   h.getAwsCost.mockResolvedValue(awsCost);
+  h.getCloudflareQuota.mockResolvedValue(cloudflare);
   h.invalidateProviderCache.mockReset();
   vi.stubEnv('AWS_SES_ACCESS_KEY_ID', 'AKID');
   vi.stubEnv('AWS_SES_SECRET_ACCESS_KEY', 'secret');
   vi.stubEnv('AWS_SES_REGION', '');
+  vi.stubEnv('CLOUDFLARE_EMAIL_ACCOUNT_ID', 'acc123');
+  vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', 'cf-token');
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -48,14 +58,17 @@ describe('getEmailServicesOverview', () => {
       active: 'ses',
       sesConfigured: true,
       sesRegion: 'ap-southeast-2',
-      limits: { brevo: 299, ses: 45000, reserve: 20 },
+      cloudflareConfigured: true,
+      limits: { brevo: 299, ses: 45000, cloudflare: 150, reserve: 20 },
       quota,
       totals: [{ provider: 'ses', period: '24h', status: 'accepted', count: 3 }],
       recentFailures: { count: 4, lastError: 'AWS paused sending', lastAt: '2026-10-22T09:50:00Z' },
       ses: null,
       brevo: { ok: true, data: [] },
+      cloudflare,
       awsCost,
     });
+    expect(h.getCloudflareQuota).toHaveBeenCalledWith(now.getTime());
     const failures = db.callsTo('EmailLog', 'select')[0];
     expect(eqValue(failures, 'provider')).toBe('ses');
     expect(eqValue(failures, 'status')).toBe('failed');
@@ -69,7 +82,7 @@ describe('getEmailServicesOverview', () => {
     db.setRpc('email_log_totals', { data: null });
     h.getEmailQuotaStatus.mockRejectedValue(new Error('no function'));
     const overview = await admin.getEmailServicesOverview();
-    expect(overview).toMatchObject({ limits: { brevo: 299, ses: 199, reserve: 20 }, quota: null, totals: [], recentFailures: { count: 0, lastError: null, lastAt: null } });
+    expect(overview).toMatchObject({ limits: { brevo: 299, ses: 199, cloudflare: 99, reserve: 20 }, quota: null, totals: [], recentFailures: { count: 0, lastError: null, lastAt: null } });
   });
 
   it('works without the log before its database change is applied', async () => {
@@ -111,12 +124,26 @@ describe('updateEmailServices', () => {
     expect(h.invalidateProviderCache).toHaveBeenCalled();
   });
 
-  it('refuses SES without an access key, and does nothing with nothing to change', async () => {
+  it('saves a switch to Cloudflare and its daily limit', async () => {
+    await admin.updateEmailServices({ provider: 'cloudflare', cloudflareDailyLimit: 150 }, 'boss@example.test');
+    const rows = argOf(db.callsTo('AppSettings', 'upsert')[0], 'upsert') as Record<string, string>[];
+    expect(rows.map(({ key, value }) => ({ key, value }))).toEqual([
+      { key: 'email_provider', value: 'cloudflare' },
+      { key: 'email_daily_limit_cloudflare', value: '150' },
+    ]);
+  });
+
+  it('refuses SES or Cloudflare without their keys, and does nothing with nothing to change', async () => {
     vi.stubEnv('AWS_SES_ACCESS_KEY_ID', '');
+    vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', '');
     await expect(admin.updateEmailServices({ provider: 'ses' }, 'a@b.co')).rejects.toBeInstanceOf(admin.EmailServicesError);
+    await expect(admin.updateEmailServices({ provider: 'cloudflare' }, 'a@b.co')).rejects.toThrow(
+      "Cloudflare isn't set up on the server yet: add CLOUDFLARE_EMAIL_ACCOUNT_ID and CLOUDFLARE_EMAIL_API_TOKEN in hPanel, then deploy.",
+    );
     await admin.updateEmailServices({ provider: 'brevo' }, 'a@b.co');
     await admin.updateEmailServices({}, 'a@b.co');
     expect(db.callsTo('AppSettings', 'upsert')).toHaveLength(1);
+    expect((await admin.getEmailServicesOverview()).cloudflareConfigured).toBe(false);
   });
 
   it('reports a save that fails', async () => {

@@ -100,6 +100,49 @@ describe('getBrevoPlans', () => {
   });
 });
 
+describe('getCloudflareQuota', () => {
+  beforeEach(() => {
+    vi.stubEnv('CLOUDFLARE_EMAIL_ACCOUNT_ID', 'acc123');
+    vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', 'cf-token');
+  });
+
+  it("reads Cloudflare's daily quota and today's use, cached for 5 minutes", async () => {
+    other = () => json({ success: true, result: { quota: { value: 1000, unit: 'day' }, usage: { sent: 42, over_quota: false, resets_at: '2026-11-05T00:00:00Z' } } });
+    const expected = { ok: true, data: { quota: { value: 1000, unit: 'day' }, usage: { sent: 42, overQuota: false, resetsAt: '2026-11-05T00:00:00Z' } } };
+    expect(await status.getCloudflareQuota(1_000)).toEqual(expected);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acc123/email/sending/limits');
+    expect(init.headers.authorization).toBe('Bearer cf-token');
+    expect(await status.getCloudflareQuota(1_000 + 4 * 60_000)).toEqual(expected);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    other = () => json({ success: true, result: { quota: null, usage: null } });
+    expect(await status.getCloudflareQuota(1_000 + 5 * 60_000)).toEqual({ ok: true, data: { quota: null, usage: null } });
+    status.clearStatusCaches();
+    other = () => json({ success: true, result: { quota: {}, usage: { over_quota: true } } });
+    expect(await status.getCloudflareQuota()).toEqual({ ok: true, data: { quota: { value: 0, unit: 'day' }, usage: { sent: 0, overQuota: true, resetsAt: null } } });
+    status.clearStatusCaches();
+    other = () => json({ success: true });
+    expect(await status.getCloudflareQuota()).toEqual({ ok: true, data: { quota: null, usage: null } });
+  });
+
+  it('reports Cloudflare errors and an unreachable Cloudflare, and is null without its token', async () => {
+    other = () => json({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] }, 403);
+    expect(await status.getCloudflareQuota()).toEqual({ ok: false, error: 'Cloudflare answered 403: Authentication error' });
+    status.clearStatusCaches();
+    other = () => new Response('oops', { status: 502 });
+    expect(await status.getCloudflareQuota()).toEqual({ ok: false, error: 'Cloudflare answered 502: no reason given' });
+    status.clearStatusCaches();
+    other = () => json({ success: false, errors: [] });
+    expect(await status.getCloudflareQuota()).toEqual({ ok: false, error: 'Cloudflare answered 200: no reason given' });
+    status.clearStatusCaches();
+    fetchMock.mockRejectedValueOnce(new Error('ENOTFOUND'));
+    expect(await status.getCloudflareQuota()).toEqual({ ok: false, error: 'Cloudflare could not be reached: ENOTFOUND' });
+    vi.stubEnv('CLOUDFLARE_EMAIL_API_TOKEN', '');
+    expect(await status.getCloudflareQuota()).toBeNull();
+  });
+});
+
 describe('costPeriod', () => {
   it('gives the month start, today and next month in UTC', () => {
     expect(status.costPeriod(new Date('2026-10-22T20:00:00Z'))).toEqual({ monthStart: '2026-10-01', today: '2026-10-22', nextMonth: '2026-11-01' });

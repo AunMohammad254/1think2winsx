@@ -7,8 +7,18 @@ import { AlertTriangle, ChevronLeft, CreditCard, Mail, RefreshCw, Search, Send }
 import { getCSRFHeaders } from '@/lib/csrf';
 import { formatCount } from '@/lib/numbers';
 import { formatBusinessStart } from '@/lib/schedule-time';
-import type { EmailLogRow, EmailServicesOverview } from '@/lib/mail/admin';
-import { PROVIDER_NAMES, type EmailProviderId } from '@/lib/mail/types';
+import type { EmailLogRow, EmailServicesChange, EmailServicesOverview } from '@/lib/mail/admin';
+import { EMAIL_PROVIDERS, PROVIDER_NAMES, type EmailProviderId } from '@/lib/mail/types';
+
+/** What each service is for, under its name on the switch */
+const ROLES: Record<EmailProviderId, string> = { ses: 'main', brevo: 'backup', cloudflare: 'second backup' };
+
+/** Where to put a service's keys when it has none on the server */
+const SETUP_HINTS: Record<EmailProviderId, string> = {
+  ses: 'Not set up: add the AWS access key in hPanel',
+  brevo: '',
+  cloudflare: 'Not set up: add the Cloudflare account ID and API token in hPanel',
+};
 
 const KINDS: Record<string, string> = {
   registration: 'Registration',
@@ -50,6 +60,7 @@ export default function AdminEmailServicesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [sesLimit, setSesLimit] = useState('');
+  const [cloudflareLimit, setCloudflareLimit] = useState('');
   const [refreshingBilling, setRefreshingBilling] = useState(false);
 
   const [log, setLog] = useState<{ entries: EmailLogRow[]; total: number; pageSize: number }>({ entries: [], total: 0, pageSize: 50 });
@@ -63,6 +74,7 @@ export default function AdminEmailServicesPage() {
       if (!ok || !data.success) throw new Error(data.message || 'Could not load the email services.');
       setOverview(data.overview);
       setSesLimit(String(data.overview.limits.ses));
+      setCloudflareLimit(String(data.overview.limits.cloudflare));
       setLoadError(null);
     } catch (error) {
       setLoadError((error as Error).message);
@@ -83,7 +95,7 @@ export default function AdminEmailServicesPage() {
   useEffect(() => { loadOverview(); }, [loadOverview]);
   useEffect(() => { loadLog(); }, [loadLog]);
 
-  const save = async (change: { provider?: EmailProviderId; sesDailyLimit?: number }, done: string) => {
+  const save = async (change: EmailServicesChange, done: string) => {
     setSaving(true);
     try {
       const { ok, data } = await api('/api/admin/email-services', { method: 'PUT', body: JSON.stringify(change) });
@@ -98,18 +110,19 @@ export default function AdminEmailServicesPage() {
   };
 
   const switchTo = (provider: EmailProviderId) => {
-    const limit = provider === 'ses' ? overview!.limits.ses : overview!.limits.brevo;
-    if (!confirm(`Send all email through ${PROVIDER_NAMES[provider]} from now on? Its daily limit is ${formatCount(limit)} emails.`)) return;
+    const newsletters = provider === 'cloudflare' ? " Newsletters can't be sent while it is selected." : '';
+    if (!confirm(`Send all email through ${PROVIDER_NAMES[provider]} from now on? Its daily limit is ${formatCount(overview!.limits[provider])} emails.${newsletters}`)) return;
     save({ provider }, `Emails now go through ${PROVIDER_NAMES[provider]} (within a minute on every server).`);
   };
 
-  const saveSesLimit = () => {
-    const value = Number(sesLimit);
+  const saveLimit = (provider: 'ses' | 'cloudflare') => {
+    const value = Number(provider === 'ses' ? sesLimit : cloudflareLimit);
     if (!Number.isInteger(value) || value < 1) {
       toast.error('Enter a whole number of emails.');
       return;
     }
-    save({ sesDailyLimit: value }, 'The SES daily limit is saved.');
+    const name = provider === 'ses' ? 'SES' : 'Cloudflare';
+    save(provider === 'ses' ? { sesDailyLimit: value } : { cloudflareDailyLimit: value }, `The ${name} daily limit is saved.`);
   };
 
   const refreshBilling = async () => {
@@ -152,9 +165,11 @@ export default function AdminEmailServicesPage() {
     );
   }
 
-  const other: EmailProviderId = overview.active === 'ses' ? 'brevo' : 'ses';
-  const canUseOther = other === 'brevo' || overview.sesConfigured;
+  const ready = (provider: EmailProviderId) =>
+    provider === 'brevo' || (provider === 'ses' ? overview.sesConfigured : overview.cloudflareConfigured);
+  const others = EMAIL_PROVIDERS.filter((provider) => provider !== overview.active && ready(provider));
   const ses = overview.ses?.ok ? overview.ses.data : null;
+  const cloudflare = overview.cloudflare?.ok ? overview.cloudflare.data : null;
   const cost = overview.awsCost.cost;
   const lastPage = Math.max(1, Math.ceil(log.total / log.pageSize));
 
@@ -195,11 +210,11 @@ export default function AdminEmailServicesPage() {
               </p>
               {overview.recentFailures.lastError && <p className="text-red-300/80 mt-1">Last error: {overview.recentFailures.lastError}</p>}
             </div>
-            {canUseOther && (
-              <button disabled={saving} onClick={() => switchTo(other)} className="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-100 font-medium hover:bg-red-500/30 disabled:opacity-50">
-                Switch to {PROVIDER_NAMES[other]}
+            {others.map((provider) => (
+              <button key={provider} disabled={saving} onClick={() => switchTo(provider)} className="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-100 font-medium hover:bg-red-500/30 disabled:opacity-50">
+                Switch to {PROVIDER_NAMES[provider]}
               </button>
-            )}
+            ))}
           </div>
         )}
 
@@ -207,10 +222,10 @@ export default function AdminEmailServicesPage() {
           <section className={`${card} lg:col-span-2`} aria-label="Email service">
             <h2 className="text-xl font-bold text-white mb-1 flex items-center gap-2"><Send className="w-5 h-5 text-blue-400" /> Sending service</h2>
             <p className="text-xs text-gray-500 mb-4">Only an admin changes this. If the service has problems, switch here; nothing switches by itself.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {(['ses', 'brevo'] as const).map((provider) => {
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {EMAIL_PROVIDERS.map((provider) => {
                 const selected = overview.selected === provider;
-                const unavailable = provider === 'ses' && !overview.sesConfigured;
+                const unavailable = !ready(provider);
                 return (
                   <button
                     key={provider}
@@ -221,17 +236,20 @@ export default function AdminEmailServicesPage() {
                   >
                     <p className="font-semibold text-white">{PROVIDER_NAMES[provider]}{selected ? ' (selected)' : ''}</p>
                     <p className="text-xs text-gray-400 mt-1">
-                      Daily limit {formatCount(provider === 'ses' ? overview.limits.ses : overview.limits.brevo)} emails
-                      {provider === 'brevo' ? ' · backup' : ` · ${overview.sesRegion}`}
+                      Daily limit {formatCount(overview.limits[provider])} emails · {ROLES[provider]}
+                      {provider === 'ses' ? ` · ${overview.sesRegion}` : ''}
                     </p>
-                    {unavailable && <p className="text-xs text-amber-300 mt-1">Not set up: add the AWS access key in hPanel</p>}
+                    {unavailable && <p className="text-xs text-amber-300 mt-1">{SETUP_HINTS[provider]}</p>}
                   </button>
                 );
               })}
             </div>
 
             {overview.selected !== overview.active && (
-              <p className="mt-3 text-sm text-amber-300">Amazon SES is selected but has no access key on the server, so emails go through Brevo.</p>
+              <p className="mt-3 text-sm text-amber-300">{PROVIDER_NAMES[overview.selected]} is selected but isn&apos;t set up on the server, so emails go through Brevo.</p>
+            )}
+            {overview.active === 'cloudflare' && (
+              <p className="mt-3 text-sm text-amber-300">Newsletters can&apos;t be sent while Cloudflare is the service: it only sends account emails.</p>
             )}
             {ses && !ses.productionAccess && (
               <p className="mt-3 text-sm text-amber-300">AWS SES is still in its sandbox: it only sends to verified addresses, at most {formatCount(ses.max24HourSend)} a day.</p>
@@ -240,6 +258,10 @@ export default function AdminEmailServicesPage() {
               <p className="mt-3 text-sm text-red-300">AWS reports a problem with this account: sending {ses.sendingEnabled ? 'is on' : 'is paused'}, status {ses.enforcementStatus ?? 'unknown'}.</p>
             )}
             {overview.ses && !overview.ses.ok && <p className="mt-3 text-sm text-red-300">AWS SES status: {overview.ses.error}</p>}
+            {cloudflare?.usage?.overQuota && (
+              <p className="mt-3 text-sm text-red-300">Cloudflare&apos;s daily quota is used up{cloudflare.usage.resetsAt ? `; it resets ${formatBusinessStart(cloudflare.usage.resetsAt)}` : ''}.</p>
+            )}
+            {overview.cloudflare && !overview.cloudflare.ok && <p className="mt-3 text-sm text-red-300">Cloudflare status: {overview.cloudflare.error}</p>}
 
             {overview.sesConfigured && (
               <div className="mt-5 flex flex-wrap items-end gap-2">
@@ -247,7 +269,16 @@ export default function AdminEmailServicesPage() {
                   <span className="block mb-1">SES daily limit (keep it a little under the AWS quota)</span>
                   <input aria-label="SES daily limit" type="number" min={1} value={sesLimit} onChange={(e) => setSesLimit(e.target.value)} className={`${input} w-40`} />
                 </label>
-                <button disabled={saving} onClick={saveSesLimit} className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-200 hover:bg-white/10 disabled:opacity-50">Save limit</button>
+                <button disabled={saving} onClick={() => saveLimit('ses')} className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-200 hover:bg-white/10 disabled:opacity-50">Save limit</button>
+              </div>
+            )}
+            {overview.cloudflareConfigured && (
+              <div className="mt-5 flex flex-wrap items-end gap-2">
+                <label className="text-sm text-gray-300">
+                  <span className="block mb-1">Cloudflare daily limit (99 stays inside the 3,000 a month the plan includes)</span>
+                  <input aria-label="Cloudflare daily limit" type="number" min={1} value={cloudflareLimit} onChange={(e) => setCloudflareLimit(e.target.value)} className={`${input} w-40`} />
+                </label>
+                <button disabled={saving} onClick={() => saveLimit('cloudflare')} className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-200 hover:bg-white/10 disabled:opacity-50">Save limit</button>
               </div>
             )}
           </section>
@@ -263,7 +294,7 @@ export default function AdminEmailServicesPage() {
             <table className="w-full text-sm">
               <thead className="text-gray-500 text-xs"><tr><th className="text-left font-medium pb-1">Service</th><th className="text-right font-medium">24 h</th><th className="text-right font-medium">30 days</th></tr></thead>
               <tbody className="text-gray-300">
-                {(['ses', 'brevo'] as const).map((provider) => {
+                {EMAIL_PROVIDERS.map((provider) => {
                   const day = countsFor(overview, provider, '24h');
                   const month = countsFor(overview, provider, '30d');
                   return (
@@ -279,12 +310,20 @@ export default function AdminEmailServicesPage() {
             {ses && (
               <p className="text-xs text-gray-500 mt-3">AWS quota: {formatCount(ses.sentLast24Hours)} of {formatCount(ses.max24HourSend)} used in 24 hours, up to {formatCount(ses.maxSendRate)} a second.</p>
             )}
+            {cloudflare && (
+              <p className="text-xs text-gray-500 mt-3">
+                Cloudflare quota:{' '}
+                {cloudflare.quota
+                  ? `${cloudflare.usage ? `${formatCount(cloudflare.usage.sent)} of ` : ''}${formatCount(cloudflare.quota.value)} a ${cloudflare.quota.unit}`
+                  : 'not set yet (Cloudflare sets it once the domain is ready to send)'}
+              </p>
+            )}
           </section>
         </div>
 
         <section className={card} aria-label="Billing">
           <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2"><CreditCard className="w-5 h-5 text-emerald-400" /> Billing</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-white">AWS</h3>
@@ -331,6 +370,13 @@ export default function AdminEmailServicesPage() {
                 </ul>
               )}
             </div>
+            <div>
+              <h3 className="font-semibold text-white mb-2">Cloudflare</h3>
+              {!overview.cloudflareConfigured && <p className="text-sm text-gray-500">No Cloudflare API token on the server.</p>}
+              <p className="text-sm text-gray-300">
+                Workers Paid plan: $5 a month, with 3,000 emails included, then $0.35 per 1,000. The bill is in the Cloudflare dashboard.
+              </p>
+            </div>
           </div>
         </section>
 
@@ -343,8 +389,7 @@ export default function AdminEmailServicesPage() {
             </form>
             <select aria-label="Service" value={filters.provider} onChange={(e) => setFilter('provider', e.target.value)} className={input}>
               <option value="">All services</option>
-              <option value="ses">Amazon SES</option>
-              <option value="brevo">Brevo</option>
+              {EMAIL_PROVIDERS.map((provider) => <option key={provider} value={provider}>{PROVIDER_NAMES[provider]}</option>)}
             </select>
             <select aria-label="Result" value={filters.status} onChange={(e) => setFilter('status', e.target.value)} className={input}>
               <option value="">All results</option>
