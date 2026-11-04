@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Send, Sparkles, SkipForward, Undo2 } from 'lucide-react';
 import { MIN_ANSWER_SECONDS } from '@/lib/match-engine';
 import { formatClock } from '@/lib/live-countdown';
@@ -25,7 +25,10 @@ export const changeLine = (text: string, from: number, to: number) => text.repla
  * built-in wording, sent or skipped; players see nothing until it is sent. The server checks every
  * wording keeps its over and line (src/lib/match-wording.ts) and that the over hasn't started.
  */
-export default function QuestionReview({ drafts, now, busy, onSend, onSkip }: {
+// ⚡ Bolt Performance Optimization:
+// Wrapped `QuestionReview` in `React.memo`. When there are no waiting drafts, this prevents the component
+// from re-rendering every second due to parent `MatchConsole`'s `useNow` updates.
+const QuestionReview = memo(function QuestionReview({ drafts, now, busy, onSend, onSkip }: {
   drafts: Draft[];
   now: number;
   busy: boolean;
@@ -137,4 +140,6 @@ export default function QuestionReview({ drafts, now, busy, onSend, onSkip }: {
       )}
     </section>
   );
-}
+});
+
+export default QuestionReview;
