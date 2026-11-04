@@ -1,11 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Gift } from 'lucide-react';
 import { getCSRFHeaders } from '@/lib/csrf';
 import type { QuizPrize } from '@/lib/quiz-prizes';
 import { ClaimTracking } from '@/components/prize-redemption/ClaimTracking';
+import { Modal } from '@/components/ui/modal';
 
 const PLACE = ['', '1st', '2nd', '3rd'];
+
+const FIELD =
+  'mt-1.5 w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2.5 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/60 focus:border-emerald-400/50';
 
 /** What the winner sees for each claim state, and whether they can send their details (again). */
 function claimState(prize: QuizPrize): { text: string; tone: string; canSend: boolean } {
@@ -123,64 +128,76 @@ export default function QuizPrizes() {
         })}
       </ul>
 
+      {/* Rendered into <body> by Modal: this card's backdrop-blur and overflow-hidden used to clip it */}
       {claiming && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <form
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Delivery details for ${claiming.prize.name}`}
-            onSubmit={(event) => submit(event, claiming)}
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-6 space-y-4"
-          >
-            <div>
-              <h3 className="text-lg font-semibold text-white">Delivery details</h3>
-              <p className="text-sm text-slate-400">For {claiming.prize.name}, won in &ldquo;{claiming.quizTitle}&rdquo;.</p>
+        <Modal
+          open
+          onClose={() => setClaiming(null)}
+          dismissible={!submitting}
+          title={`Delivery details for ${claiming.prize.name}`}
+          description={<>{PLACE[claiming.rank]} place in &ldquo;{claiming.quizTitle}&rdquo;. We&apos;ll contact you on WhatsApp to arrange delivery.</>}
+          closeLabel="Close delivery details"
+          icon={
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center" aria-hidden="true">
+              <Gift className="w-5 h-5 text-white" />
             </div>
-            <label className="block text-sm text-white">
+          }
+        >
+          <form onSubmit={(event) => submit(event, claiming)} className="space-y-4">
+            <label className="block text-sm font-medium text-slate-200">
               Full name
               <input
                 required
+                autoComplete="name"
                 value={form.fullName}
                 onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                className="mt-1 w-full rounded-md bg-white/5 border border-white/10 px-3 py-2 text-white"
+                className={FIELD}
               />
             </label>
-            <label className="block text-sm text-white">
+            <label className="block text-sm font-medium text-slate-200">
               WhatsApp number
               <input
                 required
                 type="tel"
+                autoComplete="tel"
+                placeholder="0300 1234567"
                 value={form.whatsappNumber}
                 onChange={(e) => setForm({ ...form, whatsappNumber: e.target.value })}
-                className="mt-1 w-full rounded-md bg-white/5 border border-white/10 px-3 py-2 text-white"
+                className={FIELD}
               />
             </label>
-            <label className="block text-sm text-white">
+            <label className="block text-sm font-medium text-slate-200">
               Delivery address
               <textarea
                 required
                 rows={3}
+                autoComplete="street-address"
+                placeholder="House, street, area and city"
                 value={form.address}
                 onChange={(e) => setForm({ ...form, address: e.target.value })}
-                className="mt-1 w-full rounded-md bg-white/5 border border-white/10 px-3 py-2 text-white resize-none"
+                className={`${FIELD} resize-none`}
               />
             </label>
             {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
-            <div className="flex gap-3">
+            <div className="flex gap-3 pt-1">
               <button
                 type="button"
                 onClick={() => setClaiming(null)}
                 disabled={submitting}
-                className="flex-1 px-4 py-2 rounded-md bg-white/10 text-slate-200 disabled:opacity-50"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-slate-200 font-medium hover:bg-white/10 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
               >
                 Cancel
               </button>
-              <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 rounded-md bg-emerald-600 text-white disabled:opacity-50">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-700 to-teal-700 text-white font-semibold hover:from-emerald-800 hover:to-teal-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+              >
                 {submitting ? 'Sending…' : 'Send details'}
               </button>
             </div>
           </form>
-        </div>
+        </Modal>
       )}
     </section>
   );

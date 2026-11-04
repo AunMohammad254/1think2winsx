@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useProfile } from '@/contexts/ProfileContext';
 import Image from 'next/image';
 import { loaderFor } from '@/lib/cloudinary';
+import { Modal } from '@/components/ui/modal';
 
 // Import extracted components
 import {
@@ -92,6 +93,12 @@ export default function PrizeRedemption() {
     setShowRedemptionForm(true);
     setError(null);
     setSuccess(null);
+  };
+
+  const closePreview = () => {
+    setShowPreviewModal(false);
+    setPreviewPrize(null);
+    setPreviewRedemption(null);
   };
 
   const handleRedemptionSuccess = async () => {
@@ -230,119 +237,105 @@ export default function PrizeRedemption() {
         />
       )}
 
-      {/* Preview Modal */}
+      {/* Preview Modal: Modal renders it into <body>, out of the profile page's clipping glass card */}
       {showPreviewModal && (previewPrize || previewRedemption) && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-blue-dark glass-card glass-border max-w-lg w-full max-h-[90vh] overflow-y-auto rounded-3xl">
-            {/* Header */}
-            <div className="bg-gradient-glass-blue px-6 py-4 glass-border-bottom flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">
-                {previewPrize ? 'Prize Details' : 'Redemption Details'}
-              </h3>
-              <button
-                onClick={() => { setShowPreviewModal(false); setPreviewPrize(null); setPreviewRedemption(null); }}
-                className="text-gray-400 hover:text-white w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-6">
-              <div className="flex justify-center mb-6">
-                <div className="h-48 w-48 bg-gradient-glass-dark rounded-2xl overflow-hidden glass-border">
-                  <Image
-                    src={previewPrize?.imageUrl || previewRedemption?.prize.imageUrl || `/prizes/default.svg`}
-                    loader={loaderFor(previewPrize?.imageUrl || previewRedemption?.prize.imageUrl)}
-                    alt={previewPrize?.name || previewRedemption!.prize.name} // prize names are required
-                    width={160}
-                    height={160}
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-              </div>
-
-              <div className="text-center mb-6">
-                <h4 className="text-xl font-bold text-white mb-2">
-                  {previewPrize?.name || previewRedemption?.prize.name}
-                </h4>
-                <p className="text-gray-300 text-sm leading-relaxed">
-                  {previewPrize?.description || previewRedemption?.prize.description}
-                </p>
-              </div>
-
-              {previewPrize && (
-                <div className="bg-gradient-glass-dark rounded-xl p-4 glass-border">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-400 text-sm">Points Required</span>
-                    <span className="text-lg font-bold text-blue-400">{previewPrize.pointsRequired} points</span>
-                  </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-gray-400 text-sm">Your Points</span>
-                    <span className={`text-lg font-bold ${(profile?.points || 0) >= previewPrize.pointsRequired ? 'text-green-400' : 'text-red-400'}`}>
-                      {profile?.points || 0} points
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {previewRedemption && (
-                <div className="bg-gradient-glass-dark rounded-xl p-4 glass-border space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-400 text-sm">Status</span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(previewRedemption.status)}`}>
-                      {previewRedemption.status.charAt(0).toUpperCase() + previewRedemption.status.slice(1)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-400 text-sm">Points Used</span>
-                    <span className="text-lg font-bold text-blue-400">{previewRedemption.pointsUsed} points</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-400 text-sm">Requested On</span>
-                    <span className="text-white text-sm">{new Date(previewRedemption.requestedAt).toLocaleDateString()}</span>
-                  </div>
-                  {previewRedemption.notes && (
-                    <div className="pt-3 border-t border-white/10">
-                      <span className="text-gray-400 text-sm block mb-1">Admin Notes</span>
-                      <p className="text-gray-300 text-sm">{previewRedemption.notes}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {previewPrize && (
-                <button
-                  onClick={() => {
-                    setShowPreviewModal(false);
-                    handleRedeem(previewPrize.id, previewPrize.name, previewPrize.pointsRequired);
-                    setPreviewPrize(null);
-                  }}
-                  disabled={(profile?.points || 0) < previewPrize.pointsRequired}
-                  className={`w-full mt-6 px-6 py-3 rounded-xl font-semibold ${(profile?.points || 0) >= previewPrize.pointsRequired
-                      ? 'bg-blue-600 text-white hover:bg-blue-500'
-                      : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
-                    }`}
-                >
-                  {(profile?.points || 0) >= previewPrize.pointsRequired
-                    ? 'Redeem This Prize'
-                    : `Need ${previewPrize.pointsRequired - (profile?.points || 0)} more points`}
-                </button>
-              )}
-
-              {previewRedemption && (
-                <button
-                  onClick={() => { setShowPreviewModal(false); setPreviewRedemption(null); }}
-                  className="w-full mt-6 px-6 py-3 rounded-xl font-semibold bg-gray-600/50 text-white hover:bg-gray-600/70"
-                >
-                  Close
-                </button>
-              )}
+        <Modal
+          open
+          onClose={closePreview}
+          title={previewPrize ? 'Prize Details' : 'Redemption Details'}
+          closeLabel={previewPrize ? 'Close prize details' : 'Close redemption details'}
+          className="max-w-lg"
+        >
+          <div className="flex justify-center mb-6">
+            <div className="h-48 w-48 bg-gradient-glass-dark rounded-2xl overflow-hidden glass-border">
+              <Image
+                src={previewPrize?.imageUrl || previewRedemption?.prize.imageUrl || `/prizes/default.svg`}
+                loader={loaderFor(previewPrize?.imageUrl || previewRedemption?.prize.imageUrl)}
+                alt={previewPrize?.name || previewRedemption!.prize.name} // prize names are required
+                width={160}
+                height={160}
+                className="h-full w-full object-cover"
+              />
             </div>
           </div>
-        </div>
+
+          <div className="text-center mb-6">
+            <h4 className="text-xl font-bold text-white mb-2">
+              {previewPrize?.name || previewRedemption?.prize.name}
+            </h4>
+            <p className="text-gray-300 text-sm leading-relaxed">
+              {previewPrize?.description || previewRedemption?.prize.description}
+            </p>
+          </div>
+
+          {previewPrize && (
+            <div className="bg-gradient-glass-dark rounded-xl p-4 glass-border">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-sm">Points Required</span>
+                <span className="text-lg font-bold text-blue-400">{previewPrize.pointsRequired} points</span>
+              </div>
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-gray-400 text-sm">Your Points</span>
+                <span className={`text-lg font-bold ${(profile?.points || 0) >= previewPrize.pointsRequired ? 'text-green-400' : 'text-red-400'}`}>
+                  {profile?.points || 0} points
+                </span>
+              </div>
+            </div>
+          )}
+
+          {previewRedemption && (
+            <div className="bg-gradient-glass-dark rounded-xl p-4 glass-border space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-sm">Status</span>
+                <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(previewRedemption.status)}`}>
+                  {previewRedemption.status.charAt(0).toUpperCase() + previewRedemption.status.slice(1)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-sm">Points Used</span>
+                <span className="text-lg font-bold text-blue-400">{previewRedemption.pointsUsed} points</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-400 text-sm">Requested On</span>
+                <span className="text-white text-sm">{new Date(previewRedemption.requestedAt).toLocaleDateString()}</span>
+              </div>
+              {previewRedemption.notes && (
+                <div className="pt-3 border-t border-white/10">
+                  <span className="text-gray-400 text-sm block mb-1">Admin Notes</span>
+                  <p className="text-gray-300 text-sm">{previewRedemption.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {previewPrize && (
+            <button
+              onClick={() => {
+                setShowPreviewModal(false);
+                handleRedeem(previewPrize.id, previewPrize.name, previewPrize.pointsRequired);
+                setPreviewPrize(null);
+              }}
+              disabled={(profile?.points || 0) < previewPrize.pointsRequired}
+              className={`w-full mt-6 px-6 py-3 rounded-xl font-semibold ${(profile?.points || 0) >= previewPrize.pointsRequired
+                  ? 'bg-blue-600 text-white hover:bg-blue-500'
+                  : 'bg-gray-600/50 text-gray-400 cursor-not-allowed'
+                }`}
+            >
+              {(profile?.points || 0) >= previewPrize.pointsRequired
+                ? 'Redeem This Prize'
+                : `Need ${previewPrize.pointsRequired - (profile?.points || 0)} more points`}
+            </button>
+          )}
+
+          {previewRedemption && (
+            <button
+              onClick={closePreview}
+              className="w-full mt-6 px-6 py-3 rounded-xl font-semibold bg-gray-600/50 text-white hover:bg-gray-600/70"
+            >
+              Close
+            </button>
+          )}
+        </Modal>
       )}
     </div>
   );

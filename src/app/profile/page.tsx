@@ -8,6 +8,7 @@ import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { useProfile } from '@/contexts/ProfileContext';
 import ProfilePictureUpload from '@/components/ProfilePictureUpload';
+import { Modal } from '@/components/ui/modal';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { loaderFor } from '@/lib/cloudinary';
 import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal, SignInMethodBadge, QuizPrizes } from '@/components/profile';
@@ -624,37 +625,18 @@ export default function ProfilePage() {
       </div>
 
       {/* Profile Picture Upload Modal */}
-      {showUploadModal && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="profile-picture-upload-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-        >
-          <div className="backdrop-blur-xl bg-slate-900/95 border border-white/10 rounded-[32px] p-6 max-w-md w-full">
-            <div className="flex items-center justify-between mb-6">
-              <h3 id="profile-picture-upload-title" className="text-lg font-bold text-white">
-                Update Profile Picture
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowUploadModal(false)}
-                aria-label="Close update profile picture dialog"
-                className="w-8 h-8 bg-white/5 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
-              >
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <ProfilePictureUpload
-              currentImage={profile.profilePicture || undefined}
-              onImageUpload={handleImageUpload}
-              loading={uploadLoading}
-            />
-          </div>
-        </div>
-      )}
+      <Modal
+        open={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        title="Update Profile Picture"
+        closeLabel="Close update profile picture dialog"
+      >
+        <ProfilePictureUpload
+          currentImage={profile.profilePicture || undefined}
+          onImageUpload={handleImageUpload}
+          loading={uploadLoading}
+        />
+      </Modal>
 
       {/* Change Password Modal */}
       <ChangePasswordModal

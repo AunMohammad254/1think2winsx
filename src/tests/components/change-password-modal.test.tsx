@@ -154,15 +154,18 @@ describe('ChangePasswordModal', () => {
     const onClose = vi.fn();
     const { container, rerender } = render(<ChangePasswordModal isOpen onClose={onClose} />);
     await ready();
+    const dialog = screen.getByRole('dialog', { name: 'Change password' });
+    // Rendered into <body>, outside the page, so nothing on the page can clip it
+    expect(container).not.toContainElement(dialog);
     type('Current Password', 'typed');
     fireEvent.click(screen.getByRole('button', { name: 'Close change password dialog' }));
-    fireEvent.click(container.querySelector('[aria-hidden="true"]')!);
+    fireEvent.pointerDown(dialog.parentElement!); // the dimmed backdrop around it
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    fireEvent.keyDown(window, { key: 'Enter' });
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(dialog, { key: 'Enter' });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(4);
     rerender(<ChangePasswordModal isOpen={false} onClose={onClose} />);
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(4);
     rerender(<ChangePasswordModal isOpen onClose={onClose} />);
     expect(await ready()).toHaveValue('');
