@@ -1,9 +1,14 @@
 #:schema node_modules/wrangler/config-schema.json
 # Wrangler configuration: https://developers.cloudflare.com/workers/wrangler/configuration/
 #
-# Every routed hostname needs a Proxied DNS record in the 1think2win.com zone. Set the secret before deploying:
-#   npx wrangler secret put CRON_SECRET                 (production)
-#   npx wrangler secret put CRON_SECRET --env staging   (staging)
+# Every routed hostname needs a Proxied DNS record in the 1think2win.com zone. Set the secrets before deploying:
+#   npx wrangler secret put CRON_SECRET                               (production)
+#   npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY                 (production)
+#   npx wrangler secret put CRON_SECRET --env staging                 (staging)
+#   npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env staging   (staging)
+# and create the queues once (README.md, "Lock-ins at the edge"):
+#   npx wrangler queues create lockins           npx wrangler queues create lockins-dlq
+#   npx wrangler queues create lockins-staging   npx wrangler queues create lockins-staging-dlq
 
 name = "1think2win-edge"
 main = "src/index.ts"
@@ -25,9 +30,14 @@ zone_name = "1think2win.com"
 SITE_URL = "https://1think2win.com"
 # "false": log-only. Limits are counted and logged ("wouldLimit" in Workers Logs), never applied
 ENFORCE = "false"
+# "true": lock-ins (POST /api/quizzes/<id>/submit without X-Lockin-Direct: 1) and GET /api/csrf-token are answered
+# here and never reach Hostinger; lock-ins are queued and saved to Supabase in batches. "false": they go to Hostinger.
+LOCKIN_EDGE = "false"
+# The project the app signs sessions with (its JWKS verifies them) and the consumer saves lock-ins to (Mumbai)
+SUPABASE_URL = "https://eclivawqhdovsndlngfo.supabase.co"
 
 [secrets]
-required = ["CRON_SECRET"]
+required = ["CRON_SECRET", "SUPABASE_SERVICE_ROLE_KEY"]
 
 # Every minute, replacing the app's in-process self-kick of /api/cron/process-scheduled
 [triggers]
@@ -59,6 +69,30 @@ name = "ORIGIN_LIMITER"
 namespace_id = "1004"
 simple = { limit = 600, period = 10 }
 
+# Lock-ins accepted at the edge. Queues take 5,000 messages/s per queue. The consumer saves batches of up to 100
+# through submit_lockin_batch; a failed batch is retried after 5 s, and after 20 tries goes to lockins-dlq.
+[[queues.producers]]
+binding = "LOCKIN_QUEUE"
+queue = "lockins"
+
+[[queues.consumers]]
+queue = "lockins"
+max_batch_size = 100
+max_batch_timeout = 1
+max_concurrency = 4
+max_retries = 20
+dead_letter_queue = "lockins-dlq"
+
+# Lock-ins received per quiz, 16 shards each (GET /api/edge/lockin-status sums them)
+[[durable_objects.bindings]]
+name = "LOCKIN_TALLY"
+class_name = "LockinTally"
+
+# Migrations are shared by every environment
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LockinTally"]
+
 [observability]
 enabled = true
 
@@ -70,13 +104,31 @@ routes = [{ pattern = "staging.1think2win.com/api/*", zone_name = "1think2win.co
 [env.staging.vars]
 SITE_URL = "https://staging.1think2win.com"
 ENFORCE = "true"
+LOCKIN_EDGE = "false"
+SUPABASE_URL = "https://eclivawqhdovsndlngfo.supabase.co"
 
 # No cron until staging.1think2win.com has a DNS record: it would call a name that doesn't resolve every minute
 [env.staging.triggers]
 crons = []
 
 [env.staging.secrets]
-required = ["CRON_SECRET"]
+required = ["CRON_SECRET", "SUPABASE_SERVICE_ROLE_KEY"]
+
+[[env.staging.queues.producers]]
+binding = "LOCKIN_QUEUE"
+queue = "lockins-staging"
+
+[[env.staging.queues.consumers]]
+queue = "lockins-staging"
+max_batch_size = 100
+max_batch_timeout = 1
+max_concurrency = 4
+max_retries = 20
+dead_letter_queue = "lockins-staging-dlq"
+
+[[env.staging.durable_objects.bindings]]
+name = "LOCKIN_TALLY"
+class_name = "LockinTally"
 
 [[env.staging.ratelimits]]
 name = "SUBMIT_LIMITER"

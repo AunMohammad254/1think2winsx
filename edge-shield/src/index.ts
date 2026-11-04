@@ -7,16 +7,25 @@
  *    origin budget per Cloudflare location that keeps the API's share of Hostinger's traffic under its limit;
  *  - a time-to-headers timeout on origin calls;
  *  - busy responses shaped like the app's withLoadShed (src/lib/load-shed.ts), which the client's
- *    fetch-retry helper already retries with Retry-After; Hostinger's 403 block page becomes one too.
+ *    fetch-retry helper already retries with Retry-After; Hostinger's 403 block page becomes one too;
+ *  - with LOCKIN_EDGE="true", lock-ins (quiz submits) and CSRF tokens are answered here and never reach
+ *    Hostinger: lock-ins are checked, counted and queued (lockin.ts), and the queue consumer saves them in
+ *    batches straight to Supabase (consumer.ts).
  * It also runs the app's scheduler on a Cron Trigger.
  *
  * ENFORCE=false is log-only: limits are counted and logged ("wouldLimit"), never applied, so the first days
  * on real traffic show where the limits sit. Paths Cloudflare serves from its cache, and the webhooks, have
  * routes without this Worker (see README.md), so they cost no Worker requests and meet no limit here.
  */
+import { consumeLockins } from './consumer';
+import { busy } from './http';
+import { CSRF_PATH, csrfToken, handleLockin, isEdgeLockin, type LockinMessage, SUBMIT_PATH } from './lockin';
+import { sessionKey } from './session';
+import { lockinStatus, STATUS_PATH } from './tally';
+
+export { LockinTally } from './tally';
 
 const ORIGIN_TIMEOUT_MS = 15_000;
-const SUBMIT_PATH = /^\/api\/quizzes\/[^/]+\/submit$/;
 // Never limited: the scheduler, and senders that sign their own calls and burst from a few IPs (Brevo, SES, Supabase)
 const UNLIMITED_PATH = /^\/api\/(cron|webhooks)\/|^\/api\/auth\/send-email-hook$/;
 // May take longer than ORIGIN_TIMEOUT_MS: admin work (sends, settlement), the scheduler, uploads from slow phones
@@ -25,9 +34,17 @@ const SLOW_PATH = /^\/api\/(admin|cron)\/|^\/api\/(upload|profile\/upload-pictur
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		// A fault in this Worker must never take the API down: on an exception the request goes on to Hostinger
+		// (except lock-ins, which answer busy instead: see handleLockin)
 		ctx.passThroughOnException();
 		const url = new URL(request.url);
 		const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+
+		// Answered by the Worker alone, never limited, whatever LOCKIN_EDGE says (queued lock-ins still drain when it is off)
+		if (url.pathname === STATUS_PATH) return lockinStatus(request, env, url);
+		if (env.LOCKIN_EDGE === 'true') {
+			if (request.method === 'GET' && url.pathname === CSRF_PATH) return csrfToken();
+			if (isEdgeLockin(request, env, url)) return handleLockin(request, env, url);
+		}
 
 		if (!UNLIMITED_PATH.test(url.pathname)) {
 			// Per caller, plus a high per-IP ceiling: mobile carriers put many players behind one IP,
@@ -56,6 +73,10 @@ export default {
 		return response;
 	},
 
+	async queue(batch, env) {
+		await consumeLockins(batch, env);
+	},
+
 	async scheduled(_controller, env, ctx) {
 		ctx.waitUntil(
 			fetch(`${env.SITE_URL}/api/cron/process-scheduled`, {
@@ -66,7 +87,7 @@ export default {
 			}),
 		);
 	},
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env, LockinMessage>;
 
 /** The request at Hostinger, or a busy 503 when it fails or sends no headers within `timeoutMs`. */
 async function toOrigin(request: Request, timeoutMs?: number): Promise<Response> {
@@ -79,22 +100,4 @@ async function toOrigin(request: Request, timeoutMs?: number): Promise<Response>
 	} finally {
 		if (timer !== undefined) clearTimeout(timer); // bounds time-to-headers only, so streamed bodies aren't cut off
 	}
-}
-
-// Key by session so users behind one carrier NAT don't share a bucket.
-// The cookie is not verified here; the origin still authenticates every request.
-async function sessionKey(request: Request, ip: string): Promise<string> {
-	const match = /sb-[^=]+-auth-token(?:\.0)?=([^;]+)/.exec(request.headers.get('Cookie') ?? '');
-	if (!match) return `ip:${ip}`;
-	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(match[1]));
-	return 's:' + [...new Uint8Array(digest, 0, 12)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-// Same body and jittered Retry-After as the app's withLoadShed, so existing client retries apply
-function busy(status: 429 | 503): Response {
-	const retryAfter = 1 + Math.floor(Math.random() * 6);
-	return Response.json(
-		{ error: 'Server is busy, please retry shortly', code: 'OVERLOADED', retryAfter },
-		{ status, headers: { 'Retry-After': String(retryAfter), 'Cache-Control': 'no-store' } },
-	);
 }
