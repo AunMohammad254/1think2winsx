@@ -107,7 +107,7 @@ export async function submitDepositRequest(formData: FormData): Promise<DepositR
         if (!ext) {
             return { success: false, error: 'Please upload the screenshot as a JPG, PNG or WebP image.' };
         }
-        const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+        const fileName = `${user.id}/${Date.now()}_${crypto.randomUUID()}.${ext}`;
 
         // The player's own session: storage policies only let it add files to receipts/<their id>/
         const { error: uploadError } = await supabase
