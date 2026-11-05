@@ -10,7 +10,7 @@ import QuizPrizes from '@/components/profile/QuizPrizes';
 const WATCH = { id: 'p1', name: 'Smartwatch', imageUrl: null, type: 'gadget', category: 'electronics' };
 const prize = (winnerId: string, claim: Record<string, unknown> | null, over: Record<string, unknown> = {}) => ({
   winnerId, quizId: 'q1', quizTitle: 'Cricket night', rank: 1, wonAt: '2026-10-20', prize: WATCH,
-  claim: claim && { id: `c-${winnerId}`, requestedAt: '2026-10-21', processedAt: null, notes: null, ...claim },
+  claim: claim && { id: `c-${winnerId}`, requestedAt: '2026-10-21', processedAt: null, notes: null, trackingId: 'TRACK-123', handoverCode: null, timeline: [], ...claim },
   ...over,
 });
 
@@ -45,7 +45,7 @@ describe('QuizPrizes', () => {
       prizes: [
         prize('new', null, { rank: 2 }),
         prize('pending', { status: 'pending' }),
-        prize('approved', { status: 'approved' }),
+        prize('approved', { status: 'approved', handoverCode: '123456' }),
         prize('fulfilled', { status: 'fulfilled' }),
         prize('rejected', { status: 'rejected', notes: 'Wrong address' }),
         prize('rejected-plain', { status: 'rejected' }),
@@ -59,7 +59,10 @@ describe('QuizPrizes', () => {
     expect(items[0]).toHaveTextContent('Send your delivery details so we can get it to you.');
     expect(within(items[0]).getByRole('button', { name: 'Add delivery details' })).toBeInTheDocument();
     expect(items[1]).toHaveTextContent("Details received. We'll contact you on WhatsApp.");
+    expect(items[1]).toHaveTextContent('TRACK-123');
     expect(items[2]).toHaveTextContent('Approved: your prize is on its way soon.');
+    expect(items[2]).toHaveTextContent('Handover code');
+    expect(items[2]).toHaveTextContent('123 456');
     expect(items[3]).toHaveTextContent('Delivered.');
     for (const i of [1, 2, 3]) expect(within(items[i]).queryByRole('button')).toBeNull();
     expect(items[4]).toHaveTextContent("We couldn't use those details: Wrong address Please send them again.");
