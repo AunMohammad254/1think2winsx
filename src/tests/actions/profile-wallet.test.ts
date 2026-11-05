@@ -39,7 +39,7 @@ describe('submitDepositRequest', () => {
 
     expect(res).toMatchObject({ success: true, message: 'Deposit request submitted successfully', transaction: { id: 'tx-1', status: 'pending' } });
     const [path, , options] = sb.storage.upload.mock.calls[0] as unknown as [string, File, Record<string, unknown>];
-    expect(path).toMatch(/^user-1\/\d+_[a-z0-9]+\.jpg$/);
+    expect(path).toMatch(/^user-1\/\d+_[a-f0-9-]+\.jpg$/);
     expect(sb.client.storage.from).toHaveBeenCalledWith('receipts');
     expect(options).toEqual({ contentType: 'image/jpeg', upsert: false });
     // Private bucket: the row stores a reference, never a public URL
@@ -68,7 +68,7 @@ describe('submitDepositRequest', () => {
     sb.setRpc('submit_deposit_request', { data: { success: true, id: 'tx-1' } });
     await actions.submitDepositRequest(depositForm({ proofImage: receipt(10, name, type) }));
     const [path] = sb.storage.upload.mock.calls[0] as [string];
-    expect(path).toMatch(new RegExp(`^user-1/\\d+_[a-z0-9]+\\.${ext}$`));
+    expect(path).toMatch(new RegExp(`^user-1/\\d+_[a-f0-9-]+\\.${ext}$`));
   });
 
   it.each(['image/gif', 'image/heic', 'application/pdf', ''])('refuses a %j file before uploading', async (type) => {
