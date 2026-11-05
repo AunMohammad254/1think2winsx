@@ -5,13 +5,15 @@ import type { Prize } from '@/types/prize';
 
 // Mock next/image
 vi.mock('next/image', () => ({
-    default: ({ fill, blurDataURL, sizes, onError, ...props }: any) => <img onError={onError} {...props} />
+    // eslint-disable-next-line @next/next/no-img-element -- stand-in for next/image
+    default: ({ fill: _fill, blurDataURL: _blurDataURL, sizes: _sizes, onError, ...props }: any) => <img onError={onError} {...props} />
 }));
 
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
     motion: {
-        div: ({ initial, animate, transition, whileHover, ...props }: any) => <div {...props} />
+        // Drops the animation props, which aren't DOM attributes
+        div: ({ initial: _initial, animate: _animate, transition: _transition, whileHover: _whileHover, ...props }: any) => <div {...props} />
     }
 }));
 

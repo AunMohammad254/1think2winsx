@@ -6,7 +6,8 @@ import { Trophy } from 'lucide-react';
 // Mock framer-motion
 vi.mock('framer-motion', () => ({
     motion: {
-        div: ({ initial, whileInView, viewport, transition, whileHover, ...props }: any) => <div {...props} />
+        // Drops the animation props, which aren't DOM attributes
+        div: ({ initial: _initial, whileInView: _whileInView, viewport: _viewport, transition: _transition, whileHover: _whileHover, ...props }: any) => <div {...props} />
     }
 }));
 

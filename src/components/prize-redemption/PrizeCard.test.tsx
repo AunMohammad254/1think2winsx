@@ -5,6 +5,7 @@ import type { Prize } from './types';
 
 // Mock Next.js Image
 vi.mock('next/image', () => ({
+    // eslint-disable-next-line @next/next/no-img-element -- stand-in for next/image
     default: ({ src, alt }: { src: string; alt: string }) => <img src={src} alt={alt} />,
 }));
 
