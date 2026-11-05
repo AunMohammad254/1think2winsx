@@ -652,8 +652,13 @@ describe('quizzes page: live mode (a big event)', () => {
   ], { walletEnabled: true, liveMode: LIVE_MODE, ...over });
   /** The page's timer of `ms` (the random start of live mode), run now */
   const runTimer = async (timers: { mock: { calls: unknown[][] } }, ms: number) => {
-    const call = timers.mock.calls.find(([, delay]) => delay === ms);
-    expect(call).toBeDefined();
+    // The page sets this timer in an effect once live mode is known, which on a slow machine (CI) can come
+    // after the list shows: wait for it rather than look for it once
+    let call: unknown[] | undefined;
+    await waitFor(() => {
+      call = timers.mock.calls.find(([, delay]) => delay === ms);
+      expect(call).toBeDefined();
+    });
     await act(async () => { (call![0] as () => void)(); });
   };
 
