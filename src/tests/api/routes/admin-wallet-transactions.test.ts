@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextResponse } from 'next/server';
-import { createSupabaseMock, makeRequest, argOf, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { createSupabaseMock, makeRequest, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
 const validateAdminSession = vi.fn();
@@ -153,61 +153,29 @@ describe('PATCH /api/admin/wallet-transactions', () => {
     expect(await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).toEqual({ error: 'Already processed' });
     adminDb.setRpc('approve_wallet_transaction', { data: { success: false } });
     expect(await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).toEqual({ error: 'Failed to approve' });
+    adminDb.setRpc('approve_wallet_transaction', { data: null });
+    expect(await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).toEqual({ error: 'Failed to approve' });
     adminDb.setRpc('reject_wallet_transaction', { data: { success: false } });
-    expect(await (await patch({ transactionId: 'tx-1', action: 'reject' })).json()).toEqual({ error: 'Failed to reject' });
+    const refused = await patch({ transactionId: 'tx-1', action: 'reject' });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: 'Failed to reject' });
+    expect(notify).not.toHaveBeenCalled();
   });
 
-  it('falls back to a NON-atomic read-then-write approval when the RPC errors', async () => {
+  it('fails without touching the balance when the RPC errors or throws (no direct-write fallback)', async () => {
+    adminDb.setTable('WalletTransaction', { data: pendingTx() });
     adminDb.setRpc('approve_wallet_transaction', { error: { message: 'timeout' } });
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx() }, { data: { id: 'tx-1', status: 'approved' } }]);
-
-    const body = await (await patch({ transactionId: 'tx-1', action: 'approve' })).json();
-
-    // balance is read (100) and written back as 100 + 500 in a separate query
-    expect(argOf(adminDb.callsTo('User', 'update')[0], 'update')).toMatchObject({ walletBalance: 600 });
-    const statusUpdate = adminDb.callsTo('WalletTransaction', 'update')[0];
-    expect(argOf(statusUpdate, 'update')).toMatchObject({ status: 'approved', processedBy: 'admin@example.test' });
-    // the status update is not conditional on the row still being pending
-    expect(eqValue(statusUpdate, 'status')).toBeUndefined();
-    expect(body).toMatchObject({ success: true, newBalance: 600, transaction: { status: 'approved' } });
-  });
-
-  it('fallback approval handles array joins, missing users and notification failures', async () => {
-    adminDb.client.rpc.mockImplementation(() => { throw new Error('rpc down'); });
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx({ User: [{ walletBalance: 50 }] }) }, { data: {} }]);
-    notify.mockRejectedValue(new Error('x'));
-    expect((await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).newBalance).toBe(550);
-
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx({ User: null }) }, { data: {} }]);
-    expect((await (await patch({ transactionId: 'tx-1', action: 'approve' })).json()).newBalance).toBe(500);
-  });
-
-  it('fallback rejection stores the notes', async () => {
-    adminDb.setRpc('reject_wallet_transaction', { error: { message: 'x' } });
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx() }, { data: { status: 'rejected' } }]);
-    notify.mockRejectedValue(new Error('x'));
-    const body = await (await patch({ transactionId: 'tx-1', action: 'reject' })).json();
-    expect(argOf(adminDb.callsTo('WalletTransaction', 'update')[0], 'update')).toMatchObject({ status: 'rejected', adminNotes: null });
-    expect(body).toMatchObject({ success: true, transaction: { status: 'rejected' } });
-    expect(adminDb.callsTo('User', 'update')).toHaveLength(0);
-  });
-
-  it('fallback refuses missing or already-processed transactions', async () => {
-    adminDb.client.rpc.mockImplementation(() => { throw new Error('rpc down'); });
-    adminDb.setTable('WalletTransaction', { data: null, error: { message: 'none' } });
-    expect((await patch({ transactionId: 'tx-1', action: 'approve' })).status).toBe(404);
-    adminDb.setTable('WalletTransaction', { data: pendingTx({ status: 'approved' }) });
-    const res = await patch({ transactionId: 'tx-1', action: 'reject' });
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('Transaction is already approved');
-  });
-
-  it('fallback returns 500 when the status update fails', async () => {
-    adminDb.client.rpc.mockImplementation(() => { throw new Error('rpc down'); });
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx() }, { error: { message: 'x' } }]);
     expect((await patch({ transactionId: 'tx-1', action: 'approve' })).status).toBe(500);
-    adminDb.setTable('WalletTransaction', [{ data: pendingTx() }, { error: { message: 'x' } }]);
-    expect((await patch({ transactionId: 'tx-1', action: 'reject' })).status).toBe(500);
+    adminDb.setRpc('reject_wallet_transaction', { error: { message: 'timeout' } });
+    expect((await patch({ transactionId: 'tx-1', action: 'reject', notes: 'x' })).status).toBe(500);
+    adminDb.client.rpc.mockImplementation(() => { throw new Error('rpc down'); });
+    const res = await patch({ transactionId: 'tx-1', action: 'approve' });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to process transaction' });
+
+    expect(adminDb.callsTo('User')).toHaveLength(0);
+    expect(adminDb.callsTo('WalletTransaction')).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
   });
 
   it('validates the request and guards on session and CSRF', async () => {
@@ -224,60 +192,122 @@ describe('PATCH /api/admin/wallet-transactions', () => {
 
 describe('POST /api/admin/wallet-transactions/bulk-process', () => {
   const run = (body: unknown) => bulk.POST(makeRequest('/api/admin/wallet-transactions/bulk-process', { body }));
+  const rows = [{ id: 'tx-a', userId: 'user-a', amount: 100 }, { id: 'tx-b', userId: 'user-b', amount: 200 }];
+  const inArgs = (call: { ops: { op: string; args: unknown[] }[] } | undefined) => call?.ops.find((o) => o.op === 'in')?.args;
 
-  it('approves each pending deposit with a separate read-then-write (not atomic)', async () => {
-    adminDb.setTable('WalletTransaction', (call) =>
-      eqValue(call, 'id') === 'tx-a' ? { data: pendingTx({ id: 'tx-a', amount: 100, User: [{ walletBalance: 0 }] }) } : { data: pendingTx({ id: 'tx-b', amount: 200, User: null }) });
+  it('approves each deposit once through the locking RPC, never by writing the balance itself', async () => {
+    adminDb.setTable('WalletTransaction', { data: rows });
+    adminDb.setRpc('approve_wallet_transaction', { data: { success: true, new_balance: 600 } });
 
-    const body = await (await run({ transactionIds: ['tx-a', 'tx-b'], action: 'approve' })).json();
+    const body = await (await run({ transactionIds: ['tx-a', 'tx-b', 'tx-a'], action: 'approve' })).json();
 
     expect(body).toEqual({ success: true, message: 'Successfully processed 2 transactions. 0 failed.', results: { success: 2, failed: 0, errors: [] } });
-    expect(adminDb.callsTo('User', 'update').map((c) => (argOf(c, 'update') as { walletBalance: number }).walletBalance)).toEqual([100, 200]);
-    expect(notify).toHaveBeenCalledTimes(2);
+    expect(adminDb.rpcCalls).toEqual([
+      { fn: 'approve_wallet_transaction', args: { p_transaction_id: 'tx-a', p_processed_by: 'admin@example.test' } },
+      { fn: 'approve_wallet_transaction', args: { p_transaction_id: 'tx-b', p_processed_by: 'admin@example.test' } },
+    ]);
+    expect(inArgs(adminDb.callsTo('WalletTransaction')[0])).toEqual(['id', ['tx-a', 'tx-b']]);
+    expect(adminDb.callsTo('User', 'update')).toHaveLength(0);
+    expect(adminDb.callsTo('WalletTransaction', 'update')).toHaveLength(0);
+    expect(notify).toHaveBeenCalledWith('user-a', expect.objectContaining({ title: 'Deposit Approved', message: expect.stringContaining('100 PKR') }));
+    expect(notify).toHaveBeenCalledWith('user-b', expect.objectContaining({ title: 'Deposit Approved', message: expect.stringContaining('200 PKR') }));
   });
 
-  it('rejects with notes and reports per-row failures', async () => {
-    adminDb.setTable('WalletTransaction', (call) => {
-      if (hasUpdate(call)) return { data: null };
-      const id = eqValue(call, 'id');
-      if (id === 'missing') return { data: null, error: { message: 'none' } };
-      if (id === 'done') return { data: pendingTx({ status: 'approved' }) };
-      if (id === 'boom') throw new Error('row exploded');
-      if (id === 'weird') throw 'string failure';
-      return { data: pendingTx() };
+  it('credits a deposit once when two admins approve it at the same time', async () => {
+    // The database function locks the row and refuses a deposit that is no longer pending
+    const settled = new Set<string>();
+    adminDb.setTable('WalletTransaction', { data: rows });
+    adminDb.setRpc('approve_wallet_transaction', (args) => {
+      const id = args.p_transaction_id as string;
+      if (settled.has(id)) return { data: { success: false, error: 'Transaction is not pending' } };
+      settled.add(id);
+      return { data: { success: true } };
     });
-    notify.mockRejectedValue(new Error('push down'));
 
-    const body = await (await run({ transactionIds: ['tx-1', 'missing', 'done', 'boom', 'weird'], action: 'reject', notes: 'fake' })).json();
+    const [first, second] = await Promise.all([
+      run({ transactionIds: ['tx-a'], action: 'approve' }).then((r) => r.json()),
+      run({ transactionIds: ['tx-a'], action: 'approve' }).then((r) => r.json()),
+    ]);
+
+    expect(first.results.success + second.results.success).toBe(1);
+    expect([...first.results.errors, ...second.results.errors]).toEqual(['tx-a: Transaction is not pending']);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects with the reason and reports each deposit that was not processed', async () => {
+    adminDb.setTable('WalletTransaction', { data: [{ id: 'tx-1', userId: 'user-1', amount: 500 }] });
+    adminDb.setRpc('reject_wallet_transaction', (args) => {
+      switch (args.p_transaction_id) {
+        case 'done': return { data: { success: false, error: 'Transaction is not pending' } };
+        case 'down': return { error: { message: 'connection reset' } };
+        case 'empty': return { data: null };
+        case 'boom': throw new Error('row exploded');
+        case 'weird': throw 'string failure';
+        default: return { data: { success: true } };
+      }
+    });
+
+    const body = await (await run({ transactionIds: ['tx-1', 'done', 'down', 'empty', 'boom', 'weird'], action: 'reject', notes: 'fake' })).json();
 
     expect(body.results).toEqual({
       success: 1,
-      failed: 4,
-      errors: ['Transaction missing not found', 'Transaction done is already approved', 'Failed to process boom: row exploded', 'Failed to process weird: string failure'],
+      failed: 5,
+      errors: ['done: Transaction is not pending', 'down: connection reset', 'empty: not processed', 'boom: row exploded', 'weird: string failure'],
     });
-    expect(argOf(adminDb.callsTo('WalletTransaction', 'update')[0], 'update')).toMatchObject({ status: 'rejected', adminNotes: 'fake' });
+    expect(adminDb.rpcCalls[0]).toEqual({ fn: 'reject_wallet_transaction', args: { p_transaction_id: 'tx-1', p_processed_by: 'admin@example.test', p_reason: 'fake' } });
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith('user-1', expect.objectContaining({ title: 'Deposit Rejected', message: expect.stringContaining('Reason: fake') }));
   });
 
-  it('swallows notification failures on approval and defaults rejection notes', async () => {
-    adminDb.setTable('WalletTransaction', { data: pendingTx() });
-    notify.mockRejectedValue(new Error('x'));
+  it('swallows notification failures, defaults the reason, and skips deposits it found no row for', async () => {
+    validateAdminSession.mockResolvedValue({ valid: true }); // a session without an email
+    adminDb.setRpc('approve_wallet_transaction', { data: { success: true } });
+    adminDb.setRpc('reject_wallet_transaction', { data: { success: true } });
+    adminDb.setTable('WalletTransaction', { data: [{ id: 'tx-1', userId: 'user-1', amount: 500 }] });
+    notify.mockRejectedValue(new Error('push down'));
     expect((await (await run({ transactionIds: ['tx-1'], action: 'approve' })).json()).results.success).toBe(1);
-    notify.mockResolvedValue({});
-    await run({ transactionIds: ['tx-1'], action: 'reject' });
+    expect(adminDb.rpcCalls[0].args.p_processed_by).toBe('admin');
+
+    notify.mockReset().mockResolvedValue({});
+    await run({ transactionIds: ['tx-1'], action: 'reject', notes: '' });
+    expect(adminDb.rpcCalls[1].args.p_reason).toBeNull();
     expect(notify).toHaveBeenLastCalledWith('user-1', expect.objectContaining({ message: expect.stringContaining('Reason: Not provided') }));
+
+    notify.mockReset();
+    adminDb.setTable('WalletTransaction', { data: null });
+    expect((await (await run({ transactionIds: ['tx-1'], action: 'reject' })).json()).results.success).toBe(1);
+    expect(notify).not.toHaveBeenCalled();
   });
 
-  it('has no CSRF check, unlike the single-transaction PATCH', async () => {
+  it('changes nothing when the deposit lookup fails', async () => {
+    adminDb.setTable('WalletTransaction', { error: { message: 'db down' } });
+    expect((await run({ transactionIds: ['tx-1'], action: 'approve' })).status).toBe(500);
+    expect(adminDb.rpcCalls).toHaveLength(0);
+  });
+
+  it('requires a CSRF token, like the single-transaction PATCH', async () => {
     requireCSRFToken.mockResolvedValue(NextResponse.json({}, { status: 403 }));
-    adminDb.setTable('WalletTransaction', { data: pendingTx() });
-    expect((await run({ transactionIds: ['tx-1'], action: 'approve' })).status).toBe(200);
-    expect(requireCSRFToken).not.toHaveBeenCalled();
+    expect((await run({ transactionIds: ['tx-1'], action: 'approve' })).status).toBe(403);
+    expect(adminDb.rpcCalls).toHaveLength(0);
   });
 
   it('validates input and guards on session and the wallet flag', async () => {
-    for (const body of [{}, { transactionIds: 'tx-1', action: 'approve' }, { transactionIds: [], action: 'approve' }, { transactionIds: ['a'] }, { transactionIds: ['a'], action: 'nuke' }]) {
-      expect((await run(body)).status).toBe(400);
-    }
+    const invalid = [
+      {},
+      { transactionIds: 'tx-1', action: 'approve' },
+      { transactionIds: [], action: 'approve' },
+      { transactionIds: [''], action: 'approve' },
+      { transactionIds: [7], action: 'approve' },
+      { transactionIds: ['a'] },
+      { transactionIds: ['a'], action: 'nuke' },
+    ];
+    for (const body of invalid) expect((await run(body)).status).toBe(400);
+    const capped = await run({ transactionIds: Array.from({ length: 101 }, (_, i) => `tx-${i}`), action: 'approve' });
+    expect(capped.status).toBe(400);
+    expect((await capped.json()).error).toBe('At most 100 transactions can be processed at once');
+    expect((await bulk.POST(makeRequest('/api/admin/wallet-transactions/bulk-process', { method: 'POST', rawBody: 'null' }))).status).toBe(400);
+    expect(adminDb.rpcCalls).toHaveLength(0);
+
     validateAdminSession.mockResolvedValueOnce({ valid: false });
     expect((await run({ transactionIds: ['a'], action: 'approve' })).status).toBe(401);
     isWalletEnabled.mockResolvedValueOnce(false);
@@ -289,7 +319,3 @@ describe('POST /api/admin/wallet-transactions/bulk-process', () => {
     expect(res.status).toBe(500);
   });
 });
-
-function hasUpdate(call: { ops: { op: string }[] }) {
-  return call.ops.some((o) => o.op === 'update');
-}

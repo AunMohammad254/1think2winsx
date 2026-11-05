@@ -5,6 +5,8 @@ import { jsonResponse } from '@/tests/helpers/ui';
 
 const h = vi.hoisted(() => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 vi.mock('sonner', () => ({ toast: h.toast }));
+// Every write sends the CSRF header the admin routes require
+vi.mock('@/lib/csrf', () => ({ getCSRFHeaders: async () => ({ 'x-csrf-token': 'csrf-test-token' }) }));
 
 import WalletTransactionsManager from '@/components/admin/WalletTransactionsManager';
 
@@ -113,6 +115,7 @@ describe('WalletTransactionsManager', () => {
     approve();
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Deposit approved! Funds added to user wallet.', expect.anything()));
     expect(JSON.parse(calls('PATCH')[0][1].body)).toEqual({ transactionId: 't1', action: 'approve' });
+    expect(calls('PATCH')[0][1].headers).toMatchObject({ 'x-csrf-token': 'csrf-test-token' });
 
     fetchMock.mockImplementationOnce(async () => jsonResponse({ error: 'Already processed' }, 409));
     approve();
@@ -135,7 +138,7 @@ describe('WalletTransactionsManager', () => {
     fireEvent.click(within(card('t2')).getByRole('button', { name: /Approve/ }));
     fireEvent.click(within(card('t2')).getByRole('button', { name: /Reject/ }));
     fireEvent.click(screen.getByRole('button', { name: /Reject Deposit/ }));
-    expect(calls('PATCH')).toHaveLength(1);
+    await waitFor(() => expect(calls('PATCH')).toHaveLength(1));
     release(jsonResponse({}));
     await waitFor(() => expect(h.toast.success).toHaveBeenCalled());
   });
@@ -148,6 +151,7 @@ describe('WalletTransactionsManager', () => {
     fireEvent.click(screen.getByRole('button', { name: /Reject Deposit/ }));
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Transaction rejected', expect.anything()));
     expect(JSON.parse(calls('PATCH')[0][1].body)).toEqual({ transactionId: 't1', action: 'reject', notes: 'Wrong amount' });
+    expect(calls('PATCH')[0][1].headers).toMatchObject({ 'x-csrf-token': 'csrf-test-token' });
     expect(screen.queryByText('Reject Deposit', { selector: 'h3' })).toBeNull();
   });
 
@@ -187,6 +191,7 @@ describe('WalletTransactionsManager', () => {
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Done'));
     const post = fetchMock.mock.calls.find(([u]) => u === '/api/admin/wallet-transactions/bulk-process')!;
     expect(JSON.parse(post[1].body)).toEqual({ transactionIds: ['t1', 't2'], action: 'approve' });
+    expect(post[1].headers).toMatchObject({ 'x-csrf-token': 'csrf-test-token' });
     expect(screen.queryByText(/selected$/)).toBeNull();
   });
 
@@ -254,8 +259,10 @@ describe('WalletTransactionsManager', () => {
       upload(container);
       await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('✅ Statement reconciled: 1 transaction(s) auto-approved from 7 statement entries.', { duration: 6000 }));
       expect(h.toast.warning).toHaveBeenCalledWith(expect.stringContaining('1 pending deposit(s) could not be matched'), { duration: 8000 });
-      const form = fetchMock.mock.calls.find(([u]) => u.endsWith('/reconcile'))![1].body as FormData;
-      expect(form.get('auto_approve')).toBe('true');
+      const sent = fetchMock.mock.calls.find(([u]) => u.endsWith('/reconcile'))![1];
+      expect((sent.body as FormData).get('auto_approve')).toBe('true');
+      // The CSRF header only: the browser must set the multipart Content-Type itself
+      expect(sent.headers).toEqual({ 'x-csrf-token': 'csrf-test-token' });
     });
 
     it('selects matches for review when not auto-approving', async () => {

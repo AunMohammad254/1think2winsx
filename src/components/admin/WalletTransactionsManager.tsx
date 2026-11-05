@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { WalletTransaction, TransactionStatus, PaymentMethod } from '@/types/wallet';
+import { getCSRFHeaders } from '@/lib/csrf';
 
 // ============================================
 // Status Configuration
@@ -134,7 +135,7 @@ export default function WalletTransactionsManager() {
         try {
             const response = await fetch('/api/admin/wallet-transactions', {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await getCSRFHeaders()) },
                 body: JSON.stringify({
                     transactionId,
                     action: 'approve',
@@ -169,7 +170,7 @@ export default function WalletTransactionsManager() {
         try {
             const response = await fetch('/api/admin/wallet-transactions', {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await getCSRFHeaders()) },
                 body: JSON.stringify({
                     transactionId,
                     action: 'reject',
@@ -202,7 +203,7 @@ export default function WalletTransactionsManager() {
         try {
             const response = await fetch('/api/admin/wallet-transactions/bulk-process', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(await getCSRFHeaders()) },
                 body: JSON.stringify({
                     transactionIds: Array.from(selectedIds),
                     action,
@@ -244,6 +245,8 @@ export default function WalletTransactionsManager() {
 
             const response = await fetch('/api/admin/wallet-transactions/reconcile', {
                 method: 'POST',
+                // No Content-Type: the browser sets the multipart boundary for FormData
+                headers: await getCSRFHeaders(),
                 body: formData,
             });
 

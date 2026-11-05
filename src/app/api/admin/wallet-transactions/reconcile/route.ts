@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
+import { requireCSRFToken } from '@/lib/csrf-protection';
 import { getAdminDb, notificationDb } from '@/lib/supabase/db';
 import { PDFParse } from 'pdf-parse';
 import { isWalletEnabled } from '@/lib/wallet/service';
@@ -286,6 +287,10 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        // auto_approve credits wallets, so this upload needs the same CSRF check as the other admin writes
+        const csrfValidation = await requireCSRFToken(request);
+        if (csrfValidation) return csrfValidation;
+
         if (!await isWalletEnabled()) {
             return NextResponse.json(
                 { error: 'Wallet feature is currently disabled', code: 'WALLET_DISABLED' },
@@ -373,30 +378,18 @@ export async function POST(request: NextRequest) {
         if (autoApprove && matches.length > 0) {
             for (const match of matches) {
                 try {
-                    // Use approve RPC for atomicity
+                    // Only through the approve RPC: it locks the row and credits the wallet with the status.
+                    // A deposit it fails or refuses stays pending for the admin to review. (A fallback used to
+                    // mark it approved directly, which credited nothing.)
                     const { data, error } = await adminDb.rpc('approve_wallet_transaction', {
                         p_transaction_id: match.pendingTx.id,
                         p_processed_by: `reconcile:${adminSession.email || 'admin'}`,
                     });
 
-                    if (error || !(data as { success?: boolean } | null)?.success) {
-                        // Fallback to direct update
-                        const { error: updateError } = await adminDb
-                            .from('WalletTransaction')
-                            .update({
-                                status: 'approved',
-                                processedBy: `reconcile:${adminSession.email || 'admin'}`,
-                                processedAt: new Date().toISOString(),
-                                adminNotes: `Auto-approved via statement reconciliation. Match type: ${match.matchType}. Confidence: ${match.confidence}.`,
-                                updatedAt: new Date().toISOString(),
-                            })
-                            .eq('id', match.pendingTx.id)
-                            .eq('status', 'pending');
-
-                        if (updateError) {
-                            approvalErrors.push({ id: match.pendingTx.id, error: updateError.message });
-                            continue;
-                        }
+                    const result = data as { success?: boolean; error?: string } | null;
+                    if (error || !result?.success) {
+                        approvalErrors.push({ id: match.pendingTx.id, error: error?.message || result?.error || 'Not approved' });
+                        continue;
                     }
 
                     autoApproved.push(match.pendingTx.id);

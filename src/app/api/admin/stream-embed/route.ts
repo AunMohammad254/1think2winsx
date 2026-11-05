@@ -2,6 +2,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
+import { requireCSRFToken } from '@/lib/csrf-protection';
 import { getAdminDb } from '@/lib/supabase/db';
 import sanitizeHtml from 'sanitize-html';
 
@@ -68,6 +69,10 @@ export async function POST(req: NextRequest) {
     if (authResult instanceof NextResponse) {
       return authResult;
     }
+
+    // It changes the embed every player sees, so it needs the same CSRF check as the other admin writes
+    const csrfValidation = await requireCSRFToken(req);
+    if (csrfValidation) return csrfValidation;
 
     const body = await req.json();
     const embedHtmlRaw = (body?.embedHtml ?? '').toString();
