@@ -652,8 +652,11 @@ describe('quizzes page: live mode (a big event)', () => {
   ], { walletEnabled: true, liveMode: LIVE_MODE, ...over });
   /** The page's timer of `ms` (the random start of live mode), run now */
   const runTimer = async (timers: { mock: { calls: unknown[][] } }, ms: number) => {
-    const call = timers.mock.calls.find(([, delay]) => delay === ms);
-    expect(call).toBeDefined();
+    let call;
+    await waitFor(() => {
+      call = timers.mock.calls.find(([, delay]) => delay === ms);
+      expect(call).toBeDefined();
+    });
     await act(async () => { (call![0] as () => void)(); });
   };
 
@@ -677,6 +680,7 @@ describe('quizzes page: live mode (a big event)', () => {
     expect(livePersonalPoll().opts).toMatchObject({ jitterMs: 360_000, enabled: false });
 
     // 10 minutes in (half of 20): the personal list, then the poll from there
+    console.log("TIMERS", timers.mock.calls);
     await runTimer(timers, 600_000);
     await waitFor(() => expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes', undefined, { retries: 2 }));
     expect(livePersonalPoll().opts.enabled).toBe(true);
