@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
-import { Plus, Trash2, GripVertical, Check, X, Save, Loader2, ChevronDown, ChevronUp, Trophy } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import {
     QuizFormSchema,
     QuizFormData,
@@ -12,8 +12,12 @@ import {
     defaultQuiz
 } from '@/lib/schemas/QuizFormSchema';
 import { createQuiz, updateQuiz } from '@/actions/quiz-actions';
-import { MAX_ENTRIES_LIMIT, MAX_POINTS_POOL } from '@/lib/quiz-entries';
-import DateTimePicker from '@/components/ui/DateTimePicker';
+import { isTimedStatus } from './quiz-form/constants';
+import QuizDetailsSection from './quiz-form/QuizDetailsSection';
+import PrizeLinkSection, { type PrizeOption } from './quiz-form/PrizeLinkSection';
+import QuestionCard from './quiz-form/QuestionCard';
+import FormErrorSummary from './quiz-form/FormErrorSummary';
+import FormActions from './quiz-form/FormActions';
 
 interface QuizFormBuilderProps {
     initialData?: QuizFormData;
@@ -21,28 +25,11 @@ interface QuizFormBuilderProps {
     onCancel?: () => void;
 }
 
-const difficultyOptions = [
-    { value: 'easy', label: 'Easy', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
-    { value: 'medium', label: 'Medium', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
-    { value: 'hard', label: 'Hard', color: 'bg-red-500/20 text-red-400 border-red-500/30' },
-];
-
-const statusOptions = [
-    { value: 'draft', label: 'Draft', color: 'bg-gray-500/20 text-gray-400 border-gray-500/30' },
-    { value: 'active', label: 'Published', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
-    { value: 'paused', label: 'Paused', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
-    { value: 'scheduled', label: 'Scheduled', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
-    { value: 'upcoming', label: 'Upcoming', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
-];
-
-// Statuses that go live on their own at `startsAt`, so they need a date.
-const isTimedStatus = (status?: string) => status === 'scheduled' || status === 'upcoming';
-
 export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: QuizFormBuilderProps) {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [expandedQuestions, setExpandedQuestions] = useState<number[]>([0]);
     const [showPrizeSection, setShowPrizeSection] = useState(!!initialData?.prizeId);
-    const [prizes, setPrizes] = useState<Array<{ id: string; name: string; description: string | null }>>([]);
+    const [prizes, setPrizes] = useState<PrizeOption[]>([]);
     const [walletEnabled, setWalletEnabled] = useState(true);
 
     const isEditing = !!initialData?.id;
@@ -211,353 +198,24 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
 
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-            {/* Quiz Basic Info */}
-            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6 relative z-50">
-                <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold text-white">Quiz Details</h2>
-                    
-                    {/* Quiz Type Toggle */}
-                    <Controller
-                        name="quizType"
-                        control={control}
-                        render={({ field }) => (
-                            <div className="flex bg-gray-900/80 border border-white/10 rounded-lg p-1">
-                                <button
-                                    type="button"
-                                    onClick={() => field.onChange('normal')}
-                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                                        field.value === 'normal' 
-                                            ? 'bg-purple-600 text-white shadow' 
-                                            : 'text-gray-400 hover:text-white'
-                                    }`}
-                                >
-                                    Normal
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        field.onChange('predictable');
-                                        // Reset correct options when switching to predictable
-                                        const currentQuestions = watch('questions');
-                                        currentQuestions.forEach((_, idx) => {
-                                            setValue(`questions.${idx}.correctOption`, null as any, { shouldValidate: true });
-                                        });
-                                    }}
-                                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                                        field.value === 'predictable' 
-                                            ? 'bg-blue-600 text-white shadow' 
-                                            : 'text-gray-400 hover:text-white'
-                                    }`}
-                                >
-                                    Predictable
-                                </button>
-                            </div>
-                        )}
-                    />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Title */}
-                    <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Quiz Title <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                            {...register('title')}
-                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                            placeholder="Enter quiz title"
-                        />
-                        {errors.title && (
-                            <p className="mt-1 text-sm text-red-400">{errors.title.message}</p>
-                        )}
-                    </div>
-
-                    {/* Description */}
-                    <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Description
-                        </label>
-                        <textarea
-                            {...register('description')}
-                            rows={3}
-                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all resize-none"
-                            placeholder="Enter quiz description (optional)"
-                        />
-                    </div>
-
-                    {/* Duration */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Duration (minutes) <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                            type="number"
-                            {...register('duration', { valueAsNumber: true })}
-                            min={1}
-                            max={180}
-                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                        />
-                        {errors.duration && (
-                            <p className="mt-1 text-sm text-red-400">{errors.duration.message}</p>
-                        )}
-                    </div>
-
-                    {/* Time-Up Display Duration */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            "Time-up" Display Duration (minutes) <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                            type="number"
-                            {...register('timeUpDuration', { valueAsNumber: true })}
-                            min={1}
-                            max={1440}
-                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                        />
-                        {errors.timeUpDuration && (
-                            <p className="mt-1 text-sm text-red-400">{errors.timeUpDuration.message as string}</p>
-                        )}
-                    </div>
-
-                    {/* Passing Score */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Passing Score (%) <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                            type="number"
-                            {...register('passingScore', { valueAsNumber: true })}
-                            min={0}
-                            max={100}
-                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                        />
-                        {errors.passingScore && (
-                            <p className="mt-1 text-sm text-red-400">{errors.passingScore.message}</p>
-                        )}
-                    </div>
-
-                    {/* Entry limit (admin-only) */}
-                    <div>
-                        <label htmlFor="quiz-max-entries" className="block text-sm font-medium text-gray-300 mb-2">
-                            Entry Limit (players) <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                            id="quiz-max-entries"
-                            type="number"
-                            {...register('maxEntries', { valueAsNumber: true })}
-                            min={1}
-                            max={MAX_ENTRIES_LIMIT}
-                            step={1}
-                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">The first players to lock in an answer get in; later players are told entries have closed. Players never see this number.</p>
-                        {errors.maxEntries && (
-                            <p className="mt-1 text-sm text-red-400">{errors.maxEntries.message}</p>
-                        )}
-                    </div>
-
-                    {/* Points pool (admin-only) */}
-                    <div>
-                        <label htmlFor="quiz-points-pool" className="block text-sm font-medium text-gray-300 mb-2">
-                            Points Pool
-                        </label>
-                        <input
-                            id="quiz-points-pool"
-                            type="number"
-                            {...register('pointsPool', { valueAsNumber: true })}
-                            min={0}
-                            max={MAX_POINTS_POOL}
-                            step={1}
-                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">When you settle the quiz, choose a percentage of the players who got in: the earliest of them who scored share this whole pool in random amounts.</p>
-                        {errors.pointsPool && (
-                            <p className="mt-1 text-sm text-red-400">{errors.pointsPool.message}</p>
-                        )}
-                    </div>
-
-                    {/* Access Price */}
-                    <div className={walletEnabled ? 'block' : 'hidden'}>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Access Price (PKR) <span className="text-red-400">*</span>
-                        </label>
-                        <div className="relative">
-                            <input
-                                type="number"
-                                {...register('accessPrice', { valueAsNumber: true })}
-                                min={0}
-                                max={1000}
-                                step={0.5}
-                                className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                                placeholder="2"
-                            />
-                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm">PKR</span>
-                        </div>
-                        <p className="mt-1 text-xs text-gray-500">Price users pay for 24-hour quiz access</p>
-                        {errors.accessPrice && (
-                            <p className="mt-1 text-sm text-red-400">{errors.accessPrice.message}</p>
-                        )}
-                    </div>
-
-                    {/* Difficulty */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Difficulty
-                        </label>
-                        <Controller
-                            name="difficulty"
-                            control={control}
-                            render={({ field }) => (
-                                <div className="flex gap-2">
-                                    {difficultyOptions.map((option) => (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => field.onChange(option.value)}
-                                            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border transition-all ${field.value === option.value
-                                                ? option.color
-                                                : 'bg-gray-800/50 text-gray-400 border-white/5 hover:border-white/10'
-                                                }`}
-                                        >
-                                            {option.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        />
-                    </div>
-
-                    {/* Status */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                            Status
-                        </label>
-                        <Controller
-                            name="status"
-                            control={control}
-                            render={({ field }) => (
-                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                                    {statusOptions.map((option) => (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => field.onChange(option.value)}
-                                            className={`py-2 px-3 rounded-lg text-sm font-medium border transition-all ${field.value === option.value
-                                                ? option.color
-                                                : 'bg-gray-800/50 text-gray-400 border-white/5 hover:border-white/10'
-                                                }`}
-                                        >
-                                            {option.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        />
-                    </div>
-
-                    {/* Schedule Date-Time Picker */}
-                    {isTimedStatus(watchedStatus) && (
-                        <div className="md:col-span-2 space-y-2 animate-in fade-in slide-in-from-top-1 duration-200 relative z-50">
-                            <label className="block text-sm font-medium text-gray-300">
-                                Publish Schedule Date & Time <span className="text-red-400">*</span>
-                            </label>
-                            <Controller
-                                name="startsAt"
-                                control={control}
-                                render={({ field }) => (
-                                    <DateTimePicker
-                                        id="startsAt"
-                                        value={field.value || ''}
-                                        onChange={field.onChange}
-                                        placeholder="Select date and time"
-                                        className="w-full"
-                                    />
-                                )}
-                            />
-                            {errors.startsAt && (
-                                <p className="text-xs text-red-400">{errors.startsAt.message}</p>
-                            )}
-                            <p className="text-xs text-gray-500">Select when this quiz should automatically go live and notify users.</p>
-                        </div>
-                    )}
-                </div>
-            </div>
+            <QuizDetailsSection
+                control={control}
+                register={register}
+                watch={watch}
+                setValue={setValue}
+                errors={errors}
+                walletEnabled={walletEnabled}
+                watchedStatus={watchedStatus}
+            />
 
             {/* Prize Link Section (optional, collapsible) */}
-            <div className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
-                <button
-                    type="button"
-                    onClick={() => setShowPrizeSection(prev => !prev)}
-                    className="w-full flex items-center justify-between p-5 hover:bg-white/5 transition-colors"
-                >
-                    <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                            watchedPrizeId ? 'bg-yellow-500/20' : 'bg-gray-700/50'
-                        }`}>
-                            <Trophy className={`w-4 h-4 ${watchedPrizeId ? 'text-yellow-400' : 'text-gray-500'}`} />
-                        </div>
-                        <div className="text-left">
-                            <p className="text-white font-medium text-sm">Link to Prize</p>
-                            <p className="text-gray-500 text-xs">
-                                {watchedPrizeId
-                                    ? `Prize linked: ${prizes.find(p => p.id === watchedPrizeId)?.name ?? watchedPrizeId}`
-                                    : 'Optional: shows this prize on the quiz card. You award prizes when you settle the quiz'}
-                            </p>
-                        </div>
-                    </div>
-                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showPrizeSection ? 'rotate-180' : ''}`} />
-                </button>
-
-                {showPrizeSection && (
-                    <div className="px-5 pb-5 space-y-4 border-t border-white/5">
-                        <div className="pt-4">
-                            <label className="block text-sm font-medium text-gray-300 mb-2">Select Prize</label>
-                            <Controller
-                                name="prizeId"
-                                control={control}
-                                render={({ field }) => (
-                                    <select
-                                        value={field.value ?? ''}
-                                        onChange={e => field.onChange(e.target.value || null)}
-                                        className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-yellow-500/50 focus:ring-1 focus:ring-yellow-500/25 transition-all"
-                                    >
-                                        <option value="">— No prize (regular quiz) —</option>
-                                        {prizes.map(prize => (
-                                            <option key={prize.id} value={prize.id}>{prize.name}</option>
-                                        ))}
-                                    </select>
-                                )}
-                            />
-                            {prizes.length === 0 && (
-                                <p className="text-xs text-gray-500 mt-1">No active prizes found. Create a prize in Prize Management first.</p>
-                            )}
-                        </div>
-
-                        <Controller
-                            name="isBumperPrize"
-                            control={control}
-                            render={({ field }) => (
-                                <label className="flex items-center gap-3 cursor-pointer select-none">
-                                    <div
-                                        onClick={() => field.onChange(!field.value)}
-                                        className={`w-10 h-6 rounded-full transition-all flex-shrink-0 ${
-                                            field.value ? 'bg-yellow-500' : 'bg-gray-700'
-                                        } relative`}
-                                    >
-                                        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${
-                                            field.value ? 'left-5' : 'left-1'
-                                        }`} />
-                                    </div>
-                                    <div>
-                                        <p className="text-white text-sm font-medium">Bumper Prize</p>
-                                        <p className="text-gray-500 text-xs">Mark as a special bumper prize draw</p>
-                                    </div>
-                                </label>
-                            )}
-                        />
-                    </div>
-                )}
-            </div>
+            <PrizeLinkSection
+                control={control}
+                isOpen={showPrizeSection}
+                onToggle={() => setShowPrizeSection(prev => !prev)}
+                prizes={prizes}
+                watchedPrizeId={watchedPrizeId}
+            />
 
             {/* Questions Section */}
             <div className="space-y-4">
@@ -575,217 +233,35 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
                     </button>
                 </div>
 
-                {/* Question Cards */}
-                {questionFields.map((field, questionIndex) => {
-                    const isExpanded = expandedQuestions.includes(questionIndex);
-                    const questionErrors = errors.questions?.[questionIndex];
-                    const currentQuestion = watchedQuestions[questionIndex];
-
-                    return (
-                        <div
-                            key={field.id}
-                            className="bg-gradient-to-br from-gray-900/80 to-gray-800/60 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden"
-                        >
-                            {/* Question Header */}
-                            <div
-                                className="flex items-center justify-between p-4 cursor-pointer hover:bg-white/5 transition-colors"
-                                onClick={() => toggleQuestion(questionIndex)}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <GripVertical className="w-5 h-5 text-gray-500" />
-                                    <span className="text-white font-medium">
-                                        Question {questionIndex + 1}
-                                    </span>
-                                    {currentQuestion?.text && (
-                                        <span className="text-gray-400 text-sm truncate max-w-xs">
-                                            — {currentQuestion.text}
-                                        </span>
-                                    )}
-                                    {questionErrors && (
-                                        <span className="px-2 py-0.5 text-xs bg-red-500/20 text-red-400 rounded-full">
-                                            Has errors
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); handleMoveQuestion(questionIndex, 'up'); }}
-                                        disabled={questionIndex === 0}
-                                        className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        <ChevronUp className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); handleMoveQuestion(questionIndex, 'down'); }}
-                                        disabled={questionIndex === questionFields.length - 1}
-                                        className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        <ChevronDown className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); handleRemoveQuestion(questionIndex); }}
-                                        className="p-1.5 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                    {isExpanded ? (
-                                        <ChevronUp className="w-5 h-5 text-gray-400" />
-                                    ) : (
-                                        <ChevronDown className="w-5 h-5 text-gray-400" />
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Question Content */}
-                            {isExpanded && (
-                                <div className="p-6 pt-0 space-y-6">
-                                    {/* Question Text */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                                            Question Text <span className="text-red-400">*</span>
-                                        </label>
-                                        <textarea
-                                            {...register(`questions.${questionIndex}.text`)}
-                                            rows={2}
-                                            className="w-full px-4 py-3 bg-gray-900/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all resize-none"
-                                            placeholder="Enter your question"
-                                        />
-                                        {questionErrors?.text && (
-                                            <p className="mt-1 text-sm text-red-400">{questionErrors.text.message}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Options */}
-                                    <div>
-                                        <div className="flex items-center justify-between mb-3">
-                                            <label className="text-sm font-medium text-gray-300">
-                                                Answer Options <span className="text-red-400">*</span>
-                                            </label>
-                                            {watchedQuizType === 'normal' ? (
-                                                <span className="text-xs text-gray-500">
-                                                    Click the check to mark correct answer
-                                                </span>
-                                            ) : (
-                                                <span className="text-xs text-blue-400 font-medium bg-blue-500/10 px-2 py-1 rounded-md">
-                                                    Answers will be evaluated later by Admin
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            {currentQuestion?.options?.map((option, optionIndex) => (
-                                                <div key={optionIndex} className="flex items-center gap-3">
-                                                    {/* Correct Answer Toggle */}
-                                                    {watchedQuizType === 'normal' && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setCorrectAnswer(questionIndex, optionIndex)}
-                                                            className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all ${option.isCorrect
-                                                                ? 'bg-green-500 text-white'
-                                                                : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                                                                }`}
-                                                        >
-                                                            <Check className="w-4 h-4" />
-                                                        </button>
-                                                    )}
-
-                                                    {/* Option Input */}
-                                                    <input
-                                                        {...register(`questions.${questionIndex}.options.${optionIndex}.text`)}
-                                                        className="flex-1 px-4 py-2.5 bg-gray-900/50 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/25 transition-all"
-                                                        placeholder={`Option ${optionIndex + 1}`}
-                                                    />
-
-                                                    {/* Remove Option */}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeOption(questionIndex, optionIndex)}
-                                                        className="flex-shrink-0 p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                                    >
-                                                        <X className="w-4 h-4" />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        {currentQuestion?.options && currentQuestion.options.length < 6 && (
-                                            <button
-                                                type="button"
-                                                onClick={() => addOption(questionIndex)}
-                                                className="mt-3 flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300 transition-colors"
-                                            >
-                                                <Plus className="w-4 h-4" />
-                                                Add Option
-                                            </button>
-                                        )}
-
-                                        {questionErrors?.correctOption?.message && (
-                                            <p className="mt-2 text-sm text-red-400">{questionErrors.correctOption.message}</p>
-                                        )}
-                                        {questionErrors?.options && (
-                                            <p className="mt-2 text-sm text-red-400">
-                                                {questionErrors.options.message ?? 'Every option needs text'}
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+                {questionFields.map((field, questionIndex) => (
+                    <QuestionCard
+                        key={field.id}
+                        questionIndex={questionIndex}
+                        questionCount={questionFields.length}
+                        isExpanded={expandedQuestions.includes(questionIndex)}
+                        question={watchedQuestions[questionIndex]}
+                        questionErrors={errors.questions?.[questionIndex]}
+                        quizType={watchedQuizType}
+                        register={register}
+                        onToggle={toggleQuestion}
+                        onMove={handleMoveQuestion}
+                        onRemove={handleRemoveQuestion}
+                        onSetCorrect={setCorrectAnswer}
+                        onAddOption={addOption}
+                        onRemoveOption={removeOption}
+                    />
+                ))}
             </div>
 
             {/* Global Error Display for Debugging */}
-            {Object.keys(errors).length > 0 && (
-                <div className="mt-4 p-4 bg-red-500/10 border border-red-500/50 rounded-xl">
-                    <h3 className="text-red-400 font-semibold mb-2">Please fix the following errors to save:</h3>
-                    <ul className="list-disc list-inside text-sm text-red-300">
-                        {Object.entries(errors).map(([key, error]: any) => (
-                            <li key={key}>
-                                {key}: {error.message || 'Errors in list' /* only the questions array has no message of its own */}
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
+            <FormErrorSummary errors={errors} />
 
-            {/* Form Actions */}
-            <div className="flex items-center justify-between pt-6 border-t border-white/10">
-                <div className="text-sm text-gray-400">
-                    {isDirty && 'You have unsaved changes'}
-                </div>
-                <div className="flex gap-3">
-                    {onCancel && (
-                        <button
-                            type="button"
-                            onClick={onCancel}
-                            className="px-6 py-3 rounded-xl font-medium text-gray-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
-                        >
-                            Cancel
-                        </button>
-                    )}
-                    <button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isSubmitting ? (
-                            <>
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                                {isEditing ? 'Updating...' : 'Creating...'}
-                            </>
-                        ) : (
-                            <>
-                                <Save className="w-5 h-5" />
-                                {isEditing ? 'Update Quiz' : 'Create Quiz'}
-                            </>
-                        )}
-                    </button>
-                </div>
-            </div>
+            <FormActions
+                isDirty={isDirty}
+                isEditing={isEditing}
+                isSubmitting={isSubmitting}
+                onCancel={onCancel}
+            />
         </form>
     );
 }
