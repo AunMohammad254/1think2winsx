@@ -3,7 +3,14 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { isStaleAuthTokenError } from './auth-error-filter'
 
 // Routes that require a signed-in user.
-const PROTECTED_PREFIXES = ['/profile', '/quiz', '/quizzes']
+const PROTECTED_PREFIXES = ['/profile', '/quiz']
+/**
+ * Pages Cloudflare serves from its cache to signed-in players too (deploy/cloudflare-page-cache-rule.json):
+ * one prerendered HTML for everyone, whose data loads in the browser. Nothing here may differ per visitor,
+ * so the proxy never refreshes a session, sets a cookie or redirects on them: the browser's Supabase client
+ * keeps the session fresh, and the page sends a signed-out visitor to /login itself.
+ */
+const SHARED_PAGES = new Set(['/quizzes'])
 // Signed-in users are bounced away from these.
 const AUTH_PATHS = new Set(['/login', '/register'])
 
@@ -47,13 +54,14 @@ function authSessionNeedsRefresh(request: NextRequest): boolean {
  *
  * Performance: this used to call `supabase.auth.getUser()` (a network round-trip
  * to Supabase Auth) on EVERY page request. It now:
- *  - skips Supabase entirely for public pages (landing, FAQ, leaderboard, ...),
+ *  - skips Supabase entirely for public pages (landing, FAQ, leaderboard, ...) and SHARED_PAGES,
  *  - skips it for protected pages when no auth cookie exists (straight redirect),
  *  - uses `getClaims()`, which verifies the JWT locally when the project uses
  *    asymmetric JWT signing keys (and falls back to getUser() otherwise).
  */
 export async function updateSession(request: NextRequest) {
     const { pathname } = request.nextUrl
+    if (SHARED_PAGES.has(pathname)) return NextResponse.next({ request })
     const isProtected = PROTECTED_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))
     const isAuthPath = AUTH_PATHS.has(pathname)
 

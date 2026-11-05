@@ -6,6 +6,7 @@
  */
 import { getAdminDb, notificationDb, fetchAllByKeyset } from '@/lib/supabase/db';
 import { answeringClosesAt, quizStage, type QuizStage } from '@/lib/quiz-stage';
+import { lockinDrain } from '@/lib/lockin-drain';
 import { invalidateQuizCatalog } from '@/lib/quiz-catalog';
 import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings, type QuizAdminSettings } from '@/lib/quiz-admin-settings';
 import { formatCount } from '@/lib/numbers';
@@ -341,6 +342,21 @@ export async function saveQuizResult(quizId: string, answers: Record<string, num
     if (!Number.isInteger(option) || option < 0 || option >= q.options.length) {
       return { ok: false, status: 400, code: 'invalid', error: `Choose the correct option for: ${q.text}` };
     }
+  }
+
+  // Lock-ins queued at the edge must all be in first: the result closes the questions to them (lockin-drain.ts)
+  let drain: Awaited<ReturnType<typeof lockinDrain>>;
+  try {
+    drain = await lockinDrain(quizId);
+  } catch (error) {
+    console.error('[quiz-settlement] Checking the lock-in queue failed:', error);
+    return { ok: false, status: 503, code: 'drain_unknown', error: "Couldn't check that every queued answer is saved. Try again in a minute." };
+  }
+  if (drain && drain.processed < drain.received) {
+    return {
+      ok: false, status: 409, code: 'answers_arriving',
+      error: `Answers are still arriving: ${drain.processed.toLocaleString('en-US')} of ${drain.received.toLocaleString('en-US')} saved. Try again in a minute.`,
+    };
   }
 
   // Every question's result and the scores in one transaction (save_quiz_result, migration 20261024150000):

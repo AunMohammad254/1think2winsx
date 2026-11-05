@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
+import { LIVE_MODE_EVENT, NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
 
 const h = vi.hoisted(() => {
   const state = { user: { id: 'u1' } as { id: string } | null, poll: null as null | { task: () => Promise<boolean | void>; opts: { enabled: boolean } } };
@@ -239,6 +239,53 @@ describe('useNotifications: badge updates without a Realtime connection', () => 
     const calls = fetchMock.mock.calls.length;
     await act(async () => { await h.state.poll!.task(); });
     expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
+  it('asks for no count of its own on the quiz page, whose personal list brings it', async () => {
+    window.history.replaceState(null, '', '/quizzes');
+    try {
+      const { result } = renderHook(() => mod.useNotifications());
+      await act(async () => {});
+      expect(fetchMock).not.toHaveBeenCalledWith('/api/notifications?countOnly=1');
+      act(() => { window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: 3 })); });
+      expect(result.current.unreadCount).toBe(3);
+      // The first count is the baseline there too, not news
+      expect(h.toast).not.toHaveBeenCalled();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it("in live mode, polls on the quiz page's schedule and, there, never asks on its own", async () => {
+    const { result } = renderHook(() => mod.useNotifications());
+    await waitFor(() => expect(result.current.unreadCount).toBe(2));
+    act(() => { window.dispatchEvent(new CustomEvent(LIVE_MODE_EVENT, { detail: { personalPollS: 1800 } })); });
+    // 30 min ±10%
+    expect(h.state.poll!.opts).toMatchObject({ enabled: true, intervalMs: 1_620_000, jitterMs: 360_000 });
+    const poll = h.state.poll;
+    // The same mode again keeps the poll as it is
+    act(() => { window.dispatchEvent(new CustomEvent(LIVE_MODE_EVENT, { detail: { personalPollS: 1800 } })); });
+    expect(h.state.poll!.task).toBe(poll!.task);
+
+    // The quiz page's personal list brings a count at most 33 minutes apart: 35 minutes on, still recent
+    let now = Date.now();
+    const later = (ms: number) => { now += ms; vi.spyOn(Date, 'now').mockReturnValue(now); };
+    // The clock is frozen before the count arrives: on a slow machine the real clock moved on a few ms
+    // before it, and "36 minutes on" was then still inside the 36-minute window
+    later(0);
+    act(() => { window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: 2 })); });
+    later(35 * 60_000);
+    const calls = fetchMock.mock.calls.length;
+    await act(async () => { await h.state.poll!.task(); });
+    expect(fetchMock.mock.calls.length).toBe(calls);
+    // Off the quiz page no count comes: after 36 minutes it asks
+    later(60_000);
+    await act(async () => { await h.state.poll!.task(); });
+    expect(fetchMock.mock.calls.length).toBe(calls + 1);
+
+    // Live mode over: the usual 5-minute poll
+    act(() => { window.dispatchEvent(new CustomEvent(LIVE_MODE_EVENT, { detail: null })); });
+    expect(h.state.poll!.opts).toMatchObject({ intervalMs: 300_000, jitterMs: 60_000 });
   });
 
   it('counts a quiz the stream just announced at once, silently, and reloads the list on the next open', async () => {

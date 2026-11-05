@@ -219,8 +219,15 @@ describe('settlement with a points pool', () => {
     const r = await settle(quizId, { rewards: [{ rank: 1, points: 50 }, { rank: 2, points: 25 }, { rank: 3, points: 10 }], percent: 100 });
     expect(r.participants).toBe(5);
     expect(r.winners.map((w: { userId: string }) => w.userId)).toEqual([players[3], players[4], expect.any(String)]);
-    expect(r.pool).toMatchObject({ places: 5, eligible: 4, recipients: 4, paid: 900 });
-    expect(Object.keys(await shares(quizId)).sort()).toEqual([players[0], players[2], players[3], players[4]].sort());
+    expect(r.pool).toMatchObject({ places: 5, eligible: 4, paid: 900 });
+    // Every scorer can share the pool, including the two past the lowered limit. A random share comes from the
+    // player's id, which is new each run, and about 1 run in 150 one of the 4 shares of 900 rounds down to 0:
+    // that player then gets no share row, so only who could get one is fixed here
+    const paid = await shares(quizId);
+    expect(r.pool.recipients).toBe(Object.keys(paid).length);
+    expect(r.pool.recipients).toBeGreaterThanOrEqual(3);
+    expect([players[0], players[2], players[3], players[4]]).toEqual(expect.arrayContaining(Object.keys(paid)));
+    expect(Object.values(paid).every((points) => points > 0)).toBe(true);
   });
 
   it('gives the same shares for the same seed, and the preview pays what the settle pays', async () => {

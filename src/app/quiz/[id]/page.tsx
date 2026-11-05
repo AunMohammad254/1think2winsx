@@ -6,6 +6,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
+import { LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
 import { useQuizCountdown } from '@/hooks/useQuizCountdown';
 import { answeredOnly } from '@/lib/quiz-answers';
 import QuizResults from '@/components/QuizResults';
@@ -48,7 +49,16 @@ interface SubmissionResult {
   results?: {
     submittedAnswers?: number;
     note?: string;
+    /** 'received': the edge Worker took the answers, and saves them shortly (src/lib/lock-in.ts) */
+    status?: string;
   };
+}
+
+/** The answers are in: what the submit's response says, worded for a lock-in the edge Worker queued (202). */
+async function submissionOf(response: Response): Promise<SubmissionResult> {
+  const result: SubmissionResult = await response.json();
+  if (response.status !== LOCK_IN_RECEIVED) return result;
+  return { ...result, message: 'Your answers were received!' };
 }
 
 export default function QuizPage() {
@@ -187,22 +197,24 @@ export default function QuizPage() {
       }
 
       // Idempotent in the database (one attempt per user and quiz), so overload responses
-      // (502/503/504) are retried with jittered backoff; 429 is the real per-user limit.
-      const response = await fetchWithRetry(`/api/quizzes/${quizId}/submit`, {
+      // (502/503/504) are retried with jittered backoff; 429 is the real per-user limit. A lapsed
+      // session is refreshed and sent once more (sendLockIn).
+      const response = await sendLockIn(() => fetchWithRetry(`/api/quizzes/${quizId}/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken, // checked above
         },
         body: JSON.stringify({ answers: toSend }),
-      }, { retries: 4, retryOn: [502, 503, 504] });
+      }, { retries: 4, retryOn: [502, 503, 504] }));
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || errorData.message || 'Failed to submit quiz');
       }
 
-      const result = await response.json();
+      // 200 from Hostinger, or 202 from the edge Worker's queue: either way the answers are in
+      const result = await submissionOf(response);
       try {
         localStorage.setItem(`1t2w_sub_${quizId}`, '1');
       } catch {
@@ -250,7 +262,7 @@ export default function QuizPage() {
             throw new Error('CSRF verification failed');
           }
 
-          const response = await fetch(`/api/quizzes/${quizId}/submit`, {
+          const response = await sendLockIn(() => fetch(`/api/quizzes/${quizId}/submit`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -258,13 +270,13 @@ export default function QuizPage() {
             },
             // Saved before the fix, it may still hold unanswered questions
             body: JSON.stringify({ answers: answeredOnly(pendingData.answers) }),
-          });
+          }));
 
           if (!response.ok) {
             throw new Error('Submission failed');
           }
 
-          const result = await response.json();
+          const result = await submissionOf(response);
           localStorage.removeItem(pendingKey);
           setSubmissionResult(result);
           setShowResults(true);

@@ -38,6 +38,12 @@ wrong SQL. Covered so far:
   change, so production's `on_auth_user_created` trigger hands a returning player their old `"User"`
   row (with its notifications) and they can lock in answers; the migration's repair of accounts left
   without a row, and that it never takes a row from a live account
+- Lock-ins saved in batches from the edge queue (migration `06-20261104180000`): `submit_lockin_batch`
+  judges each lock-in at the time the edge received it (the window and its 30 s grace, a quiz the
+  scheduler paused, a day pass, questions closed or answered), takes new players first come first
+  served up to the entry limit, keeps a player's earliest pick in a batch and across batches, saves one
+  attempt when two batches race for the same new player, refuses malformed lock-ins one by one, sends a
+  bell notice for each refusal, counts every lock-in in `"LockinDrain"`, and is the service role's only
 
 ## Running locally
 

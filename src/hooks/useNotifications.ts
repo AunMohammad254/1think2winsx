@@ -5,14 +5,21 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { toast } from 'sonner';
 import { useJitteredPolling } from '@/hooks/useJitteredPolling';
-import { NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT } from '@/lib/live-catalog';
+import { liveModePolling, LIVE_MODE_EVENT, NEW_NOTICE_EVENT, UNREAD_COUNT_EVENT, type LiveMode } from '@/lib/live-catalog';
 import { playChime, SOUND_SETTING_KEY } from '@/lib/notification-sound';
 
 export { playChime };
 
 // The badge's safety-net poll, and how recent a count from the quiz page must be to skip it
-const UNREAD_POLL_MS = 5 * 60_000;
+const UNREAD_POLL = { intervalMs: 5 * 60_000, jitterMs: 60_000 };
 const RECENT_COUNT_MS = 4 * 60_000;
+/**
+ * In live mode the poll follows the quiz page's (personalPollS ±10%), and a count counts as recent for
+ * longer than the page's slowest poll: on the quiz page the bell then never asks on its own.
+ */
+const liveRecentCountMs = (liveMode: LiveMode) => liveMode.personalPollS * 1_200;
+/** Its personal list carries the unread count (UNREAD_COUNT_EVENT), so the bell asks for none there. */
+const QUIZZES_PATH = '/quizzes';
 
 export interface Notification {
   id: string;
@@ -345,12 +352,13 @@ export function useNotifications() {
   }, []);
 
   // On load / login fetch only the unread count for the badge; the list loads when the bell opens.
+  // Not on the quiz page, whose own list brings the count: a crowd opening it at once would double up.
   useEffect(() => {
     listLoadedRef.current = false;
     setListLoaded(false);
     countKnownRef.current = false;
     if (userId) {
-      fetchUnreadCount();
+      if (window.location.pathname !== QUIZZES_PATH) fetchUnreadCount();
     } else {
       setNotifications([]);
       setUnreadCount(0);
@@ -383,11 +391,24 @@ export function useNotifications() {
     initPush();
   }, [userId, subscribeToPush]);
 
-  // Safety-net poll of the badge count: 5 min + 0-1 min jitter, paused while the tab is hidden,
-  // and skipped when the quiz page delivered a count recently
+  // Live mode (a big event), as the quiz page last saw it in the live snapshot
+  const [liveMode, setLiveMode] = useState<LiveMode | null>(null);
+  useEffect(() => {
+    const onLiveMode = (event: Event) => {
+      const next = (event as CustomEvent<LiveMode | null>).detail;
+      // The same object while the mode stays as it is, so the poll keeps its timer
+      setLiveMode((prev) => (prev?.personalPollS === next?.personalPollS ? prev : next));
+    };
+    window.addEventListener(LIVE_MODE_EVENT, onLiveMode);
+    return () => window.removeEventListener(LIVE_MODE_EVENT, onLiveMode);
+  }, []);
+  const recentCountMs = liveMode ? liveRecentCountMs(liveMode) : RECENT_COUNT_MS;
+
+  // Safety-net poll of the badge count: 5 min + 0-1 min jitter (in live mode the quiz page's timing),
+  // paused while the tab is hidden, and skipped when the quiz page delivered a count recently
   const pollUnreadCount = useCallback(async (): Promise<boolean> => {
     if (!userId) return true;
-    if (Date.now() - countReceivedAtRef.current < RECENT_COUNT_MS) return true;
+    if (Date.now() - countReceivedAtRef.current < recentCountMs) return true;
     try {
       const res = await fetch('/api/notifications?countOnly=1');
       if (!res.ok) return false;
@@ -397,8 +418,8 @@ export function useNotifications() {
     } catch {
       return false;
     }
-  }, [userId, applyUnreadCount]);
-  useJitteredPolling(pollUnreadCount, { intervalMs: UNREAD_POLL_MS, jitterMs: 60_000, enabled: !!userId });
+  }, [userId, applyUnreadCount, recentCountMs]);
+  useJitteredPolling(pollUnreadCount, { ...(liveMode ? liveModePolling(liveMode) : UNREAD_POLL), enabled: !!userId });
 
   // On the quiz page, the personal list carries the count: no request of our own
   useEffect(() => {

@@ -12,6 +12,8 @@ const recordSecurityEvent = vi.fn();
 const requirePaymentAccess = vi.fn();
 const getActiveQuizCatalog = vi.fn();
 const getLiveMatches = vi.fn();
+const getMaxOpenEntryLimit = vi.fn();
+const isEventMode = vi.fn();
 const getCatalogQuiz = vi.fn();
 const isWalletEnabled = vi.fn();
 const findFirstActive = vi.fn();
@@ -41,7 +43,12 @@ vi.mock('@/lib/quiz-catalog', async (importOriginal) => ({
   QUIZ_ENDED_MESSAGE: (await importOriginal<typeof import('@/lib/quiz-catalog')>()).QUIZ_ENDED_MESSAGE,
   getActiveQuizCatalog: (...a: unknown[]) => getActiveQuizCatalog(...a),
   getLiveMatches: (...a: unknown[]) => getLiveMatches(...a),
+  getMaxOpenEntryLimit: (...a: unknown[]) => getMaxOpenEntryLimit(...a),
   getCatalogQuiz: (...a: unknown[]) => getCatalogQuiz(...a),
+}));
+vi.mock('@/lib/live-mode', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/live-mode')>()),
+  isEventMode: (...a: unknown[]) => isEventMode(...a),
 }));
 vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: (...a: unknown[]) => isWalletEnabled(...a) }));
 // Both caches at once: the per-player list and the shared catalogue players read
@@ -233,7 +240,12 @@ describe('GET /api/quizzes', () => {
 });
 
 describe('GET /api/live', () => {
-  beforeEach(() => getLiveMatches.mockReset().mockResolvedValue([]));
+  beforeEach(() => {
+    getLiveMatches.mockReset().mockResolvedValue([]);
+    // The default entry limit, and no event mode: live mode off
+    getMaxOpenEntryLimit.mockReset().mockResolvedValue(2000);
+    isEventMode.mockReset().mockResolvedValue(false);
+  });
 
   it('serves only the public part of the catalogue, cacheable for 5 s at the edge', async () => {
     getActiveQuizCatalog.mockResolvedValue([
@@ -254,8 +266,10 @@ describe('GET /api/live', () => {
       id: 'live', title: 'Cricket night', description: 'Predict the match', duration: 10, passingScore: 70,
       status: 'active', questionCount: 2, totalAttempts: 3, entriesClosed: false, pushedAt: '2026-10-16T10:00:00.000Z', startsAt: null, announcedAt: null,
       createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z',
-      prizeName: null, isBumperPrize: false, accessPrice: 0,
+      prizeName: null, isBumperPrize: false, accessPrice: 0, freeEntry: false,
     });
+    // No big event: no live mode, so players poll as usual
+    expect(body).not.toHaveProperty('liveMode');
     // The landing page's cards: prize, bumper flag and price (numeric columns may arrive as strings)
     expect(body.quizzes[1]).toMatchObject({ pushedAt: null, startsAt: '2026-10-16T12:00:00.000Z', prizeName: 'Ronin Earbuds', isBumperPrize: true, accessPrice: 2.5 });
     // A new announcement is what pops an upcoming quiz up on the stream
@@ -292,6 +306,33 @@ describe('GET /api/live', () => {
     const withMatch = await (await liveRoute.GET()).json();
     expect(withMatch.version).not.toBe(third);
     expect(withMatch.matches).toEqual([{ id: 'm1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', status: 'live' }]);
+  });
+
+  it('switches live mode on for every player during a big event, in the same cached answer, never saying the limit', async () => {
+    getActiveQuizCatalog.mockResolvedValue([catalogQuiz({ freeEntry: true })]);
+    // Up to 5,000 players is no big event
+    getMaxOpenEntryLimit.mockResolvedValue(5000);
+    const usual = await liveRoute.GET();
+    const usualBody = await usual.json();
+    expect(usualBody).not.toHaveProperty('liveMode');
+    // A free-entry quiz needs no day pass, even with the wallet on: players may open its shared copy
+    expect(usualBody.quizzes[0].freeEntry).toBe(true);
+
+    // A quiz live or announced that admits more: players poll their personal routes every 30 minutes
+    getMaxOpenEntryLimit.mockResolvedValue(50_000);
+    const big = await liveRoute.GET();
+    const bigBody = await big.json();
+    expect(bigBody.liveMode).toEqual({ personalPollS: 1800 });
+    // A new version, so every player sees the change at their next check
+    expect(bigBody.version).not.toBe(usualBody.version);
+    // Cached exactly as before: the same headers, and still one URL for everyone
+    expect(big.headers.get('Cache-Control')).toBe(usual.headers.get('Cache-Control'));
+    expect(JSON.stringify(bigBody)).not.toMatch(/50000|50,000|maxEntries/);
+
+    // An admin's event mode switches it on whatever the limits say
+    getMaxOpenEntryLimit.mockResolvedValue(2000);
+    isEventMode.mockResolvedValue(true);
+    expect((await (await liveRoute.GET()).json()).liveMode).toEqual({ personalPollS: 1800 });
   });
 
   it('answers an uncached 503 when the catalogue cannot be loaded, so pollers back off', async () => {
@@ -342,6 +383,18 @@ describe('GET /api/live/quizzes/[id]', () => {
     expect(res.status).toBe(403);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expect(await res.json()).toMatchObject({ personal: true });
+    // A quiz that isn't there is refused the same way
+    getCatalogQuiz.mockResolvedValue(undefined);
+    expect((await openShared('gone')).status).toBe(403);
+  });
+
+  it('serves a free-entry quiz while the wallet is on too: it needs no day pass', async () => {
+    isWalletEnabled.mockResolvedValue(true);
+    getCatalogQuiz.mockResolvedValue(catalogQuiz({ freeEntry: true }));
+    const res = await openShared();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=10, stale-while-revalidate=10');
+    expect((await res.json()).quiz.questions.map((q: { id: string }) => q.id)).toEqual(['q1', 'q2']);
   });
 
   it("answers a missing quiz with 404 and an upcoming one with its start time, neither cached", async () => {

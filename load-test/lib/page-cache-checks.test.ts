@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildIdOf, cloudflareCredentials, decidePurge, parsePageCacheArgs, purgeEverything, rscSearchParam, runPageCacheChecks,
   AD_LANDING, CACHED_PAGES, FAVICON_PATH, LEADERBOARD_PATH, MANIFEST_CACHE_CONTROL, MANIFEST_PATH, MIXED_LANDING, ORIGIN_PROBE, PAGE_CACHE_CONTROL,
-  PREFETCH_HEADERS, UNCACHED_PATHS, type PageCacheOptions,
+  PREFETCH_HEADERS, SHARED_PAGES, UNCACHED_PATHS, type PageCacheOptions,
 } from './page-cache-checks';
 import type { CheckResult, Fetcher, Probe } from './smoke-checks';
 
@@ -44,7 +44,9 @@ const CACHED_SITE: Record<string, Route | Route[]> = {
   [`${PREFETCH_URL} [rsc]`]: [prefetch('MISS'), prefetch('HIT')],
   [PREFETCH_URL]: page('DYNAMIC'),
   [`${BASE}/faq [cookie]`]: page('DYNAMIC'),
-  [`${BASE}/quizzes`]: { status: 307, headers: { location: '/login?redirect=%2Fquizzes', 'cf-cache-status': 'DYNAMIC' } },
+  // Cached for everyone: the copy a signed-in player gets is the one the anonymous requests stored
+  [`${BASE}/quizzes`]: [page('MISS'), page('HIT')],
+  [`${BASE}/quizzes [cookie]`]: page('HIT'),
   [`${BASE}/login`]: { status: 307, headers: { location: '/auth?mode=login', 'cf-cache-status': 'DYNAMIC' } },
   [`${BASE}/auth`]: page('DYNAMIC'),
   [`${BASE}/api/health`]: { headers: { 'cache-control': 'no-store', 'cf-cache-status': 'DYNAMIC' }, body: '{"status":"ok"}' },
@@ -62,6 +64,9 @@ const UNCACHED_SITE: Record<string, Route | Route[]> = {
   ...CACHED_SITE,
   ...Object.fromEntries(CACHED_PAGES.map((p) => [`${BASE}${p}`, page('DYNAMIC')])),
   [`${PREFETCH_URL} [rsc]`]: prefetch('DYNAMIC'),
+  // Before the change the proxy sent signed-out visitors to /login, and refreshed signed-in sessions
+  [`${BASE}/quizzes`]: { status: 307, headers: { location: '/login?redirect=%2Fquizzes', 'cf-cache-status': 'DYNAMIC' } },
+  [`${BASE}/quizzes [cookie]`]: page('DYNAMIC'),
   // Next sends public files with max-age=0: Cloudflare keeps them but asks Hostinger on every request
   [IMAGE_URL]: [image('MISS'), image('REVALIDATED')],
   [`${BASE}${FAVICON_PATH}`]: [icon('MISS'), icon('EXPIRED')],
@@ -130,7 +135,13 @@ describe('the Cache Rule in deploy/cloudflare-page-cache-rule.json', () => {
   it('covers exactly the pages these checks expect to be cached', () => {
     const set = /http\.request\.uri\.path in \{([^}]*)\}/.exec(rule.expression)?.[1] ?? '';
     expect([...set.matchAll(/"([^"]*)"/g)].map((m) => m[1]).sort()).toEqual([...CACHED_PAGES].sort());
-    for (const path of Object.keys(UNCACHED_PATHS)) expect(set).not.toContain(`"${path}"`);
+    for (const path of Object.keys(UNCACHED_PATHS)) expect(rule.expression).not.toContain(`"${path}"`);
+    // The shared pages whatever the cookies: outside the session-cookie condition, inside the request shapes
+    const shared = [...rule.expression.matchAll(/http\.request\.uri\.path eq "([^"]*)"/g)].map((m) => m[1]);
+    expect(shared).toEqual(SHARED_PAGES);
+    expect(rule.expression).toContain(
+      `((http.request.uri.path in {${set}} and not http.cookie contains "-auth-token") or http.request.uri.path eq "/quizzes") and ((http.request.uri.query eq ""`,
+    );
   });
 
   it('leaves session cookies and stray RSC headers to the origin, and caches only what the origin allows', () => {
@@ -202,7 +213,8 @@ describe('runPageCacheChecks', () => {
       'pass 200 GET /faq?_rsc= (prefetch, twice)',
       'pass 200 GET /faq?_rsc= without the RSC header',
       'pass 200 GET /faq with a session cookie',
-      'pass 307 GET /quizzes',
+      'pass 200 GET /quizzes (twice)',
+      'pass 200 GET /quizzes with a session cookie',
       'pass 307 GET /login',
       'pass 200 GET /auth',
       'pass 200 GET /api/health',
@@ -213,12 +225,14 @@ describe('runPageCacheChecks', () => {
       'pass 200 GET /manifest.json (twice)',
       `pass 200 GET ${AD_LANDING} (ad landing, twice)`,
       `pass 200 GET ${MIXED_LANDING}`,
+      'pass null No cached response sets a cookie',
     ]);
     expect(byName(results, 'GET /faq (twice)').detail).toBe(`MISS then cf-cache-status=HIT, build=${BUILD}`);
     expect(byName(results, 'GET /images/sports/cricket-128.avif (twice)').detail).toBe('MISS then cf-cache-status=HIT');
-    expect(calls).toHaveLength(38);
+    expect(byName(results, 'No cached response sets a cookie').detail).toBe('18 cached responses');
+    expect(calls).toHaveLength(40);
     expect(maxInFlight()).toBe(1);
-    expect(calls.filter((c) => new Headers(c.init.headers).has('cookie')).map((c) => c.url)).toEqual([`${BASE}/faq`]);
+    expect(calls.filter((c) => new Headers(c.init.headers).has('cookie')).map((c) => c.url)).toEqual([`${BASE}/faq`, `${BASE}/quizzes`]);
   });
 
   it('fails every cached check while the rules are off (production before the change)', async () => {
@@ -226,6 +240,8 @@ describe('runPageCacheChecks', () => {
     expect(failures(results)).toEqual([
       ...CACHED_PAGES.map((p) => `GET ${p} (twice)`),
       'GET /faq?_rsc= (prefetch, twice)',
+      'GET /quizzes (twice)',
+      'GET /quizzes with a session cookie',
       'GET /images/sports/cricket-128.avif (twice)',
       'GET /favicon.ico (twice)',
       'GET /api/leaderboard (twice)',
@@ -250,11 +266,42 @@ describe('runPageCacheChecks', () => {
       [`${BASE}/terms`]: page('HIT', BUILD, { 'cache-control': 'max-age=14400, s-maxage=31536000' }),
       [`${BASE}/privacy`]: page('HIT', BUILD, { 'set-cookie': 'sb-x-auth-token=leak; Path=/' }),
     });
-    expect(failures(results)).toEqual(['GET /terms (twice)', 'GET /privacy (twice)']);
+    expect(failures(results)).toEqual(['GET /terms (twice)', 'GET /privacy (twice)', 'No cached response sets a cookie']);
     expect(byName(results, 'GET /terms (twice)').problems).toEqual([
       `Cache-Control is "max-age=14400, s-maxage=31536000", expected "${PAGE_CACHE_CONTROL}"`,
     ]);
     expect(byName(results, 'GET /privacy (twice)').problems).toEqual(['a cached response sets a cookie']);
+    // Both requests for /privacy came from the cache with the cookie
+    expect(byName(results, 'No cached response sets a cookie').problems).toEqual([0, 1].map(() =>
+      `${BASE}/privacy (cf-cache-status=HIT) sets a cookie: a cached copy could hand one visitor's session to the next`));
+  });
+
+  it("fails when Cloudflare doesn't serve /quizzes to a signed-in player from its cache, or the copy sets a cookie or is old", async () => {
+    const dynamic = await run({ [`${BASE}/quizzes [cookie]`]: page('DYNAMIC') });
+    expect(failures(dynamic.results)).toEqual(['GET /quizzes with a session cookie']);
+    expect(byName(dynamic.results, 'GET /quizzes with a session cookie').problems).toEqual([
+      'cf-cache-status is DYNAMIC, expected HIT/EXPIRED/REVALIDATED/UPDATING on a repeat request',
+    ]);
+
+    const leaky = await run({ [`${BASE}/quizzes [cookie]`]: page('HIT', OLD_BUILD, { 'set-cookie': 'sb-x-auth-token=refreshed; Path=/' }) });
+    expect(failures(leaky.results)).toEqual(['GET /quizzes with a session cookie', 'No cached response sets a cookie']);
+    expect(byName(leaky.results, 'GET /quizzes with a session cookie').problems).toEqual([
+      'a cached response sets a cookie',
+      `build ${OLD_BUILD} is not the origin's ${BUILD}: purge the cache (bun run cache:purge)`,
+    ]);
+
+    // Before the change: a redirect to /login for the anonymous requests, nothing cached for anyone
+    const before = await run({
+      [`${BASE}/quizzes`]: { status: 307, headers: { location: '/login?redirect=%2Fquizzes', 'cf-cache-status': 'DYNAMIC' } },
+      [`${BASE}/quizzes [cookie]`]: { status: 307, headers: { location: '/login?redirect=%2Fquizzes', 'cf-cache-status': 'DYNAMIC' } },
+    });
+    expect(failures(before.results)).toEqual(['GET /quizzes (twice)', 'GET /quizzes with a session cookie']);
+    expect(byName(before.results, 'GET /quizzes with a session cookie').problems).toEqual([
+      'expected status 200, got 307',
+      'content-type is (missing), expected text/html',
+      'cf-cache-status is DYNAMIC, expected HIT/EXPIRED/REVALIDATED/UPDATING on a repeat request',
+      'no build ID in the body (not the app?)',
+    ]);
   });
 
   it('catches a prefetch served to a page request, and cached pages for signed-in visitors or personal routes', async () => {
