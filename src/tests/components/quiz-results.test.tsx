@@ -40,7 +40,7 @@ describe('QuizResults', () => {
   };
 
   it('renders success state correctly and handles animation phases', () => {
-    const { container } = render(<QuizResults {...defaultProps} />);
+    render(<QuizResults {...defaultProps} />);
 
     // Initial state: confetti should be visible, title and other details are scaled/hidden
     expect(document.querySelector('.animate-confetti')).toBeInTheDocument();
