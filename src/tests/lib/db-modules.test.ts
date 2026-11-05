@@ -473,6 +473,58 @@ describe('notification.db push delivery', () => {
     expect(console.error).toHaveBeenCalledWith('[Web Push] Failed to load push subscriptions for batch:', { message: 'lookup failed' });
   });
 
+  it("createMany saves every notification in one insert and pushes each one to its own player's devices", async () => {
+    adminDb.setTable('Notification', { error: null });
+    const device = (id: string, userId: string) => ({ ...sub(id), userId });
+    adminDb.setTable('PushSubscription', (call) => (call.ops.some((o) => o.op === 'gt')
+      ? { data: [] }
+      : { data: [device('u1-phone', 'u1'), device('u1-laptop', 'u1'), device('u2-phone', 'u2'), device('stray', 'someone-else')] }));
+
+    await notificationDb.createMany([
+      { userId: 'u1', title: 'Deposit Approved', message: '100 PKR', type: 'wallet_deposit', link: '/profile/wallet' },
+      { userId: 'u2', title: 'Deposit Rejected', message: '200 PKR', type: 'wallet_deposit' },
+      { userId: 'u1', title: 'Deposit Approved', message: '300 PKR', type: 'wallet_deposit', link: '/profile/wallet' },
+    ]);
+    await flush();
+    await flush();
+
+    const inserts = adminDb.callsTo('Notification', 'insert');
+    expect(inserts).toHaveLength(1);
+    expect((argOf(inserts[0], 'insert') as Record<string, unknown>[]).map((n) => [n.userId, n.message, n.link, n.read]))
+      .toEqual([['u1', '100 PKR', '/profile/wallet', false], ['u2', '200 PKR', null, false], ['u1', '300 PKR', '/profile/wallet', false]]);
+    // One subscription lookup for both players
+    const lookups = adminDb.callsTo('PushSubscription').filter((c) => !c.ops.some((o) => o.op === 'gt'));
+    expect(lookups.map((c) => c.ops.find((o) => o.op === 'in')!.args)).toEqual([['userId', ['u1', 'u2']]]);
+    // u1's two devices get both of u1's notifications, u2's device gets u2's, a device of anyone else none
+    const pushes = sendNotification.mock.calls.map(([target, payload]) => [target.endpoint, JSON.parse(payload).body, JSON.parse(payload).url]);
+    expect(pushes).toHaveLength(5);
+    expect(pushes).toEqual(expect.arrayContaining([
+      ['https://push.example/u1-phone', '100 PKR', '/profile/wallet'],
+      ['https://push.example/u1-laptop', '300 PKR', '/profile/wallet'],
+      ['https://push.example/u2-phone', '200 PKR', '/notifications'],
+    ]));
+    expect(pushes.some(([endpoint]) => endpoint === 'https://push.example/stray')).toBe(false);
+  });
+
+  it('createMany ignores an empty list, inserts 500 rows at a time, throws on insert errors and survives lookup failures', async () => {
+    await notificationDb.createMany([]);
+    expect(adminDb.calls).toHaveLength(0);
+
+    adminDb.setTable('Notification', { error: null });
+    adminDb.setTable('PushSubscription', { data: [] });
+    await notificationDb.createMany(Array.from({ length: 501 }, (_, i) => ({ userId: `u${i}`, title: 't', message: 'm', type: 'x' })));
+    expect(adminDb.callsTo('Notification', 'insert').map((c) => (argOf(c, 'insert') as unknown[]).length)).toEqual([500, 1]);
+    expect(sendNotification).not.toHaveBeenCalled();
+
+    adminDb.setTable('Notification', { error: { message: 'insert failed' } });
+    await expect(notificationDb.createMany([{ userId: 'u1', title: 't', message: 'm', type: 'x' }])).rejects.toEqual({ message: 'insert failed' });
+
+    adminDb.setTable('Notification', { error: null });
+    adminDb.setTable('PushSubscription', { error: { message: 'lookup failed' } });
+    await notificationDb.createMany([{ userId: 'u1', title: 't', message: 'm', type: 'x' }]);
+    expect(console.error).toHaveBeenCalledWith('[Web Push] Failed to load push subscriptions for notifications:', { message: 'lookup failed' });
+  });
+
   it('savePushSubscription upserts by endpoint; scheduleNotification stores the target', async () => {
     both({ data: ROW });
     await notificationDb.savePushSubscription('u', { endpoint: 'https://e', keys: { p256dh: 'p', auth: 'a' } });

@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
 import { requireCSRFToken } from '@/lib/csrf-protection';
 import { createSecureJsonResponse } from '@/lib/security-headers';
+import { groupBy } from '@/lib/group-by';
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).optional(),
@@ -117,11 +118,7 @@ export async function GET() {
     ]);
 
     // Build lookup maps. A player has one attempt per quiz, so answers are filed by quiz
-    const answersByQuiz = new Map<string, any[]>();
-    for (const ans of (allAnswers || [])) {
-      if (!answersByQuiz.has(ans.quizId)) answersByQuiz.set(ans.quizId, []);
-      answersByQuiz.get(ans.quizId)!.push(ans);
-    }
+    const answersByQuiz = groupBy(allAnswers || [], (ans) => ans.quizId);
     const questionCountByQuiz = new Map<string, number>();
     for (const q of (questionCounts || [])) {
       questionCountByQuiz.set(q.quizId, (questionCountByQuiz.get(q.quizId) || 0) + 1);

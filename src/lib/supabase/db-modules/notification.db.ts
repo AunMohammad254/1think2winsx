@@ -5,6 +5,7 @@
 import { getDb, getAdminDb, generateId, fetchAllByKeyset, mapWithConcurrency } from './shared'
 import webpush from 'web-push'
 import logger from '@/lib/logger'
+import { groupBy } from '@/lib/group-by'
 
 // Configure web-push with VAPID keys if they are available
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -203,6 +204,54 @@ export const notificationDb = {
         }
 
         return record as Notification
+    },
+
+    // Several notifications, each with its own text (a wallet review tells every depositor their own
+    // amount), saved in one insert per 500 rows with one push-subscription lookup for all their users,
+    // instead of create()'s insert and lookup per notification. Same callers and access as create().
+    async createMany(items: Array<{ userId: string; title: string; message: string; type: string; link?: string }>): Promise<void> {
+        if (items.length === 0) return;
+
+        const adminDb = getAdminDb();
+        const now = new Date().toISOString();
+        const INSERT_CHUNK = 500;
+        for (let i = 0; i < items.length; i += INSERT_CHUNK) {
+            const { error } = await adminDb
+                .from('Notification')
+                .insert(items.slice(i, i + INSERT_CHUNK).map((item) => ({
+                    id: generateId(),
+                    userId: item.userId,
+                    title: item.title,
+                    message: item.message,
+                    type: item.type,
+                    link: item.link || null,
+                    read: false,
+                    createdAt: now,
+                    updatedAt: now,
+                })));
+            if (error) throw error;
+        }
+
+        const itemsByUser = groupBy(items, (item) => item.userId);
+        let subs: PushSubscriptionRecord[] = [];
+        try {
+            subs = await fetchSubscriptionsForUsers([...itemsByUser.keys()]);
+        } catch (subError) {
+            console.error('[Web Push] Failed to load push subscriptions for notifications:', subError);
+        }
+
+        // Each subscription gets its own user's notifications, sent in the background like create()'s
+        const sends = subs.flatMap((sub) => (itemsByUser.get(sub.userId) ?? [])
+            .map((item) => sendWebPush(sub, {
+                title: item.title,
+                body: item.message,
+                url: item.link || '/notifications',
+                icon: '/Favicon/apple-touch-icon.png',
+                badge: '/Favicon/favicon.ico',
+                tag: item.type,
+                renotify: true,
+            })));
+        void Promise.allSettled(sends);
     },
 
     async createBroadcast(data: { title: string; message: string; type: string; link?: string }): Promise<void> {

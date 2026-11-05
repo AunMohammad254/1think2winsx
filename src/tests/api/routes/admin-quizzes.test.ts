@@ -11,9 +11,10 @@ const applyRateLimit = vi.fn();
 const recordSecurityEvent = vi.fn();
 const clearQuizListCache = vi.fn();
 
-vi.mock('@/lib/supabase/db', () => ({
+vi.mock('@/lib/supabase/db', async () => ({
   getAdminDb: () => adminDb.client,
   generateId: () => `gen-${++ids}`,
+  mapWithConcurrency: (await vi.importActual<typeof import('@/lib/supabase/db-modules/shared')>('@/lib/supabase/db-modules/shared')).mapWithConcurrency,
   // Asks for the page after the first, as the real walk does, but keeps only the first: the mock answers
   // every page alike, so walking until an empty page would never end
   fetchAllByKeyset: async (
@@ -339,8 +340,11 @@ describe('PUT /api/admin/quizzes/[id] (full edit)', () => {
     expect(adminDb.callsTo('Answer')).toHaveLength(0);
     expect(adminDb.callsTo('Question', 'delete')[0].ops.find((o) => o.op === 'in')?.args).toEqual(['id', ['drop']]);
     expect(eqValue(adminDb.callsTo('Question', 'update')[0], 'id')).toBe('keep');
-    const inserts = adminDb.callsTo('Question', 'insert').map((c) => argOf(c, 'insert') as Record<string, unknown>);
+    // Every new question in one insert, each a millisecond after the one before (questions are listed by createdAt)
+    expect(adminDb.callsTo('Question', 'insert')).toHaveLength(1);
+    const inserts = argOf(adminDb.callsTo('Question', 'insert')[0], 'insert') as Record<string, unknown>[];
     expect(inserts.map((q) => [q.id, q.status, q.correctOption, q.hasCorrectAnswer])).toEqual([['gen-1', 'paused', 1, false], ['gen-2', 'active', 1, false]]);
+    expect(Date.parse(inserts[1].createdAt as string) - Date.parse(inserts[0].createdAt as string)).toBe(1);
     expect(argOf(adminDb.callsTo('Question', 'update')[0], 'update')).toMatchObject({ correctOption: 1, hasCorrectAnswer: false });
     // Options unchanged: not rewritten (the database refuses an options write to an answered question)
     expect(argOf(adminDb.callsTo('Question', 'update')[0], 'update')).not.toHaveProperty('options');

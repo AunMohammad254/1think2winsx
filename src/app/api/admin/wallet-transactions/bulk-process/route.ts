@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
 import { requireCSRFToken } from '@/lib/csrf-protection';
-import { getAdminDb, notificationDb } from '@/lib/supabase/db';
+import { getAdminDb, mapWithConcurrency, notificationDb } from '@/lib/supabase/db';
 import { isWalletEnabled } from '@/lib/wallet/service';
 
 /** Most deposits one request may process. The wallet screen selects from a page of 50. */
 const MAX_BULK_TRANSACTIONS = 100;
+/** Approve/reject calls in flight at once */
+const RPC_CONCURRENCY = 5;
 
 type WalletRpcResult = { success?: boolean; error?: string } | null;
 
@@ -68,47 +70,57 @@ export async function POST(request: NextRequest) {
         if (lookupError) throw lookupError;
         const byId = new Map(((rows || []) as { id: string; userId: string; amount: number }[]).map((r) => [r.id, r]));
 
-        const results = { success: 0, failed: 0, errors: [] as string[] };
-
-        // One at a time: each call is its own transaction, so one bad deposit never undoes the others
-        for (const id of ids) {
+        // Each call is its own transaction, so one bad deposit never undoes the others. A few run at once
+        // instead of one after another; each locks its own deposit row, and the balance update is atomic.
+        const outcomes = await mapWithConcurrency(ids, RPC_CONCURRENCY, async (id): Promise<string | null> => {
             try {
                 const { data, error } = action === 'approve'
                     ? await supabase.rpc('approve_wallet_transaction', { p_transaction_id: id, p_processed_by: processedBy })
                     : await supabase.rpc('reject_wallet_transaction', { p_transaction_id: id, p_processed_by: processedBy, p_reason: reason });
 
                 const result = data as WalletRpcResult;
-                if (error || !result?.success) {
-                    results.failed++;
-                    results.errors.push(`${id}: ${error?.message || result?.error || 'not processed'}`);
-                    continue;
-                }
-                results.success++;
+                return error || !result?.success ? error?.message || result?.error || 'not processed' : null;
             } catch (err) {
-                results.failed++;
-                results.errors.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
-                continue;
+                return err instanceof Error ? err.message : String(err);
             }
+        });
+
+        const results = { success: 0, failed: 0, errors: [] as string[] };
+        const notifications: Parameters<typeof notificationDb.createMany>[0] = [];
+        ids.forEach((id, i) => {
+            const failure = outcomes[i];
+            if (failure !== null) {
+                results.failed++;
+                results.errors.push(`${id}: ${failure}`);
+                return;
+            }
+            results.success++;
 
             const tx = byId.get(id);
-            if (!tx) continue;
-            try {
-                await notificationDb.create(tx.userId, action === 'approve'
-                    ? {
-                        title: 'Deposit Approved',
-                        message: `Your deposit of ${tx.amount} PKR has been approved and added to your wallet.`,
-                        type: 'wallet_deposit',
-                        link: '/profile/wallet',
-                    }
-                    : {
-                        title: 'Deposit Rejected',
-                        message: `Your deposit of ${tx.amount} PKR was rejected. Reason: ${reason || 'Not provided'}`,
-                        type: 'wallet_deposit',
-                        link: '/profile/wallet',
-                    });
-            } catch (e) {
-                console.error('Notification error:', e);
-            }
+            if (!tx) return;
+            notifications.push(action === 'approve'
+                ? {
+                    userId: tx.userId,
+                    title: 'Deposit Approved',
+                    message: `Your deposit of ${tx.amount} PKR has been approved and added to your wallet.`,
+                    type: 'wallet_deposit',
+                    link: '/profile/wallet',
+                }
+                : {
+                    userId: tx.userId,
+                    title: 'Deposit Rejected',
+                    message: `Your deposit of ${tx.amount} PKR was rejected. Reason: ${reason || 'Not provided'}`,
+                    type: 'wallet_deposit',
+                    link: '/profile/wallet',
+                });
+        });
+
+        // One insert for every depositor's notification. The deposits are already processed, so a failure
+        // here is logged rather than reported as a failed batch.
+        try {
+            await notificationDb.createMany(notifications);
+        } catch (e) {
+            console.error('Notification error:', e);
         }
 
         return NextResponse.json({
