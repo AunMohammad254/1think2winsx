@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextResponse } from 'next/server';
 import { createSupabaseMock, makeRequest, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
@@ -8,8 +8,16 @@ const validateAdminSession = vi.fn();
 const isWalletEnabled = vi.fn();
 const requireCSRFToken = vi.fn();
 const notify = vi.fn();
+const notifyMany = vi.fn();
 
-vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, notificationDb: { create: (...a: unknown[]) => notify(...a) } }));
+vi.mock('@/lib/supabase/db', async () => {
+  const shared = await vi.importActual<typeof import('@/lib/supabase/db-modules/shared')>('@/lib/supabase/db-modules/shared');
+  return {
+    getAdminDb: () => adminDb.client,
+    mapWithConcurrency: shared.mapWithConcurrency,
+    notificationDb: { create: (...a: unknown[]) => notify(...a), createMany: (...a: unknown[]) => notifyMany(...a) },
+  };
+});
 vi.mock('@/lib/admin-session', () => ({ validateAdminSession: (...a: unknown[]) => validateAdminSession(...a) }));
 vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: (...a: unknown[]) => isWalletEnabled(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
@@ -21,11 +29,12 @@ const pendingTx = (over: Record<string, unknown> = {}) => ({ id: 'tx-1', userId:
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [validateAdminSession, isWalletEnabled, requireCSRFToken, notify]) fn.mockReset();
+  for (const fn of [validateAdminSession, isWalletEnabled, requireCSRFToken, notify, notifyMany]) fn.mockReset();
   validateAdminSession.mockResolvedValue({ valid: true, email: 'admin@example.test' });
   isWalletEnabled.mockResolvedValue(true);
   requireCSRFToken.mockResolvedValue(null);
   notify.mockResolvedValue({});
+  notifyMany.mockResolvedValue(undefined);
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -194,6 +203,7 @@ describe('POST /api/admin/wallet-transactions/bulk-process', () => {
   const run = (body: unknown) => bulk.POST(makeRequest('/api/admin/wallet-transactions/bulk-process', { body }));
   const rows = [{ id: 'tx-a', userId: 'user-a', amount: 100 }, { id: 'tx-b', userId: 'user-b', amount: 200 }];
   const inArgs = (call: { ops: { op: string; args: unknown[] }[] } | undefined) => call?.ops.find((o) => o.op === 'in')?.args;
+  const sentNotifications = () => notifyMany.mock.calls.flatMap(([items]) => items as Array<Record<string, unknown>>);
 
   it('approves each deposit once through the locking RPC, never by writing the balance itself', async () => {
     adminDb.setTable('WalletTransaction', { data: rows });
@@ -209,8 +219,34 @@ describe('POST /api/admin/wallet-transactions/bulk-process', () => {
     expect(inArgs(adminDb.callsTo('WalletTransaction')[0])).toEqual(['id', ['tx-a', 'tx-b']]);
     expect(adminDb.callsTo('User', 'update')).toHaveLength(0);
     expect(adminDb.callsTo('WalletTransaction', 'update')).toHaveLength(0);
-    expect(notify).toHaveBeenCalledWith('user-a', expect.objectContaining({ title: 'Deposit Approved', message: expect.stringContaining('100 PKR') }));
-    expect(notify).toHaveBeenCalledWith('user-b', expect.objectContaining({ title: 'Deposit Approved', message: expect.stringContaining('200 PKR') }));
+    // Every depositor's notification goes in one createMany call
+    expect(notifyMany).toHaveBeenCalledTimes(1);
+    expect(notifyMany).toHaveBeenCalledWith([
+      expect.objectContaining({ userId: 'user-a', title: 'Deposit Approved', message: expect.stringContaining('100 PKR') }),
+      expect.objectContaining({ userId: 'user-b', title: 'Deposit Approved', message: expect.stringContaining('200 PKR') }),
+    ]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('runs at most five approvals at once and still reports them in request order', async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `tx-${i}`);
+    adminDb.setTable('WalletTransaction', { data: [] });
+    let inFlight = 0;
+    let peak = 0;
+    // A slow RPC (a promise in place of the mock's thenable: the route only awaits it)
+    (adminDb.client.rpc as unknown as Mock<(fn: string, args?: Record<string, unknown>) => Promise<unknown>>).mockImplementation(async (_fn, args = {}) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight--;
+      return args.p_transaction_id === 'tx-3' ? { data: { success: false, error: 'Transaction is not pending' }, error: null } : { data: { success: true }, error: null };
+    });
+
+    const body = await (await run({ transactionIds: ids, action: 'approve' })).json();
+
+    expect(peak).toBe(5);
+    expect(adminDb.client.rpc).toHaveBeenCalledTimes(12);
+    expect(body.results).toEqual({ success: 11, failed: 1, errors: ['tx-3: Transaction is not pending'] });
   });
 
   it('credits a deposit once when two admins approve it at the same time', async () => {
@@ -231,7 +267,7 @@ describe('POST /api/admin/wallet-transactions/bulk-process', () => {
 
     expect(first.results.success + second.results.success).toBe(1);
     expect([...first.results.errors, ...second.results.errors]).toEqual(['tx-a: Transaction is not pending']);
-    expect(notify).toHaveBeenCalledTimes(1);
+    expect(sentNotifications()).toHaveLength(1);
   });
 
   it('rejects with the reason and reports each deposit that was not processed', async () => {
@@ -255,8 +291,7 @@ describe('POST /api/admin/wallet-transactions/bulk-process', () => {
       errors: ['done: Transaction is not pending', 'down: connection reset', 'empty: not processed', 'boom: row exploded', 'weird: string failure'],
     });
     expect(adminDb.rpcCalls[0]).toEqual({ fn: 'reject_wallet_transaction', args: { p_transaction_id: 'tx-1', p_processed_by: 'admin@example.test', p_reason: 'fake' } });
-    expect(notify).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledWith('user-1', expect.objectContaining({ title: 'Deposit Rejected', message: expect.stringContaining('Reason: fake') }));
+    expect(sentNotifications()).toEqual([expect.objectContaining({ userId: 'user-1', title: 'Deposit Rejected', message: expect.stringContaining('Reason: fake') })]);
   });
 
   it('swallows notification failures, defaults the reason, and skips deposits it found no row for', async () => {
@@ -264,19 +299,19 @@ describe('POST /api/admin/wallet-transactions/bulk-process', () => {
     adminDb.setRpc('approve_wallet_transaction', { data: { success: true } });
     adminDb.setRpc('reject_wallet_transaction', { data: { success: true } });
     adminDb.setTable('WalletTransaction', { data: [{ id: 'tx-1', userId: 'user-1', amount: 500 }] });
-    notify.mockRejectedValue(new Error('push down'));
+    notifyMany.mockRejectedValue(new Error('push down'));
     expect((await (await run({ transactionIds: ['tx-1'], action: 'approve' })).json()).results.success).toBe(1);
     expect(adminDb.rpcCalls[0].args.p_processed_by).toBe('admin');
 
-    notify.mockReset().mockResolvedValue({});
+    notifyMany.mockReset().mockResolvedValue(undefined);
     await run({ transactionIds: ['tx-1'], action: 'reject', notes: '' });
     expect(adminDb.rpcCalls[1].args.p_reason).toBeNull();
-    expect(notify).toHaveBeenLastCalledWith('user-1', expect.objectContaining({ message: expect.stringContaining('Reason: Not provided') }));
+    expect(notifyMany).toHaveBeenLastCalledWith([expect.objectContaining({ userId: 'user-1', message: expect.stringContaining('Reason: Not provided') })]);
 
-    notify.mockReset();
+    notifyMany.mockReset().mockResolvedValue(undefined);
     adminDb.setTable('WalletTransaction', { data: null });
     expect((await (await run({ transactionIds: ['tx-1'], action: 'reject' })).json()).results.success).toBe(1);
-    expect(notify).not.toHaveBeenCalled();
+    expect(sentNotifications()).toEqual([]);
   });
 
   it('changes nothing when the deposit lookup fails', async () => {

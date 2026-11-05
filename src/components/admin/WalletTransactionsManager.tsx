@@ -11,7 +11,6 @@ import {
     AlertCircle,
     Filter,
     Loader2,
-    FileText,
     UploadCloud
 } from 'lucide-react';
 import { toast } from 'sonner';

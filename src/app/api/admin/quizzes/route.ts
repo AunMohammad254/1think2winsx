@@ -9,6 +9,7 @@ import { recordSecurityEvent } from '@/lib/security-monitoring';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { clearQuizListCache } from '@/lib/quiz-cache';
 import { adminName, logQuizAction } from '@/lib/admin-action-log';
+import { groupBy } from '@/lib/group-by';
 
 const createQuizSchema = z.object({
   title: z.string().min(1).max(200),
@@ -155,18 +156,9 @@ export async function GET(request: NextRequest) {
         .in('quizId', quizIds)
       : { data: [] };
 
-    // Group data by quizId in-memory
-    const questionsByQuiz = new Map<string, any[]>();
-    for (const q of (allQuestions || [])) {
-      if (!questionsByQuiz.has(q.quizId)) questionsByQuiz.set(q.quizId, []);
-      questionsByQuiz.get(q.quizId)!.push(q);
-    }
-
-    const attemptsByQuiz = new Map<string, any[]>();
-    for (const a of (allAttempts || [])) {
-      if (!attemptsByQuiz.has(a.quizId)) attemptsByQuiz.set(a.quizId, []);
-      attemptsByQuiz.get(a.quizId)!.push(a);
-    }
+    // Group data by quizId in-memory, one pass over each list
+    const questionsByQuiz = groupBy(allQuestions || [], (q) => q.quizId);
+    const attemptsByQuiz = groupBy(allAttempts || [], (a) => a.quizId);
 
     // Build enriched quiz objects
     const quizzesWithStats = (quizzes || []).map((quiz: any) => {
@@ -174,8 +166,8 @@ export async function GET(request: NextRequest) {
       const attempts = attemptsByQuiz.get(quiz.id) || [];
 
       const totalAttempts = attempts.length;
-      const completedAttempts = attempts.filter((a: any) => a.isCompleted).length;
       const completedScores = attempts.filter((a: any) => a.isCompleted).map((a: any) => a.score);
+      const completedAttempts = completedScores.length;
       const avgScore = completedScores.length > 0
         ? completedScores.reduce((sum: number, s: number) => sum + s, 0) / completedScores.length
         : 0;

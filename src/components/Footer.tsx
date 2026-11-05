@@ -23,6 +23,15 @@ const supportLinks = [
   { href: '/privacy', label: 'Privacy Policy' },
 ];
 
+// The two link columns share one layout; only the heading, the links and the reveal delay differ
+const linkColumns = [
+  { title: 'Quick Links', icon: '⚡', delay: 100, links: quickLinks },
+  { title: 'Support', icon: '🛟', delay: 200, links: supportLinks },
+];
+
+const SECTION_HEADING_CLASS =
+  'mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400';
+
 const Footer = memo(function Footer() {
   const prefetchFor = useLinkPrefetch();
   const [email, setEmail] = useState('');
@@ -92,51 +101,32 @@ const Footer = memo(function Footer() {
             </div>
           </Reveal>
 
-          {/* Quick Links */}
-          <Reveal delay={100} className="sm:col-span-1 md:col-span-1.5 lg:col-span-2">
-            <h2 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
-              <span>⚡</span> Quick Links
-            </h2>
-            <ul className="space-y-1.5">
-              {quickLinks.map((item) => (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    prefetch={prefetchFor(item.href)}
-                    className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 transition-all duration-200 hover:bg-white/[0.04] hover:text-white"
-                  >
-                    <span className="text-[10px] text-white/20 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-blue-400">▸</span>
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Reveal>
-
-          {/* Support */}
-          <Reveal delay={200} className="sm:col-span-1 md:col-span-1.5 lg:col-span-2">
-            <h2 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
-              <span>🛟</span> Support
-            </h2>
-            <ul className="space-y-1.5">
-              {supportLinks.map((item) => (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    prefetch={prefetchFor(item.href)}
-                    className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 transition-all duration-200 hover:bg-white/[0.04] hover:text-white"
-                  >
-                    <span className="text-[10px] text-white/20 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-blue-400">▸</span>
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Reveal>
+          {/* Quick Links and Support */}
+          {linkColumns.map((column) => (
+            <Reveal key={column.title} delay={column.delay} className="sm:col-span-1 md:col-span-1.5 lg:col-span-2">
+              <h2 className={SECTION_HEADING_CLASS}>
+                <span>{column.icon}</span> {column.title}
+              </h2>
+              <ul className="space-y-1.5">
+                {column.links.map((item) => (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      prefetch={prefetchFor(item.href)}
+                      className="group flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/55 transition-all duration-200 hover:bg-white/[0.04] hover:text-white"
+                    >
+                      <span className="text-[10px] text-white/20 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-blue-400">▸</span>
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Reveal>
+          ))}
 
           {/* Contact */}
           <Reveal delay={300} className="sm:col-span-2 md:col-span-3 lg:col-span-4">
-            <h2 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
+            <h2 className={SECTION_HEADING_CLASS}>
               <span>📞</span> Contact
             </h2>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">

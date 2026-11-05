@@ -8,15 +8,6 @@ export function WebVitals() {
         if (process.env.NODE_ENV === 'development') {
             console.log('Web Vital:', metric);
         }
-
-        // In production, we could send to an analytics endpoint
-        // const body = JSON.stringify(metric);
-        // const url = '/api/analytics';
-        // if (navigator.sendBeacon) {
-        //   navigator.sendBeacon(url, body);
-        // } else {
-        //   fetch(url, { body, method: 'POST', keepalive: true });
-        // }
     });
 
     return null;

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
@@ -12,7 +12,10 @@ const notify = vi.fn();
 const pdfParse = vi.fn();
 const pdfDestroy = vi.fn();
 
-vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, notificationDb: { create: (...a: unknown[]) => notify(...a) } }));
+vi.mock('@/lib/supabase/db', async () => {
+  const shared = await vi.importActual<typeof import('@/lib/supabase/db-modules/shared')>('@/lib/supabase/db-modules/shared');
+  return { getAdminDb: () => adminDb.client, mapWithConcurrency: shared.mapWithConcurrency, notificationDb: { createMany: (...a: unknown[]) => notify(...a) } };
+});
 vi.mock('@/lib/admin-session', () => ({ validateAdminSession: (...a: unknown[]) => validateAdminSession(...a) }));
 vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: (...a: unknown[]) => isWalletEnabled(...a) }));
 vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
@@ -42,7 +45,7 @@ beforeEach(() => {
   validateAdminSession.mockResolvedValue({ valid: true, email: 'admin@example.test' });
   isWalletEnabled.mockResolvedValue(true);
   requireCSRFToken.mockResolvedValue(null);
-  notify.mockResolvedValue({});
+  notify.mockResolvedValue(undefined);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -70,6 +73,20 @@ describe('POST /api/admin/wallet-transactions/reconcile', () => {
     const q = adminDb.callsTo('WalletTransaction')[0];
     expect(eqValue(q, 'status')).toBe('pending');
     expect(q.ops.find((o) => o.op === 'gt')?.args).toEqual(['amount', 0]);
+  });
+
+  it('matches a reference the statement repeats to one deposit per line, in statement order', async () => {
+    // CSV exports keep repeated references (line parsing drops them), and two deposits can quote the same one
+    adminDb.setTable('WalletTransaction', { data: [pending('first', 'DUP0000001', 100), pending('second', 'dup0000001', 200), pending('none', '', 999)] });
+    const csv = ['Date,Reference,Amount', '2026-01-15,DUP0000001,100', '2026-01-15,Dup0000001,200'].join('\n');
+
+    const body = await (await upload(csv, 'statement.csv', 'text/csv')).json();
+
+    expect(body.matchDetails).toEqual([
+      expect.objectContaining({ pendingId: 'first', matchType: 'exact_id', statementRef: 'DUP0000001', statementAmount: 100 }),
+      expect.objectContaining({ pendingId: 'second', matchType: 'exact_id', statementRef: 'Dup0000001', statementAmount: 200 }),
+    ]);
+    expect(body.unmatchedPending.map((p: { id: string }) => p.id)).toEqual(['none']);
   });
 
   it('falls back to amount + date within 24 hours, and only once per statement line', async () => {
@@ -172,7 +189,7 @@ describe('POST /api/admin/wallet-transactions/reconcile', () => {
     expect(adminDb.rpcCalls[0]).toEqual({ fn: 'approve_wallet_transaction', args: { p_transaction_id: 'a', p_processed_by: 'reconcile:admin@example.test' } });
     expect(body.autoApproved).toEqual(['a']);
     expect(body.message).toBe('Matched 1 transaction(s). Auto-approved 1. 0 still pending review.');
-    expect(notify).toHaveBeenCalledWith('user-a', expect.objectContaining({ title: 'Deposit Approved' }));
+    expect(notify).toHaveBeenCalledWith([expect.objectContaining({ userId: 'user-a', title: 'Deposit Approved', message: expect.stringContaining('PKR 500') })]);
   });
 
   it('leaves a deposit pending when the RPC fails, never marking it approved without the credit', async () => {
@@ -188,7 +205,7 @@ describe('POST /api/admin/wallet-transactions/reconcile', () => {
     expect(body.autoApproved).toEqual([]);
     expect(body.approvalErrors).toEqual([{ id: 'a', error: 'rpc failed' }]);
     expect(body.message).toBe('Matched 1 transaction(s). Auto-approved 0. 0 still pending review.');
-    expect(notify).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith([]);
   });
 
   it('collects approval errors and survives notification failures', async () => {
@@ -213,6 +230,30 @@ describe('POST /api/admin/wallet-transactions/reconcile', () => {
       { id: 'e', error: 'Transaction is not pending' },
     ]);
     expect(adminDb.callsTo('WalletTransaction', 'update')).toHaveLength(0);
+    // One insert for the approved deposit; its failure is logged, not reported as a failed approval
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith([expect.objectContaining({ userId: 'user-d' })]);
+  });
+
+  it('runs at most five approvals at once', async () => {
+    const deposits = Array.from({ length: 9 }, (_, i) => pending(`p${i}`, `REF000000${i}`, i + 1));
+    adminDb.setTable('WalletTransaction', { data: deposits });
+    let inFlight = 0;
+    let peak = 0;
+    // A slow RPC (a promise in place of the mock's thenable: the route only awaits it)
+    (adminDb.client.rpc as unknown as Mock<() => Promise<unknown>>).mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight--;
+      return { data: { success: true }, error: null };
+    });
+
+    const text = deposits.map((d) => `Ref# ${d.transactionId} PKR ${d.amount}`).join('\n');
+    const body = await (await upload(text, 's.txt', 'text/plain', true)).json();
+
+    expect(peak).toBe(5);
+    expect(body.autoApproved).toEqual(deposits.map((d) => d.id));
   });
 
   it('guards on the admin session, CSRF, the wallet flag and a missing file', async () => {
