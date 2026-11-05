@@ -94,8 +94,10 @@ to Hostinger again; the consumer keeps saving what is already queued.
 Costs on Workers Paid: about 3 queue operations per lock-in (write, read, delete; 1 million a month included, then
 $0.40 per million) and one Durable Object request per lock-in (1 million included, then $0.15 per million).
 
-Staging's `SUPABASE_URL` is the production project, as given; point it at another project before a staging load
-test with `LOCKIN_EDGE = "true"`, or its lock-ins are saved to the live database.
+Staging's `SUPABASE_URL` is a placeholder (`set-a-staging-project.invalid`) that doesn't resolve, so staging can never
+save lock-ins to the live database. Before a staging load test with `LOCKIN_EDGE = "true"`, set it to a test
+project's URL (a Supabase Free org, so it costs nothing) and put that project's service-role key in the staging
+secret.
 
 ## Routes without the Worker
 

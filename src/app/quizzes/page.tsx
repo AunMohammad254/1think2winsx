@@ -145,6 +145,9 @@ function QuizzesPageInner() {
   }, [quizzes]);
   const [error, setError] = useState<string | null>(null);
   const [hasAccess, setHasAccess] = useState(false);
+  // False only while live mode shows the snapshot's list with the wallet on: only the personal list knows whether
+  // this player has a day pass, so the page doesn't tell them to buy one yet (tapping a quiz checks first)
+  const [accessKnown, setAccessKnown] = useState(true);
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
@@ -262,6 +265,7 @@ function QuizzesPageInner() {
       personalLoadedRef.current = true;
       listLoadedRef.current = true;
       setHasAccess(data.hasAccess || false);
+      setAccessKnown(true);
       // The navbar bell takes its badge from here instead of polling on its own
       if (typeof data.unreadNotifications === 'number') {
         window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: data.unreadNotifications }));
@@ -336,6 +340,7 @@ function QuizzesPageInner() {
         setWalletEnabled(snapshot.walletEnabled);
         hasAccessRef.current = !snapshot.walletEnabled;
         setHasAccess(!snapshot.walletEnabled);
+        setAccessKnown(!snapshot.walletEnabled);
       }
 
       // A match taken live: useMatchPush pops its overs up on the stream
@@ -657,7 +662,9 @@ function QuizzesPageInner() {
           <p className="text-gray-400 text-sm max-w-2xl">
             {hasAccess
               ? 'You have full access to all quizzes! Choose one to test your knowledge.'
-              : 'Unlock 24-hour access for just 2 PKR and play unlimited quizzes.'}
+              : accessKnown
+                ? 'Unlock 24-hour access for just 2 PKR and play unlimited quizzes.'
+                : 'Choose a quiz to play. Your day pass is checked when you open one.'}
           </p>
         </div>
 

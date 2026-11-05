@@ -742,7 +742,9 @@ describe('quizzes page: live mode (a big event)', () => {
     h.liveFetch.mockImplementation(async () => eventSnapshot());
     render(<QuizzesPage />);
     await loaded();
-    expect(screen.getByText(/Unlock 24-hour access/)).toBeInTheDocument();
+    // Whether this player has a day pass isn't known yet: the page doesn't tell them to buy one
+    expect(screen.queryByText(/Unlock 24-hour access/)).toBeNull();
+    expect(screen.getByText(/Your day pass is checked when you open one/)).toBeInTheDocument();
     fireEvent.click(card('Free for all'));
     expect(h.push.open).toHaveBeenCalledWith('free');
     expect(h.fetchWithRetry).not.toHaveBeenCalled();
@@ -755,6 +757,8 @@ describe('quizzes page: live mode (a big event)', () => {
     await waitFor(() => expect(h.fetchWithRetry).toHaveBeenCalledWith('/api/quizzes', undefined, { retries: 2 }));
     expect(await screen.findByText('Unlock Arena Access')).toBeInTheDocument();
     expect(h.push.open).toHaveBeenCalledTimes(1);
+    // The list said there's no pass: now the page offers one
+    expect(screen.getByText(/Unlock 24-hour access/)).toBeInTheDocument();
   });
 
   it('opens a tapped quiz once the list it loads shows a day pass', async () => {
@@ -764,6 +768,7 @@ describe('quizzes page: live mode (a big event)', () => {
     await loaded();
     fireEvent.click(card('Quiz b'));
     await waitFor(() => expect(h.push.open).toHaveBeenCalledWith('b'));
+    expect(screen.getByText(/You have full access/)).toBeInTheDocument();
     // Loaded now: the next tap needs no request
     fireEvent.click(card('Cricket Classics'));
     expect(h.push.open).toHaveBeenLastCalledWith('a');

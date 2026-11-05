@@ -105,7 +105,10 @@ routes = [{ pattern = "staging.1think2win.com/api/*", zone_name = "1think2win.co
 SITE_URL = "https://staging.1think2win.com"
 ENFORCE = "true"
 LOCKIN_EDGE = "false"
-SUPABASE_URL = "https://eclivawqhdovsndlngfo.supabase.co"
+# Never the production project: staging lock-ins would be saved to the live database. Put a test project's URL
+# here (a Free org, so it costs nothing) before turning LOCKIN_EDGE on; until then this name doesn't resolve,
+# so a staging lock-in fails at the session check (503) instead of reaching any database.
+SUPABASE_URL = "https://set-a-staging-project.invalid"
 
 # No cron until staging.1think2win.com has a DNS record: it would call a name that doesn't resolve every minute
 [env.staging.triggers]
