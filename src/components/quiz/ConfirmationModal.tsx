@@ -1,6 +1,15 @@
 'use client';
 
 import { Wallet } from 'lucide-react';
+import {
+  MODAL_BACKDROP_CLASS,
+  MODAL_PANEL_CLASS,
+  MODAL_CLOSE_BUTTON_CLASS,
+  MODAL_ICON_BADGE_CLASS,
+  MODAL_SECONDARY_BUTTON_CLASS,
+  MODAL_PRIMARY_BUTTON_CLASS,
+  MODAL_SPINNER_CLASS,
+} from './modal-classes';
 
 interface ConfirmationModalProps {
   isOpen: boolean;
@@ -24,18 +33,18 @@ export default function ConfirmationModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="relative w-full max-w-md bg-gradient-to-br from-gray-900 to-gray-800 rounded-3xl border border-white/10 p-8">
+    <div className={MODAL_BACKDROP_CLASS}>
+      <div className={MODAL_PANEL_CLASS}>
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+          className={MODAL_CLOSE_BUTTON_CLASS}
         >
           <span className="text-xl">×</span>
         </button>
 
         <div className="text-center mb-6">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
+          <div className={`${MODAL_ICON_BADGE_CLASS} from-green-500 to-emerald-500`}>
             <Wallet className="w-8 h-8 text-white" />
           </div>
           <h3 className="text-2xl font-bold text-white mb-2">Confirm Payment</h3>
@@ -62,18 +71,18 @@ export default function ConfirmationModal({
         <div className="flex gap-3">
           <button
             onClick={onBack}
-            className="flex-1 py-3 px-4 rounded-xl font-medium text-gray-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+            className={MODAL_SECONDARY_BUTTON_CLASS}
           >
             Back
           </button>
           <button
             onClick={handleConfirmedPayment}
             disabled={paymentLoading}
-            className="flex-1 py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`${MODAL_PRIMARY_BUTTON_CLASS} from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {paymentLoading ? (
               <div className="flex items-center justify-center gap-2">
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className={MODAL_SPINNER_CLASS} />
                 Processing...
               </div>
             ) : (

@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminSession } from '@/lib/admin-session';
 import { requireCSRFToken } from '@/lib/csrf-protection';
-import { getAdminDb, notificationDb } from '@/lib/supabase/db';
+import { getAdminDb, mapWithConcurrency, notificationDb } from '@/lib/supabase/db';
 import { PDFParse } from 'pdf-parse';
 import { isWalletEnabled } from '@/lib/wallet/service';
+
+/** Approve calls in flight at once when auto-approving matches */
+const RPC_CONCURRENCY = 5;
 
 // ============================================================================
 // Statement Entry — extracted from bank statement
@@ -224,27 +227,29 @@ function matchTransactions(pending: PendingTx[], entries: StatementEntry[]): Mat
     const matchedPendingIds = new Set<string>();
     const matchedEntryIndexes = new Set<number>();
 
-    // Pass 1: Exact transaction ID match (high confidence)
+    // Pass 1: Exact transaction ID match (high confidence). Entries are indexed by lowercased ID once,
+    // so each deposit is a lookup instead of a scan of the whole statement. A statement can repeat an
+    // ID, so each ID keeps its entries in statement order and every match takes the earliest left.
+    const entryIndexesById = new Map<string, number[]>();
+    entries.forEach((entry, i) => {
+        if (!entry.transactionId) return;
+        const key = entry.transactionId.toLowerCase();
+        const indexes = entryIndexesById.get(key);
+        if (indexes) indexes.push(i);
+        else entryIndexesById.set(key, [i]);
+    });
     for (const tx of pending) {
-        for (let i = 0; i < entries.length; i++) {
-            if (matchedEntryIndexes.has(i)) continue;
-            const entry = entries[i];
-            if (
-                entry.transactionId &&
-                tx.transactionId &&
-                entry.transactionId.toLowerCase() === tx.transactionId.toLowerCase()
-            ) {
-                matches.push({
-                    pendingTx: tx,
-                    statementEntry: entry,
-                    matchType: 'exact_id',
-                    confidence: 'high',
-                });
-                matchedPendingIds.add(tx.id);
-                matchedEntryIndexes.add(i);
-                break;
-            }
-        }
+        if (!tx.transactionId) continue;
+        const i = entryIndexesById.get(tx.transactionId.toLowerCase())?.shift();
+        if (i === undefined) continue;
+        matches.push({
+            pendingTx: tx,
+            statementEntry: entries[i],
+            matchType: 'exact_id',
+            confidence: 'high',
+        });
+        matchedPendingIds.add(tx.id);
+        matchedEntryIndexes.add(i);
     }
 
     // Pass 2: Amount + date window match (medium confidence, 24h window)
@@ -376,41 +381,42 @@ export async function POST(request: NextRequest) {
 
         // --- Auto-approve if requested ---
         if (autoApprove && matches.length > 0) {
-            for (const match of matches) {
+            // Only through the approve RPC: it locks the row and credits the wallet with the status.
+            // A deposit it fails or refuses stays pending for the admin to review. (A fallback used to
+            // mark it approved directly, which credited nothing.) Each call is its own transaction, and
+            // a few run at once instead of one after another.
+            const failures = await mapWithConcurrency(matches, RPC_CONCURRENCY, async (match): Promise<string | null> => {
                 try {
-                    // Only through the approve RPC: it locks the row and credits the wallet with the status.
-                    // A deposit it fails or refuses stays pending for the admin to review. (A fallback used to
-                    // mark it approved directly, which credited nothing.)
                     const { data, error } = await adminDb.rpc('approve_wallet_transaction', {
                         p_transaction_id: match.pendingTx.id,
                         p_processed_by: `reconcile:${adminSession.email || 'admin'}`,
                     });
 
                     const result = data as { success?: boolean; error?: string } | null;
-                    if (error || !result?.success) {
-                        approvalErrors.push({ id: match.pendingTx.id, error: error?.message || result?.error || 'Not approved' });
-                        continue;
-                    }
-
-                    autoApproved.push(match.pendingTx.id);
-
-                    // Send notification
-                    try {
-                        await notificationDb.create(match.pendingTx.userId, {
-                            title: 'Deposit Approved',
-                            message: `Your deposit of PKR ${match.pendingTx.amount} has been approved via bank statement reconciliation.`,
-                            type: 'wallet_deposit',
-                            link: '/profile/wallet',
-                        });
-                    } catch (notifErr) {
-                        console.error('Notification error:', notifErr);
-                    }
+                    return error || !result?.success ? error?.message || result?.error || 'Not approved' : null;
                 } catch (err) {
-                    approvalErrors.push({
-                        id: match.pendingTx.id,
-                        error: err instanceof Error ? err.message : 'Unknown error',
-                    });
+                    return err instanceof Error ? err.message : 'Unknown error';
                 }
+            });
+
+            const approvedMatches = matches.filter((match, i) => {
+                const failure = failures[i];
+                if (failure !== null) approvalErrors.push({ id: match.pendingTx.id, error: failure });
+                return failure === null;
+            });
+            autoApproved.push(...approvedMatches.map((match) => match.pendingTx.id));
+
+            // One insert for every approved depositor's notification
+            try {
+                await notificationDb.createMany(approvedMatches.map((match) => ({
+                    userId: match.pendingTx.userId,
+                    title: 'Deposit Approved',
+                    message: `Your deposit of PKR ${match.pendingTx.amount} has been approved via bank statement reconciliation.`,
+                    type: 'wallet_deposit',
+                    link: '/profile/wallet',
+                })));
+            } catch (notifErr) {
+                console.error('Notification error:', notifErr);
             }
         }
 

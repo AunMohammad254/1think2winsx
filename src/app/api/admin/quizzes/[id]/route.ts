@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth-middleware';
-import { getAdminDb, generateId } from '@/lib/supabase/db';
+import { getAdminDb, generateId, mapWithConcurrency } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { toUtcIso } from '@/lib/schedule-time';
 import { rateLimiters, applyRateLimit } from '@/lib/rate-limiter';
@@ -12,6 +12,9 @@ import { adminName, logQuizAction } from '@/lib/admin-action-log';
 import { DEFAULT_QUIZ_ADMIN_SETTINGS, getQuizAdminSettings } from '@/lib/quiz-admin-settings';
 import { answeredQuestionError, answeredQuestionIds, sameOptions } from '@/lib/question-guard';
 import { hasPayoutHistory, SETTLED_QUIZ_DELETE_ERROR } from '@/lib/quiz-history';
+
+/** Question updates in flight at once when a quiz is saved */
+const QUESTION_UPDATE_CONCURRENCY = 5;
 
 const updateQuizSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -494,12 +497,15 @@ export async function PUT(
       // Update or create questions. The answer key stays open (hasCorrectAnswer false): a question with
       // a result is closed to answers, and only Settle Quizzes saves results. A saved result is kept.
       const resultSaved = new Set((existingQuestions || []).filter(q => q.hasCorrectAnswer).map(q => q.id));
+      const now = Date.now();
+      const updates: Array<{ id: string; changes: Record<string, unknown> }> = [];
+      const inserts: Array<Record<string, unknown>> = [];
       for (const questionData of updateData.questions) {
         const options = JSON.stringify(questionData.options);
         const content = {
           text: questionData.text,
           status: questionData.isActive !== false ? 'active' : 'paused',
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date(now).toISOString()
         };
         const key = { correctOption: questionData.correctAnswer, hasCorrectAnswer: false };
 
@@ -507,23 +513,27 @@ export async function PUT(
           // Update existing question. Unchanged options are not rewritten: the database refuses any
           // options write to an answered question, even one that only re-spaces the JSON
           const changes = { ...content, ...(optionsChanged(questionData) || !isExisting(questionData.id) ? { options } : {}) };
-          await supabase
-            .from('Question')
-            .update(resultSaved.has(questionData.id) ? changes : { ...changes, ...key })
-            .eq('id', questionData.id);
+          updates.push({ id: questionData.id, changes: resultSaved.has(questionData.id) ? changes : { ...changes, ...key } });
         } else {
-          // Create new question
-          await supabase
-            .from('Question')
-            .insert({
-              id: generateId(),
-              quizId: quizId,
-              ...content,
-              options,
-              ...key,
-              createdAt: new Date().toISOString()
-            });
+          // New question. Questions are listed by createdAt, so each one gets its own millisecond in the
+          // order the admin added them (one insert would otherwise give them all the same timestamp)
+          inserts.push({
+            id: generateId(),
+            quizId: quizId,
+            ...content,
+            options,
+            ...key,
+            createdAt: new Date(now + inserts.length).toISOString()
+          });
         }
+      }
+
+      // Each changed question is its own update, a few at a time; every new question goes in one insert
+      await mapWithConcurrency(updates, QUESTION_UPDATE_CONCURRENCY, async ({ id: questionId, changes }) => {
+        await supabase.from('Question').update(changes).eq('id', questionId);
+      });
+      if (inserts.length > 0) {
+        await supabase.from('Question').insert(inserts);
       }
     }
 

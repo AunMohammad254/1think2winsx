@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, memo } from 'react';
 import { toast } from 'sonner';
 import { Ban, Eye, EyeOff, Flag, Loader2, Lock, LockOpen, Pencil, Play, Radio, RotateCcw, Trash2, Undo2, X } from 'lucide-react';
 import { getCSRFHeaders } from '@/lib/csrf';
@@ -27,7 +27,11 @@ const toggle = (on: boolean) =>
 
 type Question = MatchView['questions'][number];
 
-function QuestionRow({ question, now }: { question: Question; now: number }) {
+// ⚡ Bolt Performance Optimization:
+// Wrapped `QuestionRow` in `React.memo`. `MatchConsole` re-renders every second when there are open questions due to `useNow`.
+// By selectively passing the changing `now` prop only when `question.state === 'open'`,
+// we prevent React from reconciling rows that are settled, closed, or void on every clock tick.
+const QuestionRow = memo(function QuestionRow({ question, now }: { question: Question; now: number }) {
   const left = question.closesAt ? Date.parse(question.closesAt) - now : null;
   const state = question.state === 'open' && left !== null && left <= 0 ? 'closed' : question.state;
   const badge = state === 'open' ? (left === null ? 'Open' : `Open · closes in ${formatClock(left)}`)
@@ -47,7 +51,7 @@ function QuestionRow({ question, now }: { question: Question; now: number }) {
       <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${tone}`}>{badge}</span>
     </li>
   );
-}
+});
 
 /** The kind of delivery and Wicket, then the runs, which send. Shared by recording a ball and correcting one. */
 function DeliveryPad({ busy, onRuns, initial, label }: {
@@ -309,7 +313,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
         </section>
       )}
 
-      {!view.settled && <QuestionReview drafts={view.drafts} now={now} busy={busy} onSend={sendQuestions} onSkip={skipQuestions} />}
+      {!view.settled && <QuestionReview drafts={view.drafts} now={anyWaiting ? now : 0} busy={busy} onSend={sendQuestions} onSkip={skipQuestions} />}
 
       {!view.settled && (match.status === 'setup' || match.status === 'innings_break') && (
         <section aria-label="Start an innings" className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-6">
@@ -450,7 +454,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
         <section aria-label="Questions" className="space-y-3">
           <h3 className="font-semibold text-white">Questions this innings</h3>
           <ul className="space-y-2">
-            {questions.map((question) => <QuestionRow key={question.id} question={question} now={now} />)}
+            {questions.map((question) => <QuestionRow key={question.id} question={question} now={question.state === 'open' ? now : 0} />)}
           </ul>
         </section>
       )}
