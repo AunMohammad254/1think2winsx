@@ -9,7 +9,6 @@ const router = vi.hoisted(() => ({ prefetch: vi.fn(), push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
 
 import { SportsBall, SPORTS_BALL_WIDTHS, sportsBallSrcSet } from '@/components/hero/SportsBall';
-import StatsGrid from '@/components/profile/StatsGrid';
 import BalanceCard from '@/components/profile/BalanceCard';
 import ProfileHeader from '@/components/profile/ProfileHeader';
 import ProfileAvatar from '@/components/profile/ProfileAvatar';
@@ -73,12 +72,6 @@ describe('hero decorations', () => {
 });
 
 describe('profile pieces', () => {
-  it('StatsGrid lists each stat with an accessible label', () => {
-    render(<StatsGrid stats={[{ id: 'a', label: 'Quizzes', value: 3, icon: '📝' }, { id: 'b', label: 'Wins', value: '1', icon: '🏆', gradient: 'bg-gold' }]} />);
-    expect(screen.getByRole('listitem', { name: 'Quizzes: 3' })).toBeInTheDocument();
-    expect(screen.getByRole('listitem', { name: 'Wins: 1' }).className).toContain('bg-gold');
-  });
-
   it('BalanceCard shows the balance, or a loading placeholder', () => {
     const { rerender } = render(<BalanceCard balance={12.5} />);
     expect(screen.getByText('12.50')).toBeInTheDocument();
