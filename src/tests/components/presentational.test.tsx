@@ -256,6 +256,8 @@ describe('quiz cards and modals', () => {
     rerender(<PaymentModal isOpen onClose={fns.onClose} accessPrice={2} paymentLoading={false} handlePayNowClick={fns.pay} />);
     fireEvent.click(screen.getByRole('button', { name: 'Pay Now' }));
     expect(fns.pay).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(fns.onClose).toHaveBeenCalled();
     rerender(<PaymentModal isOpen onClose={fns.onClose} accessPrice={2} paymentLoading handlePayNowClick={fns.pay} />);
     expect(screen.getByRole('button', { name: /Checking/ })).toBeDisabled();
     rerender(<PaymentModal isOpen={false} onClose={fns.onClose} accessPrice={2} paymentLoading={false} handlePayNowClick={fns.pay} />);
