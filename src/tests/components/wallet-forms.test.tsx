@@ -61,6 +61,16 @@ describe('TransactionHistory', () => {
 });
 
 describe('DepositForm', () => {
+  it('renders correctly with default state', () => {
+    render(<DepositForm onSubmit={vi.fn()} />);
+    expect(screen.getByText('Deposit Funds')).toBeInTheDocument();
+    expect(screen.getByLabelText('Amount (PKR)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Transaction ID / Reference Number')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Proof of Payment/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit Deposit Request' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Easypaisa' })).toBeChecked();
+  });
+
   const fill = (amount: string, txId: string, file?: File) => {
     fireEvent.change(screen.getByLabelText('Amount (PKR)'), { target: { value: amount } });
     fireEvent.change(screen.getByLabelText('Transaction ID / Reference Number'), { target: { value: txId } });
