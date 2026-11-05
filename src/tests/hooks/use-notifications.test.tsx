@@ -270,6 +270,9 @@ describe('useNotifications: badge updates without a Realtime connection', () => 
     // The quiz page's personal list brings a count at most 33 minutes apart: 35 minutes on, still recent
     let now = Date.now();
     const later = (ms: number) => { now += ms; vi.spyOn(Date, 'now').mockReturnValue(now); };
+    // The clock is frozen before the count arrives: on a slow machine the real clock moved on a few ms
+    // before it, and "36 minutes on" was then still inside the 36-minute window
+    later(0);
     act(() => { window.dispatchEvent(new CustomEvent(UNREAD_COUNT_EVENT, { detail: 2 })); });
     later(35 * 60_000);
     const calls = fetchMock.mock.calls.length;
