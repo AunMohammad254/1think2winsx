@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
-import { createSupabaseMock, argOf, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
+import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseMock, eqValue, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;
 const validateAdminSession = vi.fn();
 const isWalletEnabled = vi.fn();
+const requireCSRFToken = vi.fn();
 const notify = vi.fn();
 // pdfParse stands in for PDFParse#getText; pdfDestroy records the cleanup
 const pdfParse = vi.fn();
@@ -14,6 +15,7 @@ const pdfDestroy = vi.fn();
 vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, notificationDb: { create: (...a: unknown[]) => notify(...a) } }));
 vi.mock('@/lib/admin-session', () => ({ validateAdminSession: (...a: unknown[]) => validateAdminSession(...a) }));
 vi.mock('@/lib/wallet/service', () => ({ isWalletEnabled: (...a: unknown[]) => isWalletEnabled(...a) }));
+vi.mock('@/lib/csrf-protection', () => ({ requireCSRFToken: (...a: unknown[]) => requireCSRFToken(...a) }));
 vi.mock('pdf-parse', () => ({
   PDFParse: class {
     constructor(private options: { data: unknown }) {}
@@ -36,9 +38,10 @@ const pending = (id: string, transactionId: string, amount: number, createdAt = 
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [validateAdminSession, isWalletEnabled, notify, pdfParse, pdfDestroy]) fn.mockReset();
+  for (const fn of [validateAdminSession, isWalletEnabled, requireCSRFToken, notify, pdfParse, pdfDestroy]) fn.mockReset();
   validateAdminSession.mockResolvedValue({ valid: true, email: 'admin@example.test' });
   isWalletEnabled.mockResolvedValue(true);
+  requireCSRFToken.mockResolvedValue(null);
   notify.mockResolvedValue({});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -172,46 +175,52 @@ describe('POST /api/admin/wallet-transactions/reconcile', () => {
     expect(notify).toHaveBeenCalledWith('user-a', expect.objectContaining({ title: 'Deposit Approved' }));
   });
 
-  it('when the RPC fails, marks the deposit approved WITHOUT crediting the wallet', async () => {
+  it('leaves a deposit pending when the RPC fails, never marking it approved without the credit', async () => {
     validateAdminSession.mockResolvedValue({ valid: true });
-    adminDb.setTable('WalletTransaction', (call) => (call.ops.some((o) => o.op === 'update') ? { data: null } : { data: [pending('a', '7263652728817', 500)] }));
+    adminDb.setTable('WalletTransaction', { data: [pending('a', '7263652728817', 500)] });
     adminDb.setRpc('approve_wallet_transaction', { error: { message: 'rpc failed' } });
 
     const body = await (await upload('PKR 500 received Ref# 7263652728817', 's.txt', 'text/plain', true)).json();
 
-    const update = adminDb.callsTo('WalletTransaction', 'update')[0];
-    expect(argOf(update, 'update')).toMatchObject({ status: 'approved', processedBy: 'reconcile:admin' });
-    expect(eqValue(update, 'status')).toBe('pending');
-    expect(adminDb.callsTo('User')).toHaveLength(0); // no balance credit anywhere
-    expect(body.autoApproved).toEqual(['a']);
-    expect(notify).toHaveBeenCalled();
+    expect(adminDb.rpcCalls[0].args.p_processed_by).toBe('reconcile:admin');
+    expect(adminDb.callsTo('WalletTransaction', 'update')).toHaveLength(0);
+    expect(adminDb.callsTo('User')).toHaveLength(0);
+    expect(body.autoApproved).toEqual([]);
+    expect(body.approvalErrors).toEqual([{ id: 'a', error: 'rpc failed' }]);
+    expect(body.message).toBe('Matched 1 transaction(s). Auto-approved 0. 0 still pending review.');
+    expect(notify).not.toHaveBeenCalled();
   });
 
   it('collects approval errors and survives notification failures', async () => {
-    adminDb.setTable('WalletTransaction', (call) =>
-      call.ops.some((o) => o.op === 'update') ? { error: { message: 'update failed' } } : { data: [pending('a', 'REF0000001', 1), pending('b', 'REF0000002', 2), pending('c', 'REF0000003', 3), pending('d', 'REF0000004', 4)] });
+    adminDb.setTable('WalletTransaction', { data: [pending('a', 'REF0000001', 1), pending('b', 'REF0000002', 2), pending('c', 'REF0000003', 3), pending('d', 'REF0000004', 4), pending('e', 'REF0000005', 5)] });
     adminDb.setRpc('approve_wallet_transaction', (args) => {
       if (args.p_transaction_id === 'a') return { data: { success: false } };
       if (args.p_transaction_id === 'b') throw new Error('rpc threw');
       if (args.p_transaction_id === 'c') throw 'not an error';
+      if (args.p_transaction_id === 'e') return { data: { success: false, error: 'Transaction is not pending' } };
       return { data: { success: true } };
     });
     notify.mockRejectedValue(new Error('push down'));
 
-    const text = ['Ref# REF0000001 PKR 1', 'Ref# REF0000002 PKR 2', 'Ref# REF0000003 PKR 3', 'Ref# REF0000004 PKR 4'].join('\n');
+    const text = ['Ref# REF0000001 PKR 1', 'Ref# REF0000002 PKR 2', 'Ref# REF0000003 PKR 3', 'Ref# REF0000004 PKR 4', 'Ref# REF0000005 PKR 5'].join('\n');
     const body = await (await upload(text, 's.txt', 'text/plain', true)).json();
 
     expect(body.autoApproved).toEqual(['d']);
     expect(body.approvalErrors).toEqual([
-      { id: 'a', error: 'update failed' },
+      { id: 'a', error: 'Not approved' },
       { id: 'b', error: 'rpc threw' },
       { id: 'c', error: 'Unknown error' },
+      { id: 'e', error: 'Transaction is not pending' },
     ]);
+    expect(adminDb.callsTo('WalletTransaction', 'update')).toHaveLength(0);
   });
 
-  it('guards on the admin session, the wallet flag and a missing file', async () => {
+  it('guards on the admin session, CSRF, the wallet flag and a missing file', async () => {
     validateAdminSession.mockResolvedValueOnce({ valid: false });
     expect((await upload('x')).status).toBe(401);
+    requireCSRFToken.mockResolvedValueOnce(NextResponse.json({}, { status: 403 }));
+    expect((await upload('PKR 500 received Ref# 7263652728817', 's.txt', 'text/plain', true)).status).toBe(403);
+    expect(adminDb.rpcCalls).toHaveLength(0);
     isWalletEnabled.mockResolvedValueOnce(false);
     expect((await upload('x')).status).toBe(503);
     const res = await upload(null);

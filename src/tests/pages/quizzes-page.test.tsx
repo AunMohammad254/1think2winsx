@@ -603,7 +603,7 @@ describe('quizzes page: live updates', () => {
   });
 
   it('checks the live snapshot when an upcoming quiz reaches its start time, but not for far-off ones', async () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
     const timers = vi.spyOn(window, 'setTimeout');
     h.fetchWithRetry.mockImplementation(async () => ok({ quizzes: [quiz('a', { title: 'Cricket Classics' }), quiz('soon', { status: 'upcoming', startsAt: new Date(NOW + 60_000).toISOString() })] }));
     const { unmount } = render(<QuizzesPage />);
@@ -622,9 +622,15 @@ describe('quizzes page: live updates', () => {
     expect(h.fetchWithRetry.mock.calls.length).toBe(personalCalls);
     unmount();
     timers.mockClear();
+    random.mockClear();
     h.fetchWithRetry.mockImplementation(async () => ok({ quizzes: [quiz('a', { title: 'Cricket Classics' }), quiz('later', { status: 'upcoming', startsAt: new Date(NOW + 40 * 86_400_000).toISOString() })] }));
     render(<QuizzesPage />);
     await loaded();
+    // Wait until the effect has worked out the far-off quiz's delay (its jitter is the only Math.random
+    // call here). Asserting straight after the list renders could pass before the effect ran: on a busy
+    // CI runner it then ran during cleanup, after Date.now was restored, against the real clock, where
+    // "40 days after NOW" is under the 24.8-day limit, so the limit's branch went uncovered.
+    await waitFor(() => expect(random).toHaveBeenCalled());
     expect(timers.mock.calls.some(([, ms]) => typeof ms === 'number' && ms > 2_000_000_000)).toBe(false);
   });
 
