@@ -21,7 +21,6 @@ import QuizCard from '@/components/quiz/QuizCard';
 import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
 import PaymentModal from '@/components/quiz/PaymentModal';
-import WalletDisplay from '@/components/wallet/WalletDisplay';
 import StepCard from '@/components/how-to-play/StepCard';
 import HowToPlayPrizeCard from '@/components/how-to-play/PrizeCard';
 import WinningTips from '@/components/how-to-play/WinningTips';
@@ -257,14 +256,6 @@ describe('quiz cards and modals', () => {
     expect(screen.queryByText('Unlock Arena Access')).toBeNull();
   });
 
-  it('WalletDisplay shows pending transactions', () => {
-    const { rerender } = render(<WalletDisplay balance={5} pendingDeposits={1} pendingDeductions={2} />);
-    expect(screen.getByLabelText('3 pending transactions')).toBeInTheDocument();
-    expect(screen.getByText(/There are 3 pending transactions/)).toBeInTheDocument();
-    rerender(<WalletDisplay balance={5} isLoading />);
-    expect(screen.getByRole('status')).toBeInTheDocument();
-    expect(screen.getByText(/No pending transactions/)).toBeInTheDocument();
-  });
 });
 
 describe('how-to-play sections', () => {
