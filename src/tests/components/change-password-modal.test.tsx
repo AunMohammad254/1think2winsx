@@ -85,6 +85,24 @@ describe('ChangePasswordModal', () => {
     submit();
     expect(await screen.findByText('Current password is required')).toBeInTheDocument();
     expect(screen.getByText('Password must be at least 8 characters')).toBeInTheDocument();
+
+    // Check specific complexity errors
+    type('New Password', 'abcdefghi');
+    submit();
+    expect(await screen.findByText('Must contain at least one uppercase letter')).toBeInTheDocument();
+
+    type('New Password', 'ABCDEFGHI');
+    submit();
+    expect(await screen.findByText('Must contain at least one lowercase letter')).toBeInTheDocument();
+
+    type('New Password', 'Abcdefghi');
+    submit();
+    expect(await screen.findByText('Must contain at least one number')).toBeInTheDocument();
+
+    type('New Password', 'Abcdefgh1');
+    submit();
+    expect(await screen.findByText('Must contain at least one special character')).toBeInTheDocument();
+
     type('New Password', 'Abcdefg1!');
     type('Confirm New Password', 'different');
     submit();
@@ -103,7 +121,8 @@ describe('ChangePasswordModal', () => {
   });
 
   it('reveals each password field on demand', async () => {
-    render(<ChangePasswordModal isOpen onClose={vi.fn()} />);
+    const onClose = vi.fn();
+    const { rerender } = render(<ChangePasswordModal isOpen onClose={onClose} />);
     await ready();
     for (const label of ['Current Password', 'New Password', 'Confirm New Password']) {
       const input = screen.getByLabelText(label);
@@ -113,6 +132,18 @@ describe('ChangePasswordModal', () => {
       fireEvent.click(toggle);
       expect(input).toHaveAttribute('type', 'password');
     }
+
+    // Reveal a field, close the modal, and reopen it to test visibility reset
+    const input = screen.getByLabelText('Current Password');
+    const toggle = input.parentElement!.querySelector('button')!;
+    fireEvent.click(toggle);
+    expect(input).toHaveAttribute('type', 'text');
+
+    rerender(<ChangePasswordModal isOpen={false} onClose={onClose} />);
+    rerender(<ChangePasswordModal isOpen onClose={onClose} />);
+    await ready();
+
+    expect(screen.getByLabelText('Current Password')).toHaveAttribute('type', 'password');
   });
 
   it('reports a refused change and CSRF failures', async () => {
