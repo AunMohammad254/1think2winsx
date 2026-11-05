@@ -72,6 +72,30 @@ describe('Navbar', () => {
     await waitFor(() => expect(screen.queryByText('Menu')).toBeNull());
   });
 
+  it('renders standard desktop navigation links for visitors', () => {
+    render(<Navbar />);
+    const links = ['Home', 'Quizzes', 'How-To-Play', 'Prizes', 'Leaderboard'];
+    links.forEach(label => {
+      // Find within desktop navigation by querying hidden lg:flex nav items
+      const desktopNav = document.querySelector('nav.hidden.lg\\:flex');
+      expect(within(desktopNav as HTMLElement).getByText(label)).toBeInTheDocument();
+    });
+    // Profile should not be in desktop nav
+    const desktopNav = document.querySelector('nav.hidden.lg\\:flex');
+    expect(within(desktopNav as HTMLElement).queryByText('Profile')).toBeNull();
+  });
+
+  it('renders standard and Profile desktop navigation links for authenticated users', () => {
+    h.auth.user = ali as unknown as Record<string, unknown>;
+    render(<Navbar />);
+    const links = ['Home', 'Quizzes', 'How-To-Play', 'Prizes', 'Leaderboard', 'Profile'];
+    links.forEach(label => {
+      const desktopNav = document.querySelector('nav.hidden.lg\\:flex');
+      expect(within(desktopNav as HTMLElement).getByText(label)).toBeInTheDocument();
+    });
+    h.auth.user = null; // reset for other tests
+  });
+
   it('shows a skeleton while auth loads', () => {
     h.auth.isLoading = true;
     const { container } = render(<Navbar />);
