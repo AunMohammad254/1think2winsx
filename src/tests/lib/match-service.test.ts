@@ -21,8 +21,10 @@ vi.mock('@/lib/match-wording', async (importOriginal) => ({
 
 const {
   loadMatch, matchView, ballLabel, applyMatchEvent, createMatch, listMatches, sendDrafts, skipDrafts, setAutoSend,
-  setPublished, setMaxEntries, announceMatch, MATCH_LINK,
+  setPublished, setMaxEntries, announceMatch, MATCH_LINK, queueQuiz, unqueueQuiz, setLanguage, setAiLevel, wordDrafts,
 } = await import('@/lib/match-service');
+const { overCandidates } = await import('@/lib/match-questions');
+const { matchSituation } = await import('@/lib/match-situation');
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const ROW = {
@@ -57,17 +59,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** A draft as "LiveMatch".drafts stores it: over 1's runs question, 100 s before it would close */
+/**
+ * Over 2's quiz as "LiveMatch".drafts stores it (prepared at the start, out during over 1): its runs and
+ * wicket questions ticked, dot balls not
+ */
 const draft = (over: Record<string, unknown> = {}) => ({
-  id: 'd1', innings: 1, over: 1, market: 'over_runs_at_least', params: { line: 9 }, options: ['Yes', 'No'],
-  text: 'Lahore: will over 1 go for 9 or more runs?', textRomanUrdu: 'Lahore: kya over 1 mein 9 ya us se zyada runs banenge?',
-  plainText: 'Lahore: will over 1 go for 9 or more runs?', plainTextRomanUrdu: 'Lahore: kya over 1 mein 9 ya us se zyada runs banenge?',
-  ai: false, closesAt: new Date(NOW + 100_000).toISOString(), ...over,
+  id: 'd1', innings: 1, over: 2, market: 'over_runs_at_least', params: { line: 9 }, options: ['Yes', 'No'],
+  text: 'Lahore: will over 2 go for 9 or more runs?', textRomanUrdu: 'Lahore: kya over 2 mein 9 ya us se zyada runs banenge?',
+  body: { en: 'Lahore: will over 2 go for 9 or more runs?', ur: 'Lahore: kya over 2 mein 9 ya us se zyada runs banenge?' }, lead: null,
+  rank: 0, selected: true, aiAsked: false, preparedAt: new Date(NOW - 60_000).toISOString(), window: 150, ...over,
 });
 const wicketDraft = draft({
-  id: 'd2', market: 'wicket_in_over', params: {}, text: 'Will a wicket fall in over 1?', textRomanUrdu: 'Kya over 1 mein koi wicket giray ga?',
-  plainText: 'Will a wicket fall in over 1?', plainTextRomanUrdu: 'Kya over 1 mein koi wicket giray ga?',
+  id: 'd2', market: 'wicket_in_over', params: {}, text: 'Will a wicket fall in over 2?', textRomanUrdu: 'Kya over 2 mein koi wicket giray ga?',
+  body: { en: 'will a wicket fall in over 2?', ur: 'kya over 2 mein koi wicket giray ga?' }, rank: 1,
 });
+const dotsDraft = draft({
+  id: 'd3', market: 'dots_at_least', params: { line: 3 }, text: 'Will over 2 have 3 or more dot balls?', textRomanUrdu: 'Kya over 2 mein 3 ya zyada dot balls hongi?',
+  body: { en: 'will over 2 have 3 or more dot balls?', ur: 'kya over 2 mein 3 ya zyada dot balls hongi?' }, rank: 2, selected: false,
+});
+const QUIZ = [draft(), wicketDraft, dotsDraft];
+const OUT = { options: '["Yes","No"]', innings: 1, over: 2, closesInSeconds: 150 };
 
 describe('loadMatch', () => {
   it('reads the match, its innings, balls and questions into the engine state', async () => {
@@ -124,12 +135,14 @@ describe('matchView', () => {
       ],
     });
     const view = matchView((await loadMatch('m1', NOW))!, NOW);
-    expect(view.match).toEqual({ ...ROW, createdAt: undefined, title: 'Lahore vs Karachi', published: false });
+    // Rows from before the language and AI level read as both and full
+    expect(view.match).toEqual({ ...ROW, createdAt: undefined, language: 'both', aiLevel: 'full', title: 'Lahore vs Karachi', published: false });
     // Not asked for
     expect(view.players).toBeNull();
     // How much of Gemini's limits this server used, for the console
-    const { wordingUsage } = await import('@/lib/match-wording');
-    expect(view.wording).toEqual(wordingUsage(process.env, NOW));
+    const { wordingUsage, wordingPlan } = await import('@/lib/match-wording');
+    expect(view.wording).toEqual({ ...wordingUsage(process.env, NOW), plan: wordingPlan('full', wordingUsage(process.env, NOW)) });
+    expect(view.quizzes).toEqual([]);
     expect(db.callsTo('QuizAdminSettings')).toHaveLength(0);
     expect(db.callsTo('QuizEntryCount')).toHaveLength(0);
     expect(view.innings.map((i) => [i.battingTeam, i.runs, i.wickets, i.oversText, i.target, i.endReason])).toEqual([
@@ -140,9 +153,9 @@ describe('matchView', () => {
       number: 1, runs: 6, wickets: 1, complete: false,
       // With what the console needs to correct each
       balls: [
-        { id: 'c1', label: 'Wd', runs: 0, extra: 'wide', wicket: false },
-        { id: 'c2', label: '4Nb', runs: 4, extra: 'no_ball', wicket: false },
-        { id: 'c3', label: 'W', runs: 0, extra: 'none', wicket: true },
+        { id: 'c1', label: 'Wd', runs: 0, extra: 'wide', wicket: false, wicketKind: null, boundary: null },
+        { id: 'c2', label: '4Nb', runs: 4, extra: 'no_ball', wicket: false, wicketKind: null, boundary: null },
+        { id: 'c3', label: 'W', runs: 0, extra: 'none', wicket: true, wicketKind: null, boundary: null },
       ],
     }]);
     expect(view.serverNow).toBe('2026-10-29T12:00:00.000Z');
@@ -192,73 +205,176 @@ describe('matchView', () => {
       label({ extra: 'bye', runs: 1 }), label({ extra: 'leg_bye', runs: 2 }), label({ wicket: true }), label({ wicket: true, runs: 1 }),
       label({ wicket: true, extra: 'wide' }),
     ]).toEqual(['0', '4', 'Wd', '1Wd', '6Nb', '1B', '2Lb', 'W', '1W', 'WdW']);
+    // Every scoring action
+    expect([
+      label({ runs: 4, boundary: true }), label({ runs: 4, boundary: false }), label({ runs: 6, boundary: false }), label({ runs: 5 }),
+      label({ extra: 'no_ball_bye', runs: 2 }), label({ extra: 'no_ball_leg_bye', runs: 1 }), label({ extra: 'penalty' }),
+      label({ wicket: true, wicketKind: 'caught' }), label({ wicket: true, wicketKind: 'run_out', runs: 1 }), label({ wicket: true, wicketKind: 'run_out' }),
+      label({ extra: 'wide', wicket: true, wicketKind: 'stumped' }), label({ extra: 'no_delivery', wicket: true, wicketKind: 'retired_out' }),
+      label({ extra: 'no_delivery', wicket: true, wicketKind: 'timed_out' }),
+    ]).toEqual(['4', '4r', '6r', '5', '2NbB', '1NbLb', '5P', 'W', '1RO', 'RO', 'WdW', 'Ret', 'TO']);
+  });
+
+  it('reads how each batter was out and which balls were boundaries, for the console to correct', async () => {
+    setMatch({ balls: [ball(1, { runs: 4, boundary: true }), ball(2, { runs: 0, wicket: true, wicketKind: 'lbw', boundary: null })] });
+    const view = matchView((await loadMatch('m1', NOW))!, NOW);
+    expect(view.innings[0].overs[0].balls.map((b) => [b.label, b.wicketKind, b.boundary])).toEqual([['4', null, true], ['W', 'lbw', null]]);
+    expect(db.callsTo('BallEvent')[0].ops.find((o) => o.op === 'select')?.args[0]).toBe('id, innings, seq, runs, extra, extraRuns, wicket, wicketKind, boundary');
   });
 });
 
 describe('applyMatchEvent', () => {
-  it('writes the questions an over needs as drafts for review, worded by Gemini where it can', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(NOW);
-    aiWording.mockResolvedValue([{ text: 'Lahore start: will over 1 go for 9 or more?', textRomanUrdu: 'Lahore ka aaghaz: over 1 mein 9 ya zyada?' }, null]);
+  const ok = () => db.setRpc('apply_match_change', { data: { success: true, version: 4 } });
+  const saved = (i = 0) => db.rpcCalls.filter((c) => c.fn === 'apply_match_change')[i].args.p_change as Record<string, unknown> & { drafts: Array<Record<string, unknown>>; release: Array<Record<string, unknown>> };
+  const start = { type: 'start_innings' as const, battingTeam: 'Lahore' };
+  beforeEach(() => vi.spyOn(Date, 'now').mockReturnValue(NOW));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("prepares the quizzes the engine asks for: every market, best first and ticked, waiting for the admin", async () => {
     setMatch({ row: { status: 'setup' }, innings: [] });
-    db.setRpc('apply_match_change', { data: { success: true, version: 4 } });
-    const result = await applyMatchEvent('m1', 3, { type: 'start_innings', battingTeam: 'Lahore' }, 'boss@example.test');
+    ok();
+    const result = await applyMatchEvent('m1', 3, start, 'boss@example.test');
     expect(result.ok).toBe(true);
-    const closesAt = new Date(NOW + 120_000).toISOString();
-    expect(db.rpcCalls).toEqual([{
-      fn: 'apply_match_change',
-      args: {
-        p_match_id: 'm1',
-        p_version: 3,
-        p_change: {
-          startInnings: { innings: 1, battingTeam: 'Lahore' },
-          // Nothing goes out: players see nothing until an admin sends
-          release: [],
-          drafts: [
-            {
-              id: 'id1', innings: 1, over: 1, market: 'over_runs_at_least', params: { line: 9 }, options: ['Yes', 'No'],
-              text: 'Lahore start: will over 1 go for 9 or more?', textRomanUrdu: 'Lahore ka aaghaz: over 1 mein 9 ya zyada?',
-              plainText: 'Lahore: will over 1 go for 9 or more runs?', plainTextRomanUrdu: 'Lahore: kya over 1 mein 9 ya us se zyada runs banenge?',
-              ai: true, closesAt,
-            },
-            {
-              id: 'id2', innings: 1, over: 1, market: 'dots_at_least', params: { line: 3 }, options: ['Yes', 'No'],
-              text: 'Will over 1 have 3 or more dot balls?', textRomanUrdu: 'Kya over 1 mein 3 ya zyada dot balls hongi?',
-              plainText: 'Will over 1 have 3 or more dot balls?', plainTextRomanUrdu: 'Kya over 1 mein 3 ya zyada dot balls hongi?',
-              ai: false, closesAt,
-            },
-          ],
-          lock: [], resolve: [], void: [], pending: [], status: 'live', admin: 'boss@example.test',
-        },
-      },
-    }]);
-    // Gemini got the match as it stands
-    expect(aiWording).toHaveBeenCalledWith(
-      { teams: ['Lahore', 'Karachi'], battingTeam: 'Lahore', innings: 1, over: 1, runs: 0, wickets: 0, oversText: '0.0', target: null },
-      expect.arrayContaining([expect.objectContaining({ market: 'over_runs_at_least' })]),
-    );
+    expect(db.rpcCalls[0].args).toMatchObject({ p_match_id: 'm1', p_version: 3 });
+    const change = saved();
+    // Nothing goes out: players see nothing until the admin sends
+    expect(change).toMatchObject({ startInnings: { innings: 1, battingTeam: 'Lahore' }, release: [], status: 'live', admin: 'boss@example.test' });
+    expect(change.drafts[0]).toEqual({
+      id: 'id1', innings: 1, over: 1, market: 'over_runs_at_least', params: { line: 9 }, options: ['Yes', 'No'],
+      text: 'Lahore: will over 1 go for 9 or more runs?', textRomanUrdu: 'Lahore: kya over 1 mein 9 ya us se zyada runs banenge?',
+      body: { en: 'Lahore: will over 1 go for 9 or more runs?', ur: 'Lahore: kya over 1 mein 9 ya us se zyada runs banenge?' }, lead: null,
+      rank: 0, selected: true, aiAsked: false, preparedAt: new Date(NOW).toISOString(), window: 120,
+    });
+    // Over 1's quiz and over 2's (out during over 1), the best two of each ticked; over 2 asks something new
+    expect(change.drafts.map((d) => [d.over, d.market, d.selected, d.window])).toEqual([
+      [1, 'over_runs_at_least', true, 120], [1, 'boundary_in_over', true, 120], [1, 'dots_at_least', false, 120], [1, 'wicket_in_over', false, 120],
+      [2, 'over_runs_at_least', true, 150], [2, 'dots_at_least', true, 150], [2, 'wicket_in_over', false, 150], [2, 'boundary_in_over', false, 150],
+    ]);
+    // No Gemini key: nothing to word
+    expect(result.ok && result.background).toBeUndefined();
     expect(logQuizAction).toHaveBeenCalledWith({
       quizId: 'quiz1', quizTitle: 'Lahore vs Karachi', action: 'match_innings_started', adminEmail: 'boss@example.test',
-      details: { matchId: 'm1', event: { type: 'start_innings', battingTeam: 'Lahore' } },
+      details: { matchId: 'm1', event: start },
     });
     // The match is read again after the change
     expect(db.callsTo('LiveMatch')).toHaveLength(2);
   });
 
-  it('sends the questions straight out, Roman Urdu with them, when the match sends automatically', async () => {
+  it("in Auto, sends over 1's best questions at once (skipping the rest of its quiz) and sets over 2's for ball 1", async () => {
     setMatch({ row: { status: 'setup', autoSend: true }, innings: [] });
-    db.setRpc('apply_match_change', { data: { success: true, version: 4 } });
-    await applyMatchEvent('m1', 3, { type: 'start_innings', battingTeam: 'Lahore' }, 'boss@example.test');
-    const change = db.rpcCalls[0].args.p_change as Record<string, unknown>;
-    expect(change.drafts).toBeUndefined();
+    ok();
+    await applyMatchEvent('m1', 3, start, 'boss@example.test');
+    const change = saved();
     expect(change.release).toEqual([
-      {
-        id: 'id1', text: 'Lahore: will over 1 go for 9 or more runs?', textRomanUrdu: 'Lahore: kya over 1 mein 9 ya us se zyada runs banenge?',
-        options: '["Yes","No"]', market: 'over_runs_at_least', params: { line: 9 }, innings: 1, over: 1, closesInSeconds: 120,
+      { id: 'id1', text: 'Lahore: will over 1 go for 9 or more runs?', textRomanUrdu: 'Lahore: kya over 1 mein 9 ya us se zyada runs banenge?', market: 'over_runs_at_least', params: { line: 9 }, options: '["Yes","No"]', innings: 1, over: 1, closesInSeconds: 120 },
+      { id: 'id2', text: 'Will there be a four or a six in over 1?', textRomanUrdu: 'Kya over 1 mein chauka ya chhakka lagega?', market: 'boundary_in_over', params: {}, options: '["Yes","No"]', innings: 1, over: 1, closesInSeconds: 120 },
+    ]);
+    expect(change.drafts.map((d) => [d.id, d.over, d.skipped ?? false, d.pushOn ?? null, d.pushBy ?? null])).toEqual([
+      ['id3', 1, true, 1, 'auto'], ['id4', 1, true, 1, 'auto'],
+      ['id5', 2, false, 1, 'auto'], ['id6', 2, false, 1, 'auto'], ['id7', 2, false, 1, 'auto'], ['id8', 2, false, 1, 'auto'],
+    ]);
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'match_questions_sent', details: { matchId: 'm1', over: 1, ball: 1, by: 'auto', questions: ['id1', 'id2'] },
+    }));
+  });
+
+  it("sends a quiz set to a ball when the scorer records that ball: the admin's wording, else Gemini's, else the built-in one", async () => {
+    const queued = [
+      // Set before pushBy was kept: the admin's
+      draft({ pushOn: 2, edit: { text: 'Lahore: 10 or more in over 2?', textRomanUrdu: 'Over 2 mein 10 ya zyada?', line: 10 } }),
+      { ...wicketDraft, pushOn: 2, pushBy: 'admin' },
+      { ...dotsDraft, pushOn: 2, pushBy: 'admin' },
+      draft({ id: 'plain', market: 'boundary_in_over', params: {}, text: 'Will there be a four or a six in over 2?', textRomanUrdu: 'Kya over 2 mein chauka ya chhakka lagega?', pushOn: 2, pushBy: 'admin' }),
+    ];
+    const wordings = { d2: { text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?' }, plain: { failed: true } };
+    setMatch({ row: { drafts: queued, wordings }, balls: [ball(1)] });
+    ok();
+    // Over 1 has one legal ball: nothing is due before the second
+    await applyMatchEvent('m1', 3, { type: 'close_answers' }, 'a');
+    expect(saved(0).release).toEqual([]);
+    await applyMatchEvent('m1', 3, { type: 'ball', runs: 0, extra: 'none', wicket: false }, 'a');
+    expect(saved(1).release).toEqual([
+      { id: 'd1', text: 'Lahore: 10 or more in over 2?', textRomanUrdu: 'Over 2 mein 10 ya zyada?', market: 'over_runs_at_least', params: { line: 10 }, ...OUT },
+      { id: 'd2', text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?', market: 'wicket_in_over', params: {}, ...OUT },
+      { id: 'plain', text: 'Will there be a four or a six in over 2?', textRomanUrdu: 'Kya over 2 mein chauka ya chhakka lagega?', market: 'boundary_in_over', params: {}, ...OUT },
+    ]);
+    // The unticked question is skipped: one quiz an over
+    expect(saved(1).drafts).toEqual([{ ...dotsDraft, pushOn: 2, pushBy: 'admin', skipped: true }]);
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'match_questions_sent', details: { matchId: 'm1', over: 2, ball: 2, by: 'admin', questions: ['d1', 'd2', 'plain'] },
+    }));
+  });
+
+  it('has Gemini word the new quizzes after the response, as much as the AI level allows', async () => {
+    vi.stubEnv('MATCH_GEMINI_API_KEY', 'k');
+    setMatch({ row: { status: 'setup', aiLevel: 'half' }, innings: [] });
+    ok();
+    const result = await applyMatchEvent('m1', 3, start, 'a');
+    // Half: odd overs only
+    expect(saved().drafts.map((d) => [d.over, d.aiAsked])).toEqual([[1, true], [1, true], [1, true], [1, true], [2, false], [2, false], [2, false], [2, false]]);
+    expect(result.ok && typeof result.background).toBe('function');
+    // After the response: the match as saved, worded
+    setMatch({ row: { drafts: saved().drafts } });
+    db.setRpc('update_match_extras', { data: { success: true } });
+    aiWording.mockResolvedValue([{ text: 'Over 1 for 9 or more runs, Lahore?', textRomanUrdu: 'Lahore, over 1 mein 9 ya zyada?' }, null, null, null]);
+    await (result as { background: () => Promise<void> }).background();
+    expect(aiWording).toHaveBeenCalledTimes(1);
+    expect(aiWording.mock.calls[0][0]).toMatchObject({ teams: ['Lahore', 'Karachi'], over: 1, situation: { battingTeam: 'Lahore', afterOvers: 0, runs: 0 } });
+    expect(db.rpcCalls.at(-1)).toEqual({
+      fn: 'update_match_extras',
+      args: {
+        p_match_id: 'm1',
+        p_change: { wordings: {
+          id1: { text: 'Over 1 for 9 or more runs, Lahore?', textRomanUrdu: 'Lahore, over 1 mein 9 ya zyada?' },
+          id2: { failed: true }, id3: { failed: true }, id4: { failed: true },
+        } },
       },
-      {
-        id: 'id2', text: 'Will over 1 have 3 or more dot balls?', textRomanUrdu: 'Kya over 1 mein 3 ya zyada dot balls hongi?',
-        options: '["Yes","No"]', market: 'dots_at_least', params: { line: 3 }, innings: 1, over: 1, closesInSeconds: 120,
-      },
+    });
+  });
+
+  it('rebuilds a waiting quiz from the corrected score, keeping its ticks and ball; Gemini words it again only once', async () => {
+    vi.stubEnv('MATCH_GEMINI_API_KEY', 'k');
+    // Over 1 bowled (six singles), over 3's quiz prepared from it, set to go out on ball 3 of over 2
+    const row = { oversPerInnings: 20 };
+    const balls = [1, 2, 3, 4, 5, 6].map((n) => ball(n));
+    const situation = matchSituation({ balls: balls as never, innings: 1, battingTeam: 'Lahore', oversPerInnings: 20, target: null, afterOvers: 1 });
+    const fresh = overCandidates(situation, 3).map((q, rank) => draft({
+      id: `o3-${rank}`, over: 3, market: q.market, params: q.params, text: q.text, textRomanUrdu: q.textRomanUrdu, body: q.body, lead: q.lead,
+      rank, selected: q.market === 'wicket_in_over', pushOn: 3, pushBy: 'admin',
+    }));
+    setMatch({ row: { ...row, drafts: fresh }, balls });
+    ok();
+    // A ball of over 2 changes nothing about it
+    await applyMatchEvent('m1', 3, { type: 'ball', runs: 4, extra: 'none', wicket: false }, 'a');
+    expect(saved(0).drafts).toBeUndefined();
+    // The first ball was a four, not a single: Lahore 9/0 after 1 overs
+    await applyMatchEvent('m1', 3, { type: 'correct_ball', ballId: 'b1', runs: 4, extra: 'none', wicket: false }, 'a');
+    const rebuilt = saved(1).drafts;
+    expect(rebuilt.map((d) => [d.market, d.selected, d.pushOn, d.pushBy, d.rebuilt, d.aiAsked])).toEqual(
+      overCandidates({ ...situation, runs: 9 }, 3).map((q) => [q.market, q.market === 'wicket_in_over', 3, 'admin', 1, true]),
+    );
+    expect(rebuilt[0]).toMatchObject({ id: expect.stringMatching(/^id/), text: expect.stringContaining('Lahore 9/0 after 1 overs') });
+    // Corrected again: rebuilt, but Gemini isn't asked a second time
+    setMatch({ row: { ...row, drafts: rebuilt }, balls });
+    await applyMatchEvent('m1', 3, { type: 'correct_ball', ballId: 'b2', runs: 6, extra: 'none', wicket: false }, 'a');
+    expect(saved(2).drafts.map((d) => [d.rebuilt, d.aiAsked])).toEqual(rebuilt.map(() => [2, false]));
+    // A quiz not set to a ball stays that way
+    setMatch({ row: { ...row, drafts: fresh.map((d) => ({ ...d, pushOn: undefined, pushBy: undefined })) }, balls });
+    await applyMatchEvent('m1', 3, { type: 'correct_ball', ballId: 'b3', runs: 4, extra: 'none', wicket: false }, 'a');
+    expect(saved(3).drafts.every((d) => !('pushOn' in d) && !('pushBy' in d))).toBe(true);
+  });
+
+  it("asks over 3 something other than what over 2's quiz sent", async () => {
+    // Over 1's 5th ball bowled; over 2's quiz went out with runs and boundary questions
+    setMatch({
+      row: { oversPerInnings: 20 }, balls: [1, 2, 3, 4, 5].map((n) => ball(n)),
+      questions: [question({ id: 's1', matchOver: 2 }), question({ id: 's2', matchOver: 2, market: 'boundary_in_over', marketParams: {} })],
+    });
+    ok();
+    await applyMatchEvent('m1', 3, { type: 'ball', runs: 1, extra: 'none', wicket: false }, 'a');
+    // The powerplay favours boundaries, but over 2 asked one: dot balls instead
+    expect(saved().drafts.map((d) => [d.over, d.market, d.selected])).toEqual([
+      [3, 'over_runs_at_least', true], [3, 'dots_at_least', true], [3, 'boundary_in_over', false], [3, 'wicket_in_over', false],
     ]);
   });
 
@@ -267,31 +383,30 @@ describe('applyMatchEvent', () => {
       row: { status: 'live', drafts: [draft({ id: 'keep', skipped: true }), draft({ id: 'gone', innings: 2 })] },
       innings: [{ innings: 1, battingTeam: 'Lahore', endReason: 'admin' }, { innings: 2, battingTeam: 'Lahore', endReason: null }],
     });
-    db.setRpc('apply_match_change', { data: { success: true, version: 4 } });
+    ok();
     await applyMatchEvent('m1', 3, { type: 'remove_innings' }, 'a');
-    expect((db.rpcCalls[0].args.p_change as { drafts: Array<{ id: string }> }).drafts.map((d) => d.id)).toEqual(['keep']);
+    expect(saved(0).drafts.map((d) => d.id)).toEqual(['keep']);
 
-    // Over 2's questions are already waiting, so this ball opens nothing new
-    setMatch({ row: { drafts: [draft({ over: 2 })] }, balls: [ball(1)] });
+    // Over 2's quiz is already waiting, and its facts haven't changed
+    setMatch({ row: { drafts: QUIZ }, balls: [ball(1)] });
     await applyMatchEvent('m1', 3, { type: 'close_answers' }, 'a');
-    expect((db.rpcCalls[1].args.p_change as Record<string, unknown>).drafts).toBeUndefined();
+    expect(saved(1).drafts).toBeUndefined();
   });
 
   it('sends a correction to the database, and logs it on the quiz', async () => {
     setMatch({ balls: [ball(1), ball(2)] });
-    db.setRpc('apply_match_change', { data: { success: true, version: 4 } });
+    ok();
     const event = { type: 'correct_ball' as const, ballId: 'b1', runs: 4, extra: 'none' as const, wicket: false };
     expect((await applyMatchEvent('m1', 3, event, 'boss@example.test')).ok).toBe(true);
-    expect((db.rpcCalls[0].args.p_change as { replaceBall: unknown }).replaceBall)
-      .toEqual({ id: 'id1', replaces: 'b1', innings: 1, seq: 1, runs: 4, extra: 'none', extraRuns: 0, wicket: false });
+    expect(saved().replaceBall).toEqual({ id: 'id1', replaces: 'b1', innings: 1, seq: 1, runs: 4, extra: 'none', extraRuns: 0, wicket: false });
     expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_ball_corrected', details: { matchId: 'm1', event } }));
   });
 
   it("records a ball with the engine's id and number, and doesn't log it", async () => {
-    setMatch({ balls: [ball(1)] });
-    db.setRpc('apply_match_change', { data: { success: true, version: 4 } });
+    setMatch({ balls: [ball(1)], row: { drafts: QUIZ } });
+    ok();
     await applyMatchEvent('m1', 3, { type: 'ball', runs: 4, extra: 'none', wicket: false }, 'boss@example.test');
-    expect((db.rpcCalls[0].args.p_change as { ball: unknown }).ball).toEqual({ id: 'id1', innings: 1, seq: 2, runs: 4, extra: 'none', extraRuns: 0, wicket: false });
+    expect(saved().ball).toEqual({ id: 'id1', innings: 1, seq: 2, runs: 4, extra: 'none', extraRuns: 0, wicket: false });
     expect(logQuizAction).not.toHaveBeenCalled();
   });
 
@@ -306,7 +421,7 @@ describe('applyMatchEvent', () => {
   });
 
   it("passes on the database's refusals, and throws its errors", async () => {
-    setMatch();
+    setMatch({ row: { drafts: QUIZ } });
     const close = () => applyMatchEvent('m1', 3, { type: 'close_answers' }, 'a');
     db.setRpc('apply_match_change', { data: { success: false, code: 'stale', error: 'Someone else changed this match first.' } });
     expect(await close()).toEqual({ ok: false, status: 409, code: 'stale', error: 'Someone else changed this match first.' });
@@ -321,63 +436,139 @@ describe('applyMatchEvent', () => {
   });
 });
 
-describe('reviewing questions', () => {
+describe('wordDrafts', () => {
+  beforeEach(() => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    db.setRpc('update_match_extras', { data: { success: true } });
+  });
+  const saves = () => db.rpcCalls.filter((c) => c.fn === 'update_match_extras');
+
+  it("words each quiz with the match situation it was built from, and keeps only what's still waiting", async () => {
+    setMatch({ row: { drafts: [...QUIZ, draft({ id: 'skipped', skipped: true })] } });
+    aiWording.mockResolvedValue([null, { text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?' }]);
+    await wordDrafts('m1', ['d1', 'd2', 'skipped', 'gone']);
+    expect(aiWording).toHaveBeenCalledTimes(1);
+    const [ctx, questions] = aiWording.mock.calls[0];
+    expect(ctx).toMatchObject({ teams: ['Lahore', 'Karachi'], over: 2, situation: { afterOvers: 0 } });
+    expect(questions).toEqual([
+      { market: 'over_runs_at_least', params: { line: 9 }, options: ['Yes', 'No'], text: draft().text, textRomanUrdu: draft().textRomanUrdu, body: draft().body, lead: null, score: 0 },
+      expect.objectContaining({ market: 'wicket_in_over' }),
+    ]);
+    expect(saves()[0].args).toEqual({ p_match_id: 'm1', p_change: { wordings: { d1: { failed: true }, d2: { text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?' } } } });
+  });
+
+  it('words nothing for a match gone, a quiz too late or gone, and never throws', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.setTable('LiveMatch', { data: null });
+    await wordDrafts('nope', ['d1']);
+    // Over 1 has had its 5th legal ball: over 2's quiz can't go out any more
+    setMatch({ row: { drafts: QUIZ }, balls: [1, 2, 3, 4, 5].map((n) => ball(n)) });
+    await wordDrafts('m1', ['d1']);
+    setMatch({ row: { drafts: QUIZ } });
+    await wordDrafts('m1', ['gone']);
+    expect(aiWording).not.toHaveBeenCalled();
+    expect(saves()).toEqual([]);
+
+    db.setRpc('update_match_extras', { data: { success: false, error: 'Match not found' } });
+    await wordDrafts('m1', ['d1']);
+    expect(error).toHaveBeenCalledWith("[matches] Saving Gemini's wording was refused:", 'Match not found');
+    db.setRpc('update_match_extras', { error: { message: 'down' } });
+    await wordDrafts('m1', ['d1']);
+    expect(error).toHaveBeenCalledWith('[matches] Wording a quiz failed:', { message: 'down' });
+  });
+});
+
+describe('quizzes: send now, set a ball, skip', () => {
   beforeEach(() => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
     db.setRpc('apply_match_change', { data: { success: true, version: 4 } });
   });
   const change = (i = 0) => db.rpcCalls[i].args.p_change as Record<string, unknown>;
+  const as = (d: { id: string; text: string; textRomanUrdu: string }, over: Record<string, unknown> = {}) => ({ id: d.id, text: d.text, textRomanUrdu: d.textRomanUrdu, ...over });
 
-  it("sends drafts as the admin worded them, with a new line, for the rest of their over's window", async () => {
-    setMatch({ row: { drafts: [draft(), wicketDraft] } });
+  it('sends a quiz now, as the admin worded it with a new line; the rest of the quiz is skipped', async () => {
+    setMatch({ row: { drafts: QUIZ, wordings: { d2: { text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?' } } } });
     const result = await sendDrafts('m1', [
-      { id: 'd1', text: ' Will Lahore get 10 or more in over 1? ', textRomanUrdu: 'Kya Lahore over 1 mein 10 ya zyada banayega?', line: 10 },
-      { id: 'd2', text: wicketDraft.text, textRomanUrdu: wicketDraft.textRomanUrdu },
+      { id: 'd1', text: ' Will Lahore get 10 or more in over 2? ', textRomanUrdu: 'Kya Lahore over 2 mein 10 ya zyada banayega?', line: 10 },
+      { id: 'd2', text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?' },
     ], 'boss@example.test');
     expect(result.ok).toBe(true);
     expect(db.rpcCalls[0].args.p_version).toBe(3);
     expect(change()).toEqual({
       release: [
-        {
-          id: 'd1', text: 'Will Lahore get 10 or more in over 1?', textRomanUrdu: 'Kya Lahore over 1 mein 10 ya zyada banayega?',
-          options: '["Yes","No"]', market: 'over_runs_at_least', params: { line: 10 }, innings: 1, over: 1, closesInSeconds: 100,
-        },
-        {
-          id: 'd2', text: wicketDraft.text, textRomanUrdu: wicketDraft.textRomanUrdu,
-          options: '["Yes","No"]', market: 'wicket_in_over', params: {}, innings: 1, over: 1, closesInSeconds: 100,
-        },
+        { id: 'd1', text: 'Will Lahore get 10 or more in over 2?', textRomanUrdu: 'Kya Lahore over 2 mein 10 ya zyada banayega?', market: 'over_runs_at_least', params: { line: 10 }, ...OUT },
+        { id: 'd2', text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?', market: 'wicket_in_over', params: {}, ...OUT },
       ],
-      drafts: [],
+      drafts: [{ ...dotsDraft, skipped: true }],
       admin: 'boss@example.test',
     });
+    // Gemini's wording sent as it was isn't an edit
     expect(logQuizAction).toHaveBeenCalledWith({
       quizId: 'quiz1', quizTitle: 'Lahore vs Karachi', action: 'match_questions_sent', adminEmail: 'boss@example.test',
       details: { matchId: 'm1', questions: ['d1', 'd2'], edited: ['d1'] },
     });
   });
 
-  it("refuses a draft that is gone, too late, or worded so it wouldn't settle right, sending nothing", async () => {
-    setMatch({ row: { drafts: [draft(), draft({ id: 'skipped', skipped: true }), draft({ id: 'late', closesAt: new Date(NOW + 5_000).toISOString() })] } });
-    const send = (over: Record<string, unknown>) => sendDrafts('m1', [{ id: 'd1', text: draft().text, textRomanUrdu: draft().textRomanUrdu, ...over }], 'a');
+  it("refuses a question gone, from another over, too late, or worded so it wouldn't settle right, sending nothing", async () => {
+    setMatch({ row: { drafts: [...QUIZ, draft({ id: 'skipped', skipped: true }), draft({ id: 'o3', over: 3, text: 'Lahore: will over 3 go for 9 or more runs?', textRomanUrdu: 'Lahore: over 3 mein 9 ya zyada?' })] } });
+    const send = (over: Record<string, unknown>) => sendDrafts('m1', [as(draft(), over)], 'a');
     expect(await send({ id: 'nope' })).toEqual({ ok: false, status: 409, code: 'gone', error: 'That question was already sent or skipped' });
     expect(await send({ id: 'skipped' })).toMatchObject({ status: 409, code: 'gone' });
-    expect(await send({ id: 'late' })).toEqual({
-      ok: false, status: 409, code: 'too_late', error: "Too late: over 1 is about to start, so its questions can't go out any more",
-    });
-    expect(await send({ text: 'Will over 1 go for 12 or more runs?' })).toEqual({
+    expect(await sendDrafts('m1', [as(draft()), as(draft(), { id: 'o3', text: 'Lahore: will over 3 go for 9 or more runs?', textRomanUrdu: 'Lahore: over 3 mein 9 ya zyada?' })], 'a'))
+      .toEqual({ ok: false, status: 400, code: 'invalid', error: "A quiz's questions must all be about the same over" });
+    expect(await send({ text: 'Will over 2 go for 12 or more runs?' })).toEqual({
       ok: false, status: 400, code: 'wording', error: 'The English wording must keep the line (9): change the line with its number box',
     });
-    setMatch({ row: { drafts: [wicketDraft] } });
-    expect(await sendDrafts('m1', [{ id: 'd2', text: wicketDraft.text, textRomanUrdu: wicketDraft.textRomanUrdu, line: 4 }], 'a'))
-      .toEqual({ ok: false, status: 400, code: 'invalid', error: 'This question has no line to change' });
-    // Over 1 has started
-    setMatch({ row: { drafts: [draft()] }, balls: [ball(1)] });
-    expect(await send({})).toMatchObject({ status: 409, code: 'too_late' });
+    expect(await sendDrafts('m1', [as(wicketDraft, { line: 4 })], 'a')).toEqual({ ok: false, status: 400, code: 'invalid', error: 'This question has no line to change' });
+    // Over 1 has had its 5th legal ball
+    setMatch({ row: { drafts: QUIZ }, balls: [1, 2, 3, 4, 5].map((n) => ball(n)) });
+    expect(await send({})).toEqual({ ok: false, status: 409, code: 'too_late', error: "Too late: over 2 is about to start, so its quiz can't go out any more" });
     expect(db.rpcCalls).toHaveLength(0);
   });
 
-  it('works the review out again when a ball beat it to the match, three times at most', async () => {
-    setMatch({ row: { drafts: [draft()] } });
+  it('sets a quiz to go out on a ball with the questions and wording the admin chose, or sends it now if that ball is reached', async () => {
+    const other = draft({ id: 'o3', over: 3 });
+    setMatch({ row: { drafts: [...QUIZ, other] } });
+    expect((await queueQuiz('m1', 3, [as(draft(), { text: 'Lahore: 10 or more in over 2?', textRomanUrdu: 'Over 2 mein 10 ya zyada?', line: 10 }), as(dotsDraft, { line: 3 })], 'boss@example.test')).ok).toBe(true);
+    expect(change()).toEqual({
+      release: [],
+      drafts: [
+        { ...draft(), pushOn: 3, pushBy: 'admin', selected: true, edit: { text: 'Lahore: 10 or more in over 2?', textRomanUrdu: 'Over 2 mein 10 ya zyada?', line: 10 } },
+        { ...wicketDraft, pushOn: 3, pushBy: 'admin', selected: false },
+        { ...dotsDraft, pushOn: 3, pushBy: 'admin', selected: true, edit: { text: dotsDraft.text, textRomanUrdu: dotsDraft.textRomanUrdu } },
+        // Another over's quiz is left as it is
+        other,
+      ],
+      admin: 'boss@example.test',
+    });
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_quiz_queued', details: { matchId: 'm1', over: 2, ball: 3, questions: ['d1', 'd3'] } }));
+
+    // Set again, from a quiz that was set before: the old wording goes; over 1 is on its 3rd ball, so it goes now
+    setMatch({ row: { drafts: (change().drafts as unknown[]).slice(0, 3) }, balls: [1, 2, 3].map((n) => ball(n)) });
+    await queueQuiz('m1', 2, [as(wicketDraft)], 'a');
+    expect(change(1)).toMatchObject({
+      release: [{ id: 'd2', text: wicketDraft.text, market: 'wicket_in_over', ...OUT }],
+      drafts: [expect.objectContaining({ id: 'd1', skipped: true, selected: false }), expect.objectContaining({ id: 'd3', skipped: true })],
+    });
+    expect((change(1).drafts as Array<Record<string, unknown>>)[0]).not.toHaveProperty('edit');
+    expect(logQuizAction).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'match_questions_sent', details: { matchId: 'm1', over: 2, ball: 2, questions: ['d2'] } }));
+
+    expect(await queueQuiz('m1', 5, [as(draft())], 'a')).toEqual({ ok: false, status: 400, code: 'invalid', error: 'Pick ball 1, 2, 3 or 4' });
+    expect(await queueQuiz('m1', 1, [as(draft(), { id: 'nope' })], 'a')).toMatchObject({ code: 'gone' });
+  });
+
+  it('takes a quiz off its ball, and says when it is not on one', async () => {
+    const other = draft({ id: 'o3', over: 3, pushOn: 1, pushBy: 'admin' });
+    setMatch({ row: { drafts: [...QUIZ.map((d) => ({ ...d, pushOn: 2, pushBy: 'admin' })), other] } });
+    expect((await unqueueQuiz('m1', { innings: 1, over: 2 }, 'boss@example.test')).ok).toBe(true);
+    expect(change()).toEqual({ drafts: [...QUIZ, other], admin: 'boss@example.test' });
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_quiz_unqueued', details: { matchId: 'm1', over: 2 } }));
+    setMatch({ row: { drafts: [...QUIZ, draft({ id: 'other', over: 3, pushOn: 1 })] } });
+    expect(await unqueueQuiz('m1', { innings: 1, over: 2 }, 'a')).toEqual({ ok: false, status: 409, code: 'gone', error: "Over 2's quiz isn't set to go out on a ball any more" });
+  });
+
+  it('works the change out again when a ball beat it to the match, three times at most', async () => {
+    setMatch({ row: { drafts: QUIZ } });
     let calls = 0;
     db.setRpc('apply_match_change', () => (++calls === 1 ? { data: { success: false, code: 'stale' } } : { data: { success: true, version: 5 } }));
     expect((await skipDrafts('m1', ['d1'], 'a')).ok).toBe(true);
@@ -389,7 +580,7 @@ describe('reviewing questions', () => {
   });
 
   it("passes on the database's other refusals, an unknown or settled match", async () => {
-    setMatch({ row: { drafts: [draft()] } });
+    setMatch({ row: { drafts: QUIZ } });
     db.setRpc('apply_match_change', { data: { success: false, code: 'invalid', error: "A match's drafts must be a JSON list" } });
     expect(await skipDrafts('m1', ['d1'], 'a')).toEqual({ ok: false, status: 400, code: 'invalid', error: "A match's drafts must be a JSON list" });
     db.setTable('LiveMatch', { data: null });
@@ -398,34 +589,110 @@ describe('reviewing questions', () => {
     expect(await setAutoSend('m1', true, 'a')).toMatchObject({ ok: false, status: 409, code: 'settled' });
   });
 
-  it('skips drafts: their over gets no questions, and they stay so it never gets new ones', async () => {
-    setMatch({ row: { drafts: [draft(), wicketDraft] } });
-    expect((await skipDrafts('m1', ['d2'], 'boss@example.test')).ok).toBe(true);
-    expect(change()).toEqual({ drafts: [draft(), { ...wicketDraft, skipped: true }], admin: 'boss@example.test' });
-    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_questions_skipped', details: { matchId: 'm1', questions: ['d2'] } }));
+  it('skips a quiz: its over gets no questions, and its drafts stay so it never gets new ones', async () => {
+    setMatch({ row: { drafts: QUIZ } });
+    expect((await skipDrafts('m1', ['d1', 'd2', 'd3'], 'boss@example.test')).ok).toBe(true);
+    expect(change()).toEqual({ drafts: QUIZ.map((d) => ({ ...d, skipped: true })), admin: 'boss@example.test' });
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_questions_skipped', details: { matchId: 'm1', questions: ['d1', 'd2', 'd3'] } }));
     setMatch({ row: { drafts: [{ ...wicketDraft, skipped: true }] } });
     expect(await skipDrafts('m1', ['d2'], 'a')).toMatchObject({ status: 409, code: 'gone' });
   });
 
-  it('switches automatic sending, and logs it', async () => {
-    setMatch();
+  it("switches to Auto: waiting quizzes go out on ball 1 with their best questions (now, once it is bowled); Manual takes Auto's off again", async () => {
+    const mine = draft({ id: 'mine', over: 3, pushOn: 4, pushBy: 'admin' });
+    setMatch({ row: { drafts: [draft({ selected: false }), wicketDraft, dotsDraft, mine, draft({ id: 'old', skipped: true })] } });
     expect((await setAutoSend('m1', true, 'boss@example.test')).ok).toBe(true);
-    expect(change()).toEqual({ autoSend: true, admin: 'boss@example.test' });
+    expect(change()).toEqual({
+      autoSend: true, release: [], admin: 'boss@example.test',
+      drafts: [
+        { ...draft(), pushOn: 1, pushBy: 'auto', selected: true },
+        { ...wicketDraft, pushOn: 1, pushBy: 'auto', selected: true },
+        { ...dotsDraft, pushOn: 1, pushBy: 'auto', selected: false },
+        mine, draft({ id: 'old', skipped: true }),
+      ],
+    });
     expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_auto_send_changed', details: { matchId: 'm1', autoSend: true } }));
+
+    // Over 1 is being bowled: over 2's quiz goes now
+    setMatch({ row: { drafts: QUIZ }, balls: [ball(1)] });
+    await setAutoSend('m1', true, 'a');
+    expect(change(1)).toMatchObject({ release: [{ id: 'd1' }, { id: 'd2' }], drafts: [{ id: 'd3', skipped: true }] });
+
+    setMatch({ row: { autoSend: true, drafts: (change(0).drafts as unknown[]) } });
+    await setAutoSend('m1', false, 'a');
+    expect(change(2)).toEqual({ autoSend: false, release: [], admin: 'a', drafts: [draft(), wicketDraft, { ...dotsDraft, selected: false }, mine, draft({ id: 'old', skipped: true })] });
   });
 
-  it('shows each draft as waiting, too late or skipped, with its line', async () => {
+  it('sets the language and the AI level without changing the version, logged with the old and new', async () => {
+    setMatch();
+    db.setRpc('update_match_extras', { data: { success: true } });
+    expect((await setLanguage('m1', 'ur', 'boss@example.test')).ok).toBe(true);
+    expect((await setAiLevel('m1', 'half', 'boss@example.test')).ok).toBe(true);
+    expect(db.rpcCalls).toEqual([
+      { fn: 'update_match_extras', args: { p_match_id: 'm1', p_change: { language: 'ur' } } },
+      { fn: 'update_match_extras', args: { p_match_id: 'm1', p_change: { aiLevel: 'half' } } },
+    ]);
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_language_changed', details: { matchId: 'm1', from: 'both', to: 'ur' } }));
+    expect(logQuizAction).toHaveBeenCalledWith(expect.objectContaining({ action: 'match_ai_level_changed', details: { matchId: 'm1', from: 'full', to: 'half' } }));
+
+    db.setRpc('update_match_extras', { data: { success: false, code: 'invalid', error: 'The language must be both, en or ur' } });
+    expect(await setLanguage('m1', 'fr' as never, 'a')).toEqual({ ok: false, status: 400, code: 'invalid', error: 'The language must be both, en or ur' });
+    db.setRpc('update_match_extras', { error: { message: 'down' } });
+    await expect(setAiLevel('m1', 'off', 'a')).rejects.toEqual({ message: 'down' });
+    db.setTable('LiveMatch', { data: null });
+    expect(await setLanguage('nope', 'en', 'a')).toMatchObject({ ok: false, status: 404 });
+    setMatch({ settled: 1 });
+    expect(await setAiLevel('m1', 'off', 'a')).toMatchObject({ ok: false, status: 409, code: 'settled' });
+  });
+});
+
+describe('matchView: quizzes', () => {
+  it('shows each waiting quiz: when it goes out, its questions in the wording that would go, and how they were worded', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
     setMatch({
-      row: { autoSend: false, drafts: [draft(), { ...wicketDraft, skipped: true }, draft({ id: 'late', closesAt: new Date(NOW + 5_000).toISOString() })] },
-      questions: [question({ textRomanUrdu: 'Roman' })],
+      row: {
+        language: 'ur', aiLevel: 'half',
+        drafts: [
+          ...QUIZ.map((d) => ({ ...d, aiAsked: true, pushOn: 3 })),
+          draft({ id: 'o3', over: 3, aiAsked: true, preparedAt: new Date(NOW - 5_000).toISOString(), rebuilt: 1, edit: { text: 'Edited over 3?', textRomanUrdu: 'Over 3?', line: 11 } }),
+          draft({ id: 'o3b', over: 3, aiAsked: true, preparedAt: new Date(NOW - 5_000).toISOString() }),
+          draft({ id: 'old', over: 1, skipped: true }),
+        ],
+        wordings: { d2: { text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?' }, d1: { failed: true }, d3: { failed: true } },
+      },
+      balls: [ball(1), ball(2, { extra: 'wide', extraRuns: 1, runs: 0 })],
     });
     const view = matchView((await loadMatch('m1', NOW))!, NOW);
-    expect(view.match.autoSend).toBe(false);
-    expect(view.drafts.map((d) => [d.id, d.state, d.line])).toEqual([['d1', 'waiting', 9], ['d2', 'skipped', null], ['late', 'too_late', 9]]);
-    expect(view.drafts[1]).not.toHaveProperty('skipped');
-    expect(view.questions[0].textRomanUrdu).toBe('Roman');
-    // The engine knows these overs have their questions
-    expect((await loadMatch('m1', NOW))!.state.draftSlots).toEqual([{ innings: 1, over: 1 }, { innings: 1, over: 1 }, { innings: 1, over: 1 }]);
+    expect(view.match).toMatchObject({ language: 'ur', aiLevel: 'half' });
+    expect(view.wording.plan).toMatchObject({ chosen: 'half' });
+    expect(view.lapsed).toEqual([]);
+    expect(view.quizzes).toHaveLength(2);
+    expect(view.quizzes[0]).toEqual({
+      innings: 1, over: 2, during: 1, ballsBowled: 1, started: true, pushOn: 3, pushBy: 'admin', wording: 'ai', rebuilt: false,
+      questions: [
+        { id: 'd1', market: 'over_runs_at_least', options: ['Yes', 'No'], line: 9, text: draft().text, textRomanUrdu: draft().textRomanUrdu, source: 'built_in',
+          builtIn: { text: draft().text, textRomanUrdu: draft().textRomanUrdu, line: 9 }, best: true, selected: true },
+        { id: 'd2', market: 'wicket_in_over', options: ['Yes', 'No'], line: null, text: 'A wicket in over 2?', textRomanUrdu: 'Over 2 mein wicket?', source: 'ai',
+          builtIn: { text: wicketDraft.text, textRomanUrdu: wicketDraft.textRomanUrdu, line: null }, best: true, selected: true },
+        expect.objectContaining({ id: 'd3', source: 'built_in', best: false, selected: false }),
+      ],
+    });
+    // Over 3's: Gemini still working on one of them, the admin's wording on the other
+    expect(view.quizzes[1]).toMatchObject({ over: 3, during: 2, ballsBowled: 0, started: false, pushOn: null, pushBy: null, wording: 'pending', rebuilt: true });
+    expect(view.quizzes[1].questions[0]).toMatchObject({ text: 'Edited over 3?', textRomanUrdu: 'Over 3?', line: 11, source: 'edit' });
+
+    // Twenty seconds on, Gemini has given up; over 1 has had 5 legal balls, so over 2's quiz is too late
+    setMatch({ row: { drafts: [draft({ aiAsked: true, preparedAt: new Date(NOW - 20_000).toISOString() }), draft({ id: 'first', over: 1 })] }, balls: [1, 2, 3, 4, 5].map((n) => ball(n)) });
+    const later = matchView((await loadMatch('m1', NOW))!, NOW);
+    expect(later.quizzes).toEqual([]);
+    expect(later.lapsed).toEqual([{ innings: 1, over: 2 }, { innings: 1, over: 1 }]);
+    setMatch({ row: { drafts: [draft({ aiAsked: true, preparedAt: new Date(NOW - 20_000).toISOString() })] } });
+    expect(matchView((await loadMatch('m1', NOW))!, NOW).quizzes[0]).toMatchObject({ wording: 'built_in', during: 1, ballsBowled: 0, started: false });
+    // Over 1's quiz goes out before the first ball
+    setMatch({ row: { drafts: [draft({ over: 1, text: 'Lahore: will over 1 go for 9 or more runs?' })] } });
+    expect(matchView((await loadMatch('m1', NOW))!, NOW).quizzes[0]).toMatchObject({ over: 1, during: null, ballsBowled: null, started: false });
+    // The engine knows these overs have their quizzes
+    expect((await loadMatch('m1', NOW))!.state.draftSlots).toEqual([{ innings: 1, over: 1 }]);
   });
 });
 

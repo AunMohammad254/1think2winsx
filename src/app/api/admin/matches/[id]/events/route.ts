@@ -1,14 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { adminApiGuard } from '@/lib/admin-api-guard';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 import { applyMatchEvent } from '@/lib/match-service';
-import { EXTRAS, MAX_RUNS_PER_BALL } from '@/lib/match-engine';
+import { EXTRAS, MAX_RUNS_PER_BALL, WICKET_KINDS } from '@/lib/match-engine';
 
+// The engine checks the combination against the Laws (src/lib/match-engine.ts deliveryProblem)
 const delivery = {
   runs: z.number().int().min(0).max(MAX_RUNS_PER_BALL),
   extra: z.enum(EXTRAS as [string, ...string[]]),
   wicket: z.boolean(),
+  wicketKind: z.enum(WICKET_KINDS as [string, ...string[]]).nullable().optional(),
+  boundary: z.boolean().nullable().optional(),
 };
 
 const eventSchema = z.discriminatedUnion('type', [
@@ -36,7 +39,7 @@ const bodySchema = z.object({
  * POST /api/admin/matches/[id]/events - one scorer console event: start an innings, a ball, undo the
  * last ball, end the innings, close the open questions, abandon; or a correction: correct any ball,
  * resume an innings ended by hand, remove one with no balls, reopen answers closed early, restore an
- * abandoned match. Answers with the match as it now is.
+ * abandoned match. Answers with the match as it now is, then has Gemini word the quizzes it prepared.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -47,6 +50,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!body.success) return NextResponse.json({ error: 'Invalid match event', details: body.error.issues }, { status: 400 });
     const result = await applyMatchEvent(id, body.data.version, body.data.event as Parameters<typeof applyMatchEvent>[2], admin.email);
     if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
+    // Gemini words the quizzes this ball prepared once the scorer has the answer (wordDrafts never throws)
+    if (result.background) after(result.background);
     return createSecureJsonResponse(result.data, { status: 200 });
   } catch (error) {
     console.error('[matches] Applying an event failed:', error);

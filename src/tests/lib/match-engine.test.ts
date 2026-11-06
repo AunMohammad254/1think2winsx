@@ -5,8 +5,16 @@ import {
   planQuestions,
   reopenable,
   stillSendable,
-  MIN_ANSWER_SECONDS,
+  pushDue,
+  ballsBefore,
+  PUSH_BALLS,
   resolveMarket,
+  deliveryProblem,
+  isOffBall,
+  DISMISSALS_FOR,
+  EXTRAS,
+  WICKET_KINDS,
+  PENALTY_RUNS,
   scoreInnings,
   splitOvers,
   statusOf,
@@ -118,6 +126,23 @@ describe('markets', () => {
   const quiet = overOf([ball(1, { runs: 0 }), ball(2, { runs: 0 }), ball(3, { runs: 0 }), ball(4), ball(5, { runs: 2, extra: 'leg_bye' }), ball(6, { runs: 4, extra: 'bye' })]);
   const lively = overOf([ball(1, { runs: 6 }), ball(2, { wicket: true, runs: 0 }), ball(3, { extra: 'wide', runs: 0, extraRuns: 1 }), ball(4, { runs: 4, extra: 'no_ball', extraRuns: 1 }), ball(5), ball(6), ball(7), ball(8)]);
 
+  it('counts only boundaries hit by a batter, and only wickets to a ball of the over', () => {
+    const overOfBalls = (balls: Ball[]) => splitOvers(balls)[0];
+    // An all-run four, a six of overthrows, boundary byes and a no-ball's boundary byes: no four or six hit
+    expect(resolveMarket('boundary_in_over', {}, overOfBalls([
+      ball(1, { runs: 4, boundary: false }), ball(2, { runs: 6, boundary: false }), ball(3, { runs: 4, extra: 'bye', boundary: true }),
+      ball(4, { runs: 4, extra: 'no_ball_bye', extraRuns: 1, boundary: true }),
+    ]))).toBe(1);
+    expect(resolveMarket('boundary_in_over', {}, overOfBalls([ball(1, { runs: 4, boundary: true })]))).toBe(0);
+    // A retirement isn't a wicket falling; a run out is
+    expect(resolveMarket('wicket_in_over', {}, overOfBalls([ball(1), ball(2, { extra: 'no_delivery', wicket: true, wicketKind: 'retired_out' })]))).toBe(1);
+    expect(resolveMarket('wicket_in_over', {}, overOfBalls([ball(1, { wicket: true, wicketKind: 'run_out' })]))).toBe(0);
+    // Penalty runs count in the over's runs; a no-ball's byes aren't a dot ball
+    const withPenalty = overOfBalls([ball(1, { runs: 0 }), ball(2, { runs: 0, extra: 'penalty', extraRuns: 5 }), ball(3, { runs: 2, extra: 'no_ball_leg_bye', extraRuns: 1 })]);
+    expect(withPenalty).toMatchObject({ runs: 8, legalBalls: 1 });
+    expect(resolveMarket('dots_at_least', { line: 2 }, withPenalty)).toBe(1);
+  });
+
   it('settles each market from the over (0 = Yes, 1 = No)', () => {
     expect(resolveMarket('over_runs_at_least', { line: 7 }, quiet)).toBe(0); // 7 runs, 4 of them byes
     expect(resolveMarket('over_runs_at_least', { line: 8 }, quiet)).toBe(1);
@@ -140,19 +165,133 @@ describe('markets', () => {
   });
 });
 
-describe('an innings, ball by ball', () => {
-  it("opens over 1's questions when the innings starts, closing after the first window", () => {
-    const { state, last } = play([startLahore]);
-    expect(last).toMatchObject({ startInnings: { innings: 1, battingTeam: 'Lahore' }, release: [{ innings: 1, over: 1, closesInSeconds: 120 }], status: 'live' });
-    expect(state.questions.map((x) => x.id)).toEqual(['q1.1.0', 'q1.1.1']);
+describe('every scoring action of the Laws', () => {
+  const d = (over: Record<string, unknown>) => ({ runs: 0, extra: 'none' as const, wicket: false, ...over }) as Parameters<typeof deliveryProblem>[0];
+  let fixes = 0;
+  const fix = (state: MatchState, event: MatchEvent) => {
+    const outcome = applyEvent(state, event, () => `k${++fixes}`);
+    if (!outcome.ok) throw new Error(outcome.error);
+    return { state: store(outcome.state, outcome.change), last: outcome.change };
+  };
+  const refuse = (state: MatchState, event: MatchEvent) => applyEvent(state, event, () => 'x');
+
+  it('knows every kind of entry and dismissal', () => {
+    expect(EXTRAS).toEqual(['none', 'wide', 'no_ball', 'no_ball_bye', 'no_ball_leg_bye', 'bye', 'leg_bye', 'penalty', 'no_delivery']);
+    expect(WICKET_KINDS).toHaveLength(10);
+    expect(PENALTY_RUNS).toBe(5);
+    expect(['penalty', 'no_delivery', 'none', 'wide'].map((extra) => isOffBall({ extra: extra as never }))).toEqual([true, true, false, false]);
   });
 
-  it("opens over 2's questions at over 1's first delivery, and closes over 1's then", () => {
-    const { state, last } = play([startLahore, wide]);
+  it('allows what the Laws allow: boundaries, overthrows, every dismissal off a fair ball, penalty runs and retirements', () => {
+    for (const ok of [
+      d({ runs: 4, boundary: true }), d({ runs: 6, boundary: true }), d({ runs: 4, boundary: false }), d({ runs: 6, boundary: false }), d({ runs: 7 }),
+      d({ runs: 4, extra: 'no_ball', boundary: true }), d({ runs: 6, extra: 'no_ball', boundary: true }),
+      d({ runs: 4, extra: 'bye', boundary: true }), d({ runs: 4, extra: 'wide', boundary: true }), d({ runs: 2, extra: 'no_ball_leg_bye' }),
+      ...['bowled', 'caught', 'lbw', 'stumped', 'hit_wicket', 'hit_twice'].map((wicketKind) => d({ wicket: true, wicketKind })),
+      d({ runs: 2, wicket: true, wicketKind: 'run_out' }), d({ runs: 1, wicket: true, wicketKind: 'obstructing' }),
+      d({ extra: 'wide', wicket: true, wicketKind: 'stumped' }), d({ runs: 1, extra: 'wide', wicket: true, wicketKind: 'run_out' }),
+      d({ runs: 1, extra: 'no_ball', wicket: true, wicketKind: 'run_out' }), d({ extra: 'no_ball', wicket: true, wicketKind: 'hit_twice' }),
+      d({ extra: 'penalty' }), d({ extra: 'no_delivery', wicket: true, wicketKind: 'retired_out' }), d({ extra: 'no_delivery', wicket: true, wicketKind: 'timed_out' }),
+      // A wicket recorded the old way, with no kind
+      d({ runs: 1, wicket: true }),
+    ]) {
+      expect(deliveryProblem(ok), JSON.stringify(ok)).toBeNull();
+    }
+  });
+
+  it("refuses what the Laws don't allow, saying why", () => {
+    expect(deliveryProblem(d({ extra: 'free_hit' }))).toBe('Unknown kind of delivery');
+    expect(deliveryProblem(d({ runs: 8 }))).toBe('Runs must be a whole number from 0 to 7');
+    expect(deliveryProblem(d({ runs: 1.5 }))).toBe('Runs must be a whole number from 0 to 7');
+    expect(deliveryProblem(d({ wicket: true, wicketKind: 'handled_ball' }))).toBe('Unknown kind of dismissal');
+    expect(deliveryProblem(d({ wicketKind: 'caught' }))).toBe('A dismissal is a wicket');
+    expect(deliveryProblem(d({ extra: 'penalty', runs: 1 }))).toBe('Penalty runs are 5 to the batting side, with nothing else');
+    expect(deliveryProblem(d({ extra: 'penalty', wicket: true }))).toMatch(/Penalty runs/);
+    expect(deliveryProblem(d({ extra: 'penalty', boundary: true }))).toMatch(/Penalty runs/);
+    expect(deliveryProblem(d({ extra: 'no_delivery', wicket: true }))).toBe('Retired out or timed out is a wicket with no ball and no runs');
+    expect(deliveryProblem(d({ extra: 'no_delivery', runs: 1, wicket: true, wicketKind: 'retired_out' }))).toMatch(/Retired out/);
+    expect(deliveryProblem(d({ extra: 'no_delivery', boundary: true, wicket: true, wicketKind: 'retired_out' }))).toMatch(/Retired out/);
+    // Off a no-ball: never bowled, caught, LBW or stumped
+    expect(deliveryProblem(d({ extra: 'no_ball', wicket: true, wicketKind: 'caught' }))).toBe("A batter can't be out caught off a no-ball");
+    expect(deliveryProblem(d({ extra: 'wide', wicket: true, wicketKind: 'lbw' }))).toBe("A batter can't be out LBW off a wide");
+    expect(deliveryProblem(d({ extra: 'bye', wicket: true, wicketKind: 'stumped' }))).toBe("A batter can't be out stumped off byes");
+    expect(deliveryProblem(d({ wicket: true, wicketKind: 'retired_out' }))).toBe("A batter can't be out retired out off a fair ball");
+    expect(deliveryProblem(d({ runs: 2, wicket: true, wicketKind: 'caught' }))).toBe('No runs count when a batter is out caught');
+    expect(deliveryProblem(d({ runs: 4, wicket: true, boundary: true }))).toBe("A boundary can't also be a wicket");
+    expect(deliveryProblem(d({ runs: 5, boundary: true }))).toBe('A boundary is a four or a six');
+    expect(deliveryProblem(d({ runs: 6, extra: 'leg_bye', boundary: true }))).toBe('Only a hit goes for six');
+    expect(DISMISSALS_FOR.penalty).toEqual([]);
+  });
+
+  it("scores the new entries: penalty runs and retirements aren't balls of the over, and join the over being bowled or just finished", () => {
+    const state = play([startLahore, ...six(dot), { type: 'ball', runs: 0, extra: 'penalty', wicket: false }]).state;
+    const [first, ...rest] = splitOvers(state.balls);
+    expect(rest).toEqual([]);
+    expect(first).toMatchObject({ number: 1, legalBalls: 6, runs: 5, complete: true });
+    expect(state.balls.at(-1)).toEqual({ id: 'b7', innings: 1, seq: 7, runs: 0, extra: 'penalty', extraRuns: 5, wicket: false });
+    // A retirement during over 2, then a no-ball with byes and a ball: over 2 has one legal ball
+    const more = play([
+      { type: 'ball', runs: 1, extra: 'none', wicket: false },
+      { type: 'ball', runs: 0, extra: 'no_delivery', wicket: true, wicketKind: 'retired_out' },
+      { type: 'ball', runs: 2, extra: 'no_ball_bye', wicket: false },
+    ], state).state;
+    const over2 = splitOvers(more.balls)[1];
+    expect(over2).toMatchObject({ legalBalls: 1, runs: 1 + 3, wickets: 1 });
+    expect(more.balls.at(-2)).toMatchObject({ extra: 'no_delivery', wicketKind: 'retired_out', extraRuns: 0 });
+    expect(more.balls.at(-1)).toMatchObject({ extra: 'no_ball_bye', runs: 2, extraRuns: 1 });
+    expect(scoreInnings(more.balls, 2, null)).toMatchObject({ runs: 5 + 1 + 3, wickets: 1, legalBalls: 7, oversText: '1.1' });
+  });
+
+  it('records the kind and the boundary when given, and refuses penalty runs or a retirement before the first ball', () => {
+    const { last } = play([startLahore, { type: 'ball', runs: 4, extra: 'none', wicket: false, boundary: true }, { type: 'ball', runs: 0, extra: 'none', wicket: true, wicketKind: 'bowled' }]);
+    expect(last.ball).toEqual({ id: 'b2', innings: 1, seq: 2, runs: 0, extra: 'none', extraRuns: 0, wicket: true, wicketKind: 'bowled' });
+    const start = play([startLahore]).state;
+    expect(refuse(start, { type: 'ball', runs: 0, extra: 'penalty', wicket: false })).toEqual({ ok: false, error: 'Record penalty runs or a retirement once the innings has had a ball' });
+    expect(refuse(start, { type: 'ball', runs: 0, extra: 'no_ball', wicket: true, wicketKind: 'lbw' })).toEqual({ ok: false, error: "A batter can't be out LBW off a no-ball" });
+    // A correction can't turn the first ball into one either
+    const after = play([dot], start).state;
+    expect(refuse(after, { type: 'correct_ball', ballId: 'b1', runs: 0, extra: 'penalty', wicket: false })).toEqual({ ok: false, error: 'The first entry of an innings is a ball' });
+    expect(refuse(after, { type: 'correct_ball', ballId: 'b1', runs: 0, extra: 'none', wicket: true, wicketKind: 'lbw', boundary: true }))
+      .toEqual({ ok: false, error: "A boundary can't also be a wicket" });
+  });
+
+  it('corrects the kind or the boundary alone, and knows when nothing changed', () => {
+    let { state } = play([startLahore, { type: 'ball', runs: 4, extra: 'none', wicket: false }, { type: 'ball', runs: 0, extra: 'none', wicket: true }]);
+    // A 4 from before boundaries were kept is told it was run
+    ({ state } = fix(state, { type: 'correct_ball', ballId: 'b1', runs: 4, extra: 'none', wicket: false, boundary: false }));
+    expect(state.balls[0]).toMatchObject({ runs: 4, boundary: false });
+    expect(refuse(state, { type: 'correct_ball', ballId: state.balls[0].id, runs: 4, extra: 'none', wicket: false, boundary: false }))
+      .toEqual({ ok: false, error: 'That ball already says so' });
+    // A wicket with no kind is given one
+    ({ state } = fix(state, { type: 'correct_ball', ballId: 'b2', runs: 0, extra: 'none', wicket: true, wicketKind: 'caught' }));
+    expect(state.balls[1]).toMatchObject({ wicket: true, wicketKind: 'caught' });
+  });
+});
+
+describe('an innings, ball by ball', () => {
+  it("prepares the quizzes about over 1 (the first window) and over 2 (out during over 1) when the innings starts", () => {
+    const { state, last } = play([startLahore]);
+    expect(last).toMatchObject({
+      startInnings: { innings: 1, battingTeam: 'Lahore' }, status: 'live',
+      release: [{ innings: 1, over: 1, closesInSeconds: 120 }, { innings: 1, over: 2, closesInSeconds: 150 }],
+    });
+    expect(state.questions.map((x) => x.id)).toEqual(['q1.1.0', 'q1.1.1', 'q1.2.0', 'q1.2.1']);
+  });
+
+  it("closes over 1's questions at its first delivery, and prepares over 3's quiz when over 1 ends", () => {
+    const three = { ...CONFIG, oversPerInnings: 3 };
+    let { state, last } = play([startLahore, wide], EMPTY, three);
     expect(last.ball).toEqual({ id: 'b1', innings: 1, seq: 1, runs: 0, extra: 'wide', extraRuns: 1, wicket: false });
-    expect(last.release).toEqual([{ innings: 1, over: 2, closesInSeconds: 150 }]);
+    expect(last.release).toEqual([]);
     expect(last.lock).toEqual(['q1.1.0', 'q1.1.1']);
     expect(q(state, 'q1.2.0').closed).toBe(false);
+    ({ state, last } = play([dot, dot, dot, dot, dot], state, three));
+    expect(last.release).toEqual([]);
+    ({ state, last } = play([dot], state, three));
+    expect(last.release).toEqual([{ innings: 1, over: 3, closesInSeconds: 150 }]);
+    // The last over has no over after it to prepare
+    ({ state, last } = play(six(dot), state, three));
+    expect(last.release).toEqual([]);
   });
 
   it("closes over 2's questions after over 1's 5th legal ball, and settles over 1's at its 6th", () => {
@@ -189,7 +328,7 @@ describe('an innings, ball by ball', () => {
     let { state, last } = play([startLahore, ...six(runs(1)), ...six(dot)]);
     expect(state.status).toBe('innings_break');
     ({ state, last } = play([{ type: 'start_innings', battingTeam: 'Karachi' }], state));
-    expect(last).toMatchObject({ startInnings: { innings: 2, battingTeam: 'Karachi' }, release: [{ innings: 2, over: 1 }], status: 'live' });
+    expect(last).toMatchObject({ startInnings: { innings: 2, battingTeam: 'Karachi' }, release: [{ innings: 2, over: 1 }, { innings: 2, over: 2 }], status: 'live' });
     ({ state, last } = play([runs(6), dot], state));
     expect(last.status).toBe('live');
     ({ state, last } = play([runs(1)], state));
@@ -407,7 +546,10 @@ describe('corrections', () => {
     let { state } = play([startLahore, { type: 'close_answers' }]);
     let last: MatchChange;
     ({ state, last } = fix(state, { type: 'reopen_answers' }));
-    expect(last.reopen).toEqual([{ id: 'q1.1.0', closesInSeconds: 120 }, { id: 'q1.1.1', closesInSeconds: 120 }]);
+    expect(last.reopen).toEqual([
+      { id: 'q1.1.0', closesInSeconds: 120 }, { id: 'q1.1.1', closesInSeconds: 120 },
+      { id: 'q1.2.0', closesInSeconds: 150 }, { id: 'q1.2.1', closesInSeconds: 150 },
+    ]);
     expect(q(state, 'q1.1.0').closed).toBe(false);
 
     // Over 2's questions, closed during over 1's 2nd ball: back with the fallback window
@@ -448,18 +590,18 @@ describe('corrections', () => {
   });
 });
 
-describe('reviewed questions (drafts)', () => {
-  const NOW = 1_000_000;
-
-  it("opens nothing for an over whose questions wait for review or were skipped", () => {
+describe('quizzes waiting to go out (drafts)', () => {
+  it("prepares nothing for an over whose quiz waits or was skipped", () => {
     const waiting = applyEvent({ ...EMPTY, draftSlots: [{ innings: 1, over: 1 }] }, startLahore, () => 'x');
-    expect(waiting.ok && waiting.change.release).toEqual([]);
-    const live: MatchState = { ...play([startLahore]).state, draftSlots: [{ innings: 1, over: 2 }] };
+    expect(waiting.ok && waiting.change.release).toEqual([{ innings: 1, over: 2, closesInSeconds: 150 }]);
+    const three = { ...CONFIG, oversPerInnings: 3 };
+    const { state } = play([startLahore, ...six(dot).slice(1)], EMPTY, three);
+    const live: MatchState = { ...state, draftSlots: [{ innings: 1, over: 3 }] };
     const ball = applyEvent(live, dot, () => 'x');
     expect(ball.ok && ball.change.release).toEqual([]);
-    // Without the slot, over 2's questions would open now
+    // Without the slot, over 3's quiz would be prepared now
     const without = applyEvent({ ...live, draftSlots: undefined }, dot, () => 'x');
-    expect(without.ok && without.change.release).toEqual([{ innings: 1, over: 2, closesInSeconds: 150 }]);
+    expect(without.ok && without.change.release).toEqual([{ innings: 1, over: 3, closesInSeconds: 150 }]);
   });
 
   it("drops a removed innings' slots, so a fresh innings gets fresh questions", () => {
@@ -468,20 +610,46 @@ describe('reviewed questions (drafts)', () => {
     expect(outcome.ok && outcome.state.draftSlots).toEqual([{ innings: 1, over: 1 }]);
   });
 
-  it('can send a question while its innings is played, its over not started, the balls not closing it and time left', () => {
+  it('can send a quiz while its innings is played, its over not started and the balls not closing it, however long ago it was prepared', () => {
     const live = play([startLahore, dot, dot]).state;
     const slot = { innings: 1 as const, over: 2 };
-    expect(stillSendable(live, slot, NOW + 60_000, NOW)).toBe(true);
-    // Less than MIN_ANSWER_SECONDS left
-    expect(stillSendable(live, slot, NOW + (MIN_ANSWER_SECONDS - 1) * 1000, NOW)).toBe(false);
+    expect(stillSendable(live, slot)).toBe(true);
+    expect(stillSendable(play([dot, dot], live).state, slot)).toBe(true);
     // Over 1 has had its 5th legal ball
-    expect(stillSendable(play([dot, dot, dot], live).state, slot, NOW + 60_000, NOW)).toBe(false);
+    expect(stillSendable(play([dot, dot, dot], live).state, slot)).toBe(false);
     // Its own over has started
-    expect(stillSendable(live, { innings: 1, over: 1 }, NOW + 60_000, NOW)).toBe(false);
+    expect(stillSendable(live, { innings: 1, over: 1 })).toBe(false);
     // Another innings, an innings over, an abandoned match, no innings at all
-    expect(stillSendable(live, { innings: 2, over: 2 }, NOW + 60_000, NOW)).toBe(false);
-    expect(stillSendable(play([{ type: 'end_innings' }], live).state, slot, NOW + 60_000, NOW)).toBe(false);
-    expect(stillSendable({ ...live, status: 'abandoned' }, slot, NOW + 60_000, NOW)).toBe(false);
-    expect(stillSendable(EMPTY, slot, NOW + 60_000, NOW)).toBe(false);
+    expect(stillSendable(live, { innings: 2, over: 2 })).toBe(false);
+    expect(stillSendable(play([{ type: 'end_innings' }], live).state, slot)).toBe(false);
+    expect(stillSendable({ ...live, status: 'abandoned' }, slot)).toBe(false);
+    expect(stillSendable(EMPTY, slot)).toBe(false);
+  });
+
+  it('pushes a quiz set to a ball once the over before it reaches that ball; over 1\'s at once', () => {
+    expect(PUSH_BALLS).toEqual([1, 2, 3, 4]);
+    const start = play([startLahore]).state;
+    const over2 = { innings: 1 as const, over: 2 };
+    expect(pushDue(start, { innings: 1, over: 1 }, 1)).toBe(true);
+    // Over 1 hasn't started: nothing due
+    expect(PUSH_BALLS.map((n) => pushDue(start, over2, n))).toEqual([false, false, false, false]);
+    // A wide starts the over: ball 1 is due, ball 2 needs two legal balls
+    const afterWide = play([wide], start).state;
+    expect(PUSH_BALLS.map((n) => pushDue(afterWide, over2, n))).toEqual([true, false, false, false]);
+    const afterTwo = play([dot, dot], afterWide).state;
+    expect(PUSH_BALLS.map((n) => pushDue(afterTwo, over2, n))).toEqual([true, true, false, false]);
+    const afterFour = play([dot, dot], afterTwo).state;
+    expect(PUSH_BALLS.map((n) => pushDue(afterFour, over2, n))).toEqual([true, true, true, true]);
+    // The 5th legal ball closes it: never due again
+    expect(pushDue(play([dot], afterFour).state, over2, 1)).toBe(false);
+  });
+
+  it('counts the legal balls of the over a quiz goes out in', () => {
+    const start = play([startLahore]).state;
+    expect(ballsBefore(start, { innings: 1, over: 1 })).toBeNull();
+    expect(ballsBefore(start, { innings: 1, over: 2 })).toBe(0);
+    expect(ballsBefore(play([wide, dot, dot], start).state, { innings: 1, over: 2 })).toBe(2);
+    // Not the innings being played
+    expect(ballsBefore(start, { innings: 2, over: 2 })).toBe(0);
   });
 });

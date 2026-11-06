@@ -7,6 +7,7 @@ const guard = vi.fn();
 const service = {
   listMatches: vi.fn(), createMatch: vi.fn(), loadMatch: vi.fn(), matchView: vi.fn(), applyMatchEvent: vi.fn(),
   sendDrafts: vi.fn(), skipDrafts: vi.fn(), setAutoSend: vi.fn(), setPublished: vi.fn(), setMaxEntries: vi.fn(), announceMatch: vi.fn(),
+  queueQuiz: vi.fn(), unqueueQuiz: vi.fn(), setLanguage: vi.fn(), setAiLevel: vi.fn(),
 };
 // Work the route leaves for after its response, run by the test
 const afterResponse: Array<() => unknown> = [];
@@ -29,6 +30,11 @@ vi.mock('@/lib/match-service', () => ({
   setPublished: (...a: unknown[]) => service.setPublished(...a),
   setMaxEntries: (...a: unknown[]) => service.setMaxEntries(...a),
   announceMatch: (...a: unknown[]) => service.announceMatch(...a),
+  queueQuiz: (...a: unknown[]) => service.queueQuiz(...a),
+  unqueueQuiz: (...a: unknown[]) => service.unqueueQuiz(...a),
+  setLanguage: (...a: unknown[]) => service.setLanguage(...a),
+  setAiLevel: (...a: unknown[]) => service.setAiLevel(...a),
+  QUIZ_LANGUAGES: ['both', 'en', 'ur'],
 }));
 
 const list = await import('@/app/api/admin/matches/route');
@@ -128,15 +134,34 @@ describe('POST /api/admin/matches/[id]/events', () => {
       { type: 'start_innings', battingTeam: 'Lahore' }, { type: 'undo' }, { type: 'end_innings' }, { type: 'close_answers' }, { type: 'abandon' },
       { type: 'correct_ball', ballId: 'b1', runs: 2, extra: 'leg_bye', wicket: false }, { type: 'resume_innings' }, { type: 'remove_innings' },
       { type: 'reopen_answers' }, { type: 'restore' },
+      // Every scoring action
+      { type: 'ball', runs: 4, extra: 'none', wicket: false, boundary: true },
+      { type: 'ball', runs: 0, extra: 'none', wicket: true, wicketKind: 'caught' },
+      { type: 'ball', runs: 2, extra: 'no_ball_bye', wicket: false, wicketKind: null, boundary: null },
+      { type: 'ball', runs: 0, extra: 'penalty', wicket: false },
+      { type: 'ball', runs: 0, extra: 'no_delivery', wicket: true, wicketKind: 'timed_out' },
+      { type: 'correct_ball', ballId: 'b1', runs: 1, extra: 'none', wicket: true, wicketKind: 'run_out' },
     ]) {
       expect((await post({ version: 3, event })).status).toBe(200);
     }
+    // Nothing for Gemini to word: nothing after the response
+    expect(afterResponse).toHaveLength(0);
+  });
+
+  it('has Gemini word the quizzes the event prepared, after the response', async () => {
+    const background = vi.fn(async () => {});
+    service.applyMatchEvent.mockResolvedValue({ ok: true, data: { match: { version: 4 } }, background });
+    expect((await post({ version: 3, event: { type: 'start_innings', battingTeam: 'Lahore' } })).status).toBe(200);
+    expect(background).not.toHaveBeenCalled();
+    expect(afterResponse).toEqual([background]);
   });
 
   it('refuses a malformed event, passes on refusals and reports failures', async () => {
     for (const body of [
       { version: 3, event: { type: 'ball', runs: 8, extra: 'none', wicket: false } },
       { version: 3, event: { type: 'ball', runs: 1, extra: 'beamer', wicket: false } },
+      { version: 3, event: { type: 'ball', runs: 0, extra: 'none', wicket: true, wicketKind: 'handled_ball' } },
+      { version: 3, event: { type: 'ball', runs: 4, extra: 'none', wicket: false, boundary: 'yes' } },
       { version: -1, event: { type: 'undo' } },
       { version: 3, event: { type: 'declare' } },
       { version: 3, event: { type: 'correct_ball', runs: 2, extra: 'none', wicket: false } },
@@ -224,6 +249,16 @@ describe('PATCH /api/admin/matches/[id]', () => {
     expect(await res.json()).toEqual({ error: 'Restore the match before taking it live', code: 'abandoned' });
   });
 
+  it('sets the quiz language and the AI level', async () => {
+    service.setLanguage.mockResolvedValue({ ok: true, data: { match: { language: 'ur' } } });
+    expect(await (await patch({ language: 'ur' })).json()).toEqual({ match: { language: 'ur' } });
+    expect(service.setLanguage).toHaveBeenCalledWith('m1', 'ur', 'boss@example.test');
+    service.setAiLevel.mockResolvedValue({ ok: true, data: { match: { aiLevel: 'half' } } });
+    expect(await (await patch({ aiLevel: 'half' })).json()).toEqual({ match: { aiLevel: 'half' } });
+    expect(service.setAiLevel).toHaveBeenCalledWith('m1', 'half', 'boss@example.test');
+    for (const body of [{ language: 'fr' }, { aiLevel: 'max' }, { language: 'en', aiLevel: 'off' }]) expect((await patch(body)).status).toBe(400);
+  });
+
   it('sets how many players can join, within the limits a quiz has', async () => {
     service.setMaxEntries.mockResolvedValue({ ok: true, data: { players: { entries: 0, maxEntries: 5000 } } });
     expect(await (await patch({ maxEntries: 5000 })).json()).toEqual({ players: { entries: 0, maxEntries: 5000 } });
@@ -243,6 +278,21 @@ describe('POST /api/admin/matches/[id]/questions', () => {
     expect(await res.json()).toEqual({ drafts: [] });
     expect(service.sendDrafts).toHaveBeenCalledWith('m1', [{ ...question, line: 10 }, { ...question, id: 'd2' }], 'boss@example.test');
     expect(guard).toHaveBeenCalledWith(expect.anything(), '/api/admin/matches/[id]/questions', { write: true });
+  });
+
+  it("sets a quiz to go out on a ball, or takes it off", async () => {
+    service.queueQuiz.mockResolvedValue({ ok: true, data: { quizzes: [] } });
+    expect((await post({ action: 'queue', ball: 2, questions: [question] })).status).toBe(200);
+    expect(service.queueQuiz).toHaveBeenCalledWith('m1', 2, [question], 'boss@example.test');
+    service.unqueueQuiz.mockResolvedValue({ ok: true, data: { quizzes: [] } });
+    expect((await post({ action: 'unqueue', innings: 1, over: 3 })).status).toBe(200);
+    expect(service.unqueueQuiz).toHaveBeenCalledWith('m1', { innings: 1, over: 3 }, 'boss@example.test');
+    for (const body of [
+      { action: 'queue', ball: 0, questions: [question] }, { action: 'queue', ball: 5, questions: [question] }, { action: 'queue', ball: 1, questions: [] },
+      { action: 'unqueue', innings: 3, over: 1 }, { action: 'unqueue', innings: 1, over: 0 },
+    ]) {
+      expect((await post(body)).status, JSON.stringify(body)).toBe(400);
+    }
   });
 
   it('skips questions', async () => {

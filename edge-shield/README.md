@@ -41,7 +41,9 @@ lock-ins arrive within seconds; at ~100 requests/s Hostinger blocks the whole si
 `LOCKIN_EDGE = "true"` they never reach it:
 
 1. `POST /api/quizzes/<id>/submit` without `X-Lockin-Direct: 1` is taken by the Worker
-   ([`src/lockin.ts`](src/lockin.ts)). Match overs send that header and go to Hostinger as before, with the usual limits.
+   ([`src/lockin.ts`](src/lockin.ts)), a live match's over included: `submit_lockin_batch` judges each over's
+   questions by their own close time at the edge's receive time. Only app builds before 2026-11-06 send that header
+   (on match overs); those requests go to Hostinger as before, with the usual limits.
 2. `Origin` must be `SITE_URL` (else 403 `forbidden`).
 3. The session is checked here ([`src/session.ts`](src/session.ts), [`src/jwt.ts`](src/jwt.ts)): the
    `sb-<ref>-auth-token` cookie (chunked `.0`, `.1`… and `base64-` encoded, as @supabase/ssr writes it) holds the
@@ -77,7 +79,7 @@ to Hostinger again; the consumer keeps saving what is already queued.
 ### Rollout (owner)
 
 1. Before turning it on: `submit_lockin_batch` is applied in production, and the client build that handles the
-   202, sends `X-Lockin-Direct: 1` on match overs and resends after `session_expired` is deployed on Hostinger.
+   202 (match overs included) and resends after `session_expired` is deployed on Hostinger.
 2. Once, in `edge-shield/`:
    - `npx wrangler queues create lockins` and `npx wrangler queues create lockins-dlq`
    - `npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY`, pasting `SUPABASE_SERVICE_ROLE_KEY` from hPanel

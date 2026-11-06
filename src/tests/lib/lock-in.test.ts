@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const h = vi.hoisted(() => ({ refreshSession: vi.fn() }));
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: { refreshSession: h.refreshSession } }) }));
 
-import { LOCK_IN_DIRECT_HEADER, LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
+import { LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
 
 const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const expired = () => json({ error: 'Your session has expired', code: 'session_expired' }, 401);
@@ -14,9 +14,8 @@ beforeEach(() => {
 });
 
 describe('sendLockIn', () => {
-  it("names the edge Worker's answer and the header that sends a match over past its queue", () => {
+  it("names the edge Worker's answer", () => {
     expect(LOCK_IN_RECEIVED).toBe(202);
-    expect(LOCK_IN_DIRECT_HEADER).toBe('X-Lockin-Direct');
   });
 
   it('sends once and hands back any answer that is not a lapsed session, untouched', async () => {

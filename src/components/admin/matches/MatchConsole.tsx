@@ -2,28 +2,48 @@
 
 import { useCallback, useEffect, useState, memo } from 'react';
 import { toast } from 'sonner';
-import { Ban, Eye, EyeOff, Flag, Loader2, Lock, LockOpen, Pencil, Play, Radio, RotateCcw, Trash2, Undo2, X } from 'lucide-react';
+import { Ban, Eye, EyeOff, Flag, Loader2, Lock, LockOpen, Pencil, Play, Radio, RotateCcw, Sparkles, Trash2, Undo2, X } from 'lucide-react';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { useNow } from '@/hooks/useNow';
-import type { Extra, MatchEvent } from '@/lib/match-engine';
+import type { Delivery, MatchEvent } from '@/lib/match-engine';
 import { MAX_ENTRIES_LIMIT } from '@/lib/quiz-entries';
 import { formatClock } from '@/lib/live-countdown';
-import type { DraftToSend, MatchView, ViewBall } from '@/lib/match-service';
+import type { DraftToSend, MatchView, QuizLanguage, ViewBall } from '@/lib/match-service';
+import type { AiLevel } from '@/lib/match-wording';
 import { STATUS_LABELS } from './MatchList';
-import QuestionReview from './QuestionReview';
-
-const EXTRA_BUTTONS: Array<{ extra: Extra; label: string }> = [
-  { extra: 'none', label: 'Off the bat' },
-  { extra: 'wide', label: 'Wide' },
-  { extra: 'no_ball', label: 'No-ball' },
-  { extra: 'bye', label: 'Bye' },
-  { extra: 'leg_bye', label: 'Leg bye' },
-];
-const RUN_BUTTONS = [0, 1, 2, 3, 4, 5, 6];
+import QuizCard from './QuizCard';
+import DeliveryPad from './DeliveryPad';
 
 const button = 'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50';
-const toggle = (on: boolean) =>
-  `${button} border ${on ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200' : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'}`;
+// While Gemini words a quiz, the console looks again this often
+const WORDING_POLL_MS = 2_000;
+
+/** One of a few choices, as a row of buttons (Auto or Manual, the AI level, the language) */
+function Choice<T extends string>({ label, value, options, busy, onChange }: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  busy: boolean;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex rounded-xl bg-gray-900/60 p-1">
+      {options.map((option) => (
+        <button key={option.value} type="button" aria-pressed={value === option.value} disabled={busy}
+          onClick={() => value !== option.value && onChange(option.value)}
+          className={`min-h-10 flex-1 rounded-lg px-3 text-sm transition-colors disabled:opacity-50 ${value === option.value ? 'bg-white/15 font-semibold text-white' : 'text-gray-400 hover:text-white'}`}>
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const MODES: Array<{ value: 'manual' | 'auto'; label: string }> = [{ value: 'manual', label: 'Manual' }, { value: 'auto', label: 'Auto' }];
+const AI_OPTIONS: Array<{ value: AiLevel; label: string }> = [{ value: 'full', label: 'Full' }, { value: 'half', label: 'Half' }, { value: 'off', label: 'Off' }];
+const LANGUAGES: Array<{ value: QuizLanguage; label: string }> = [
+  { value: 'both', label: 'Roman Urdu + English' }, { value: 'en', label: 'English' }, { value: 'ur', label: 'Roman Urdu' },
+];
 
 type Question = MatchView['questions'][number];
 
@@ -53,50 +73,6 @@ const QuestionRow = memo(function QuestionRow({ question, now }: { question: Que
   );
 });
 
-/** The kind of delivery and Wicket, then the runs, which send. Shared by recording a ball and correcting one. */
-function DeliveryPad({ busy, onRuns, initial, label }: {
-  busy: boolean;
-  /** Resolves true once saved */
-  onRuns: (runs: number, extra: Extra, wicket: boolean) => Promise<boolean>;
-  initial?: Pick<ViewBall, 'extra' | 'wicket'>;
-  label: string;
-}) {
-  const [extra, setExtra] = useState<Extra>(initial?.extra ?? 'none');
-  const [wicket, setWicket] = useState(initial?.wicket ?? false);
-  const pick = async (runs: number, isWicket = wicket) => {
-    // Saved: back to a plain ball for the next one. Not saved: the choice stays, to try again
-    if (await onRuns(runs, extra, isWicket)) {
-      setExtra('none');
-      setWicket(false);
-    }
-  };
-  return (
-    <>
-      <div role="group" aria-label={`Kind of delivery${label}`} className="flex flex-wrap gap-2">
-        {EXTRA_BUTTONS.map((option) => (
-          <button key={option.extra} type="button" aria-pressed={extra === option.extra} onClick={() => setExtra(option.extra)} className={toggle(extra === option.extra)}>
-            {option.label}
-          </button>
-        ))}
-        <button type="button" aria-pressed={wicket} onClick={() => setWicket(!wicket)} className={toggle(wicket)}>
-          Wicket
-        </button>
-      </div>
-      <div role="group" aria-label={`Runs${label}`} className="flex flex-wrap gap-2">
-        {RUN_BUTTONS.map((runs) => (
-          <button key={runs} disabled={busy} onClick={() => void pick(runs)} aria-label={`${runs} run${runs === 1 ? '' : 's'}${label}`}
-            className={`${button} h-14 w-14 bg-gray-800 text-lg text-white hover:bg-gray-700`}>
-            {runs}
-          </button>
-        ))}
-        <button disabled={busy} onClick={() => void pick(0, true)} aria-label={`Wicket, no run${label}`} className={`${button} h-14 w-14 bg-red-600 text-lg text-white hover:bg-red-700`}>
-          W
-        </button>
-      </div>
-    </>
-  );
-}
-
 /** How many players have joined, and the box that changes how many may */
 function PlayerLimit({ players, busy, onSave }: { players: NonNullable<MatchView['players']>; busy: boolean; onSave: (maxEntries: number) => Promise<boolean> }) {
   const [value, setValue] = useState(String(players.maxEntries));
@@ -117,30 +93,90 @@ function PlayerLimit({ players, busy, onSave }: { players: NonNullable<MatchView
   );
 }
 
-/** How much of Gemini's limits (requests a minute, input tokens a minute, requests a day) has been used */
-function GeminiUsage({ usage }: { usage: MatchView['wording'] }) {
-  if (!usage.on) {
-    return <p className="text-xs text-gray-400">Gemini wording is off (no MATCH_GEMINI_API_KEY): questions use the built-in wording.</p>;
-  }
-  const n = (value: number) => value.toLocaleString();
+const USAGE_LABELS = {
+  off: 'Off: no MATCH_GEMINI_API_KEY',
+  ok: 'Healthy',
+  busy: 'Busy',
+  near: 'Near the limit',
+  paused: "Paused by Google's limit",
+} as const;
+const USAGE_TONE = { off: 'text-gray-400', ok: 'text-emerald-300', busy: 'text-amber-200', near: 'text-red-300', paused: 'text-red-300' } as const;
+const BAR_TONE = { off: 'bg-gray-500', ok: 'bg-emerald-500', busy: 'bg-amber-400', near: 'bg-red-500', paused: 'bg-red-500' } as const;
+
+function Meter({ label, used, limit, tone }: { label: string; used: number; limit: number; tone: string }) {
+  const share = Math.min(1, used / limit);
   return (
-    <div aria-label="Gemini usage" className="space-y-0.5 text-xs text-gray-400">
-      <p>
-        Gemini ({usage.model}): {n(usage.today.requests)} of {n(usage.limits.rpd)} requests today · this minute {n(usage.thisMinute.requests)} of{' '}
-        {n(usage.limits.rpm)} requests and {n(usage.thisMinute.tokens)} of {n(usage.limits.tpm)} input tokens
-      </p>
-      <p>Peaks today: {n(usage.today.peakRequestsPerMinute)} requests and {n(usage.today.peakTokensPerMinute)} input tokens in a minute</p>
-      {(usage.pausedForDay || usage.pausedUntil) && (
-        <p className="text-amber-200">
-          Paused by Google&apos;s limit {usage.pausedForDay ? 'until its day ends (midnight Pacific time)' : `until ${new Date(usage.pausedUntil!).toLocaleTimeString()}`}:
-          questions use the built-in wording.
+    <div className="grid grid-cols-[6.5rem_1fr_auto] items-center gap-2 text-xs text-gray-400">
+      <span>{label}</span>
+      <div role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={used} className="h-2 overflow-hidden rounded-full bg-white/10">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.round(share * 100)}%` }} />
+      </div>
+      <span className="tabular-nums">{used.toLocaleString()}/{limit.toLocaleString()}</span>
+    </div>
+  );
+}
+
+/**
+ * How much of Gemini's limits this server has used (requests today, requests and input tokens this minute),
+ * coloured by how close the fullest is, and the match's AI level: Full words every over's quiz, Half every
+ * other over's, Off none. Near a limit the server words one step less on its own, and says so.
+ */
+function GeminiBar({ usage, busy, onLevel }: { usage: MatchView['wording']; busy: boolean; onLevel: (level: AiLevel) => void }) {
+  const { plan } = usage;
+  const tone = BAR_TONE[plan.usage];
+  return (
+    <div aria-label="Gemini usage" className="space-y-2 rounded-xl bg-gray-900/40 p-3">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="inline-flex items-center gap-1 text-gray-300"><Sparkles className="h-3.5 w-3.5" /> Gemini ({usage.model})</span>
+        <span className={USAGE_TONE[plan.usage]}>{USAGE_LABELS[plan.usage]}</span>
+      </div>
+      {usage.on && (
+        <>
+          <Meter label="Today" used={usage.today.requests} limit={usage.limits.rpd} tone={tone} />
+          <Meter label="This minute" used={usage.thisMinute.requests} limit={usage.limits.rpm} tone={tone} />
+          <Meter label="Tokens a minute" used={usage.thisMinute.tokens} limit={usage.limits.tpm} tone={tone} />
+        </>
+      )}
+      <Choice label="AI level" value={plan.chosen} options={AI_OPTIONS} busy={busy || !usage.on} onChange={onLevel} />
+      <p className="text-xs text-gray-400">Full: every over · Half: every other over · Off: built-in wording. Applies from the next quiz.</p>
+      {plan.lowered && (
+        <p role="status" className="text-xs text-amber-200">
+          {plan.usage === 'paused'
+            ? `Paused ${usage.pausedForDay ? 'until midnight Pacific time' : `until ${new Date(usage.pausedUntil!).toLocaleTimeString()}`}: quizzes use the built-in wording.`
+            : `Lowered to ${AI_OPTIONS.find((o) => o.value === plan.effective)!.label} on its own: close to Google's limit.`}
         </p>
       )}
     </div>
   );
 }
 
-interface Editing { ball: ViewBall; innings: number; over: number; position: number }
+/** A ball being corrected, and where it was picked: the pencil's scoreboard editor or the scorecard */
+interface Editing { ball: ViewBall; innings: number; over: number; position: number; from: 'editor' | 'scorecard' }
+
+/** What really happened on a recorded ball: the delivery pad, starting from what was recorded */
+function BallCorrection({ editing, busy, onCancel, onSave }: {
+  editing: Editing;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (ballId: string, delivery: Delivery) => Promise<boolean>;
+}) {
+  return (
+    <div role="group" aria-label="Correct a ball" className="space-y-3 rounded-xl border border-amber-400/30 bg-gray-900/60 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-white">
+          <Pencil className="mr-1 inline h-4 w-4" />
+          Innings {editing.innings}, over {editing.over}, ball {editing.position}: was <span className="font-mono">{editing.ball.label}</span>. What really happened?
+        </p>
+        <button type="button" onClick={onCancel} aria-label="Cancel the correction" className="rounded-lg p-1 text-gray-400 hover:bg-white/10">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <DeliveryPad key={editing.ball.id} busy={busy} initial={editing.ball} label=" (correction)"
+        onRecord={(delivery) => onSave(editing.ball.id, delivery)} />
+      <p className="text-xs text-gray-400">The scores, results and players&apos; right and wrong answers follow the corrected ball.</p>
+    </div>
+  );
+}
 
 /**
  * The scorer console: an admin records each ball of a live match. Questions open, close and settle from
@@ -150,7 +186,11 @@ interface Editing { ball: ViewBall; innings: number; over: number; position: num
  * hasn't started), an abandoned match restored. Every change carries the version this screen saw, so
  * two consoles can't overwrite each other: a refused change reloads.
  *
- * An over's questions wait for review (QuestionReview) unless the match sends them automatically.
+ * Each over's quiz is prepared an over ahead (QuizCard): in Manual the admin ticks its questions and sends
+ * it now or picks the ball it goes out on; in Auto its best questions go out on ball 1. Gemini words it in
+ * the background, as much as the AI level and the usage bar allow. The pencil by the score opens the
+ * scoreboard editor: change any of the last two overs' balls (the quizzes waiting are rebuilt from the
+ * corrected score), undo the last ball, and pick the quiz language players see.
  * Players see nothing until an admin takes the match live (Go live), which also tells every player; Hide
  * takes it back off. The Players box sets how many may join.
  */
@@ -159,6 +199,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [scoreEditor, setScoreEditor] = useState(false);
   // How far this device's clock is from the server's, for the countdowns
   const [skew, setSkew] = useState(0);
 
@@ -184,8 +225,14 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
   }, [load]);
 
   const anyOpen = view?.questions.some((q) => q.state === 'open') ?? false;
-  const anyWaiting = view?.drafts.some((d) => d.state === 'waiting') ?? false;
-  const now = useNow(1000, anyOpen || anyWaiting) + skew;
+  const now = useNow(1000, anyOpen) + skew;
+  // Gemini words a quiz after the ball that prepared it: look again until it's done
+  const wordingPending = view?.quizzes.some((q) => q.wording === 'pending') ?? false;
+  useEffect(() => {
+    if (!wordingPending) return;
+    const timer = setInterval(() => void load(), WORDING_POLL_MS);
+    return () => clearInterval(timer);
+  }, [wordingPending, load]);
 
   // One change at a time: every button that sends is disabled while one is on its way (React applies
   // a click's state before the next click, so a double click is caught too). `confirmed` asks first.
@@ -217,12 +264,15 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
   };
   // Only reachable from buttons shown once the match is loaded
   const send = (event: MatchEvent, confirmed?: () => boolean) => save('/events', 'POST', { version: view!.match.version, event }, confirmed);
+  const correct = (ballId: string, delivery: Delivery) => send({ type: 'correct_ball', ballId, ...delivery });
   const sendQuestions = (questions: DraftToSend[]) => save('/questions', 'POST', { action: 'send', questions });
+  const queueQuestions = (ball: number, questions: DraftToSend[]) => save('/questions', 'POST', { action: 'queue', ball, questions });
+  const unqueue = (innings: number, over: number) => save('/questions', 'POST', { action: 'unqueue', innings, over });
   const skipQuestions = (ids: string[]) => save('/questions', 'POST', { action: 'skip', ids });
   const ask = (text: string) => () => window.confirm(text);
-  const setAutoSend = (autoSend: boolean) => save('', 'PATCH', { autoSend }, autoSend
-    ? ask("Send each over's questions as they are written, without review? Gemini can get a wording wrong; the built-in wording is used whenever it does.")
-    : undefined);
+  const setAutoSend = (autoSend: boolean) => save('', 'PATCH', { autoSend });
+  const setAiLevel = (aiLevel: AiLevel) => save('', 'PATCH', { aiLevel });
+  const setLanguage = (language: QuizLanguage) => save('', 'PATCH', { language });
   const setPublished = (published: boolean) => save('', 'PATCH', { published }, ask(published
     ? 'Take this match live? Players see it on the quiz list and every player gets a notification (only the first time).'
     : 'Hide this match from players? They can\'t answer until you take it live again.'));
@@ -257,21 +307,22 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
 
   return (
     <div className="space-y-6">
-      <section aria-label="Score" className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-6">
+      <section aria-label="Score" className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold text-white">{match.title}</h2>
-            <p className="text-sm text-gray-400">T{match.oversPerInnings} · {match.questionsPerOver} question{match.questionsPerOver > 1 ? 's' : ''} an over · free entry</p>
+            <p className="text-sm text-gray-400">T{match.oversPerInnings} · {match.questionsPerOver} question{match.questionsPerOver > 1 ? 's' : ''} a quiz · free entry</p>
           </div>
-          <span className="rounded-full bg-white/10 px-3 py-1 text-sm text-gray-200">{STATUS_LABELS[match.status]}</span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-white/10 px-3 py-1 text-sm text-gray-200">{STATUS_LABELS[match.status]}</span>
+            {!view.settled && (
+              <button type="button" aria-pressed={scoreEditor} onClick={() => setScoreEditor(!scoreEditor)} aria-label="Edit the scoreboard"
+                className={`rounded-xl p-2.5 ${scoreEditor ? 'bg-amber-500/20 text-amber-100' : 'bg-white/10 text-gray-200 hover:bg-white/15'}`}>
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
-        {!view.settled && !abandoned && (
-          <label className="flex items-center gap-2 text-sm text-gray-300">
-            <input type="checkbox" checked={match.autoSend} disabled={busy} onChange={(e) => void setAutoSend(e.target.checked)} className="h-4 w-4 accent-emerald-500" />
-            Send questions automatically, without review
-          </label>
-        )}
-        {!view.settled && <GeminiUsage usage={view.wording} />}
         {view.innings.map((innings) => (
           <p key={innings.innings} className="text-lg text-white">
             <span className="font-semibold">{innings.battingTeam}</span> {innings.runs}/{innings.wickets}{' '}
@@ -283,7 +334,53 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
             {thisOver ? `Over ${thisOver.number}: ${thisOver.balls.map((b) => b.label).join(' ')}` : `Over ${current.overs.length + 1} next`}
           </p>
         )}
+        {scoreEditor && !view.settled && (
+          <div role="group" aria-label="Scoreboard editor" className="space-y-3 rounded-xl border border-amber-400/30 bg-gray-900/60 p-3">
+            {current && current.overs.length > 0 ? (
+              <>
+                <p className="text-xs text-gray-400">Tap a ball to change what happened on it. The score, the results and the quizzes still waiting follow it.</p>
+                {current.overs.slice(-2).map((over) => (
+                  <div key={over.number} className="flex flex-wrap items-center gap-1.5 text-sm">
+                    <span className="w-16 shrink-0 text-gray-400">Over {over.number}</span>
+                    {over.balls.map((ball, index) => (
+                      <button key={ball.id} type="button" disabled={!canCorrect || busy}
+                        aria-label={`Change over ${over.number}, ball ${index + 1}: ${ball.label}`}
+                        onClick={() => setEditing({ ball, innings: current.innings, over: over.number, position: index + 1, from: 'editor' })}
+                        className={`min-h-10 min-w-10 rounded-lg px-2 font-mono ${editing?.ball.id === ball.id ? 'bg-amber-500/30 text-amber-100' : 'bg-gray-800 text-white hover:bg-gray-700'}`}>
+                        {ball.label}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+                {editing?.from === 'editor' && canCorrect && (
+                  <BallCorrection editing={editing} busy={busy} onCancel={() => setEditing(null)} onSave={correct} />
+                )}
+                <button type="button" disabled={busy || abandoned} onClick={() => send({ type: 'undo' })} className={`${button} bg-white/10 text-white hover:bg-white/15`}>
+                  <Undo2 className="h-4 w-4" /> Undo last ball
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-gray-400">No balls yet.</p>
+            )}
+            <div className="space-y-1">
+              <p className="text-xs text-gray-400">Quiz language: what players see, for every question</p>
+              <Choice label="Quiz language" value={match.language} options={LANGUAGES} busy={busy} onChange={(language) => void setLanguage(language)} />
+            </div>
+          </div>
+        )}
       </section>
+
+      {!view.settled && !abandoned && (
+        <section aria-label="Quizzes" className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6">
+          <Choice label="Quiz mode" value={match.autoSend ? 'auto' : 'manual'} options={MODES} busy={busy} onChange={(mode) => void setAutoSend(mode === 'auto')} />
+          <p className="text-xs text-gray-400">
+            {match.autoSend
+              ? "Auto: each over's best questions go out on ball 1, without you. You can still send a quiz sooner, or cancel one and pick its questions yourself."
+              : 'Manual: tick the questions for each quiz, then send it now or pick the ball it goes out on.'}
+          </p>
+          <GeminiBar usage={view.wording} busy={busy} onLevel={(level) => void setAiLevel(level)} />
+        </section>
+      )}
 
       {view.settled && <p role="status" className="text-amber-200">This match&apos;s quiz has been settled, so it can&apos;t change any more.</p>}
 
@@ -313,7 +410,16 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
         </section>
       )}
 
-      {!view.settled && <QuestionReview drafts={view.drafts} now={anyWaiting ? now : 0} busy={busy} onSend={sendQuestions} onSkip={skipQuestions} />}
+      {!view.settled && view.quizzes.map((quiz) => (
+        // A rebuilt quiz has new questions and starts afresh; Gemini's wording arriving keeps the admin's ticks and ball
+        <QuizCard key={quiz.questions.map((q) => q.id).join('+')} quiz={quiz} language={match.language} busy={busy}
+          onSend={sendQuestions} onQueue={queueQuestions} onUnqueue={() => unqueue(quiz.innings, quiz.over)} onSkip={skipQuestions} />
+      ))}
+      {!view.settled && view.lapsed.length > 0 && (
+        <p className="text-xs text-gray-400">
+          Ran out of time, never sent: over {view.lapsed.map((slot) => slot.over).join(', ')}. Those overs have no questions.
+        </p>
+      )}
 
       {!view.settled && (match.status === 'setup' || match.status === 'innings_break') && (
         <section aria-label="Start an innings" className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-6">
@@ -336,10 +442,10 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
               Over 1&apos;s questions close in {formatClock(firstOverLeft)}. Close them before the first ball is bowled.
             </p>
           )}
-          <DeliveryPad busy={busy} label="" onRuns={(runs, extra, wicket) => send({ type: 'ball', runs, extra, wicket })} />
+          <DeliveryPad busy={busy} label="" onRecord={(delivery) => send({ type: 'ball', ...delivery })} />
           <p className="text-xs text-gray-400">
-            Pick the kind of delivery (and Wicket) first if it isn&apos;t a plain ball, then the runs. For a wide or no-ball, the runs are the ones
-            taken on top of the penalty run.
+            Pick the kind of delivery first if it isn&apos;t a normal ball, then the runs. For a wide or no-ball, the runs are the ones
+            taken on top of its 1 extra run. FOUR and SIX are boundaries; 4 ran and 6 ran are runs completed or overthrows.
           </p>
         </section>
       )}
@@ -416,7 +522,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
                     {over.balls.map((ball, index) => (
                       <button key={ball.id} type="button" disabled={!canCorrect || busy}
                         aria-label={`Correct innings ${innings.innings}, over ${over.number}, ball ${index + 1}: ${ball.label}`}
-                        onClick={() => setEditing({ ball, innings: innings.innings, over: over.number, position: index + 1 })}
+                        onClick={() => setEditing({ ball, innings: innings.innings, over: over.number, position: index + 1, from: 'scorecard' })}
                         className={`rounded-lg px-2 py-1 font-mono ${editing?.ball.id === ball.id ? 'bg-amber-500/30 text-amber-100' : 'bg-gray-800 text-white hover:bg-gray-700'} disabled:hover:bg-gray-800`}>
                         {ball.label}
                       </button>
@@ -427,21 +533,8 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
               </ol>
             </div>
           ))}
-          {editing && canCorrect && (
-            <div role="group" aria-label="Correct a ball" className="space-y-3 rounded-xl border border-amber-400/30 bg-gray-900/60 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-white">
-                  <Pencil className="mr-1 inline h-4 w-4" />
-                  Innings {editing.innings}, over {editing.over}, ball {editing.position}: was <span className="font-mono">{editing.ball.label}</span>. What really happened?
-                </p>
-                <button type="button" onClick={() => setEditing(null)} aria-label="Cancel the correction" className="rounded-lg p-1 text-gray-400 hover:bg-white/10">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <DeliveryPad key={editing.ball.id} busy={busy} initial={editing.ball} label=" (correction)"
-                onRuns={(runs, extra, wicket) => send({ type: 'correct_ball', ballId: editing.ball.id, runs, extra, wicket })} />
-              <p className="text-xs text-gray-400">The scores, results and players&apos; right and wrong answers follow the corrected ball.</p>
-            </div>
+          {editing?.from === 'scorecard' && canCorrect && (
+            <BallCorrection editing={editing} busy={busy} onCancel={() => setEditing(null)} onSave={correct} />
           )}
         </section>
       )}

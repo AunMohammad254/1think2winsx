@@ -1,6 +1,6 @@
 import '@/tests/helpers/ui';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { jsonResponse } from '@/tests/helpers/ui';
 import type { MatchView } from '@/lib/match-service';
 
@@ -99,11 +99,13 @@ describe('MatchConsole', () => {
   // Scorecard labels as deliveries: '4' is 4 off the bat, 'W' a wicket with no run
   const deliveries = (prefix: string, labels: string[]) => labels.map((label, i) => ({
     id: `${prefix}${i + 1}`, label, runs: Number.parseInt(label, 10) || 0, extra: 'none' as const, wicket: label.includes('W'),
+    wicketKind: null, boundary: null,
   }));
   const view = (over: Partial<MatchView> = {}, match: Partial<MatchView['match']> = {}): MatchView => ({
     match: {
       id: 'm1', quizId: 'quiz1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 20, questionsPerOver: 2,
-      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'live', autoSend: false, version: 3, published: false, ...match,
+      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'live', autoSend: false, language: 'both', aiLevel: 'full', version: 3,
+      published: false, ...match,
     },
     settled: false,
     players: { entries: 0, maxEntries: 2000 },
@@ -115,11 +117,13 @@ describe('MatchConsole', () => {
       ],
     }],
     questions: [],
-    drafts: [],
+    quizzes: [],
+    lapsed: [],
     wording: {
       on: false, model: 'gemini-3.1-flash-lite', limits: { rpm: 5, tpm: 25_000, rpd: 100 },
       thisMinute: { requests: 0, tokens: 0 }, today: { requests: 0, peakRequestsPerMinute: 0, peakTokensPerMinute: 0 },
       pausedUntil: null, pausedForDay: false,
+      plan: { chosen: 'full', effective: 'off', lowered: false, usage: 'off', share: 0 },
     },
     serverNow: new Date().toISOString(),
     ...over,
@@ -136,7 +140,7 @@ describe('MatchConsole', () => {
     render(<MatchConsole matchId="m1" />);
     expect(screen.getByText('Loading the match…')).toBeInTheDocument();
     expect(await screen.findByText('Lahore vs Karachi')).toBeInTheDocument();
-    expect(screen.getByText(/T20 · 1 question an over · free entry/)).toBeInTheDocument();
+    expect(screen.getByText(/T20 · 1 question a quiz · free entry/)).toBeInTheDocument();
     expect(screen.getByText('(0.2 overs, target 13)')).toBeInTheDocument();
     expect(screen.getByLabelText('This over')).toHaveTextContent('Over 1 next');
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/matches/m1');
@@ -174,27 +178,30 @@ describe('MatchConsole', () => {
     expect(screen.getByRole('button', { name: /Undo last ball/ })).toBeInTheDocument();
   });
 
-  it('records balls: plain runs, extras, wickets, then back to a plain ball', async () => {
+  it('records balls: a boundary, extras, dismissals, then back to a normal ball', async () => {
     serve(view());
     render(<MatchConsole matchId="m1" />);
     await screen.findByText('Lahore vs Karachi');
-    fireEvent.click(screen.getByRole('button', { name: '4 runs' }));
-    await waitFor(() => expect(lastEvent()).toEqual({ version: 3, event: { type: 'ball', runs: 4, extra: 'none', wicket: false } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Four' }));
+    await waitFor(() => expect(lastEvent()).toEqual({ version: 3, event: { type: 'ball', runs: 4, extra: 'none', wicket: false, boundary: true } }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Wide' }));
     expect(screen.getByRole('button', { name: 'Wide' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: '1 run' }));
     await waitFor(() => expect(lastEvent().event).toEqual({ type: 'ball', runs: 1, extra: 'wide', wicket: false }));
-    // The kind of delivery goes back to a plain ball
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Off the bat' })).toHaveAttribute('aria-pressed', 'true'));
+    // The kind of delivery goes back to a normal ball
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Normal' })).toHaveAttribute('aria-pressed', 'true'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Wicket' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Caught' }));
+    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'ball', runs: 0, extra: 'none', wicket: true, wicketKind: 'caught' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run out' }));
     fireEvent.click(screen.getByRole('button', { name: '1 run' }));
-    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'ball', runs: 1, extra: 'none', wicket: true }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Wicket' })).toHaveAttribute('aria-pressed', 'false'));
+    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'ball', runs: 1, extra: 'none', wicket: true, wicketKind: 'run_out' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Run out' })).toHaveAttribute('aria-pressed', 'false'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Wicket, no run' }));
-    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'ball', runs: 0, extra: 'none', wicket: true }));
+    fireEvent.click(screen.getByRole('button', { name: '+5 penalty runs' }));
+    await waitFor(() => expect(lastEvent().event).toEqual({ type: 'ball', runs: 0, extra: 'penalty', wicket: false }));
     expect(posts().every((p) => p.url === '/api/admin/matches/m1/events')).toBe(true);
   });
 
@@ -237,10 +244,8 @@ describe('MatchConsole', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Correct innings 1, over 2, ball 2: W' }));
     const panel = screen.getByRole('group', { name: 'Correct a ball' });
     expect(panel).toHaveTextContent('Innings 1, over 2, ball 2: was W. What really happened?');
-    expect(screen.getByRole('button', { name: 'Wicket' , pressed: true })).toBeInTheDocument();
     // It was a wide that took a run, not a wicket
-    fireEvent.click(screen.getAllByRole('button', { name: 'Wide' })[1]);
-    fireEvent.click(screen.getAllByRole('button', { name: 'Wicket' })[1]);
+    fireEvent.click(within(panel).getByRole('button', { name: 'Wide' }));
     fireEvent.click(screen.getByRole('button', { name: '1 run (correction)' }));
     await waitFor(() => expect(lastEvent()).toEqual({ version: 3, event: { type: 'correct_ball', ballId: 'o2b2', runs: 1, extra: 'wide', wicket: false } }));
     await waitFor(() => expect(screen.queryByRole('group', { name: 'Correct a ball' })).toBeNull());
@@ -385,59 +390,124 @@ describe('MatchConsole', () => {
     expect(list.querySelector('li')!.textContent).toMatch(/^Kya over 3 mein koi wicket giray ga\?Will a wicket fall in over 3\?/);
   });
 
-  it('switches automatic sending, asking before turning review off', async () => {
+  it('switches between Manual and Auto in one tap, saying what each does', async () => {
     // PATCH answers with the match as the switch now is
     fetchMock = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'PATCH'
       ? jsonResponse(view({}, { autoSend: JSON.parse(init.body as string).autoSend }))
       : jsonResponse(view())));
     vi.stubGlobal('fetch', fetchMock);
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<MatchConsole matchId="m1" />);
-    const box = await screen.findByRole('checkbox', { name: /Send questions automatically/ });
-    fireEvent.click(box);
-    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/without review\? Gemini can get a wording wrong/));
-    expect(posts()).toHaveLength(0);
-    confirm.mockReturnValue(true);
-    fireEvent.click(box);
-    await waitFor(() => expect(screen.getByRole('checkbox', { name: /Send questions automatically/ })).toBeChecked());
-    const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')!;
-    expect(patch[0]).toBe('/api/admin/matches/m1');
-    expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ autoSend: true });
-    // Turning review back on needs no question
-    confirm.mockClear();
-    fireEvent.click(screen.getByRole('checkbox', { name: /Send questions automatically/ }));
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toHaveLength(2));
-    expect(confirm).not.toHaveBeenCalled();
+    const mode = await screen.findByRole('group', { name: 'Quiz mode' });
+    expect(within(mode).getByRole('button', { name: 'Manual' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(/Manual: tick the questions for each quiz/)).toBeInTheDocument();
+    // The one already on does nothing
+    fireEvent.click(within(mode).getByRole('button', { name: 'Manual' }));
+    fireEvent.click(within(mode).getByRole('button', { name: 'Auto' }));
+    await waitFor(() => expect(within(screen.getByRole('group', { name: 'Quiz mode' })).getByRole('button', { name: 'Auto' })).toHaveAttribute('aria-pressed', 'true'));
+    expect(screen.getByText(/Auto: each over's best questions go out on ball 1/)).toBeInTheDocument();
+    const patches = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+    expect(patches).toHaveLength(1);
+    expect(patches[0][0]).toBe('/api/admin/matches/m1');
+    expect(JSON.parse((patches[0][1] as RequestInit).body as string)).toEqual({ autoSend: true });
   });
 
-  it('sends and skips reviewed questions through the review panel', async () => {
-    const waiting = {
-      id: 'd1', innings: 1 as const, over: 3, market: 'wicket_in_over', params: {}, options: ['Yes', 'No'], line: null,
-      text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
-      plainText: 'Will a wicket fall in over 3?', plainTextRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
-      ai: false, closesAt: inFuture(120), state: 'waiting' as const,
-    };
-    serve(view({ drafts: [waiting] }), () => jsonResponse(view()));
+  const quiz = (over: Partial<MatchView['quizzes'][number]> = {}): MatchView['quizzes'][number] => ({
+    innings: 1, over: 3, during: 2, ballsBowled: 1, started: true, pushOn: null, pushBy: null, wording: 'built_in', rebuilt: false,
+    questions: [{
+      id: 'd1', market: 'wicket_in_over', options: ['Yes', 'No'], line: null, text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
+      source: 'built_in', builtIn: { text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?', line: null }, best: true, selected: true,
+    }],
+    ...over,
+  });
+
+  it("shows each waiting quiz, and sends it now, sets it to a ball, takes it off, or skips it", async () => {
+    serve(view({ quizzes: [quiz(), quiz({ over: 4, during: 3, ballsBowled: 0, started: false, pushOn: 2, pushBy: 'admin', questions: [{ ...quiz().questions[0], id: 'q4' }] })] }), () => jsonResponse(view()));
     render(<MatchConsole matchId="m1" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Send over 3 question 1' }));
+    const first = await screen.findByRole('group', { name: 'Over 3 quiz' });
+    fireEvent.click(within(first).getByRole('button', { name: /Send now/ }));
     await waitFor(() => expect(posts().at(-1)).toEqual({
       url: '/api/admin/matches/m1/questions',
-      body: { action: 'send', questions: [{ id: 'd1', text: waiting.text, textRomanUrdu: waiting.textRomanUrdu }] },
+      body: { action: 'send', questions: [{ id: 'd1', text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?' }] },
     }));
-    await waitFor(() => expect(screen.queryByRole('region', { name: 'Review questions' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Over 3 quiz' })).toBeNull());
   });
 
-  it('skips a reviewed question through the review panel', async () => {
-    const waiting = {
-      id: 'd9', innings: 1 as const, over: 3, market: 'wicket_in_over', params: {}, options: ['Yes', 'No'], line: null,
-      text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
-      plainText: 'Will a wicket fall in over 3?', plainTextRomanUrdu: 'Kya over 3 mein koi wicket giray ga?',
-      ai: false, closesAt: inFuture(120), state: 'waiting' as const,
-    };
-    serve(view({ drafts: [waiting] }), () => jsonResponse(view()));
+  it('sets a quiz to a ball, cancels one, and skips one', async () => {
+    const queued = quiz({ over: 4, during: 3, ballsBowled: 0, started: false, pushOn: 2, pushBy: 'auto', questions: [{ ...quiz().questions[0], id: 'q4' }] });
+    serve(view({ quizzes: [quiz(), queued] }), () => jsonResponse(view({ quizzes: [quiz(), queued] })));
     render(<MatchConsole matchId="m1" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip over 3 question 1' }));
-    await waitFor(() => expect(posts().at(-1)).toEqual({ url: '/api/admin/matches/m1/questions', body: { action: 'skip', ids: ['d9'] } }));
+    const first = await screen.findByRole('group', { name: 'Over 3 quiz' });
+    fireEvent.click(within(first).getByRole('button', { name: 'Push on ball 3' }));
+    fireEvent.click(within(first).getByRole('button', { name: 'Queue for ball 3' }));
+    await waitFor(() => expect(posts().at(-1)!.body).toEqual({
+      action: 'queue', ball: 3, questions: [{ id: 'd1', text: 'Will a wicket fall in over 3?', textRomanUrdu: 'Kya over 3 mein koi wicket giray ga?' }],
+    }));
+    const second = screen.getByRole('group', { name: 'Over 4 quiz' });
+    expect(within(second).getByRole('status')).toHaveTextContent('Goes out on ball 2 of over 3 (Auto).');
+    fireEvent.click(within(second).getByRole('button', { name: /Cancel/ }));
+    await waitFor(() => expect(posts().at(-1)!.body).toEqual({ action: 'unqueue', innings: 1, over: 4 }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Over 3 quiz' })).getByRole('button', { name: /Skip/ }));
+    await waitFor(() => expect(posts().at(-1)!.body).toEqual({ action: 'skip', ids: ['d1'] }));
+  });
+
+  it("says which overs' quizzes ran out of time, and looks again while Gemini is wording one", async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    let pending = true;
+    fetchMock = vi.fn(async () => jsonResponse(view({ quizzes: [quiz({ wording: pending ? 'pending' : 'ai' })], lapsed: [{ innings: 1, over: 2 }] })));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MatchConsole matchId="m1" />);
+    expect(await screen.findByText(/Ran out of time, never sent: over 2/)).toBeInTheDocument();
+    expect(screen.getByText('Gemini is wording it…')).toBeInTheDocument();
+    // The admin picks a ball while Gemini works: the wording arriving keeps it
+    fireEvent.click(screen.getByRole('button', { name: 'Push on ball 3' }));
+    pending = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(await screen.findByText('Worded by Gemini')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Push on ball 3' })).toHaveAttribute('aria-pressed', 'true');
+    const loads = fetchMock.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    // Nothing pending: no more looking
+    expect(fetchMock.mock.calls.length).toBe(loads);
+    vi.useRealTimers();
+  });
+
+  it('opens the scoreboard editor from the pencil: change a recent ball, undo the last, pick the quiz language', async () => {
+    fetchMock = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'PATCH'
+      ? jsonResponse(view({}, { language: JSON.parse(init.body as string).language }))
+      : jsonResponse(view())));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<MatchConsole matchId="m1" />);
+    const pencil = await screen.findByRole('button', { name: 'Edit the scoreboard' });
+    expect(screen.queryByRole('group', { name: 'Scoreboard editor' })).toBeNull();
+    fireEvent.click(pencil);
+    const editor = screen.getByRole('group', { name: 'Scoreboard editor' });
+    // The last two overs, tappable
+    fireEvent.click(within(editor).getByRole('button', { name: 'Change over 2, ball 2: W' }));
+    const correction = within(editor).getByRole('group', { name: 'Correct a ball' });
+    expect(correction).toHaveTextContent('Innings 1, over 2, ball 2: was W. What really happened?');
+    // Only one correction panel at a time: the scorecard's stays shut
+    expect(screen.getAllByRole('group', { name: 'Correct a ball' })).toHaveLength(1);
+    fireEvent.click(within(correction).getByRole('button', { name: '1 run (correction)' }));
+    await waitFor(() => expect(posts().at(-1)!.body).toEqual({ version: 3, event: { type: 'correct_ball', ballId: 'o2b2', runs: 1, extra: 'none', wicket: false } }));
+    fireEvent.click(within(screen.getByRole('group', { name: 'Scoreboard editor' })).getByRole('button', { name: /Undo last ball/ }));
+    await waitFor(() => expect(posts().at(-1)!.body).toEqual({ version: 3, event: { type: 'undo' } }));
+    const language = within(screen.getByRole('group', { name: 'Scoreboard editor' })).getByRole('group', { name: 'Quiz language' });
+    fireEvent.click(within(language).getByRole('button', { name: 'Roman Urdu' }));
+    await waitFor(() => expect(within(screen.getByRole('group', { name: 'Quiz language' })).getByRole('button', { name: 'Roman Urdu' })).toHaveAttribute('aria-pressed', 'true'));
+    expect(JSON.parse((fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')![1] as RequestInit).body as string)).toEqual({ language: 'ur' });
+    // Cancel closes the correction; the pencil closes the editor
+    fireEvent.click(within(screen.getByRole('group', { name: 'Scoreboard editor' })).getByRole('button', { name: 'Change over 1, ball 1: 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel the correction' }));
+    expect(screen.queryByRole('group', { name: 'Correct a ball' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit the scoreboard' }));
+    expect(screen.queryByRole('group', { name: 'Scoreboard editor' })).toBeNull();
+  });
+
+  it('says there are no balls to change before the first', async () => {
+    serve(view({ innings: [{ ...view().innings[0], overs: [] }] }));
+    render(<MatchConsole matchId="m1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit the scoreboard' }));
+    expect(within(screen.getByRole('group', { name: 'Scoreboard editor' })).getByText('No balls yet.')).toBeInTheDocument();
   });
 
   it('after the match: only undo, and a pointer to settling; nothing for an abandoned or settled match', async () => {
@@ -536,41 +606,76 @@ describe('MatchConsole: Gemini usage', () => {
   const base = {
     match: {
       id: 'm1', quizId: 'quiz1', title: 'Lahore vs Karachi', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 20, questionsPerOver: 2,
-      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'setup' as const, autoSend: false, version: 1, published: false,
+      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'setup' as const, autoSend: false, language: 'both' as const,
+      aiLevel: 'full' as const, version: 1, published: false,
     },
-    settled: false, players: null, innings: [], questions: [], drafts: [], serverNow: new Date().toISOString(),
+    settled: false, players: null, innings: [], questions: [], quizzes: [], lapsed: [], serverNow: new Date().toISOString(),
   };
-  const usage = (over: Partial<MatchView['wording']> = {}): MatchView['wording'] => ({
+  const usage = (over: Partial<MatchView['wording']> = {}, plan: Partial<MatchView['wording']['plan']> = {}): MatchView['wording'] => ({
     on: true, model: 'gemini-3.1-flash-lite', limits: { rpm: 5, tpm: 25_000, rpd: 100 },
     thisMinute: { requests: 1, tokens: 640 }, today: { requests: 12, peakRequestsPerMinute: 2, peakTokensPerMinute: 1_300 },
     pausedUntil: null, pausedForDay: false, ...over,
+    plan: { chosen: 'full', effective: 'full', lowered: false, usage: 'ok', share: 0.2, ...plan },
   });
+  let fetchMock: ReturnType<typeof vi.fn>;
   const show = async (wording: MatchView['wording']) => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ...base, wording })));
+    fetchMock = vi.fn(async (_url: string, init?: RequestInit) => jsonResponse({
+      ...base, wording, match: { ...base.match, ...(init?.method === 'PATCH' ? JSON.parse(init.body as string) : {}) },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
     render(<MatchConsole matchId="m1" />);
     await screen.findByText('Lahore vs Karachi');
   };
 
-  it("says when Gemini is off, and otherwise how much of each limit it used", async () => {
-    await show(usage({ on: false }));
-    expect(screen.getByText(/Gemini wording is off \(no MATCH_GEMINI_API_KEY\)/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Gemini usage')).toBeNull();
+  it('says when Gemini is off, without bars, and the AI level can\'t change', async () => {
+    await show(usage({ on: false }, { usage: 'off', effective: 'off' }));
+    const box = screen.getByLabelText('Gemini usage');
+    expect(box).toHaveTextContent('Off: no MATCH_GEMINI_API_KEY');
+    expect(within(box).queryAllByRole('meter')).toEqual([]);
+    expect(within(box).getByRole('button', { name: 'Half' })).toBeDisabled();
   });
 
-  it('shows the requests today, this minute and the peaks against the limits', async () => {
+  it('shows bars for the requests today, this minute and the tokens, coloured by how close the fullest is', async () => {
     await show(usage());
     const box = screen.getByLabelText('Gemini usage');
-    expect(box).toHaveTextContent('Gemini (gemini-3.1-flash-lite): 12 of 100 requests today · this minute 1 of 5 requests and 640 of 25,000 input tokens');
-    expect(box).toHaveTextContent('Peaks today: 2 requests and 1,300 input tokens in a minute');
-    expect(box).not.toHaveTextContent('Paused');
+    expect(box).toHaveTextContent('Gemini (gemini-3.1-flash-lite)');
+    expect(box).toHaveTextContent('Healthy');
+    const [today, minute, tokens] = within(box).getAllByRole('meter');
+    expect(today).toHaveAttribute('aria-valuenow', '12');
+    expect(today).toHaveAttribute('aria-valuemax', '100');
+    expect(today.firstElementChild).toHaveStyle({ width: '12%' });
+    expect(today.firstElementChild).toHaveClass('bg-emerald-500');
+    expect(minute).toHaveAttribute('aria-valuenow', '1');
+    expect(tokens).toHaveAttribute('aria-valuemax', '25000');
+    expect(box).toHaveTextContent('12/100');
+    expect(box).toHaveTextContent('640/25,000');
+    expect(within(box).queryByRole('status')).toBeNull();
+    cleanup();
+    await show(usage({ today: { requests: 70, peakRequestsPerMinute: 2, peakTokensPerMinute: 0 } }, { usage: 'busy', share: 0.7 }));
+    expect(screen.getByLabelText('Gemini usage')).toHaveTextContent('Busy');
+    expect(within(screen.getByLabelText('Gemini usage')).getAllByRole('meter')[0].firstElementChild).toHaveClass('bg-amber-400');
   });
 
-  it("says when Google's limit paused it, for the day or until a time", async () => {
-    await show(usage({ pausedForDay: true }));
-    expect(screen.getByLabelText('Gemini usage')).toHaveTextContent("Paused by Google's limit until its day ends (midnight Pacific time)");
+  it('changes the AI level in one tap', async () => {
+    await show(usage());
+    fireEvent.click(within(screen.getByRole('group', { name: 'AI level' })).getByRole('button', { name: 'Half' }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toBe(true));
+    const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')!;
+    expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ aiLevel: 'half' });
+  });
+
+  it('says when it lowered the level on its own, or Google paused it, for the day or until a time', async () => {
+    await show(usage({ today: { requests: 90, peakRequestsPerMinute: 2, peakTokensPerMinute: 0 } }, { usage: 'near', effective: 'half', lowered: true, share: 0.9 }));
+    const box = screen.getByLabelText('Gemini usage');
+    expect(box).toHaveTextContent('Near the limit');
+    expect(within(box).getByRole('status')).toHaveTextContent("Lowered to Half on its own: close to Google's limit.");
+    expect(within(box).getAllByRole('meter')[0].firstElementChild).toHaveClass('bg-red-500');
+    cleanup();
+    await show(usage({ pausedForDay: true }, { usage: 'paused', effective: 'off', lowered: true }));
+    expect(within(screen.getByLabelText('Gemini usage')).getByRole('status')).toHaveTextContent('Paused until midnight Pacific time: quizzes use the built-in wording.');
     cleanup();
     const until = new Date(Date.now() + 30_000).toISOString();
-    await show(usage({ pausedUntil: until }));
+    await show(usage({ pausedUntil: until }, { usage: 'paused', effective: 'off', lowered: true }));
     expect(screen.getByLabelText('Gemini usage')).toHaveTextContent(`until ${new Date(until).toLocaleTimeString()}`);
   });
 });

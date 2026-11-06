@@ -5,8 +5,9 @@
  * the `lockins` queue. The queue consumer (consumer.ts) saves batches through Supabase's submit_lockin_batch,
  * which judges each lock-in by that receive time, so the queue's delay never makes a player late.
  *
- * The player gets 202 "received" at once; the result of saving is the database's. Match overs send
- * `X-Lockin-Direct: 1` and still go to Hostinger, which answers with the saved result as today.
+ * The player gets 202 "received" at once; the result of saving is the database's, which judges a match over's
+ * questions by their own close times. Match overs are queued like any lock-in: only a request with
+ * `X-Lockin-Direct: 1` (sent by app builds before 2026-11-06 for match overs) still goes to Hostinger.
  */
 import { busy, bytesToBase64Url, json } from './http';
 import { JwksUnavailableError } from './jwt';

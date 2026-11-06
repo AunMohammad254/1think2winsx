@@ -11,7 +11,7 @@ vi.mock('@/lib/match-service', async (importOriginal) => ({
   loadMatch: (...a: unknown[]) => loadMatch(...a),
 }));
 
-const { buildPublicMatch, getPublicMatch } = await import('@/lib/match-feed');
+const { buildPublicMatch, getPublicMatch, inLanguage } = await import('@/lib/match-feed');
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const ball = (seq: number, over: Record<string, unknown> = {}) =>
@@ -32,7 +32,8 @@ function loaded(over: Partial<LoadedMatch> = {}): LoadedMatch {
   return {
     row: {
       id: 'm1', quizId: 'quiz1', teamA: 'Lahore', teamB: 'Karachi', oversPerInnings: 2, questionsPerOver: 2,
-      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'live', autoSend: false, version: 7, createdAt: '2026-10-29T10:00:00Z',
+      firstWindowSeconds: 120, lockFallbackSeconds: 150, status: 'live', autoSend: false, language: 'both', aiLevel: 'full', version: 7,
+      createdAt: '2026-10-29T10:00:00Z',
     },
     title: 'Lahore vs Karachi',
     published: true,
@@ -41,8 +42,9 @@ function loaded(over: Partial<LoadedMatch> = {}): LoadedMatch {
     questions,
     drafts: [{
       id: 'd1', innings: 1, over: 3, market: 'wicket_in_over', params: {}, options: ['Yes', 'No'], text: 'SECRET DRAFT', textRomanUrdu: 'x',
-      plainText: 'x', plainTextRomanUrdu: 'x', ai: false, closesAt: '2026-10-29T12:05:00Z',
+      body: { en: 'x', ur: 'x' }, lead: null, rank: 0, selected: true, aiAsked: true, preparedAt: '2026-10-29T11:59:00Z', window: 150,
     }],
+    wordings: { d1: { text: 'SECRET WORDING', textRomanUrdu: 'x' } },
     state: {
       config: { teams: ['Lahore', 'Karachi'], oversPerInnings: 2, questionsPerOver: 2, firstWindowSeconds: 120, lockFallbackSeconds: 150 },
       status: 'live',
@@ -86,7 +88,29 @@ describe('buildPublicMatch', () => {
     ]);
     expect(match.serverNow).toBe(new Date(NOW).toISOString());
     const json = JSON.stringify(match);
-    for (const hidden of ['SECRET DRAFT', 'autoSend', 'version', 'market', 'reopenable', 'firstWindowSeconds', 'maxEntries']) expect(json).not.toContain(hidden);
+    for (const hidden of ['SECRET DRAFT', 'SECRET WORDING', 'autoSend', 'aiLevel', 'version', 'market', 'reopenable', 'firstWindowSeconds', 'maxEntries']) {
+      expect(json).not.toContain(hidden);
+    }
+  });
+
+  it("shows the questions in the match's language: English only, or Roman Urdu only", async () => {
+    loadMatch.mockResolvedValue(loaded({ row: { ...loaded().row, language: 'en' } }));
+    expect((await buildPublicMatch('m1', NOW))!.questions[0]).toMatchObject({
+      text: 'Lahore: will over 2 go for 8 or more runs?', textRomanUrdu: null, options: ['Yes', 'No'], optionsRomanUrdu: [null, null],
+    });
+    loadMatch.mockResolvedValue(loaded({ row: { ...loaded().row, language: 'ur' } }));
+    expect((await buildPublicMatch('m1', NOW))!.questions[0]).toMatchObject({
+      text: 'Lahore: kya over 2 mein 8 ya us se zyada runs banenge?', textRomanUrdu: null, options: ['Haan', 'Nahi'], optionsRomanUrdu: [null, null],
+    });
+  });
+});
+
+describe('inLanguage', () => {
+  it('keeps the options in order, and falls back to English where a question has no Roman Urdu', () => {
+    const q = { text: 'Will it rain?', textRomanUrdu: null, options: ['Yes', 'Maybe'] };
+    expect(inLanguage(q, 'ur')).toEqual({ text: 'Will it rain?', textRomanUrdu: null, options: ['Yes', 'Maybe'], optionsRomanUrdu: ['Haan', null] });
+    expect(inLanguage({ ...q, textRomanUrdu: 'Barish?' }, 'ur')).toEqual({ text: 'Barish?', textRomanUrdu: null, options: ['Haan', 'Maybe'], optionsRomanUrdu: [null, null] });
+    expect(inLanguage({ ...q, textRomanUrdu: 'Barish?' }, 'both')).toEqual({ text: 'Will it rain?', textRomanUrdu: 'Barish?', options: ['Yes', 'Maybe'], optionsRomanUrdu: ['Haan', null] });
   });
 
   it('says when the match is full and settled', async () => {

@@ -10,35 +10,119 @@
  * applyEvent). Only opening questions can't be taken back (players may have answered), and a question
  * whose over has started never takes answers again.
  *
- * Questions shown during over N are about over N+1:
- *   - they open at over N's first delivery (over 1's when the innings starts),
- *   - close after over N's 5th legal ball, at over N+1's first delivery, at a fallback time, or when the
- *     innings ends, whichever comes first,
- *   - are settled from over N+1's balls once it is complete, or voided if it never is.
+ * Questions shown during over N are about over N+1 (an over's "quiz"):
+ *   - the quiz is prepared when over N-1 ends (over 1's and over 2's when the innings starts), so the admin
+ *     can pick its questions, and the ball of over N it goes out on, before over N starts,
+ *   - it goes out on that ball (pushDue: Auto picks ball 1), or whenever the admin sends it, until over N's
+ *     5th legal ball (stillSendable); over 1's quiz goes out before the first ball,
+ *   - its questions close after over N's 5th legal ball, at over N+1's first delivery, at a fallback time
+ *     after they went out, or when the innings ends, whichever comes first,
+ *   - and are settled from over N+1's balls once it is complete, or voided if it never is.
  */
 
-export type Extra = 'none' | 'wide' | 'no_ball' | 'bye' | 'leg_bye';
+/**
+ * What a scorecard entry is (Laws 21-23, 41): a fair delivery (none: runs off the bat; bye; leg_bye), a wide,
+ * a no-ball with its runs off the bat (no_ball) or as byes / leg byes, 5 penalty runs to the batting side
+ * (penalty), or a dismissal with no ball at all (no_delivery: retired out, timed out). The last two aren't
+ * balls of the over.
+ */
+export type Extra = 'none' | 'wide' | 'no_ball' | 'no_ball_bye' | 'no_ball_leg_bye' | 'bye' | 'leg_bye' | 'penalty' | 'no_delivery';
+/** How a batter is out (Laws 25.4, 32-40; handled the ball is part of obstructing since 2017) */
+export type WicketKind = 'bowled' | 'caught' | 'lbw' | 'stumped' | 'hit_wicket' | 'run_out' | 'obstructing' | 'hit_twice' | 'retired_out' | 'timed_out';
 export type InningsNumber = 1 | 2;
 export type MatchStatus = 'setup' | 'live' | 'innings_break' | 'completed' | 'abandoned';
 export type EndReason = 'overs' | 'all_out' | 'target' | 'admin';
 
-export const EXTRAS: readonly Extra[] = ['none', 'wide', 'no_ball', 'bye', 'leg_bye'];
+export const EXTRAS: readonly Extra[] = ['none', 'wide', 'no_ball', 'no_ball_bye', 'no_ball_leg_bye', 'bye', 'leg_bye', 'penalty', 'no_delivery'];
+export const WICKET_KINDS: readonly WicketKind[] = ['bowled', 'caught', 'lbw', 'stumped', 'hit_wicket', 'run_out', 'obstructing', 'hit_twice', 'retired_out', 'timed_out'];
 export const BALLS_PER_OVER = 6;
 export const MAX_WICKETS = 10;
-/** Most runs one delivery can add (5 overthrows on a 2, say): anything above is a typing mistake */
+/** Most runs one delivery can add (3 run and 4 overthrows, say): anything above is a typing mistake */
 export const MAX_RUNS_PER_BALL = 7;
+/** Penalty runs awarded to the batting side (Law 41) */
+export const PENALTY_RUNS = 5;
 
 export interface Ball {
   id: string;
   innings: InningsNumber;
   /** Order within the innings, from 1 */
   seq: number;
-  /** Off the bat, or byes / leg byes for those extras, or runs taken off a wide */
+  /** Off the bat, or byes / leg byes, or runs taken off a wide; 0 for penalty runs and no_delivery */
   runs: number;
   extra: Extra;
-  /** The penalty run of a wide or no-ball */
+  /** The 1 run of a wide or no-ball, or the 5 penalty runs */
   extraRuns: number;
   wicket: boolean;
+  /** How the batter was out; absent for a wicket recorded before kinds were kept */
+  wicketKind?: WicketKind | null;
+  /** The ball reached the boundary (a four or a six); absent before it was kept: 4 or 6 off the bat then */
+  boundary?: boolean | null;
+}
+
+/** What the scorer records for one entry: the Ball without its place */
+export type Delivery = Pick<Ball, 'runs' | 'extra' | 'wicket' | 'wicketKind' | 'boundary'>;
+
+/** Not a ball of the over: penalty runs, or a dismissal with no delivery */
+export const isOffBall = (ball: Pick<Ball, 'extra'>) => ball.extra === 'penalty' || ball.extra === 'no_delivery';
+
+/** Dismissals after which no run counts: the ball is dead at once */
+export const NO_RUN_DISMISSALS: readonly WicketKind[] = ['bowled', 'caught', 'lbw', 'stumped', 'hit_wicket', 'hit_twice'];
+
+/**
+ * The dismissals each kind of entry allows. Off a no-ball only run out, obstructing the field and hit the
+ * ball twice (Law 21.18); off a wide, also stumped and hit wicket (Law 22.7); off byes and leg byes, run out
+ * and obstructing; retired out and timed out need no delivery.
+ */
+export const DISMISSALS_FOR: Record<Extra, readonly WicketKind[]> = {
+  none: ['bowled', 'caught', 'lbw', 'stumped', 'hit_wicket', 'run_out', 'obstructing', 'hit_twice'],
+  bye: ['run_out', 'obstructing'],
+  leg_bye: ['run_out', 'obstructing'],
+  wide: ['stumped', 'hit_wicket', 'run_out', 'obstructing'],
+  no_ball: ['run_out', 'obstructing', 'hit_twice'],
+  no_ball_bye: ['run_out', 'obstructing'],
+  no_ball_leg_bye: ['run_out', 'obstructing'],
+  penalty: [],
+  no_delivery: ['retired_out', 'timed_out'],
+};
+
+const DISMISSAL_NAMES: Record<WicketKind, string> = {
+  bowled: 'bowled', caught: 'caught', lbw: 'LBW', stumped: 'stumped', hit_wicket: 'hit wicket', run_out: 'run out',
+  obstructing: 'obstructing the field', hit_twice: 'hit the ball twice', retired_out: 'retired out', timed_out: 'timed out',
+};
+const EXTRA_NAMES: Record<Extra, string> = {
+  none: 'a fair ball', wide: 'a wide', no_ball: 'a no-ball', no_ball_bye: 'a no-ball', no_ball_leg_bye: 'a no-ball',
+  bye: 'byes', leg_bye: 'leg byes', penalty: 'penalty runs', no_delivery: 'no ball',
+};
+
+/** Why an entry can't be recorded as it is, or null when it can (the Laws of Cricket, as they score) */
+export function deliveryProblem(d: Delivery): string | null {
+  if (!EXTRAS.includes(d.extra)) return 'Unknown kind of delivery';
+  if (!Number.isInteger(d.runs) || d.runs < 0 || d.runs > MAX_RUNS_PER_BALL) return `Runs must be a whole number from 0 to ${MAX_RUNS_PER_BALL}`;
+  const kind = d.wicketKind ?? null;
+  if (kind !== null && !WICKET_KINDS.includes(kind)) return 'Unknown kind of dismissal';
+  if (kind !== null && !d.wicket) return 'A dismissal is a wicket';
+  if (d.extra === 'penalty' && (d.runs > 0 || d.wicket || d.boundary)) return `Penalty runs are ${PENALTY_RUNS} to the batting side, with nothing else`;
+  if (d.extra === 'no_delivery' && (kind === null || d.runs > 0 || d.boundary)) return 'Retired out or timed out is a wicket with no ball and no runs';
+  if (kind !== null && !DISMISSALS_FOR[d.extra].includes(kind)) return `A batter can't be out ${DISMISSAL_NAMES[kind]} off ${EXTRA_NAMES[d.extra]}`;
+  if (kind !== null && NO_RUN_DISMISSALS.includes(kind) && d.runs > 0) return `No runs count when a batter is out ${DISMISSAL_NAMES[kind]}`;
+  if (d.boundary) {
+    if (d.wicket) return "A boundary can't also be a wicket";
+    if (d.runs !== 4 && d.runs !== 6) return 'A boundary is a four or a six';
+    if (d.runs === 6 && !offTheBat(d)) return 'Only a hit goes for six';
+  }
+  return null;
+}
+
+/** The 1 run of a wide or no-ball, or the penalty runs */
+const extraRunsOf = (extra: Extra) => (extra === 'penalty' ? PENALTY_RUNS : extra === 'wide' || extra.startsWith('no_ball') ? 1 : 0);
+
+/** A ball as the scorer recorded it, numbered; kind and boundary only when given */
+function newBall(id: string, innings: InningsNumber, seq: number, d: Delivery): Ball {
+  return {
+    id, innings, seq, runs: d.runs, extra: d.extra, extraRuns: extraRunsOf(d.extra), wicket: d.wicket === true,
+    ...(d.wicketKind ? { wicketKind: d.wicketKind } : {}),
+    ...(typeof d.boundary === 'boolean' ? { boundary: d.boundary } : {}),
+  };
 }
 
 export interface Innings {
@@ -92,26 +176,46 @@ export interface MatchState {
  */
 export const MATCH_POPUP_MARGIN_SECONDS = 30;
 
-/**
- * Questions must have at least this long left when sent: the pop-up's margin, the few seconds its feed takes
- * to show them (cached at the edge, polled every 3 s), and time to answer.
- */
-export const MIN_ANSWER_SECONDS = MATCH_POPUP_MARGIN_SECONDS + 20;
+/** The balls of an over a quiz can be set to go out on: 1 to 4 (the 5th closes it) */
+export const PUSH_BALLS = [1, 2, 3, 4] as const;
 
-/**
- * Whether a reviewed question about `slot` can still go out at `now`: its innings is being played, its
- * over hasn't started, the balls wouldn't close it yet (the over before has fewer than 5 legal balls),
- * and at least MIN_ANSWER_SECONDS are left before `closesAtMs`, the close time it was given when written.
- */
-export function stillSendable(state: MatchState, slot: { innings: InningsNumber; over: number }, closesAtMs: number, now: number): boolean {
+/** The live innings' overs, when `slot` is about it and it is being played; else null */
+function liveOvers(state: MatchState, slot: { innings: InningsNumber }): Over[] | null {
   const live = state.innings[state.innings.length - 1];
-  if (state.status === 'abandoned' || !live || live.endReason || live.innings !== slot.innings) return false;
-  const overs = splitOvers(state.balls.filter((ball) => ball.innings === live.innings));
-  return !overs[slot.over - 1] && (overs[slot.over - 2]?.legalBalls ?? 0) < BALLS_PER_OVER - 1
-    && closesAtMs - now >= MIN_ANSWER_SECONDS * 1000;
+  if (state.status === 'abandoned' || !live || live.endReason || live.innings !== slot.innings) return null;
+  return splitOvers(state.balls.filter((ball) => ball.innings === live.innings));
 }
 
-export const isLegal = (ball: Pick<Ball, 'extra'>) => ball.extra !== 'wide' && ball.extra !== 'no_ball';
+/**
+ * Whether the quiz about `slot` can still go out: its innings is being played, its over hasn't started, and
+ * the balls wouldn't close it yet (the over before has fewer than 5 legal balls). Its questions close a
+ * fallback time after they go out, so how long ago it was prepared doesn't matter.
+ */
+export function stillSendable(state: MatchState, slot: { innings: InningsNumber; over: number }): boolean {
+  const overs = liveOvers(state, slot);
+  return overs !== null && !overs[slot.over - 1] && (overs[slot.over - 2]?.legalBalls ?? 0) < BALLS_PER_OVER - 1;
+}
+
+/**
+ * Whether the quiz about `slot`, set to go out on `ball` of the over before it, is due: that over has
+ * started (ball 1: its first delivery, a wide included) and has `ball` legal balls (2 to 4: 9.2, 9.3, 9.4).
+ * Over 1's quiz is due at once: it goes out before the first ball.
+ */
+export function pushDue(state: MatchState, slot: { innings: InningsNumber; over: number }, ball: number): boolean {
+  if (!stillSendable(state, slot)) return false;
+  if (slot.over === 1) return true;
+  const before = liveOvers(state, slot)![slot.over - 2];
+  return before !== undefined && (ball <= 1 || before.legalBalls >= ball);
+}
+
+/** The legal balls bowled so far in the over a quiz about `over` goes out in (0 before it starts), or null for over 1 */
+export function ballsBefore(state: MatchState, slot: { innings: InningsNumber; over: number }): number | null {
+  if (slot.over === 1) return null;
+  return liveOvers(state, slot)?.[slot.over - 2]?.legalBalls ?? 0;
+}
+
+/** Counts as one of the over's six: a fair ball, byes or leg byes */
+export const isLegal = (ball: Pick<Ball, 'extra'>) => ball.extra === 'none' || ball.extra === 'bye' || ball.extra === 'leg_bye';
 export const ballRuns = (ball: Pick<Ball, 'runs' | 'extraRuns'>) => ball.runs + ball.extraRuns;
 
 export interface Over {
@@ -124,12 +228,15 @@ export interface Over {
   complete: boolean;
 }
 
-/** An innings' balls, in order, split into overs: an over ends with its 6th legal ball. */
+/**
+ * An innings' balls, in order, split into overs: an over ends with its 6th legal ball. Penalty runs and a
+ * dismissal with no delivery belong to the over being bowled, or the one just finished: they never start one.
+ */
 export function splitOvers(balls: Ball[]): Over[] {
   const overs: Over[] = [];
   for (const ball of balls) {
     let over = overs[overs.length - 1];
-    if (!over || over.complete) {
+    if (!over || (over.complete && !isOffBall(ball))) {
       over = { number: overs.length + 1, balls: [], legalBalls: 0, runs: 0, wickets: 0, complete: false };
       overs.push(over);
     }
@@ -175,7 +282,7 @@ export function scoreInnings(balls: Ball[], oversPerInnings: number, target: num
 // (src/lib/match-questions.ts) so each is close to an even chance. No market asks about wides or
 // no-balls: those are what spot-fixing targets.
 
-const offTheBat = (ball: Ball) => ball.extra === 'none' || ball.extra === 'no_ball';
+const offTheBat = (ball: Pick<Ball, 'extra'>) => ball.extra === 'none' || ball.extra === 'no_ball';
 const lineOf = (params: Record<string, unknown>): number | null =>
   typeof params.line === 'number' && Number.isFinite(params.line) ? params.line : null;
 
@@ -184,8 +291,10 @@ const MARKETS: Record<string, (over: Over, params: Record<string, unknown>) => b
     const line = lineOf(params);
     return line === null ? null : over.runs >= line;
   },
-  boundary_in_over: (over) => over.balls.some((ball) => offTheBat(ball) && (ball.runs === 4 || ball.runs === 6)),
-  wicket_in_over: (over) => over.wickets > 0,
+  // A four or a six hit by a batter: not boundary byes, all-run fours or overthrows
+  boundary_in_over: (over) => over.balls.some((ball) => offTheBat(ball) && (ball.boundary ?? (ball.runs === 4 || ball.runs === 6))),
+  // Out to a ball of the over: retired out and timed out aren't a wicket falling
+  wicket_in_over: (over) => over.balls.some((ball) => ball.wicket && ball.extra !== 'no_delivery'),
   dots_at_least: (over, params) => {
     const line = lineOf(params);
     return line === null ? null : over.balls.filter((ball) => isLegal(ball) && ballRuns(ball) === 0).length >= line;
@@ -205,19 +314,19 @@ export function resolveMarket(market: string, params: Record<string, unknown>, o
 
 export type MatchEvent =
   | { type: 'start_innings'; battingTeam: string }
-  | { type: 'ball'; runs: number; extra: Extra; wicket: boolean }
+  | ({ type: 'ball' } & Delivery)
   | { type: 'undo' }
   | { type: 'end_innings' }
   | { type: 'close_answers' }
   | { type: 'abandon' }
   // Corrections
-  | { type: 'correct_ball'; ballId: string; runs: number; extra: Extra; wicket: boolean }
+  | ({ type: 'correct_ball'; ballId: string } & Delivery)
   | { type: 'resume_innings' }
   | { type: 'remove_innings' }
   | { type: 'reopen_answers' }
   | { type: 'restore' };
 
-/** Over `over` of innings `innings` needs its questions now; they close after `closesInSeconds` at the latest */
+/** Over `over` of innings `innings` needs its quiz prepared now; once out, its questions close after `closesInSeconds` at the latest */
 export interface ReleaseSlot {
   innings: InningsNumber;
   over: number;
@@ -303,15 +412,11 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
     case 'ball': {
       if (!current) return fail('Start an innings before recording balls');
       if (current.endReason) return fail('This innings is over: start the next one, or undo its last ball');
-      if (!EXTRAS.includes(event.extra)) return fail('Unknown kind of delivery');
-      if (!Number.isInteger(event.runs) || event.runs < 0 || event.runs > MAX_RUNS_PER_BALL) {
-        return fail(`Runs must be a whole number from 0 to ${MAX_RUNS_PER_BALL}`);
-      }
+      const problem = deliveryProblem(event);
+      if (problem) return fail(problem);
       const seq = balls.filter((ball) => ball.innings === current.innings).length + 1;
-      const ball: Ball = {
-        id: newId(), innings: current.innings, seq, runs: event.runs, extra: event.extra,
-        extraRuns: isLegal(event) ? 0 : 1, wicket: event.wicket === true,
-      };
+      if (seq === 1 && isOffBall(event)) return fail('Record penalty runs or a retirement once the innings has had a ball');
+      const ball = newBall(newId(), current.innings, seq, event);
       balls = [...balls, ball];
       change.ball = ball;
       break;
@@ -341,15 +446,13 @@ export function applyEvent(state: MatchState, event: MatchEvent, newId: () => st
     case 'correct_ball': {
       const old = balls.find((ball) => ball.id === event.ballId);
       if (!old) return fail('That ball was undone or changed meanwhile');
-      if (!EXTRAS.includes(event.extra)) return fail('Unknown kind of delivery');
-      if (!Number.isInteger(event.runs) || event.runs < 0 || event.runs > MAX_RUNS_PER_BALL) {
-        return fail(`Runs must be a whole number from 0 to ${MAX_RUNS_PER_BALL}`);
-      }
-      const ball: Ball = {
-        id: newId(), innings: old.innings, seq: old.seq, runs: event.runs, extra: event.extra,
-        extraRuns: isLegal(event) ? 0 : 1, wicket: event.wicket === true,
-      };
-      if (ball.runs === old.runs && ball.extra === old.extra && ball.wicket === old.wicket) return fail('That ball already says so');
+      const problem = deliveryProblem(event);
+      if (problem) return fail(problem);
+      if (old.seq === 1 && isOffBall(event)) return fail('The first entry of an innings is a ball');
+      const ball = newBall(newId(), old.innings, old.seq, event);
+      const same = ball.runs === old.runs && ball.extra === old.extra && ball.wicket === old.wicket
+        && (ball.wicketKind ?? null) === (old.wicketKind ?? null) && (ball.boundary ?? null) === (old.boundary ?? null);
+      if (same) return fail('That ball already says so');
       const corrected = balls.map((b) => (b.id === old.id ? ball : b));
       // An innings its balls ended can't come back to life under the one played after it
       const record = innings.find((i) => i.innings === old.innings)!;
@@ -495,15 +598,13 @@ export function planQuestions(state: MatchState): QuestionPlan {
     const overs = scores.get(live.innings)!.overs;
     const has = (over: number) => state.questions.some((q) => q.innings === live.innings && q.over === over)
       || (state.draftSlots ?? []).some((slot) => slot.innings === live.innings && slot.over === over);
+    // Prepared one over ahead: the quiz about over M once over M-2 is complete (overs 1 and 2 at the start),
+    // while it can still go out (over M hasn't started, over M-1 has fewer than 5 legal balls)
     for (let over = 1; over <= config.oversPerInnings; over++) {
       if (has(over) || overs[over - 1]) continue;
-      if (over === 1) {
-        plan.release.push({ innings: live.innings, over, closesInSeconds: config.firstWindowSeconds });
-      } else {
-        const before = overs[over - 2];
-        if (before && before.legalBalls < BALLS_PER_OVER - 1) {
-          plan.release.push({ innings: live.innings, over, closesInSeconds: config.lockFallbackSeconds });
-        }
+      const ready = over <= 2 || overs[over - 3]?.complete === true;
+      if (ready && (overs[over - 2]?.legalBalls ?? 0) < BALLS_PER_OVER - 1) {
+        plan.release.push({ innings: live.innings, over, closesInSeconds: over === 1 ? config.firstWindowSeconds : config.lockFallbackSeconds });
       }
     }
   }

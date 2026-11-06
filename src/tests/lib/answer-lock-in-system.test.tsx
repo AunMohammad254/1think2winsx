@@ -15,9 +15,9 @@ import '@/tests/helpers/ui';
  * With the edge Worker (edge-shield/) in front, a quiz's lock-in stops at Cloudflare: the Worker answers
  * 202 "received", queues it, and a batch function saves it 0-2 minutes later (`drainQueue` here). It only
  * reads the session cookie, and answers 401 session_expired once the access token in it has lapsed: the
- * browser refreshes the session and sends once more. A live match's over always goes to Hostinger
- * (X-Lockin-Direct: 1). The Worker's kill switch sends every submit to Hostinger as before: every test
- * without `edge`.
+ * browser refreshes the session and sends once more. A live match's over goes through the queue too: every
+ * player locks one in each over. The Worker's kill switch sends every submit to Hostinger as before: every
+ * test without `edge`.
  *
  * Only the edges are stand-ins. The network is a fetch that hands submits to the route and can drop a
  * request, lose its response or answer for Cloudflare and Hostinger. The database is an in-memory
@@ -858,7 +858,7 @@ describe('answer lock-in: the edge Worker in front (edge-shield/)', () => {
     expect(queue).toEqual([]);
   });
 
-  it("a live match's over goes past the queue to Hostinger (X-Lockin-Direct: 1), and is saved at once", async () => {
+  it("a live match's over goes through the queue like any lock-in, and is saved when the queue drains", async () => {
     fakeClock();
     matchOver(T0 + 90_000);
     const v = viewer();
@@ -867,10 +867,13 @@ describe('answer lock-in: the edge Worker in front (edge-shield/)', () => {
     v.pick('Yes', 'Not out');
     v.lockIn();
     await tick(0);
-    expect(submits().map((s) => s.status)).toEqual([200]);
-    expect(queue).toEqual([]);
+    // Nothing reached Hostinger: the edge took it
+    expect(submits().map((s) => s.status)).toEqual([202]);
+    expect(queue).toHaveLength(1);
+    expect(answersOf('viewer-1')).toEqual({});
+    expect(h.toast.success).toHaveBeenCalledWith('Answer received');
+    drainQueue();
     expect(answersOf('viewer-1')).toEqual({ r: 0, w: 1 });
-    expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
   });
 
   it('the quiz page counts a 202 as submitted, after refreshing a lapsed session, and shows the answers received', async () => {
