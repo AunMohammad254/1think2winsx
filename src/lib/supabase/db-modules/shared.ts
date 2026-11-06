@@ -4,7 +4,6 @@
 
 import { createClient } from '../server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import type { Database } from '../database.types'
 import { createId } from '@paralleldrive/cuid2'
 import { createTimeoutFetch, SUPABASE_ADMIN_FETCH_TIMEOUT_MS } from '../timeout-fetch'
 

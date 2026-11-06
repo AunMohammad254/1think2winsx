@@ -19,7 +19,6 @@ import {
   testState,
   setAuthContext,
   MockResponseBuilder,
-  MockRateLimiter,
 } from '../setup';
 
 describe('Quiz API Routes', () => {
@@ -336,13 +335,6 @@ describe('Quiz API Routes', () => {
     });
 
     it('should calculate failing score correctly', async () => {
-      const submission = {
-        answers: [
-          { questionId: 'q1', selectedOption: 0 }, // Wrong
-          { questionId: 'q2', selectedOption: 3 }, // Wrong
-        ],
-        timeSpent: 30,
-      };
 
       const result = {
         score: 0,
@@ -380,10 +372,6 @@ describe('Quiz API Routes', () => {
     });
 
     it('should prevent time limit exceeded', async () => {
-      const submission = {
-        answers: [{ questionId: 'q1', selectedOption: 1 }],
-        timeSpent: 2000, // 33 minutes > 30 minute limit
-      };
 
       const response = MockResponseBuilder.badRequest('Time limit exceeded');
 
@@ -593,7 +581,7 @@ describe('Quiz API Routes', () => {
       expect(allQuizzes).toHaveLength(5);
 
       // Update one quiz
-      const updated = await testState.db.updateQuiz(quizzes[2].id, {
+      await testState.db.updateQuiz(quizzes[2].id, {
         title: 'Modified',
       });
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAllowedPrizeImageUrl, PRIZE_IMAGE_URL_HINT } from '@/lib/cloudinary';
 import { auth } from '@/lib/auth';
-import { prizeDb, userDb, prizeRedemptionDb, getDb, generateId } from '@/lib/supabase/db';
+import { getDb, generateId } from '@/lib/supabase/db';
 import { z } from 'zod';
 import { securityLogger } from '@/lib/security-logger';
 import { createSecureJsonResponse } from '@/lib/security-headers';

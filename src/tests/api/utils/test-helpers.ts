@@ -3,7 +3,7 @@
  * Provides mock data, fetch wrappers, and setup/teardown utilities
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
 // ============================================================================
 // MOCK DATA GENERATORS
@@ -385,8 +385,7 @@ export async function batchRequests(
 ): Promise<Response[]> {
   const responses: Response[] = [];
 
-  for (const request of requests) {
-    const mockRequest = buildMockRequest(request.url, request.options);
+  for (const _request of requests) {
     // This would call the actual API route in real tests
     // For now, just collect them
     responses.push(new Response('{}'));

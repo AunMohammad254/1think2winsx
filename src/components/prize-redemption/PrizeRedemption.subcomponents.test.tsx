@@ -5,6 +5,7 @@ import type { RedemptionHistory } from './types';
 
 // Mock Next.js Image
 vi.mock('next/image', () => ({
+    // eslint-disable-next-line @next/next/no-img-element -- next/image mocked as a plain img for the test
     default: ({ src, alt }: { src: string; alt: string }) => <img src={src} alt={alt} />,
 }));
 
