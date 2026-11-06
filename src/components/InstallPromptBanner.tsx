@@ -37,7 +37,10 @@ export default function InstallPromptBanner() {
 
         <div className="flex gap-4">
           {/* Logo/Icon Container */}
-          <BrandLogo alt="" className="flex-shrink-0 shadow-lg shadow-purple-500/20" />
+          <BrandLogo
+            alt=""
+            className="!w-14 !h-14 flex-shrink-0 self-start object-contain shadow-lg shadow-purple-500/20"
+          />
 
           <div className="flex-1 min-w-0">
             <h4 className="text-sm font-bold text-white mb-1 pr-6">Install 1Think2Win App</h4>

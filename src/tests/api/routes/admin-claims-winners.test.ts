@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createSupabaseMock, makeRequest, authOk, type SupabaseMock } from '@/tests/helpers/supabase-mock';
 
 let adminDb: SupabaseMock;

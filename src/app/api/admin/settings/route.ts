@@ -9,7 +9,7 @@ import { z } from 'zod';
  * GET /api/admin/settings
  * Returns all AppSettings rows (admin only).
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
     const adminSession = await validateAdminSession();
     if (!adminSession.valid) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

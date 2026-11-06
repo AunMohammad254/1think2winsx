@@ -11,9 +11,7 @@ import {
   assertErrorResponse,
   mockUserData,
   mockPrizeData,
-  mockPaymentData,
   mockLeaderboardData,
-  extractErrorMessage,
   isValidLeaderboardEntry,
 } from '../utils/test-helpers';
 import {
