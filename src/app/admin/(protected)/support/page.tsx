@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, User, CreditCard, History, Trophy, AlertCircle, Plus, Minus, ArrowRight, Wallet, Loader2, CheckCircle2, ArrowLeft, ChevronLeft, Key, Save, Edit3, Ban, Mail, Link as LinkIcon, ShieldAlert, RefreshCcw, Bell, Download, FileText, Tag, Send } from 'lucide-react';
+import { Search, User, CreditCard, History, Trophy, AlertCircle, Wallet, Loader2, CheckCircle2, ArrowLeft, ChevronLeft, Key, Save, Edit3, Ban, Mail, Link as LinkIcon, ShieldAlert, RefreshCcw, Bell, Download, FileText, Tag, Send } from 'lucide-react';
 import { lookupUserAction, adjustUserBalanceAction, updateUserProfileAction, updateUserPasswordAction, suspendUserAction, forceVerifyEmailAction, resendVerificationEmailAction, generateImpersonationLinkAction, sendNotificationAction, refundQuizAttemptAction, getUserSecurityLogsAction, addAdminNoteAction, getAdminNotesAction, generateGDPRExportAction } from '@/actions/support-actions';
 import Link from 'next/link';
 

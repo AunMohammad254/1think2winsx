@@ -1,4 +1,3 @@
-import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Wallet } from 'lucide-react';
 import { requireAdminSession } from '@/lib/admin-session';

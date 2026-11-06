@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateCSRFToken } from '@/lib/csrf-protection';
-import { securityLogger } from '@/lib/security-logger';
 import { createSecureJsonResponse } from '@/lib/security-headers';
 
 /**
@@ -12,7 +11,7 @@ import { createSecureJsonResponse } from '@/lib/security-headers';
  * present — this endpoint no longer hits Supabase Auth or the database, which matters
  * because the client fetches a fresh token before every mutation.
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     // Allow public access to generate CSRF token for registration/newsletter forms
 
