@@ -44,6 +44,15 @@ wrong SQL. Covered so far:
   served up to the entry limit, keeps a player's earliest pick in a batch and across batches, saves one
   attempt when two batches race for the same new player, refuses malformed lock-ins one by one, sends a
   bell notice for each refusal, counts every lock-in in `"LockinDrain"`, and is the service role's only
+- Auto / Manual match quizzes (migration `06-20261106120000`): `"LiveMatch".language`, `"aiLevel"` and
+  `wordings` with their checks; `update_match_extras` saves them without changing the match's version (so a
+  scorer's next ball is never refused for them), merges Gemini's wordings and keeps only those of drafts
+  the match still has, refuses bad values saving nothing, and is the service role's only
+- Every scoring action (migration `06-20261106150000`): `"BallEvent"` takes no-ball byes and leg byes,
+  penalty runs and a dismissal with no delivery, how the batter was out (`"wicketKind"`) and whether the
+  ball was a boundary; `apply_match_change` saves both on a new and a corrected ball and still takes the
+  old shape; the checks refuse an unknown kind, a dismissal without a wicket and a boundary that isn't a
+  four or a six, applying nothing; the guard stops a second run
 
 ## Running locally
 

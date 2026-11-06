@@ -7,14 +7,13 @@ import { createClient } from '@/lib/supabase/client';
  * 202 "received" (`results.status: 'received'`) and saves it in Supabase 0-2 minutes later, so a crowd's
  * lock-ins never reach Hostinger. Its kill switch sends them to Hostinger as before, which answers 200.
  * Both mean the answers are in.
+ *
+ * A live match's over goes through the queue too: every player locks one in each over, which is the burst
+ * Hostinger's per-second block can't take. The batch save judges each lock-in by the time the edge received
+ * it, against each question's own close time (submit_lockin_batch), so the queue never makes a player late.
+ * (Builds before this one sent match overs to Hostinger with X-Lockin-Direct: 1; the Worker still honours it.)
  */
 export const LOCK_IN_RECEIVED = 202;
-
-/**
- * Sent with a live match's over: it goes to Hostinger as before, never the queue, because each over's
- * questions close at their own time and the match screen needs the server's answer.
- */
-export const LOCK_IN_DIRECT_HEADER = 'X-Lockin-Direct';
 
 /** The Worker's answer when the access token in the session cookie has lapsed. */
 async function sessionExpired(res: Response): Promise<boolean> {

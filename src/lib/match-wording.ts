@@ -1,14 +1,18 @@
-import type { InningsNumber } from '@/lib/match-engine';
-import type { OverQuestion } from '@/lib/match-questions';
+import { SIMPLE_LENGTH, type OverQuestion } from '@/lib/match-questions';
+import { phaseOf, situationNumbers, type MatchSituation } from '@/lib/match-situation';
 
 /**
  * Gemini's wording for an over's questions (match mode), in English and Roman Urdu. Its own key and model
  * (MATCH_GEMINI_API_KEY, MATCH_GEMINI_MODEL), so it never shares the support chatbot's quota.
  *
- * Gemini only words a question: what it asks (the market), its line and its Yes / No options come from
- * src/lib/match-questions.ts, and the balls settle it. Every wording is checked (wordingProblem) before
- * anyone sees it, and an admin reviews it in the scorer console unless the match sends automatically. On
- * any failure, slowness or a wording that fails the check, the built-in wording is used.
+ * Gemini only words a question: what it asks (the market), its line, its Yes / No options and its lead-in's
+ * facts come from src/lib/match-questions.ts and the match situation (src/lib/match-situation.ts), and the
+ * balls settle it. Gemini gets the situation (score, last over, the chase) so it can word the question for
+ * it, and every wording is checked before anyone sees it: it keeps the over and line (wordingProblem), and
+ * stays simple (aiWordingProblem): short, everyday words, and only numbers from the facts, so nothing needs
+ * looking up and no number is made up. On any failure, slowness or a wording that fails a check, the
+ * built-in wording is used. It runs after the scorer's ball is saved (src/lib/match-service.ts), so the
+ * console never waits for it.
  *
  * Calls stay inside the key's free tier: requests per minute, input tokens per minute and requests per day
  * (MATCH_GEMINI_RPM, MATCH_GEMINI_TPM, MATCH_GEMINI_RPD; Google shows a project's limits in AI Studio and
@@ -24,14 +28,10 @@ export interface Wording {
 
 export interface WordingContext {
   teams: [string, string];
-  battingTeam: string;
-  innings: InningsNumber;
+  /** The innings when the quiz was prepared: its facts are the only numbers a wording may state */
+  situation: MatchSituation;
   /** The over the questions are about */
   over: number;
-  runs: number;
-  wickets: number;
-  oversText: string;
-  target: number | null;
 }
 
 export const DEFAULT_WORDING_MODEL = 'gemini-3.1-flash-lite';
@@ -50,22 +50,31 @@ const MINUTE_MS = 60_000;
 // When a 429 doesn't say how long to wait
 const DEFAULT_PAUSE_MS = 60_000;
 export const MAX_QUESTION_LENGTH = 160;
-// The scorer is waiting on this when a ball opens the next over's questions. Gemini took 1.5-2 s for a short
-// request (2026-10-30), so 2 s timed out most real ones
+// Gemini took 1.5-2 s for a short request (2026-10-30). The scorer never waits for it (it runs after the ball is
+// saved), but a quiz can go out on the next ball, so it can't take long
 const TIMEOUT_MS = 6_000;
 // Free entry, prizes for predictions: never worded like a bet
 const BETTING = /\b(bet|bets|betting|odds|stakes?|wagers?|gambl\w*|jua|satta)\b/i;
 const LINK = /https?:\/\/|www\./i;
+// Statistics a casual fan would have to look up
+const JARGON = /\b(run ?rates?|required rate|asking rate|economy|strike ?rates?|RRR|CRR|NRR|DLS|duckworth|par score)\b/i;
+const STAGES = { powerplay: 'first overs', middle: 'middle overs', death: 'last overs' } as const;
 
 const SYSTEM = `You word live cricket prediction questions for 1Think2Win, a free sports quiz in Pakistan.
-Each question asks about an over that has not been bowled yet, and its answer is Yes or No.
-For each question, write it again twice: "en" in natural English, and "ur" in Roman Urdu (Urdu written in the
-Latin alphabet, the way Pakistani fans text, e.g. "Kya over 7 mein chauka lagega?").
-Keep the meaning exactly: the same over number written as digits, the same number of runs or dot balls written
-as digits ("or more" stays "or more"), still a Yes / No question.
-You may use the batting team's name and the match situation to make it lively. Add no facts, no player names,
-no predictions of your own, and nothing about money, betting or odds.
-One short sentence each, at most 120 characters, ending with a question mark.
+Players read each one in a pop-up on the live stream and answer Yes or No within seconds.
+Each question asks about an over that has not been bowled yet. You get the match facts, and for each question
+a lead-in (the situation in everyday words, or null) and the question itself.
+Write each one again twice: "en" in natural English, and "ur" in Roman Urdu (Urdu written in the Latin alphabet,
+the way Pakistani fans text, e.g. "Kya over 7 mein chauka lagega?"). "builtInUr" shows the meaning in Roman Urdu.
+Start with the lead-in's situation (you may say it your own way), then the question. Keep "after N overs" from the
+lead-in: the facts are from then, and players read the question later, during the next over.
+Keep the question's meaning exactly: the same over number written as digits, the same number of runs or dot balls
+written as digits ("or more" stays "or more"), still a Yes / No question.
+Keep it simple: everyday words a casual fan knows, no statistics terms (no run rate, required rate, economy or
+strike rate), nothing a player would have to look up.
+Use only numbers that appear in the facts or the question, exactly as given: never work out a new number.
+Add no facts, no player names, no predictions of your own, and nothing about money, betting or odds.
+One short sentence each, at most 110 characters, ending with a question mark.
 Answer with a JSON list, one {"en", "ur"} object per question, in the order given.`;
 
 const SCHEMA = {
@@ -170,6 +179,54 @@ export function wordingUsage(env: Record<string, string | undefined> = process.e
   };
 }
 
+/**
+ * How much Gemini a match asks for, set in the scorer console: every over's quiz (full), every other over's
+ * (half: odd overs) or none (off, the built-in wording only).
+ */
+export type AiLevel = 'full' | 'half' | 'off';
+export const AI_LEVELS: readonly AiLevel[] = ['full', 'half', 'off'];
+
+/** How close this server is to Gemini's limits: the console's bar colour */
+export type UsageLevel = 'off' | 'ok' | 'busy' | 'near' | 'paused';
+
+export interface WordingPlan {
+  /** What the admin chose */
+  chosen: AiLevel;
+  /** What is used: one step lower near a limit, off while Google refuses or without a key */
+  effective: AiLevel;
+  /** Lowered from the admin's choice because a limit is close or reached */
+  lowered: boolean;
+  usage: UsageLevel;
+  /** The fullest of the three limits, 0 to 1 */
+  share: number;
+}
+
+const BUSY_SHARE = 0.6;
+const NEAR_SHARE = 0.85;
+
+/** The fullest of the limits (requests today, requests and input tokens this minute), from 0 to 1 */
+export function usageShare(u: WordingUsage): number {
+  const share = Math.max(u.today.requests / u.limits.rpd, u.thisMinute.requests / u.limits.rpm, u.thisMinute.tokens / u.limits.tpm);
+  return Math.min(1, Math.max(0, share));
+}
+
+/** What the admin's choice comes to with this usage: one step lower from 85% of a limit, off while paused */
+export function wordingPlan(chosen: AiLevel, u: WordingUsage): WordingPlan {
+  const share = usageShare(u);
+  const usage: UsageLevel = !u.on ? 'off'
+    : u.pausedForDay || u.pausedUntil ? 'paused'
+    : share >= NEAR_SHARE ? 'near'
+    : share >= BUSY_SHARE ? 'busy'
+    : 'ok';
+  const effective: AiLevel = usage === 'off' || usage === 'paused' ? 'off'
+    : usage === 'near' ? (chosen === 'full' ? 'half' : 'off')
+    : chosen;
+  return { chosen, effective, lowered: u.on && effective !== chosen, usage, share };
+}
+
+/** Whether the quiz about `over` is worded by Gemini at this level */
+export const geminiWords = (effective: AiLevel, over: number) => effective === 'full' || (effective === 'half' && over % 2 === 1);
+
 export function __resetWordingUsageForTests(): void {
   usage = { day: '', requests: 0, recent: [], peakRequestsPerMinute: 0, peakTokensPerMinute: 0, pausedUntil: 0, pausedForDay: false };
 }
@@ -192,6 +249,29 @@ export function wordingProblem(wording: Wording, over: number, params: Record<st
 }
 
 /**
+ * Why Gemini's wording isn't simple enough to go out, or null when it is: one short question (at most
+ * SIMPLE_LENGTH characters), no statistics terms, and no number that isn't in `numbers` (the facts, the
+ * over and the line), so players never need to look anything up and never see a made-up number.
+ * `afterOvers`: the lead-in states the situation after this many overs, which the wording must keep: the
+ * quiz goes out later, and "need 38 from 24 balls" is only true as of then.
+ */
+export function aiWordingProblem(wording: Wording, numbers: ReadonlySet<number>, afterOvers: number | null = null): string | null {
+  const versions: Array<[string, string]> = [['English', wording.text], ['Roman Urdu', wording.textRomanUrdu]];
+  for (const [label, value] of versions) {
+    const text = value.trim();
+    if (text.length > SIMPLE_LENGTH) return `The ${label} wording is longer than ${SIMPLE_LENGTH} characters`;
+    if (!text.endsWith('?')) return `The ${label} wording isn't a question`;
+    if (JARGON.test(text)) return `The ${label} wording uses a statistics term`;
+    const stray = (text.match(/\d+(?:\.\d+)?/g) ?? []).find((n) => !numbers.has(Number(n)));
+    if (stray !== undefined) return `The ${label} wording states ${stray}, which isn't in the match facts`;
+    if (afterOvers !== null && !new RegExp(`\\b${afterOvers}\\b`).test(text)) {
+      return `The ${label} wording must say when its facts are from (after ${afterOvers} overs)`;
+    }
+  }
+  return null;
+}
+
+/**
  * Gemini's wording for each question, or null for one it didn't word well (and for all of them without a
  * key, when the call would go past a limit, or when it fails or takes longer than 6 s). Never throws.
  */
@@ -206,14 +286,23 @@ export async function aiWording(
   const key = env.MATCH_GEMINI_API_KEY?.trim();
   if (!key || questions.length === 0) return none;
   const model = env.MATCH_GEMINI_MODEL?.trim() || DEFAULT_WORDING_MODEL;
+  const s = ctx.situation;
   const request = {
-    match: { teams: ctx.teams, battingTeam: ctx.battingTeam, innings: ctx.innings, score: `${ctx.runs}/${ctx.wickets}`, overs: ctx.oversText, target: ctx.target },
-    questions: questions.map((q) => ({ over: ctx.over, line: q.params.line ?? null, question: q.text })),
+    match: {
+      teams: ctx.teams, battingTeam: s.battingTeam, innings: s.innings, afterOvers: s.afterOvers, score: `${s.runs}/${s.wickets}`,
+      lastOver: s.lastOver && { runs: s.lastOver.runs, wickets: s.lastOver.wickets },
+      chase: s.chase && { target: s.chase.target, runsNeeded: s.chase.needed, ballsLeft: s.chase.ballsLeft },
+      stage: STAGES[phaseOf(ctx.over, s.oversPerInnings)],
+    },
+    questions: questions.map((q) => ({
+      over: ctx.over, line: q.params.line ?? null, leadIn: q.lead?.en ?? null,
+      question: q.body.en.charAt(0).toUpperCase() + q.body.en.slice(1), builtInUr: q.textRomanUrdu,
+    })),
   };
   const body = JSON.stringify({
     system_instruction: { parts: [{ text: SYSTEM }] },
     contents: [{ role: 'user', parts: [{ text: JSON.stringify(request) }] }],
-    generationConfig: { temperature: 0.9, maxOutputTokens: 600, responseMimeType: 'application/json', responseSchema: SCHEMA },
+    generationConfig: { temperature: 0.8, maxOutputTokens: 600, responseMimeType: 'application/json', responseSchema: SCHEMA },
   });
 
   const u = usageAt(now);
@@ -249,7 +338,11 @@ export async function aiWording(
     return questions.map((q, i) => {
       const item = parsed[i] as { en?: unknown; ur?: unknown } | undefined;
       const wording = { text: String(item?.en ?? '').trim(), textRomanUrdu: String(item?.ur ?? '').trim() };
-      return wordingProblem(wording, ctx.over, q.params) === null ? wording : null;
+      const numbers = situationNumbers(s, ctx.over, q.params.line ?? null, ctx.teams);
+      const anchor = q.lead && s.afterOvers > 0 ? s.afterOvers : null;
+      const problem = wordingProblem(wording, ctx.over, q.params) ?? aiWordingProblem(wording, numbers, anchor);
+      if (problem) console.warn(`[match-wording] Gemini's wording not used: ${problem}`);
+      return problem === null ? wording : null;
     });
   } catch (error) {
     console.error('[match-wording] Gemini wording failed, using the built-in wording:', error instanceof Error ? error.message : error);

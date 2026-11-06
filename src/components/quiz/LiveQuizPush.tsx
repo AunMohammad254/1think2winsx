@@ -5,7 +5,7 @@ import { X, Loader2, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
 import { CLOUDFLARE_ORIGIN_ERRORS, fetchWithRetry } from '@/lib/fetch-retry';
-import { LOCK_IN_DIRECT_HEADER, LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
+import { LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
 import { isWindowClosed, localWindowEnd } from '@/lib/quiz-clock';
 import { ENTRIES_CLOSED_MESSAGE } from '@/lib/quiz-entries';
 import { describeStart, formatClock } from '@/lib/live-countdown';
@@ -527,13 +527,12 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             // Submitting is idempotent (one attempt per user and quiz is enforced in the database),
             // so overload and restarts are retried with jittered backoff while the server still takes the
             // answers. 429 is deliberately NOT retried: that is the per-user submission limit, not overload.
-            // A live match's over goes straight to Hostinger, past the edge Worker's queue (see lock-in.ts).
+            // With the edge Worker on, it takes every lock-in, a live match's over too, into its queue (see lock-in.ts).
             const res = await sendLockIn(() => fetchWithRetry(`/api/quizzes/${loaded.id}/submit`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-CSRF-Token': csrfToken || '',
-                    ...(live?.match ? { [LOCK_IN_DIRECT_HEADER]: '1' } : {}),
                 },
                 body: JSON.stringify({
                     answers: picked.map((q) => ({ questionId: q.id, selectedOption: answers[q.id] })),

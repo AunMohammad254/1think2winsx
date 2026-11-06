@@ -1,22 +1,22 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import {
-  aiWording, wordingProblem, wordingLimits, wordingUsage, pacificDay, estimateTokens, __resetWordingUsageForTests,
-  DEFAULT_WORDING_MODEL, DEFAULT_WORDING_LIMITS, MAX_QUESTION_LENGTH, type WordingContext,
+  aiWording, aiWordingProblem, geminiWords, usageShare, wordingPlan, wordingProblem, wordingLimits, wordingUsage, pacificDay,
+  estimateTokens, __resetWordingUsageForTests, AI_LEVELS, DEFAULT_WORDING_MODEL, DEFAULT_WORDING_LIMITS, MAX_QUESTION_LENGTH,
+  type WordingContext, type WordingUsage,
 } from '@/lib/match-wording';
-import type { OverQuestion } from '@/lib/match-questions';
+import { overCandidates, SIMPLE_LENGTH, type OverQuestion } from '@/lib/match-questions';
+import type { MatchSituation } from '@/lib/match-situation';
 
-const CTX: WordingContext = {
-  teams: ['Lahore Qalandars', 'Karachi Kings'], battingTeam: 'Lahore Qalandars', innings: 1, over: 7, runs: 48, wickets: 2, oversText: '5.1', target: null,
+// Lahore Qalandars 48/2 after 5 overs (the last went for 12, with a wicket); the quiz is about over 7
+const SITUATION: MatchSituation = {
+  innings: 1, battingTeam: 'Lahore Qalandars', oversPerInnings: 20, afterOvers: 5, runs: 48, wickets: 2, legalBalls: 30,
+  runRate: 9.6, recentRate: 10, lastOver: { number: 5, runs: 12, wickets: 1 }, chase: null, wicketsInHand: 8,
 };
-const RUNS: OverQuestion = {
-  market: 'over_runs_at_least', params: { line: 9 }, options: ['Yes', 'No'],
-  text: 'Lahore Qalandars: will over 7 go for 9 or more runs?', textRomanUrdu: 'Lahore Qalandars: kya over 7 mein 9 ya us se zyada runs banenge?',
-};
-const WICKET: OverQuestion = {
-  market: 'wicket_in_over', params: {}, options: ['Yes', 'No'],
-  text: 'Will a wicket fall in over 7?', textRomanUrdu: 'Kya over 7 mein koi wicket giray ga?',
-};
+const CTX: WordingContext = { teams: ['Lahore Qalandars', 'Karachi Kings'], situation: SITUATION, over: 7 };
+const CANDIDATES = overCandidates(SITUATION, 7);
+const RUNS: OverQuestion = CANDIDATES.find((q) => q.market === 'over_runs_at_least')!;
+const WICKET: OverQuestion = CANDIDATES.find((q) => q.market === 'wicket_in_over')!;
 // Room for every call a test makes; the limits have tests of their own
 const KEY = { MATCH_GEMINI_API_KEY: 'test-key', MATCH_GEMINI_RPM: '100' };
 
@@ -49,16 +49,18 @@ describe('wordingProblem', () => {
 
 describe('aiWording', () => {
   it('asks Gemini once for the whole over, with its own key in a header, and checks every wording', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetcher = gemini([
-      { en: 'Lahore need a big one: will over 7 go for 9 or more runs?', ur: 'Kya over 7 mein 9 ya zyada runs aayenge?' },
+      { en: 'Lahore 48/2 after 5 overs: will over 7 go for 10 or more runs?', ur: '5 overs ke baad Lahore 48/2: kya over 7 mein 10 ya zyada runs aayenge?' },
       { en: 'Will a wicket fall in over 17?', ur: 'Kya over 7 mein wicket giray ga?' },
     ]);
     const result = await aiWording(CTX, [RUNS, WICKET], KEY, fetcher as never);
     expect(result).toEqual([
-      { text: 'Lahore need a big one: will over 7 go for 9 or more runs?', textRomanUrdu: 'Kya over 7 mein 9 ya zyada runs aayenge?' },
+      { text: 'Lahore 48/2 after 5 overs: will over 7 go for 10 or more runs?', textRomanUrdu: '5 overs ke baad Lahore 48/2: kya over 7 mein 10 ya zyada runs aayenge?' },
       // The wrong over: not used
       null,
     ]);
+    expect(warn).toHaveBeenCalledWith("[match-wording] Gemini's wording not used: The English wording must say which over it is about (7)");
     expect(fetcher).toHaveBeenCalledTimes(1);
     const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(`https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_WORDING_MODEL}:generateContent`);
@@ -66,11 +68,50 @@ describe('aiWording', () => {
     expect(init.headers).toEqual({ 'Content-Type': 'application/json', 'x-goog-api-key': 'test-key' });
     const body = JSON.parse(init.body as string);
     expect(body.generationConfig).toMatchObject({ responseMimeType: 'application/json' });
+    // The situation, the lead-in and the question apart, and the built-in Roman Urdu for its meaning
     expect(JSON.parse(body.contents[0].parts[0].text)).toEqual({
-      match: { teams: ['Lahore Qalandars', 'Karachi Kings'], battingTeam: 'Lahore Qalandars', innings: 1, score: '48/2', overs: '5.1', target: null },
-      questions: [{ over: 7, line: 9, question: RUNS.text }, { over: 7, line: null, question: WICKET.text }],
+      match: {
+        teams: ['Lahore Qalandars', 'Karachi Kings'], battingTeam: 'Lahore Qalandars', innings: 1, afterOvers: 5, score: '48/2',
+        lastOver: { runs: 12, wickets: 1 }, chase: null, stage: 'middle overs',
+      },
+      questions: [
+        { over: 7, line: 10, leadIn: 'Lahore Qalandars 48/2 after 5 overs', question: 'Will over 7 go for 10 or more runs?', builtInUr: RUNS.textRomanUrdu },
+        { over: 7, line: null, leadIn: 'Lahore Qalandars 48/2 after 5 overs', question: 'Will a wicket fall in over 7?', builtInUr: WICKET.textRomanUrdu },
+      ],
     });
-    expect(body.system_instruction.parts[0].text).toMatch(/nothing about money, betting or odds/);
+    const system = body.system_instruction.parts[0].text;
+    expect(system).toMatch(/nothing about money, betting or odds/);
+    expect(system).toMatch(/never work out a new number/);
+    expect(system).toMatch(/nothing a player would have to look up/);
+  });
+
+  it("tells Gemini a chase's runs needed and balls left, and the stage of the innings", async () => {
+    const chase: MatchSituation = { ...SITUATION, innings: 2, afterOvers: 16, runs: 128, wickets: 6, chase: { target: 166, needed: 38, ballsLeft: 24 }, lastOver: null };
+    const fetcher = gemini([]);
+    await aiWording({ ...CTX, situation: chase, over: 18 }, [WICKET], KEY, fetcher as never);
+    const sent = JSON.parse(JSON.parse((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).contents[0].parts[0].text);
+    expect(sent.match).toMatchObject({ innings: 2, lastOver: null, chase: { target: 166, runsNeeded: 38, ballsLeft: 24 }, stage: 'last overs' });
+    // A question with no lead-in sends null
+    await aiWording({ ...CTX, situation: { ...SITUATION, afterOvers: 0 }, over: 1 }, overCandidates({ ...SITUATION, afterOvers: 0 }, 1).slice(0, 1), KEY, fetcher as never);
+    const first = JSON.parse(JSON.parse((fetcher.mock.calls[1] as unknown as [string, RequestInit])[1].body as string).contents[0].parts[0].text);
+    expect(first.match.stage).toBe('first overs');
+    expect(first.questions[0].leadIn).toBeNull();
+  });
+
+  it("keeps Gemini's wording simple: no made-up number, no statistics term, short, a question", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetcher = gemini([
+      // 9.6 is the run rate: a number players would have to work out
+      { en: 'Scoring at 9.6, will over 7 go for 10 or more runs?', ur: 'Kya over 7 mein 10 ya zyada runs banenge?' },
+      { en: 'With the run rate climbing, will a wicket fall in over 7?', ur: 'Kya over 7 mein wicket giray ga?' },
+    ]);
+    expect(await aiWording(CTX, [RUNS, WICKET], KEY, fetcher as never)).toEqual([null, null]);
+    expect(warn).toHaveBeenCalledWith("[match-wording] Gemini's wording not used: The English wording states 9.6, which isn't in the match facts");
+    expect(warn).toHaveBeenCalledWith("[match-wording] Gemini's wording not used: The English wording uses a statistics term");
+    // Dropping "after 5 overs" from the lead-in: the facts would read as if they were current
+    const dropped = gemini([{ en: 'Lahore are 48/2: will over 7 go for 10 or more runs?', ur: '5 overs ke baad Lahore 48/2: over 7 mein 10?' }]);
+    expect(await aiWording(CTX, [RUNS], KEY, dropped as never)).toEqual([null]);
+    expect(warn).toHaveBeenCalledWith("[match-wording] Gemini's wording not used: The English wording must say when its facts are from (after 5 overs)");
   });
 
   it('uses the model it is told to', async () => {
@@ -109,6 +150,63 @@ describe('aiWording', () => {
     vi.stubEnv('MATCH_GEMINI_API_KEY', '');
     expect(await aiWording(CTX, [RUNS])).toEqual([null]);
     vi.unstubAllEnvs();
+  });
+});
+
+describe('aiWordingProblem', () => {
+  const numbers = new Set([7, 9, 48, 2, 5]);
+  const ok = { text: 'Lahore 48/2 after 5 overs: will over 7 go for 9 or more?', textRomanUrdu: 'Kya over 7 mein 9 ya zyada runs?' };
+
+  it('passes a short question that states only the facts', () => {
+    expect(aiWordingProblem(ok, numbers)).toBeNull();
+    expect(aiWordingProblem({ text: 'A wicket next?', textRomanUrdu: 'Wicket giray ga?' }, numbers)).toBeNull();
+    expect(aiWordingProblem({ text: 'Wicket in over 7?', textRomanUrdu: 'Over 7 mein wicket?' }, new Set([7]))).toBeNull();
+  });
+
+  it('says what is wrong, in either language', () => {
+    expect(aiWordingProblem({ ...ok, text: `${'x'.repeat(SIMPLE_LENGTH)}?` }, numbers)).toBe(`The English wording is longer than ${SIMPLE_LENGTH} characters`);
+    expect(aiWordingProblem({ ...ok, textRomanUrdu: 'Over 7 mein 9 runs.' }, numbers)).toBe("The Roman Urdu wording isn't a question");
+    expect(aiWordingProblem({ ...ok, text: 'Economy is high: over 7 for 9?' }, numbers)).toBe('The English wording uses a statistics term');
+    expect(aiWordingProblem({ ...ok, textRomanUrdu: 'Strike rate 150: over 7 mein 9?' }, numbers)).toBe('The Roman Urdu wording uses a statistics term');
+    expect(aiWordingProblem({ ...ok, text: 'Lahore need 60: over 7 for 9?' }, numbers)).toBe("The English wording states 60, which isn't in the match facts");
+  });
+
+  it('keeps when the facts are from, when the lead-in says it', () => {
+    expect(aiWordingProblem(ok, numbers, 5)).toBe('The Roman Urdu wording must say when its facts are from (after 5 overs)');
+    expect(aiWordingProblem({ ...ok, textRomanUrdu: '5 overs ke baad Lahore 48/2: over 7 mein 9?' }, numbers, 5)).toBeNull();
+  });
+});
+
+describe('the AI level', () => {
+  const usage = (over: Partial<WordingUsage> = {}): WordingUsage => ({
+    on: true, model: 'm', limits: { rpm: 10, tpm: 1_000, rpd: 100 }, thisMinute: { requests: 0, tokens: 0 },
+    today: { requests: 0, peakRequestsPerMinute: 0, peakTokensPerMinute: 0 }, pausedUntil: null, pausedForDay: false, ...over,
+  });
+
+  it('takes the fullest of the three limits', () => {
+    expect(usageShare(usage())).toBe(0);
+    expect(usageShare(usage({ today: { requests: 30, peakRequestsPerMinute: 0, peakTokensPerMinute: 0 } }))).toBe(0.3);
+    expect(usageShare(usage({ thisMinute: { requests: 5, tokens: 900 } }))).toBe(0.9);
+    expect(usageShare(usage({ thisMinute: { requests: 20, tokens: 0 } }))).toBe(1);
+  });
+
+  it("is the admin's choice while there is room, busy from 60%, one step lower from 85%, off while Google refuses or without a key", () => {
+    const today = (requests: number) => usage({ today: { requests, peakRequestsPerMinute: 0, peakTokensPerMinute: 0 } });
+    expect(wordingPlan('full', today(10))).toEqual({ chosen: 'full', effective: 'full', lowered: false, usage: 'ok', share: 0.1 });
+    expect(wordingPlan('half', today(60))).toMatchObject({ effective: 'half', lowered: false, usage: 'busy' });
+    expect(wordingPlan('full', today(85))).toMatchObject({ effective: 'half', lowered: true, usage: 'near' });
+    expect(wordingPlan('half', today(90))).toMatchObject({ effective: 'off', lowered: true, usage: 'near' });
+    expect(wordingPlan('off', today(90))).toMatchObject({ effective: 'off', lowered: false });
+    expect(wordingPlan('full', usage({ pausedUntil: '2026-10-30T10:01:00Z' }))).toMatchObject({ effective: 'off', lowered: true, usage: 'paused' });
+    expect(wordingPlan('full', usage({ pausedForDay: true }))).toMatchObject({ effective: 'off', lowered: true, usage: 'paused' });
+    expect(wordingPlan('full', usage({ on: false }))).toMatchObject({ effective: 'off', lowered: false, usage: 'off' });
+  });
+
+  it('words every over at full, odd overs at half, none when off', () => {
+    expect(AI_LEVELS).toEqual(['full', 'half', 'off']);
+    expect([1, 2, 3, 4].map((over) => geminiWords('full', over))).toEqual([true, true, true, true]);
+    expect([1, 2, 3, 4].map((over) => geminiWords('half', over))).toEqual([true, false, true, false]);
+    expect([1, 2].map((over) => geminiWords('off', over))).toEqual([false, false]);
   });
 });
 

@@ -1,4 +1,4 @@
-import { loadMatch, matchView, type QuestionState } from '@/lib/match-service';
+import { loadMatch, matchView, type QuestionState, type QuizLanguage } from '@/lib/match-service';
 import type { EndReason, InningsNumber, MatchStatus } from '@/lib/match-engine';
 import { romanUrduOption } from '@/lib/match-questions';
 
@@ -6,7 +6,7 @@ import { romanUrduOption } from '@/lib/match-questions';
  * What players see of a live match (GET /api/live/matches/[id], read by the quiz page to pop each over's
  * questions up on the stream): the score, ball by ball, and the questions sent so far with their results.
  * The same for every player, so Cloudflare serves one copy to the whole crowd; never drafts, the scorer's
- * settings or anything else only admins see.
+ * settings or anything else only admins see. Questions come in the match's language (inLanguage).
  *
  * Each process keeps a match's copy for a moment and loads it once however many requests miss the edge
  * cache together (one per Cloudflare location every few seconds).
@@ -55,6 +55,21 @@ export interface PublicMatch {
   serverNow: string;
 }
 
+/**
+ * A question as players see it, in the match's language (set in the scorer console, for every question at
+ * once): Roman Urdu with English under it (both), English only (en), or Roman Urdu only (ur). The options
+ * keep their order, so an answer means the same in any language.
+ */
+export function inLanguage(q: { text: string; textRomanUrdu: string | null; options: string[] }, language: QuizLanguage) {
+  const romanUrdu = q.options.map(romanUrduOption);
+  const none = q.options.map(() => null);
+  if (language === 'en') return { text: q.text, textRomanUrdu: null, options: q.options, optionsRomanUrdu: none };
+  if (language === 'ur' && q.textRomanUrdu) {
+    return { text: q.textRomanUrdu, textRomanUrdu: null, options: q.options.map((option, i) => romanUrdu[i] ?? option), optionsRomanUrdu: none };
+  }
+  return { text: q.text, textRomanUrdu: q.textRomanUrdu, options: q.options, optionsRomanUrdu: romanUrdu };
+}
+
 /** The public part of a match, or null while players can't see it (not taken live yet, or hidden). */
 export async function buildPublicMatch(matchId: string, now = Date.now()): Promise<PublicMatch | null> {
   const loaded = await loadMatch(matchId, now, true);
@@ -77,8 +92,8 @@ export async function buildPublicMatch(matchId: string, now = Date.now()): Promi
       overs: innings.overs.map((over) => ({ ...over, balls: over.balls.map((ball) => ball.label) })),
     })),
     questions: view.questions.map((q) => ({
-      id: q.id, innings: q.innings, over: q.over, text: q.text, textRomanUrdu: q.textRomanUrdu, options: q.options,
-      optionsRomanUrdu: q.options.map(romanUrduOption), state: q.state, closesAt: q.closesAt, correctOption: q.correctOption,
+      id: q.id, innings: q.innings, over: q.over, ...inLanguage(q, view.match.language),
+      state: q.state, closesAt: q.closesAt, correctOption: q.correctOption,
     })),
     serverNow: view.serverNow,
   };

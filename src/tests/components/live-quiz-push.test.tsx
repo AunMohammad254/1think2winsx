@@ -956,8 +956,8 @@ describe('LiveQuizPush: a live match over', () => {
     await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
     const [url, init] = h.fetchWithRetry.mock.calls[0];
     expect(url).toBe('/api/quizzes/mq1/submit');
-    // Straight to Hostinger, past the edge Worker's queue: each over's questions close at their own time
-    expect(init.headers['X-Lockin-Direct']).toBe('1');
+    // Through the edge Worker's queue like any lock-in: the batch save judges each over by its own close time
+    expect(init.headers).not.toHaveProperty('X-Lockin-Direct');
     expect(JSON.parse(init.body)).toEqual({ answers: [{ questionId: 'r', selectedOption: 0 }, { questionId: 'w', selectedOption: 1 }] });
     expect(onMatchLocked).toHaveBeenCalledWith('mq1', ['r', 'w']);
     expect(onAnswered).not.toHaveBeenCalled();
