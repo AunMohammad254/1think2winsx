@@ -554,7 +554,7 @@ describe('notification.db VAPID setup', () => {
     vi.resetModules();
     setVapidDetails.mockClear();
     await import('@/lib/supabase/db-modules/notification.db');
-    expect(setVapidDetails).toHaveBeenCalledWith('mailto:contact@1think2win.com', 'pub', 'priv');
+    expect(setVapidDetails).toHaveBeenCalledWith('mailto:1think2wins@gmail.com', 'pub', 'priv');
 
     vi.stubEnv('VAPID_PRIVATE_KEY', '');
     vi.resetModules();

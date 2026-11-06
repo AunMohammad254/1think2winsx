@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/modal';
 import { getCSRFHeaders } from '@/lib/csrf';
 import { loaderFor } from '@/lib/cloudinary';
 import { ProfileHeader, ProfileAvatar, BalanceCard, QuickActions, StatsGrid, ChangePasswordModal, SignInMethodBadge, QuizPrizes } from '@/components/profile';
+import ReviewModal from '@/components/reviews/ReviewModal';
 
 function PrizeThumbnail({ image, name }: { image?: string; name: string }) {
   const [hasError, setHasError] = useState(false);
@@ -90,6 +91,7 @@ export default function ProfilePage() {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [walletEnabled, setWalletEnabled] = useState(true); // default true to avoid flicker
 
   const handleImageUpload = async (file: File) => {
@@ -382,6 +384,7 @@ export default function ProfilePage() {
           {/* Quick Actions */}
           <QuickActions
             onChangePasswordClick={() => setShowPasswordModal(true)}
+            onReviewClick={() => setShowReviewModal(true)}
             hideWalletActions={!walletEnabled}
           />
 
@@ -643,6 +646,9 @@ export default function ProfilePage() {
         isOpen={showPasswordModal}
         onClose={() => setShowPasswordModal(false)}
       />
+
+      {/* Review Modal: the player's review of the site, approved by an admin before it is public */}
+      <ReviewModal open={showReviewModal} onClose={() => setShowReviewModal(false)} />
     </div>
   );
 }

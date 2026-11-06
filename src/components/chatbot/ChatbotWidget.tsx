@@ -10,6 +10,7 @@ import { MessageList } from './MessageList';
 import { QuickSuggestions } from './QuickSuggestions';
 import { ChatComposer } from './ChatComposer';
 import { CHATBOT_STYLES } from './chatbotStyles';
+import { OPEN_CHATBOT_EVENT } from './open-chatbot';
 
 // ─────────────────────────────────────────────────────────────
 // Main ChatbotWidget: the floating trigger and the chat panel around the conversation in useChatbot
@@ -43,6 +44,13 @@ export default function ChatbotWidget() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading, scrollToBottom]);
+
+  // Other pages open the panel with openChatbot() (./open-chatbot)
+  useEffect(() => {
+    const open = () => setIsOpen(true);
+    window.addEventListener(OPEN_CHATBOT_EVENT, open);
+    return () => window.removeEventListener(OPEN_CHATBOT_EVENT, open);
+  }, []);
 
   // Focus input when opened
   useEffect(() => {

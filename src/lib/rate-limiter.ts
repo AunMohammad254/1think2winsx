@@ -262,6 +262,12 @@ export const rateLimiters = {
     maxRequests: 2 // 2 reminders per phone number per hour
   }, 'emailReminder'),
 
+  // Sending or editing a review (each one waits for an admin again), keyed per player
+  review: new RateLimiter({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    maxRequests: 5 // 5 reviews per player per hour
+  }, 'review'),
+
   // Public newsletter sign-ups (each new one sends a confirmation email), keyed per IP.
   newsletter: new RateLimiter({
     windowMs: 60 * 60 * 1000, // 1 hour

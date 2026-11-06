@@ -33,6 +33,7 @@ export { streamConfigDb } from './stream.db'
 export { notificationDb } from './notification.db'
 export { newsletterDb } from './newsletter.db'
 export { supportTicketDb } from './support-ticket.db'
+export { reviewDb } from './review.db'
 
 // Combined db object for convenience
 import { userDb } from './user.db'

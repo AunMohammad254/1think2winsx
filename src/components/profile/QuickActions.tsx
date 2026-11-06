@@ -14,6 +14,8 @@ interface QuickAction {
 interface QuickActionsProps {
     actions?: QuickAction[];
     onChangePasswordClick?: () => void;
+    /** Shows the Review action, which opens the Review modal */
+    onReviewClick?: () => void;
     /** Hide the Deposit/History actions (wallet feature disabled). */
     hideWalletActions?: boolean;
 }
@@ -109,11 +111,27 @@ const defaultActions: QuickAction[] = [
     },
 ];
 
-export default function QuickActions({ actions = defaultActions, onChangePasswordClick, hideWalletActions }: QuickActionsProps) {
+const reviewAction: Omit<QuickAction, 'onClick'> = {
+    id: 'review',
+    label: 'Review',
+    gradient: 'from-yellow-500 to-orange-600',
+    icon: (
+        <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M11.48 3.5a.56.56 0 011.04 0l2.13 5.11a.56.56 0 00.48.35l5.52.44c.5.04.7.66.32.99l-4.2 3.6a.56.56 0 00-.18.56l1.28 5.38a.56.56 0 01-.84.61l-4.73-2.88a.56.56 0 00-.59 0l-4.72 2.88a.56.56 0 01-.84-.6l1.28-5.39a.56.56 0 00-.18-.56l-4.2-3.6a.56.56 0 01.32-.99l5.52-.44a.56.56 0 00.47-.35L11.48 3.5z"
+            />
+        </svg>
+    ),
+};
+
+export default function QuickActions({ actions = defaultActions, onChangePasswordClick, onReviewClick, hideWalletActions }: QuickActionsProps) {
     const visibleActions = hideWalletActions
         ? actions.filter((a) => a.id !== 'deposit' && a.id !== 'history')
         : actions;
-    const actionsWithHandlers = visibleActions.map((action) => {
+    const actionsWithHandlers = [...visibleActions, ...(onReviewClick ? [{ ...reviewAction, onClick: onReviewClick }] : [])].map((action) => {
         if (action.id === 'changePassword' && onChangePasswordClick) {
             return { ...action, onClick: onChangePasswordClick };
         }
@@ -123,7 +141,7 @@ export default function QuickActions({ actions = defaultActions, onChangePasswor
     return (
         <nav
             aria-label="Profile quick actions"
-            className="flex justify-center gap-4 sm:gap-6"
+            className="flex flex-wrap justify-center gap-x-3 gap-y-4 sm:gap-6"
         >
             {actionsWithHandlers.map((action) => {
                 const content = (

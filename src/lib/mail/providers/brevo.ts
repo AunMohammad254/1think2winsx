@@ -31,6 +31,7 @@ export async function sendViaBrevo(email: OutgoingEmail, { timeoutMs = 15_000, r
       body: JSON.stringify({
         sender: { name: email.from.name, email: email.from.email },
         to: [{ email: email.to }],
+        ...(email.replyTo ? { replyTo: { email: email.replyTo } } : {}),
         subject: email.subject,
         htmlContent: email.html,
         textContent: email.text || 'Please use an HTML compatible email client.',

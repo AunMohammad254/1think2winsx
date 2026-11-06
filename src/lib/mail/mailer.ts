@@ -4,6 +4,7 @@ import { sesConfigured } from './aws';
 import { sendViaBrevo } from './providers/brevo';
 import { cloudflareConfigured, sendViaCloudflare } from './providers/cloudflare';
 import { sendViaSes } from './providers/ses';
+import { CONTACT_EMAIL } from '@/lib/site-contact';
 import { isEmailProvider, type EmailProviderId, type OutgoingEmail, type ProviderResult, type SendOptions } from './types';
 
 /**
@@ -49,7 +50,9 @@ export async function activeProvider(): Promise<EmailProviderId> {
   return 'brevo';
 }
 
-export function sendThrough(provider: EmailProviderId, email: OutgoingEmail, options: SendOptions = {}): Promise<ProviderResult> {
+/** Every email goes out through here. Replies go to the contact inbox unless the email names another address. */
+export function sendThrough(provider: EmailProviderId, message: OutgoingEmail, options: SendOptions = {}): Promise<ProviderResult> {
+  const email = message.replyTo ? message : { ...message, replyTo: CONTACT_EMAIL };
   if (provider === 'ses') return sendViaSes(email, options);
   if (provider === 'cloudflare') return sendViaCloudflare(email, options);
   return sendViaBrevo(email, options);

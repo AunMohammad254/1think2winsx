@@ -397,7 +397,7 @@ Please run `bun run lint` and `bun run test:ci` before submitting.
 
 | | |
 |:--:|:--:|
-| 📧 Email | [contact@1think2wins.com](mailto:contact@1think2wins.com) |
+| 📧 Email | [1think2wins@gmail.com](mailto:1think2wins@gmail.com) |
 | 🐛 Issues | [Report a bug](https://github.com/AunMohammad254/1think2winsx/issues) |
 
 ## 📄 License

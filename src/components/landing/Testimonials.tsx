@@ -2,29 +2,30 @@
 
 import { useState, useEffect, memo } from "react";
 import { Section, SectionHeading, Reveal } from "./Primitives";
+import ReviewModal from "@/components/reviews/ReviewModal";
+import { StarDisplay } from "@/components/reviews/StarRating";
+import type { PublicReview, PublicReviewsResponse } from "@/lib/reviews";
 
-const REVIEWS = [
-  { name: "Hamza Siddiqui", role: "Top 50 player · Gulshan-e-Iqbal, Karachi", quote: "Won my first prize within a week. The streak mechanic is addictive — feels like batting a perfect over every time you go on a roll.", avatar: "from-emerald-400 to-cyan-400", rating: 5 },
-  { name: "Areeba Khan", role: "Weekly champion · DHA, Karachi", quote: "I've tried every sports app out there. 1Think2Win is the only one with truly competitive players and real, instant prizes.", avatar: "from-violet-500 to-pink-500", rating: 5 },
-  { name: "Faizan Qureshi", role: "Season finalist · Lahore", quote: "The UI is so smooth and the questions are genuinely tough. You can tell the team are real sports fans — not just developers.", avatar: "from-amber-400 to-orange-500", rating: 5 },
-  { name: "Saima Khan", role: "Daily player · North Nazimabad, Karachi", quote: "I play during my coffee break. 60 seconds, random prizes, zero stress. Already won an amazing smartwatch!", avatar: "from-rose-400 to-red-500", rating: 5 },
-  { name: "Danish Baloch", role: "Pro tier · Lyari, Karachi", quote: "The leaderboard pressure is real. I've made friends from Lahore, Peshawar, even Gilgit — all united by our love of the game.", avatar: "from-blue-400 to-violet-500", rating: 5 },
+/**
+ * Player reviews on the home page: only the ones an admin approved (/admin/reviews), with their real
+ * average. Loaded in the browser from /api/reviews because Cloudflare caches the home page's HTML.
+ * "Write a review" opens the Review modal; a new review waits for approval before it shows here.
+ */
+
+const AVATARS = [
+  "from-emerald-400 to-cyan-400",
+  "from-violet-500 to-pink-500",
+  "from-amber-400 to-orange-500",
+  "from-rose-400 to-red-500",
+  "from-blue-400 to-violet-500",
 ];
+/** Fewer than this and the cards sit in a row instead of scrolling past */
+const MARQUEE_MIN = 3;
 
-// One filled star per rating point (every review is currently rated 5)
-function Stars({ count }: { count: number }) {
-  return (
-    <div className="flex gap-0.5 text-amber-400">
-      {Array.from({ length: count }).map((_, i) => (
-        <svg key={i} viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-amber-400" aria-hidden="true">
-          <path d="m12 2 3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7l3-7Z" />
-        </svg>
-      ))}
-    </div>
-  );
-}
+const initials = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("");
 
-const ReviewCard = memo(function ReviewCard({ r, index }: { r: (typeof REVIEWS)[number]; index: number }) {
+const ReviewCard = memo(function ReviewCard({ r, index, hidden }: { r: PublicReview; index: number; hidden?: boolean }) {
   const onMouseMove = (e: React.MouseEvent<HTMLElement>) => {
     if (window.matchMedia("(pointer: coarse)").matches) return;
     const card = e.currentTarget;
@@ -42,42 +43,40 @@ const ReviewCard = memo(function ReviewCard({ r, index }: { r: (typeof REVIEWS)[
     <article
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
+      // The marquee's second copy is decoration: screen readers hear each review once
+      aria-hidden={hidden || undefined}
       className="lift mx-2 w-[320px] shrink-0 rounded-2xl border border-white/10 bg-linear-to-b from-white/8 to-white/3 p-6 transition-all duration-200 sm:w-90"
       style={{ animation: `fade-up 0.5s ease-out ${index * 0.08}s both` }}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`grid h-10 w-10 place-items-center rounded-full bg-linear-to-br ${r.avatar} text-sm font-bold text-white`}>
-            {r.name.split(" ").map((n) => n[0]).join("")}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-linear-to-br ${AVATARS[index % AVATARS.length]} text-sm font-bold text-white`}>
+            {initials(r.displayName)}
           </div>
-          <div>
-            <p className="font-semibold text-white">{r.name}</p>
-            <p className="text-xs text-white/60">{r.role}</p>
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-white">{r.displayName}</p>
+            {r.city && <p className="truncate text-xs text-white/60">{r.city}</p>}
           </div>
         </div>
-        <Stars count={r.rating} />
+        <StarDisplay rating={r.rating} className="shrink-0 [&_svg]:h-3.5 [&_svg]:w-3.5" />
       </div>
-      <p className="mt-5 text-sm leading-relaxed text-white/75">"{r.quote}"</p>
+      <p className="mt-5 text-sm leading-relaxed text-white/75 break-words">&ldquo;{r.comment}&rdquo;</p>
     </article>
   );
 });
 
-// ⚡ Bolt Performance Optimization:
-// Extracted `spotlightIndex` state and its `setInterval` into a separate `FeaturedReview` component.
-// Why: Prevents the large outer `Testimonials` component (with its static grid and marquee) from
-// re-rendering every 4 seconds.
-// Impact: Eliminates periodic deep reconciliation of static child components during the spotlight loop.
-function FeaturedReview() {
+// Its own component so the 4-second spotlight tick re-renders only this card, not the whole section
+function FeaturedReview({ reviews }: { reviews: PublicReview[] }) {
   const [spotlightIndex, setSpotlightIndex] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => {
-      setSpotlightIndex((i) => (i + 1) % REVIEWS.length);
+      setSpotlightIndex((i) => (i + 1) % reviews.length);
     }, 4000);
     return () => clearInterval(id);
-  }, []);
+  }, [reviews.length]);
 
-  const spotlight = REVIEWS[spotlightIndex];
+  const spotlight = reviews[spotlightIndex % reviews.length];
 
   return (
     <div className="mx-auto mt-14 max-w-md">
@@ -90,70 +89,115 @@ function FeaturedReview() {
           Featured review
         </div>
         <div className="mt-4 flex items-center gap-3">
-          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-linear-to-br ${spotlight.avatar} text-sm font-bold text-white`}>
-            {spotlight.name.split(" ").map((n) => n[0]).join("")}
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-linear-to-br ${AVATARS[spotlightIndex % AVATARS.length]} text-sm font-bold text-white`}>
+            {initials(spotlight.displayName)}
           </div>
-          <div>
-            <p className="font-semibold text-white">{spotlight.name}</p>
-            <p className="text-xs text-white/60">{spotlight.role}</p>
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-white">{spotlight.displayName}</p>
+            {spotlight.city && <p className="truncate text-xs text-white/60">{spotlight.city}</p>}
           </div>
-          <div className="ml-auto"><Stars count={spotlight.rating} /></div>
+          <div className="ml-auto"><StarDisplay rating={spotlight.rating} /></div>
         </div>
-        <p className="mt-3 text-sm leading-relaxed text-white/75">"{spotlight.quote}"</p>
+        <p className="mt-3 text-sm leading-relaxed text-white/75 break-words">&ldquo;{spotlight.comment}&rdquo;</p>
       </div>
     </div>
   );
 }
 
 export default function Testimonials() {
-  const items = [...REVIEWS, ...REVIEWS];
+  const [data, setData] = useState<PublicReviewsResponse | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/reviews", { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: PublicReviewsResponse | null) => {
+        // A failed load shows the same invitation as an empty list
+        setData(body && Array.isArray(body.reviews) ? body : { reviews: [], summary: { count: 0, average: 0 } });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setData({ reviews: [], summary: { count: 0, average: 0 } });
+      });
+    return () => controller.abort();
+  }, []);
+
+  const reviews = data?.reviews ?? [];
+  const summary = data?.summary;
+  const hasReviews = reviews.length > 0;
+  const writeButton = (
+    <button
+      type="button"
+      onClick={() => setModalOpen(true)}
+      className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-linear-to-r from-emerald-600 to-teal-500 px-6 font-semibold text-white shadow-lg shadow-emerald-500/20 transition-shadow hover:shadow-emerald-500/40"
+    >
+      ✍️ Write a review
+    </button>
+  );
 
   return (
-    <Section  className="relative overflow-hidden">
+    <Section className="relative overflow-hidden">
       <SectionHeading
-        eyebrow="Player love"
-        title={<>10,000+ players. <span className="text-gradient-cool">4.9 average rating.</span></>}
-        description="Real reviews from real sports fans who play — and win — every week."
+        eyebrow="Player reviews"
+        title={
+          hasReviews && summary ? (
+            <>Rated <span className="text-gradient-cool">{summary.average.toFixed(1)}★</span> by our players.</>
+          ) : (
+            <>What do <span className="text-gradient-cool">you</span> think?</>
+          )
+        }
+        description={
+          hasReviews && summary
+            ? `${summary.count} ${summary.count === 1 ? "review" : "reviews"} from sports fans who play on 1Think 2Win. Every review is checked by our team before it appears.`
+            : "Played a quiz with us? Tell other sports fans how it went. Reviews appear here once our team has checked them."
+        }
       />
-      <Reveal delay={150}>
-        <div className="relative mt-14">
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-linear-to-r from-ink-950 to-transparent" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-linear-to-l from-ink-950 to-transparent" />
-          <div className="marquee-pause overflow-hidden">
-            <div className="marquee-track" style={{ animationDuration: "30s" }}>
-              {items.map((r, i) => (
-                <ReviewCard key={`${r.name}-${i}`} r={r} index={i} />
+
+      {data === null && (
+        <div className="mt-14 flex justify-center gap-4" aria-hidden="true">
+          {[0, 1, 2].map((n) => (
+            <div key={n} className="h-44 w-[320px] shrink-0 animate-pulse rounded-2xl border border-white/5 bg-white/[0.03]" />
+          ))}
+        </div>
+      )}
+
+      {hasReviews && (
+        <Reveal delay={150}>
+          {reviews.length >= MARQUEE_MIN ? (
+            <div className="relative mt-14">
+              <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-linear-to-r from-ink-950 to-transparent" />
+              <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-linear-to-l from-ink-950 to-transparent" />
+              <div className="marquee-pause overflow-hidden">
+                <div className="marquee-track" style={{ animationDuration: `${Math.max(30, reviews.length * 6)}s` }}>
+                  {[...reviews, ...reviews].map((r, i) => (
+                    <ReviewCard key={`${r.id}-${i}`} r={r} index={i} hidden={i >= reviews.length} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-14 flex flex-wrap justify-center gap-y-4">
+              {reviews.map((r, i) => (
+                <ReviewCard key={r.id} r={r} index={i} />
               ))}
             </div>
-          </div>
-        </div>
-      </Reveal>
-      <Reveal delay={300}>
-        <div className="mt-14 flex flex-wrap items-center justify-center gap-x-10 gap-y-6 text-center sm:gap-x-16">
-          <div>
-            <p className="font-display text-3xl font-bold text-white">4.9★</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/60">App rating</p>
-          </div>
-          <div className="h-10 w-px bg-white/10" />
-          <div>
-            <p className="font-display text-3xl font-bold text-white">10K+</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Reviews</p>
-          </div>
-          <div className="h-10 w-px bg-white/10" />
-          <div>
-            <p className="font-display text-3xl font-bold text-white">93%</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Recommend</p>
-          </div>
-          <div className="h-10 w-px bg-white/10" />
-          <div>
-            <p className="font-display text-3xl font-bold text-white">5min</p>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/60">Avg payout</p>
-          </div>
-        </div>
-      </Reveal>
-      <Reveal delay={450}>
-        <FeaturedReview />
-      </Reveal>
+          )}
+        </Reveal>
+      )}
+
+      {data !== null && (
+        <Reveal delay={300}>
+          <div className="mt-12 flex justify-center">{writeButton}</div>
+        </Reveal>
+      )}
+
+      {reviews.length > 1 && (
+        <Reveal delay={450}>
+          <FeaturedReview reviews={reviews} />
+        </Reveal>
+      )}
+
+      <ReviewModal open={modalOpen} onClose={() => setModalOpen(false)} />
     </Section>
   );
 }
