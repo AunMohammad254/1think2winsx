@@ -1,10 +1,8 @@
 'use client';
 
 import { Wallet } from 'lucide-react';
+import BaseModal from './BaseModal';
 import {
-  MODAL_BACKDROP_CLASS,
-  MODAL_PANEL_CLASS,
-  MODAL_CLOSE_BUTTON_CLASS,
   MODAL_ICON_BADGE_CLASS,
   MODAL_SECONDARY_BUTTON_CLASS,
   MODAL_PRIMARY_BUTTON_CLASS,
@@ -30,19 +28,8 @@ export default function ConfirmationModal({
   handleConfirmedPayment,
   onBack,
 }: ConfirmationModalProps) {
-  if (!isOpen) return null;
-
   return (
-    <div className={MODAL_BACKDROP_CLASS}>
-      <div className={MODAL_PANEL_CLASS}>
-        {/* Close button */}
-        <button
-          onClick={onClose}
-          className={MODAL_CLOSE_BUTTON_CLASS}
-        >
-          <span className="text-xl">×</span>
-        </button>
-
+    <BaseModal isOpen={isOpen} onClose={onClose}>
         <div className="text-center mb-6">
           <div className={`${MODAL_ICON_BADGE_CLASS} from-green-500 to-emerald-500`}>
             <Wallet className="w-8 h-8 text-white" />
@@ -90,7 +77,6 @@ export default function ConfirmationModal({
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </BaseModal>
   );
 }
