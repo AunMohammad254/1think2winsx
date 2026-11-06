@@ -29,8 +29,11 @@ const linkColumns = [
   { title: 'Support', icon: '🛟', delay: 200, links: supportLinks },
 ];
 
-const SECTION_HEADING_CLASS =
-  'mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400';
+const SectionHeading = ({ children }: { children: React.ReactNode }) => (
+  <h2 className="mb-4 flex items-center gap-2 font-display text-sm font-semibold uppercase tracking-[0.18em] text-blue-400">
+    {children}
+  </h2>
+);
 
 const Footer = memo(function Footer() {
   const prefetchFor = useLinkPrefetch();
@@ -104,9 +107,9 @@ const Footer = memo(function Footer() {
           {/* Quick Links and Support */}
           {linkColumns.map((column) => (
             <Reveal key={column.title} delay={column.delay} className="sm:col-span-1 md:col-span-1.5 lg:col-span-2">
-              <h2 className={SECTION_HEADING_CLASS}>
+              <SectionHeading>
                 <span>{column.icon}</span> {column.title}
-              </h2>
+              </SectionHeading>
               <ul className="space-y-1.5">
                 {column.links.map((item) => (
                   <li key={item.href}>
@@ -126,9 +129,9 @@ const Footer = memo(function Footer() {
 
           {/* Contact */}
           <Reveal delay={300} className="sm:col-span-2 md:col-span-3 lg:col-span-4">
-            <h2 className={SECTION_HEADING_CLASS}>
+            <SectionHeading>
               <span>📞</span> Contact
-            </h2>
+            </SectionHeading>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
               <div className="space-y-4">
                 <a
