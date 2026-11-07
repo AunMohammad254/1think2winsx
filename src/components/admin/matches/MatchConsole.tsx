@@ -547,7 +547,9 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
 function FirstOverWarning({ questions, skew }: { questions: Question[], skew: number }) {
   const anyOpen = questions.some((q) => q.over === 1 && q.state === 'open');
   const now = useNow(1000, anyOpen) + skew;
-  const firstOverLeft = anyOpen ? Math.min(...questions.filter((q) => q.over === 1).map((q) => Date.parse(q.closesAt!) - now)) : 0;
+  // This component is only rendered when firstOverOpen is true, which implies anyOpen is true.
+  // The ternary isn't strictly necessary for rendering but keeps typescript happy if closesAt was ever undefined.
+  const firstOverLeft = Math.min(...questions.filter((q) => q.over === 1).map((q) => Date.parse(q.closesAt!) - now));
 
   return (
     <p role="status" className="rounded-xl bg-amber-500/10 p-3 text-sm text-amber-200">
