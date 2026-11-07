@@ -57,6 +57,7 @@ export async function sendViaCloudflare(email: OutgoingEmail, { timeoutMs = 15_0
       body: JSON.stringify({
         from: { address: email.from.email, name: email.from.name },
         to: email.to,
+        ...(email.replyTo ? { reply_to: email.replyTo } : {}),
         subject: email.subject,
         html: email.html,
         ...(email.text ? { text: email.text } : {}),

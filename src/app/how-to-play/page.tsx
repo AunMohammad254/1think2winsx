@@ -1,23 +1,17 @@
 'use client';
 
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import {
   UserPlus,
   Search,
-  CreditCard,
-  HelpCircle,
-  Trophy,
-  Bike,
-  Smartphone,
-  Headphones,
-  Watch,
   Sparkles,
   ChevronDown,
   Zap,
   ArrowRight,
-  Crown
+  Crown,
+  Trophy
 } from 'lucide-react';
 
 // Components
@@ -26,25 +20,17 @@ import PrizeCard from '@/components/how-to-play/PrizeCard';
 import RulesTabs from '@/components/how-to-play/RulesTabs';
 import WinningTips from '@/components/how-to-play/WinningTips';
 import FAQAccordion from '@/components/how-to-play/FAQAccordion';
+import { useWalletEnabled } from '@/hooks/useWalletEnabled';
+import { howToPlayContent } from '@/lib/how-to-play-content';
 
-// Step Data
-const steps = [
-  { step: 1, title: "Register", description: "Create your free account in seconds", icon: UserPlus },
-  { step: 2, title: "Browse Quizzes", description: "Find exciting sports challenges", icon: Search },
-  { step: 3, title: "Pay 2 PKR", description: "Tiny fee, huge winning potential", icon: CreditCard },
-  { step: 4, title: "Answer", description: "Complete within 10 minutes", icon: HelpCircle },
-  { step: 5, title: "Win Big!", description: "Get randomly selected for prizes", icon: Trophy },
-];
-
-// Prize Data
-const prizes = [
-  { name: "CD 70 Bike", description: "Honda CD 70 Motorcycle - Your ticket to freedom!", icon: Bike, tier: 'grand' as const },
-  { name: "Smartphone", description: "Latest Android phone with all modern features", icon: Smartphone, tier: 'major' as const },
-  { name: "Wireless Earbuds", description: "Premium Bluetooth earbuds for music lovers", icon: Headphones, tier: 'standard' as const },
-  { name: "Smart Watch", description: "Fitness tracker with all the bells and whistles", icon: Watch, tier: 'standard' as const },
-];
+// Four steps with every quiz free, five with the wallet (top up, day pass)
+const stepGrid = (steps: number) => (steps === 4 ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5');
+const BADGE_DOTS = ['bg-emerald-500', 'bg-amber-500', 'bg-blue-500'];
 
 export default function HowToPlayPage() {
+  // Cloudflare caches this page, so the wallet switch is read in the browser (null until it is known)
+  const walletEnabled = useWalletEnabled();
+  const content = useMemo(() => howToPlayContent(walletEnabled), [walletEnabled]);
   const containerRef = useRef<HTMLDivElement>(null);
   const stepsRef = useRef<HTMLDivElement>(null);
 
@@ -141,8 +127,7 @@ export default function HowToPlayPage() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="text-lg sm:text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto mb-8 sm:mb-12 leading-relaxed"
           >
-            Join the ultimate sports quiz. Test your knowledge, top the leaderboard,
-            and win <span className="text-amber-400 font-semibold">random prizes</span>!
+            {content.heroLine}
           </motion.p>
 
           {/* CTA Buttons */}
@@ -218,7 +203,7 @@ export default function HowToPlayPage() {
               Quick Start Guide
             </span>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-4 font-[family-name:var(--font-poppins)]">
-              Your 5-Step <span className="text-emerald-400">Winning</span> Journey
+              Your {content.steps.length}-Step <span className="text-emerald-400">Winning</span> Journey
             </h2>
             <p className="text-gray-400 text-lg max-w-2xl mx-auto">
               From registration to winning prizes - it&apos;s as easy as hitting a six!
@@ -226,11 +211,11 @@ export default function HowToPlayPage() {
           </motion.div>
 
           {/* Steps Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6 lg:gap-8">
-            {steps.map((step, index) => (
+          <div className={`grid ${stepGrid(content.steps.length)} gap-4 sm:gap-6 lg:gap-8`}>
+            {content.steps.map((step, index) => (
               <StepCard
-                key={step.step}
-                step={step.step}
+                key={step.title}
+                step={index + 1}
                 title={step.title}
                 description={step.description}
                 icon={step.icon}
@@ -262,21 +247,22 @@ export default function HowToPlayPage() {
             className="text-center mb-12 sm:mb-16"
           >
             <span className="inline-block px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm font-medium mb-4">
-              🏆 Amazing Rewards
+              🏆 How You Win
             </span>
             <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-4 font-[family-name:var(--font-poppins)]">
-              Win <span className="bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">Incredible</span> Prizes
+              Points, Prizes &amp; <span className="bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">Glory</span>
             </h2>
             <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-              Every completed quiz is your chance to win. Just 2 PKR could change your life!
+              Results come from your score, not luck. Here is everything a quiz can pay out.
             </p>
           </motion.div>
 
           {/* Prize Grid - Bento Style */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            {prizes.map((prize, index) => (
+            {content.rewards.map((prize, index) => (
               <PrizeCard
                 key={prize.name}
+                badge="🏆 BIGGEST REWARDS"
                 name={prize.name}
                 description={prize.description}
                 icon={prize.icon}
@@ -330,7 +316,7 @@ export default function HowToPlayPage() {
           </motion.div>
 
           {/* Rules Tabs Component */}
-          <RulesTabs />
+          <RulesTabs tabs={content.ruleTabs} />
         </div>
       </section>
 
@@ -358,7 +344,7 @@ export default function HowToPlayPage() {
           </motion.div>
 
           {/* Tips Component */}
-          <WinningTips />
+          <WinningTips tips={content.tips} />
         </div>
       </section>
 
@@ -386,7 +372,7 @@ export default function HowToPlayPage() {
           </motion.div>
 
           {/* FAQ Accordion Component */}
-          <FAQAccordion />
+          <FAQAccordion faqs={content.faqs} />
 
           {/* More FAQs Link */}
           <motion.div
@@ -474,7 +460,7 @@ export default function HowToPlayPage() {
             transition={{ delay: 0.1 }}
             className="text-lg sm:text-xl text-gray-300 max-w-2xl mx-auto mb-8 sm:mb-12"
           >
-            Join thousands of sports fans competing for amazing prizes.
+            Sports fans across Pakistan are already locking in their answers.
             Your next win could be just <span className="text-amber-400 font-semibold">one quiz</span> away!
           </motion.p>
 
@@ -518,18 +504,12 @@ export default function HowToPlayPage() {
             transition={{ delay: 0.4 }}
             className="mt-12 flex flex-wrap items-center justify-center gap-6 sm:gap-8 text-gray-400 text-sm"
           >
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span>Secure Payments</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-amber-500" />
-              <span>Random Prizes</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-blue-500" />
-              <span>Fair Play Guaranteed</span>
-            </div>
+            {content.badges.map((badge, index) => (
+              <div key={badge} className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${BADGE_DOTS[index % BADGE_DOTS.length]}`} />
+                <span>{badge}</span>
+              </div>
+            ))}
           </motion.div>
         </div>
       </section>

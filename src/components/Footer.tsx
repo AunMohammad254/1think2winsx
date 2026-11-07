@@ -7,6 +7,7 @@ import { getCSRFHeaders } from '@/lib/csrf';
 import { Reveal } from '@/components/landing/Primitives';
 import BrandLogo from '@/components/brand/Logo';
 import { useLinkPrefetch } from '@/hooks/useLinkPrefetch';
+import { CONTACT_EMAIL, CONTACT_MAILTO } from '@/lib/site-contact';
 
 const quickLinks = [
   { href: '/', label: 'Home' },
@@ -132,20 +133,20 @@ const Footer = memo(function Footer() {
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
               <div className="space-y-4">
                 <a
-                  href="mailto:support@1think2win.com"
+                  href={CONTACT_MAILTO}
                   className="group flex items-start gap-3 rounded-lg p-2 transition-colors hover:bg-white/[0.04]"
                 >
                   <span className="mt-0.5 text-lg">✉️</span>
                   <div>
                     <p className="text-xs text-white/60">Email</p>
-                    <p className="text-sm font-medium text-white transition-colors group-hover:text-blue-400">support@1think2win.com</p>
+                    <p className="text-sm font-medium text-white transition-colors group-hover:text-blue-400 break-all">{CONTACT_EMAIL}</p>
                   </div>
                 </a>
                 <div className="flex items-start gap-3 rounded-lg p-2">
-                  <span className="mt-0.5 text-lg">📱</span>
+                  <span className="mt-0.5 text-lg">🕒</span>
                   <div>
-                    <p className="text-xs text-white/60">Phone</p>
-                    <p className="text-sm font-medium text-white">+92 XXX XXXXXXX</p>
+                    <p className="text-xs text-white/60">Replies</p>
+                    <p className="text-sm font-medium text-white">Within 24 hours</p>
                   </div>
                 </div>
               </div>

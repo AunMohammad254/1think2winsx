@@ -17,6 +17,7 @@ import {
   Send,
   LifeBuoy,
   Ticket,
+  Star,
   Radio,
   Image as ImageIcon,
   Receipt,
@@ -124,6 +125,7 @@ const navItems = [
   { href: '/admin/security', label: 'Security', icon: Shield },
   { href: '/admin/support', label: 'User Support', icon: LifeBuoy },
   { href: '/admin/tickets', label: 'Support Tickets', icon: Ticket },
+  { href: '/admin/reviews', label: 'Player Reviews', icon: Star },
   { href: '/admin/expenses', label: 'Expense Manager', icon: Receipt },
 ];
 

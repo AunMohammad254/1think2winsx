@@ -8,6 +8,8 @@ interface PrizeCardProps {
     description: string;
     icon: LucideIcon;
     tier: 'grand' | 'major' | 'standard';
+    /** The ribbon on a grand card */
+    badge?: string;
     delay?: number;
 }
 
@@ -38,7 +40,7 @@ const tierStyles = {
     },
 };
 
-export default function PrizeCard({ name, description, icon: Icon, tier, delay = 0 }: PrizeCardProps) {
+export default function PrizeCard({ name, description, icon: Icon, tier, badge = '🏆 GRAND PRIZE', delay = 0 }: PrizeCardProps) {
     const styles = tierStyles[tier];
 
     return (
@@ -48,7 +50,7 @@ export default function PrizeCard({ name, description, icon: Icon, tier, delay =
             viewport={{ once: true, margin: "-50px" }}
             transition={{ duration: 0.5, delay }}
             whileHover={{ scale: 1.03, y: -8 }}
-            className={`relative group cursor-pointer ${tier === 'grand' ? 'col-span-1 sm:col-span-2 lg:col-span-2' : ''}`}
+            className={`relative group ${tier === 'grand' ? 'col-span-1 sm:col-span-2 lg:col-span-2' : ''}`}
         >
             {/* Outer Glow on Hover */}
             <div className={`absolute -inset-0.5 bg-gradient-to-r ${styles.gradient} rounded-2xl opacity-0 group-hover:opacity-75 blur-lg transition-all duration-500 ${styles.glow}`} />
@@ -85,7 +87,7 @@ export default function PrizeCard({ name, description, icon: Icon, tier, delay =
                         {/* Prize Badge */}
                         {tier === 'grand' && (
                             <span className={`inline-block ${styles.badge} text-xs font-bold px-3 py-1 rounded-full mb-2`}>
-                                🏆 GRAND PRIZE
+                                {badge}
                             </span>
                         )}
 

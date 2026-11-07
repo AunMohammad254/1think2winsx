@@ -47,6 +47,7 @@ export async function sendViaSes(
   const body = JSON.stringify({
     FromEmailAddress: `${encodeName(email.from.name)} <${email.from.email}>`,
     Destination: { ToAddresses: [email.to] },
+    ...(email.replyTo ? { ReplyToAddresses: [email.replyTo] } : {}),
     Content: {
       Simple: {
         Subject: { Data: email.subject, Charset: 'UTF-8' },

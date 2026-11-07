@@ -26,6 +26,7 @@ import HowToPlayPrizeCard from '@/components/how-to-play/PrizeCard';
 import WinningTips from '@/components/how-to-play/WinningTips';
 import FAQAccordion from '@/components/how-to-play/FAQAccordion';
 import RulesTabs from '@/components/how-to-play/RulesTabs';
+import { howToPlayContent } from '@/lib/how-to-play-content';
 import KPICard, { KPICardSkeleton } from '@/components/admin/dashboard/KPICard';
 import RecentActivityFeed, { RecentActivityFeedSkeleton } from '@/components/admin/dashboard/RecentActivityFeed';
 import type { Prize } from '@/types/prize';
@@ -110,6 +111,14 @@ describe('profile pieces', () => {
     rerender(<QuickActions hideWalletActions />);
     expect(screen.queryByRole('link', { name: 'Deposit' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'History' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review' })).toBeNull();
+  });
+
+  it('QuickActions shows the Review action only when it can open the Review modal', () => {
+    const onReview = vi.fn();
+    render(<QuickActions onReviewClick={onReview} hideWalletActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    expect(onReview).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -268,29 +277,41 @@ describe('how-to-play sections', () => {
     render(<HowToPlayPrizeCard name="Buds" description="Earbuds" icon={Trophy} tier="standard" delay={0.2} />);
     expect(screen.getAllByText('🏆 GRAND PRIZE')).toHaveLength(1);
     expect(screen.queryByText(/PKR 150,000/)).toBeNull();
+    render(<HowToPlayPrizeCard name="Top 3" description="Best scores" icon={Trophy} tier="grand" badge="🏆 BIGGEST REWARDS" />);
+    expect(screen.getByText('🏆 BIGGEST REWARDS')).toBeInTheDocument();
   });
 
-  it('WinningTips lists three tips', () => {
-    render(<WinningTips />);
+  it('WinningTips lists the tips it is given', () => {
+    render(<WinningTips tips={howToPlayContent(true).tips} />);
     expect(screen.getAllByRole('heading')).toHaveLength(3);
   });
 
   it('FAQAccordion opens one answer at a time', async () => {
-    render(<FAQAccordion />);
-    expect(screen.getByText(/each user is allowed only one attempt/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /How are winners selected/ }));
-    expect(await screen.findByText(/randomly selected from all participants/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /How are winners selected/ }));
-    await vi.waitFor(() => expect(screen.queryByText(/randomly selected from all participants/)).toBeNull());
+    render(<FAQAccordion faqs={howToPlayContent(false).faqs} />);
+    expect(screen.getByText(/Every quiz is free right now/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /How are winners chosen/ }));
+    expect(await screen.findByText(/the three highest scores win/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /How are winners chosen/ }));
+    await vi.waitFor(() => expect(screen.queryByText(/the three highest scores win/)).toBeNull());
   });
 
   it('RulesTabs switches between rule sets', async () => {
-    render(<RulesTabs />);
-    expect(screen.getByText('10 Minutes Time Limit')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Payment & Fees/ }));
-    expect(await screen.findByText('Entry Fee: 2 PKR')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Points System/ }));
-    expect(await screen.findByText('Performance Points')).toBeInTheDocument();
+    const { rerender } = render(<RulesTabs tabs={howToPlayContent(true).ruleTabs} />);
+    expect(screen.getByText('Beat the countdown')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Entry & Wallet/ }));
+    expect(await screen.findByText('24-hour day pass')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Points & Prizes/ }));
+    expect(await screen.findByText('Redeem points')).toBeInTheDocument();
+    // A tab that disappears falls back to the first one
+    rerender(<RulesTabs tabs={howToPlayContent(true).ruleTabs.slice(0, 1)} />);
+    expect(await screen.findByText('Beat the countdown')).toBeInTheDocument();
+    rerender(<RulesTabs tabs={[]} />);
+    expect(screen.queryByText('Beat the countdown')).toBeNull();
+  });
+
+  it('RulesTabs starts with nothing chosen when it has no tabs', () => {
+    render(<RulesTabs tabs={[]} />);
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 });
 

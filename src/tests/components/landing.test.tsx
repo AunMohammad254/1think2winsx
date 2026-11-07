@@ -600,13 +600,31 @@ describe('CTA', () => {
 });
 
 describe('Testimonials', () => {
-  it('rotates the featured review and tilts cards under the pointer', () => {
+  const review = (id: string, over: Record<string, unknown> = {}) => ({
+    id, rating: 5, comment: `Review ${id} text`, displayName: `Player ${id}`, city: 'Karachi', createdAt: '2026-11-06T10:00:00Z', ...over,
+  });
+  const serveReviews = (body: unknown, status = 200) => {
+    fetchMock.mockImplementation(async (url: string) => (url === '/api/reviews' ? jsonResponse(body, status) : new Promise<Response>(() => {})));
+  };
+
+  it('shows only approved reviews with their real average, rotates the featured one and tilts cards', async () => {
+    serveReviews({ reviews: [review('a'), review('b', { rating: 4, city: null, displayName: 'Sana' }), review('c')], summary: { count: 3, average: 4.7 } });
+    // Fake clocks from the start, so the spotlight interval runs on them
     frames();
     render(<Testimonials />);
+    for (let i = 0; i < 5; i++) await act(async () => {});
+    expect(screen.getByText('4.7★')).toBeInTheDocument();
+    expect(screen.getByText(/3 reviews from sports fans/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/reviews', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    // The marquee repeats the cards; screen readers hear each once
+    expect(screen.getAllByRole('article')).toHaveLength(3);
+    expect(document.querySelectorAll('article[aria-hidden="true"]')).toHaveLength(3);
+    expect(document.body.textContent).not.toMatch(/10,000\+|4\.9 average|Hamza Siddiqui/);
+
     const featured = () => screen.getByText('Featured review').parentElement!.textContent;
-    expect(featured()).toContain('Hamza Siddiqui');
+    expect(featured()).toContain('Player a');
     advance(4000);
-    expect(featured()).toContain('Areeba Khan');
+    expect(featured()).toContain('Sana');
 
     const card = screen.getAllByRole('article')[0];
     vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 100, height: 100 } as DOMRect);
@@ -617,6 +635,51 @@ describe('Testimonials', () => {
     media([COARSE]);
     fireEvent.mouseMove(card, { clientX: 100, clientY: 100 });
     expect(card.style.transform).toContain('rotateY(0deg)');
+  });
+
+  it('puts one or two reviews in a row, without a featured card for one', async () => {
+    serveReviews({ reviews: [review('a')], summary: { count: 1, average: 5 } });
+    render(<Testimonials />);
+    expect(await screen.findByText(/1 review from sports fans/)).toBeInTheDocument();
+    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(document.querySelector('.marquee-track')).toBeNull();
+    expect(screen.queryByText('Featured review')).toBeNull();
+  });
+
+  it.each([
+    ['no approved reviews', () => serveReviews({ reviews: [], summary: { count: 0, average: 0 } })],
+    ['a failed load', () => serveReviews({ error: 'x' }, 500)],
+    ['a malformed answer', () => serveReviews({ nope: true })],
+    ['no connection', () => fetchMock.mockImplementation(async () => { throw new Error('offline'); })],
+  ])('invites the first review after %s', async (_name, setup) => {
+    setup();
+    render(<Testimonials />);
+    expect(await screen.findByRole('button', { name: /Write a review/ })).toBeInTheDocument();
+    expect(screen.getByText(/What do/)).toBeInTheDocument();
+    expect(screen.queryByRole('article')).toBeNull();
+  });
+
+  it('shows placeholders while loading', () => {
+    const { container } = render(<Testimonials />);
+    expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /Write a review/ })).toBeNull();
+  });
+
+  it('stays quiet when the request is aborted on the way out', async () => {
+    let fail!: (e: unknown) => void;
+    fetchMock.mockImplementation(() => new Promise<Response>((_resolve, reject) => { fail = reject; }));
+    const { unmount } = render(<Testimonials />);
+    unmount();
+    await act(async () => fail(new DOMException('aborted', 'AbortError')));
+  });
+
+  it('opens the Review modal from the button', async () => {
+    serveReviews({ reviews: [], summary: { count: 0, average: 0 } });
+    render(<Testimonials />);
+    fireEvent.click(await screen.findByRole('button', { name: /Write a review/ }));
+    expect(screen.getByRole('dialog', { name: 'Write a review' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });
 
