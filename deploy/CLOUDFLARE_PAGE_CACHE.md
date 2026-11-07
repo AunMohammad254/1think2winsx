@@ -34,14 +34,16 @@ unchanged. On 2026-10-21 each page sent this to an anonymous visitor:
 Two anonymous fetches of `/` differ only in Cloudflare's email obfuscation, which Cloudflare applies at the edge
 after the cache.
 
-**Never cached by this rule (as applied):** `/quizzes` (until the change in "Signed-in `/quizzes`" below is applied), `/quiz/*`, `/profile*`, `/login` (a redirect to `/auth`), `/register`,
+**Never cached by this rule:** `/quiz/*`, `/profile*`, `/login` (a redirect to `/auth`), `/register`,
 `/auth*`, `/forgot-*`, `/update-password`, `/unsubscribe`, `/admin*` and `/api/*`. They are simply not in the
-path list. `/api/live*` has a rule of its own ("The live API rule" below).
+path list. `/api/live*` has a rule of its own ("The live API rule" below). `/quizzes` has been cached for everyone,
+signed in or not, since 2026-11-07 ("Signed-in `/quizzes`" below).
 
 ## The rule
 
-The API body as applied is the expression below; [`cloudflare-page-cache-rule.json`](./cloudflare-page-cache-rule.json)
-now also holds the `/quizzes` clause that is not applied yet (see "Signed-in `/quizzes`" below). A unit test keeps
+The expression below is the rule as applied on 2026-10-21. Since 2026-11-07 the live rule is the body of
+[`cloudflare-page-cache-rule.json`](./cloudflare-page-cache-rule.json), which adds the `/quizzes` clause (see
+"Signed-in `/quizzes`" below); the expression below stays here as its rollback. A unit test keeps
 its path lists equal to the lists that `bun run cache:check` verifies.
 
 | Setting | Value |
@@ -93,7 +95,7 @@ What each part is for:
 Plan limits: this made 2 of the 10 Cache Rules on the Free plan. With the rules below, the zone uses 5 of 10
 Cache Rules and 1 of 10 URL Rewrite Rules. No Cache Response Rules or custom cache keys are needed.
 
-## Signed-in `/quizzes` (in the repo, NOT applied yet)
+## Signed-in `/quizzes` (applied 2026-11-07)
 
 For a 50,000-player event, every player's `/quizzes` page view (and the `?_rsc=` payload of a client navigation
 to it) would reach Hostinger, because their session cookie keeps them out of the rule above. The rule body in
@@ -135,6 +137,13 @@ Why that is safe:
    5 of 10 Cache Rules.
 3. `bun run cache:check`: it now makes 40 requests, and checks `/quizzes` twice anonymously, once with a fake
    session cookie (it must be the cached copy, with no `Set-Cookie`), and that no cached response sets a cookie.
+
+**Applied 2026-11-07** through the Cloudflare API, after deploying `68234f4` (which has the proxy change) and
+purging: rule `a11809e994204598b915fe08c84df1aa` in the cache settings entrypoint `176e59a2817648a4895a50d0f195df2c`
+was patched with the JSON file as the body (ruleset version 7 → 8, still 5 rules). Before patching, `/quizzes`
+answered 200 with `Cache-Control: s-maxage=31536000` and no `Set-Cookie`, with and without a session cookie.
+Right after, `bun run cache:check` passed 26/26 (`/quizzes` MISS then HIT, HIT with a session cookie, 32 cached
+responses and none sets a cookie) and `bun run smoke:prod` 8/8.
 
 **Rollback:** `PATCH` the rule back to the expression in "The rule" above. Every deploy still needs
 `bun run cache:purge`, which now also clears `/quizzes`.
