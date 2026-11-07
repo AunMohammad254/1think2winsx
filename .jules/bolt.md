@@ -38,3 +38,7 @@
 ## 2023-11-04 - [Freezing props at call-site for React.memo]
 **Learning:** Wrapped a component (`QuestionReview` and `QuestionRow`) in `React.memo` to prevent re-renders from a parent's `useNow` hook updating every second. However, simply wrapping the component is insufficient if the changing prop (`now`) is still passed down unconditionally. The component will still re-render on every tick because the prop changed, rendering `React.memo` ineffective.
 **Action:** When passing rapidly changing props (like `now` or a timer) to a memoized component, conditionally freeze the prop at the call-site (e.g. `now={drafts.length > 0 ? now : 0}` or `now={question.state === 'open' ? now : 0}`) so that inactive components actually receive static props and avoid re-rendering.
+
+## 2026-11-13 - [Isolating useNow in MatchConsole]
+**Learning:** Found that `useNow` was placed at the root of `MatchConsole`, a complex admin component containing scorecards, quizzes, and forms. This caused the entire component tree to reconcile every second when any question was open.
+**Action:** Extract `useNow` and its dependent logic (like countdowns and conditional rendering based on time) into small, dedicated child components (e.g., `FirstOverWarning` and `MatchQuestions`). This isolates the 1s interval re-renders to only those specific elements, protecting the parent from unnecessary work.

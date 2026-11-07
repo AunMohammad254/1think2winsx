@@ -224,8 +224,6 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
     void load();
   }, [load]);
 
-  const anyOpen = view?.questions.some((q) => q.state === 'open') ?? false;
-  const now = useNow(1000, anyOpen) + skew;
   // Gemini words a quiz after the ball that prepared it: look again until it's done
   const wordingPending = view?.quizzes.some((q) => q.wording === 'pending') ?? false;
   useEffect(() => {
@@ -292,7 +290,6 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
   const nextBatting = [match.teamA, match.teamB].find((team) => team !== view.innings[0]?.battingTeam)!;
   const questions = view.questions.filter((q) => q.innings === current?.innings).sort((a, b) => b.over - a.over);
   const firstOverOpen = current && current.overs.length === 0 && questions.some((q) => q.over === 1 && q.state === 'open');
-  const firstOverLeft = firstOverOpen ? Math.min(...questions.filter((q) => q.over === 1).map((q) => Date.parse(q.closesAt!) - now)) : 0;
   const abandoned = match.status === 'abandoned';
   const canCorrect = !view.settled && !abandoned;
   const reopenCount = view.questions.filter((q) => q.reopenable).length;
@@ -437,11 +434,7 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
 
       {!view.settled && match.status === 'live' && (
         <section aria-label="Record a ball" className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-6">
-          {firstOverOpen && (
-            <p role="status" className="rounded-xl bg-amber-500/10 p-3 text-sm text-amber-200">
-              Over 1&apos;s questions close in {formatClock(firstOverLeft)}. Close them before the first ball is bowled.
-            </p>
-          )}
+          {firstOverOpen && <FirstOverWarning questions={questions} skew={skew} />}
           <DeliveryPad busy={busy} label="" onRecord={(delivery) => send({ type: 'ball', ...delivery })} />
           <p className="text-xs text-gray-400">
             Pick the kind of delivery first if it isn&apos;t a normal ball, then the runs. For a wide or no-ball, the runs are the ones
@@ -543,14 +536,39 @@ export default function MatchConsole({ matchId }: { matchId: string }) {
         <p role="status" className="text-sm text-gray-300">The match has finished. Settle its quiz from Settle Quizzes.</p>
       )}
 
-      {questions.length > 0 && (
-        <section aria-label="Questions" className="space-y-3">
-          <h3 className="font-semibold text-white">Questions this innings</h3>
-          <ul className="space-y-2">
-            {questions.map((question) => <QuestionRow key={question.id} question={question} now={question.state === 'open' ? now : 0} />)}
-          </ul>
-        </section>
-      )}
+      {questions.length > 0 && <MatchQuestions questions={questions} skew={skew} />}
     </div>
+  );
+}
+
+// ⚡ Bolt Performance Optimization:
+// Extracted `FirstOverWarning` to contain `useNow`. This isolates re-renders to only the
+// warning component, shielding the main MatchConsole from ticking every second.
+function FirstOverWarning({ questions, skew }: { questions: Question[], skew: number }) {
+  const anyOpen = questions.some((q) => q.over === 1 && q.state === 'open');
+  const now = useNow(1000, anyOpen) + skew;
+  const firstOverLeft = anyOpen ? Math.min(...questions.filter((q) => q.over === 1).map((q) => Date.parse(q.closesAt!) - now)) : 0;
+
+  return (
+    <p role="status" className="rounded-xl bg-amber-500/10 p-3 text-sm text-amber-200">
+      Over 1&apos;s questions close in {formatClock(firstOverLeft)}. Close them before the first ball is bowled.
+    </p>
+  );
+}
+
+// ⚡ Bolt Performance Optimization:
+// Extracted `MatchQuestions` to contain `useNow`. This isolates re-renders to only the
+// questions section, shielding the main MatchConsole from ticking every second.
+function MatchQuestions({ questions, skew }: { questions: Question[], skew: number }) {
+  const anyOpen = questions.some((q) => q.state === 'open');
+  const now = useNow(1000, anyOpen) + skew;
+
+  return (
+    <section aria-label="Questions" className="space-y-3">
+      <h3 className="font-semibold text-white">Questions this innings</h3>
+      <ul className="space-y-2">
+        {questions.map((question) => <QuestionRow key={question.id} question={question} now={question.state === 'open' ? now : 0} />)}
+      </ul>
+    </section>
   );
 }
