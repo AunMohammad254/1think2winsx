@@ -124,7 +124,7 @@ describe('expense-service: changes', () => {
       { subscriptionId: 'sub-1', title: 'Egress', type: 'charge', amount: 3, currency: 'USD', dueDate: '2026-11-20', category: 'database' },
       'boss@example.test',
     );
-    expect(item.id).toMatch(/^exp-\d+-[a-z0-9]+$/);
+    expect(item.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(JSON.parse(upserted().value).expenses.map((e: { id: string }) => e.id)).toEqual(['e1', item.id]);
   });
 
@@ -132,7 +132,7 @@ describe('expense-service: changes', () => {
     const service = await fresh();
     const { id: _id, createdAt: _c, updatedAt: _u, ...input } = SUB;
     const sub = await service.addSubscription({ ...input, name: 'Brevo' }, 'boss@example.test');
-    expect(sub).toMatchObject({ name: 'Brevo', id: expect.stringMatching(/^sub-/) });
+    expect(sub).toMatchObject({ name: 'Brevo', id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/) });
     expect(sub.createdAt).toBe(sub.updatedAt);
     expect(JSON.parse(upserted().value).subscriptions).toHaveLength(2);
   });
