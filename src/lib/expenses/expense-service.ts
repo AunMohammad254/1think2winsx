@@ -230,7 +230,7 @@ export async function addExpenseItem(
   const data = await getExpenseManagerData();
   const newItem: ExpenseItem = {
     ...item,
-    id: `exp-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    id: `exp-${Date.now()}-${crypto.randomUUID().substring(0, 8)}`,
   };
 
   await commit({ ...data, expenses: [...data.expenses, newItem] }, adminEmail);
@@ -248,7 +248,7 @@ export async function addSubscription(
   const now = new Date().toISOString();
   const newSub: Subscription = {
     ...sub,
-    id: `sub-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    id: `sub-${Date.now()}-${crypto.randomUUID().substring(0, 8)}`,
     createdAt: now,
     updatedAt: now,
   };
