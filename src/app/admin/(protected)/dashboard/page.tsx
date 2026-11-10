@@ -29,6 +29,7 @@ import { requireAdminSession } from '@/lib/admin-session';
 import { getDashboardStats, getRecentActivity } from '@/actions/dashboard-actions';
 import KPICard, { KPICardSkeleton } from '@/components/admin/dashboard/KPICard';
 import RecentActivityFeed, { RecentActivityFeedSkeleton } from '@/components/admin/dashboard/RecentActivityFeed';
+import MaintenanceModeCard from '@/components/admin/MaintenanceModeCard';
 
 // ============================================
 // Auth Check - Validates admin session
@@ -181,6 +182,8 @@ export default async function AdminDashboardPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <MaintenanceModeCard />
+
         {/* KPI Cards */}
         <section className="mb-8">
           <h2 className="text-lg font-semibold text-white mb-4">Overview</h2>
