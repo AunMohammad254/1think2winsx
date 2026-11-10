@@ -124,7 +124,7 @@ describe('expense-service: changes', () => {
       { subscriptionId: 'sub-1', title: 'Egress', type: 'charge', amount: 3, currency: 'USD', dueDate: '2026-11-20', category: 'database' },
       'boss@example.test',
     );
-    expect(item.id).toMatch(/^exp-\d+-[a-z0-9]+$/);
+    expect(item.id).toMatch(/^exp-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/);
     expect(JSON.parse(upserted().value).expenses.map((e: { id: string }) => e.id)).toEqual(['e1', item.id]);
   });
 
