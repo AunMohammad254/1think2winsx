@@ -10,6 +10,7 @@ import { motion } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader2, LogIn } from 'lucide-react';
 import { loginAction, getGoogleOAuthUrl } from '@/actions/auth-actions';
 import TurnstileWidget, { type TurnstileHandle } from './TurnstileWidget';
+import { networkAwareMessage } from '@/lib/network-errors';
 
 const loginSchema = z.object({
     email: z.string().email('Invalid email address'),
@@ -63,7 +64,7 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                 window.location.href = result.redirectTo;
             }
         } catch {
-            setError('An error occurred during login');
+            setError(networkAwareMessage('An error occurred during login'));
         } finally {
             setIsSubmitting(false);
             // The token has been used: start a fresh check for a retry
@@ -84,7 +85,7 @@ export default function LoginForm({ onSwitchToRegister }: LoginFormProps) {
                 setIsGoogleLoading(false);
             }
         } catch {
-            setError('An error occurred during Google sign-in');
+            setError(networkAwareMessage('An error occurred during Google sign-in'));
             setIsGoogleLoading(false);
         }
     };

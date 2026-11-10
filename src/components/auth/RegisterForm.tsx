@@ -21,6 +21,7 @@ import {
 import { registerAction, getGoogleOAuthUrl } from '@/actions/auth-actions';
 import DatePicker from '@/components/ui/DatePicker';
 import TurnstileWidget, { type TurnstileHandle } from './TurnstileWidget';
+import { networkAwareMessage } from '@/lib/network-errors';
 
 const registerSchema = z
     .object({
@@ -137,7 +138,7 @@ export default function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
                 }, 2000);
             }
         } catch {
-            setError('An error occurred during registration');
+            setError(networkAwareMessage('An error occurred during registration'));
         } finally {
             setIsSubmitting(false);
             // The token has been used: start a fresh check for a retry
@@ -158,7 +159,7 @@ export default function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
                 setIsGoogleLoading(false);
             }
         } catch {
-            setError('An error occurred during Google sign-in');
+            setError(networkAwareMessage('An error occurred during Google sign-in'));
             setIsGoogleLoading(false);
         }
     };

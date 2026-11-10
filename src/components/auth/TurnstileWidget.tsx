@@ -1,6 +1,15 @@
 'use client';
 
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import * as Sentry from '@sentry/nextjs';
+import {
+    CLOCK_SKEW_LIMIT_MS,
+    measureClockSkew,
+    turnstileMessage,
+    turnstileProblem,
+    type TurnstileProblem,
+} from '@/lib/network-errors';
 
 // The site key is public; its secret lives only in Supabase's CAPTCHA settings, and Supabase checks
 // every token itself. The fallback is the production widget, so a build without the variable still
@@ -14,7 +23,7 @@ interface TurnstileOptions {
     theme: 'dark';
     callback: (token: string) => void;
     'expired-callback': () => void;
-    'error-callback': () => void;
+    'error-callback': (code?: string) => void;
 }
 
 interface TurnstileApi {
@@ -61,6 +70,11 @@ interface TurnstileWidgetProps {
     onToken(token: string | null): void;
 }
 
+interface Problem {
+    kind: TurnstileProblem;
+    skewMs: number | null;
+}
+
 const TurnstileWidget = forwardRef<TurnstileHandle, TurnstileWidgetProps>(function TurnstileWidget(
     { action, onToken },
     ref
@@ -70,7 +84,15 @@ const TurnstileWidget = forwardRef<TurnstileHandle, TurnstileWidgetProps>(functi
     // The latest callback, without re-rendering the widget when the parent passes a new one
     const onTokenRef = useRef(onToken);
     onTokenRef.current = onToken;
-    const [failed, setFailed] = useState(false);
+    const [problem, setProblem] = useState<Problem | null>(null);
+    // Bumped by "Try again": removes the widget and renders a new one (reloading the script if needed)
+    const [attempt, setAttempt] = useState(0);
+
+    const retry = useCallback(() => {
+        setProblem(null);
+        onTokenRef.current(null);
+        setAttempt((n) => n + 1);
+    }, []);
 
     useImperativeHandle(ref, () => ({
         reset() {
@@ -82,6 +104,27 @@ const TurnstileWidget = forwardRef<TurnstileHandle, TurnstileWidgetProps>(functi
 
     useEffect(() => {
         let cancelled = false;
+
+        const fail = (kind: TurnstileProblem, code?: string) => {
+            onTokenRef.current(null);
+            if (!navigator.onLine) {
+                setProblem({ kind: 'offline', skewMs: null });
+                return;
+            }
+            setProblem({ kind, skewMs: null });
+            if (kind === 'config') {
+                // A broken site key locks everyone out of signing in: make sure we hear about it
+                Sentry.captureMessage(`Turnstile configuration error ${code}`, { level: 'error', tags: { turnstile: code } });
+                return;
+            }
+            // Whatever the code, a clock far off the real time is the thing to fix first
+            void measureClockSkew().then((skewMs) => {
+                if (cancelled || skewMs === null || Math.abs(skewMs) <= CLOCK_SKEW_LIMIT_MS) return;
+                // Only while the check is still failing: a pass in the meantime cleared the problem
+                setProblem((current) => (current ? { kind: 'clock', skewMs } : current));
+            });
+        };
+
         loadTurnstile().then(
             (turnstile) => {
                 if (cancelled) return;
@@ -90,18 +133,15 @@ const TurnstileWidget = forwardRef<TurnstileHandle, TurnstileWidgetProps>(functi
                     action,
                     theme: 'dark',
                     callback: (token) => {
-                        setFailed(false);
+                        setProblem(null);
                         onTokenRef.current(token);
                     },
                     'expired-callback': () => onTokenRef.current(null),
-                    'error-callback': () => {
-                        setFailed(true);
-                        onTokenRef.current(null);
-                    },
+                    'error-callback': (code) => fail(turnstileProblem(code), code),
                 });
             },
             () => {
-                if (!cancelled) setFailed(true);
+                if (!cancelled) fail('blocked');
             }
         );
         return () => {
@@ -111,15 +151,33 @@ const TurnstileWidget = forwardRef<TurnstileHandle, TurnstileWidgetProps>(functi
                 widgetIdRef.current = null;
             }
         };
-    }, [action]);
+    }, [action, attempt]);
+
+    // Offline: start again by itself as soon as the connection is back
+    const offline = problem?.kind === 'offline';
+    useEffect(() => {
+        if (!offline) return;
+        window.addEventListener('online', retry);
+        return () => window.removeEventListener('online', retry);
+    }, [offline, retry]);
 
     return (
         <div>
             <div ref={containerRef} className="flex justify-center min-h-[65px]" data-testid="turnstile" />
-            {failed && (
-                <p role="alert" className="mt-2 text-sm text-red-400 text-center">
-                    The security check couldn&apos;t finish. Check your connection or ad blocker, then reload the page.
-                </p>
+            {problem && (
+                <div role="alert" className="mt-2 text-sm text-red-400 text-center">
+                    <p>{turnstileMessage(problem.kind, problem.skewMs)}</p>
+                    {!offline && (
+                        <button
+                            type="button"
+                            onClick={retry}
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-400/40 px-3 py-1 text-xs font-semibold text-red-300 hover:bg-red-500/10 transition-colors"
+                        >
+                            <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                            Try again
+                        </button>
+                    )}
+                </div>
             )}
         </div>
     );
