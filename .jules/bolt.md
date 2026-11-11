@@ -38,3 +38,6 @@
 ## 2023-11-04 - [Freezing props at call-site for React.memo]
 **Learning:** Wrapped a component (`QuestionReview` and `QuestionRow`) in `React.memo` to prevent re-renders from a parent's `useNow` hook updating every second. However, simply wrapping the component is insufficient if the changing prop (`now`) is still passed down unconditionally. The component will still re-render on every tick because the prop changed, rendering `React.memo` ineffective.
 **Action:** When passing rapidly changing props (like `now` or a timer) to a memoized component, conditionally freeze the prop at the call-site (e.g. `now={drafts.length > 0 ? now : 0}` or `now={question.state === 'open' ? now : 0}`) so that inactive components actually receive static props and avoid re-rendering.
+## 2026-11-11 - [Use `useNow` instead of raw `setInterval` for countdowns]
+**Learning:** Raw `setInterval` in components like `AccessStatusBanner` will needlessly tick and trigger React state updates while the tab is hidden, wasting CPU.
+**Action:** Use the `useNow` hook for continuous time updates instead of `setInterval`, as it listens to `visibilitychange` and stops ticking when the tab is hidden, keeping the time accurate upon returning without the background cost.

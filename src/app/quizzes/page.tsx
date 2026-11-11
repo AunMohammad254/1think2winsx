@@ -26,6 +26,7 @@ import type { LiveMatchCard } from '@/lib/quiz-catalog';
 import { useMatchPush } from '@/hooks/useMatchPush';
 import { computeQuizEndsAt } from '@/lib/quiz-clock';
 import PaymentModal from '@/components/quiz/PaymentModal';
+import { useNow } from '@/hooks/useNow';
 import ConfirmationModal from '@/components/quiz/ConfirmationModal';
 import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
 
@@ -82,34 +83,33 @@ export default function QuizzesPage() {
  * banner, not the whole page (search, filters, quiz grid). `onExpire` must be stable: a new one
  * restarts the countdown.
  */
+// ⚡ Bolt Performance Optimization:
+// Replaced raw `setInterval` with `useNow` hook inside `AccessStatusBanner`.
+// Why: `setInterval` will needlessly tick while the tab is hidden, wasting CPU cycles on unnecessary
+// state updates and React renders. `useNow` pauses when the document is hidden and correctly
+// recalculates upon visibility change, keeping the countdown accurate without the hidden cost.
+// Impact: Saves main thread work when the tab is in the background.
 function AccessStatusBanner({ paymentInfo, onExpire }: { paymentInfo: PaymentInfo; onExpire: () => void }) {
   const [timeRemaining, setTimeRemaining] = useState<string>('');
+  const now = useNow(1000, true);
 
   useEffect(() => {
-    const updateTimer = () => {
-      const now = new Date().getTime();
-      const expiry = new Date(paymentInfo.expiresAt).getTime();
-      const remaining = expiry - now;
+    const expiry = new Date(paymentInfo.expiresAt).getTime();
+    const remaining = expiry - now;
 
-      if (remaining <= 0) {
-        setTimeRemaining('Expired');
-        toast.warning('Your 24-hour access has expired');
-        onExpire();
-        return;
-      }
+    if (remaining <= 0) {
+      setTimeRemaining('Expired');
+      toast.warning('Your 24-hour access has expired');
+      onExpire();
+      return;
+    }
 
-      const hours = Math.floor(remaining / (1000 * 60 * 60));
-      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+    const hours = Math.floor(remaining / (1000 * 60 * 60));
+    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
 
-      setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-
-    return () => clearInterval(interval);
-  }, [paymentInfo, onExpire]);
+    setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`);
+  }, [paymentInfo, onExpire, now]);
 
   return (
     <div className="mb-8 p-4 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-2xl">

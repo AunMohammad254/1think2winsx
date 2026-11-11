@@ -1,0 +1,44 @@
+--- src/app/quizzes/page.tsx
++++ src/app/quizzes/page.tsx
+@@ -21,6 +21,7 @@
+ import { useMatchPush } from '@/hooks/useMatchPush';
+ import { computeQuizEndsAt } from '@/lib/quiz-clock';
+ import PaymentModal from '@/components/quiz/PaymentModal';
++import { useNow } from '@/hooks/useNow';
+ import ConfirmationModal from '@/components/quiz/ConfirmationModal';
+ import InsufficientBalanceModal from '@/components/quiz/InsufficientBalanceModal';
+
+@@ -69,11 +70,16 @@
+  * banner, not the whole page (search, filters, quiz grid). `onExpire` must be stable: a new one
+  * restarts the countdown.
+  */
++// ⚡ Bolt Performance Optimization:
++// Replaced raw `setInterval` with `useNow` hook inside `AccessStatusBanner`.
++// Why: `setInterval` will needlessly tick while the tab is hidden, wasting CPU.
++// `useNow` pauses when the document is hidden and correctly recalculates upon visibility change.
++// Impact: Saves CPU cycles when the tab is in the background while keeping the countdown accurate.
+ function AccessStatusBanner({ paymentInfo, onExpire }: { paymentInfo: PaymentInfo; onExpire: () => void }) {
+   const [timeRemaining, setTimeRemaining] = useState<string>('');
++  const now = useNow(1000, true);
+
+   useEffect(() => {
+-    const updateTimer = () => {
+-      const now = new Date().getTime();
+       const expiry = new Date(paymentInfo.expiresAt).getTime();
+       const remaining = expiry - now;
+
+@@ -87,13 +93,8 @@
+       const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+       const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+       setTimeRemaining(`${hours}h ${minutes}m ${seconds}s`);
+-    };
+-
+-    updateTimer();
+-    const interval = setInterval(updateTimer, 1000);
+-
+-    return () => clearInterval(interval);
+-  }, [paymentInfo, onExpire]);
++  }, [paymentInfo, onExpire, now]);
+
+   return (

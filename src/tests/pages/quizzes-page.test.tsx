@@ -195,7 +195,8 @@ describe('quizzes page: access and payment', () => {
   it('shows the access countdown', async () => {
     // The countdown reads `new Date()`, which the Date.now mock doesn't reach, so the
     // expiry is set from the real clock.
-    const expiresAt = new Date(new Date().valueOf() + 2 * 3600_000 + 5 * 60_000 + 7_000).toISOString();
+    // useNow() respects mocked Date.now(), so we need to set the expiry relative to it.
+    const expiresAt = new Date(Date.now() + 2 * 3600_000 + 5 * 60_000 + 7_000).toISOString();
     h.fetchWithRetry.mockImplementation(async () => ok({ hasAccess: true, paymentInfo: { id: 'p', expiresAt } }));
     render(<QuizzesPage />);
     expect(await screen.findByText('Full Access Active')).toBeInTheDocument();
