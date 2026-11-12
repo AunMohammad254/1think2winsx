@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { unstable_rethrow } from 'next/navigation';
+import { timingSafeEqual } from 'node:crypto';
 import { securityLogger } from './security-logger';
 import { adminSessionDb } from './supabase/db';
 
@@ -39,7 +40,7 @@ export function verifyAdminCredentials(email: string, password: string): boolean
 
     const normalizedEmail = email.trim().toLowerCase();
     const isEmailValid = adminEmails.includes(normalizedEmail);
-    const isPasswordValid = password === adminPassword;
+    const isPasswordValid = password.length === adminPassword.length && timingSafeEqual(Buffer.from(password), Buffer.from(adminPassword));
 
     return isEmailValid && isPasswordValid;
 }
