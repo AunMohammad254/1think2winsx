@@ -83,15 +83,15 @@ test.describe('Landing Page Navigation - Desktop', () => {
     
     // Scroll down instantly so we don't wait for smooth scroll animation
     await page.evaluate(() => window.scrollTo({ top: 1500, behavior: 'instant' }));
-    await page.waitForTimeout(1000); // Wait for scroll event
-    
-    // Should have updated
-    const scaleValue = await page.evaluate(() => {
+
+    // Should have updated. Polled, not read after a fixed second: with two tests running at once
+    // the scroll handler sometimes took longer than that.
+    const readScale = () => page.evaluate(() => {
       const bar = document.querySelector('div[aria-hidden="true"].bg-gradient-to-r') as HTMLElement;
       return bar?.style.transform || '';
     });
-    expect(scaleValue).not.toEqual(initialTransform);
-    expect(scaleValue).not.toEqual('scaleX(0)');
+    await expect.poll(readScale, { timeout: 10000 }).not.toEqual(initialTransform);
+    expect(await readScale()).not.toEqual('scaleX(0)');
   });
 
   test('scrolling manually updates active nav button', async ({ page }) => {
