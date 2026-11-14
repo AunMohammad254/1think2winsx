@@ -73,8 +73,9 @@ export function HeroCTA() {
  * are delivered after a claim.
  *
  * The page's HTML is cached for every visitor, so it can't carry the switch: it is read in the browser
- * from the public snapshot the page loads anyway (/api/live, cached at Cloudflare), and no extra request
- * reaches Hostinger. The words live in this client component, not in the page, so they are not even in
+ * from the public snapshot (/api/live), shared with the quiz and CTA sections further down. The hero
+ * asks for it as the page loads; Cloudflare caches that URL for 5 s, so Hostinger still sees about one
+ * request per Cloudflare location per 5 s, however many visitors arrive. The words live in this client component, not in the page, so they are not even in
  * the HTML while the wallet is off. Until the snapshot arrives, and when it can't be loaded, nothing shows.
  */
 export function WalletPaymentNote() {
