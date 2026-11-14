@@ -26,6 +26,9 @@ vi.mock('@/components/profile', async (importOriginal) => ({
   ChangePasswordModal: ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => (isOpen ? <div>password dialog<button onClick={onClose}>close password</button></div> : null),
   SignInMethodBadge: () => null,
 }));
+vi.mock('@/components/reviews/ReviewModal', () => ({
+  default: ({ open, onClose }: { open: boolean; onClose: () => void }) => (open ? <div>review dialog<button onClick={onClose}>close review</button></div> : null),
+}));
 
 import ProfilePage from '@/app/profile/page';
 
@@ -154,6 +157,14 @@ describe('profile page', () => {
     expect(screen.getByText('password dialog')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'close password' }));
     expect(screen.queryByText('password dialog')).toBeNull();
+  });
+
+  it('opens the Review modal from quick actions', () => {
+    render(<ProfilePage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    expect(screen.getByText('review dialog')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'close review' }));
+    expect(screen.queryByText('review dialog')).toBeNull();
   });
 
   it('uploads a new profile picture', async () => {

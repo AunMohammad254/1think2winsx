@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createSupabaseMock, argOf, eqValue, type SupabaseMock, type MockResult } from '@/tests/helpers/supabase-mock';
+import { createSupabaseMock, argOf, eqValue, type SupabaseMock, type MockResult, type QueryCall } from '@/tests/helpers/supabase-mock';
 
 let db: SupabaseMock;
 let adminDb: SupabaseMock;
@@ -403,7 +403,11 @@ describe('notification.db push delivery', () => {
     await expect(notificationDb.create('u', { title: 't', message: 'm', type: 'x' })).rejects.toEqual({ message: 'insert failed' });
   });
 
+  // These two run the old path: the database has no broadcast_create yet (before migration 20261113120000)
+  const legacyDatabase = () => adminDb.setRpc('broadcast_create', { error: { code: 'PGRST202', message: 'Could not find the function' } });
+
   it('createBroadcast inserts for every user in chunks of 500 and pushes in batches of 50', async () => {
+    legacyDatabase();
     const users = Array.from({ length: 1200 }, (_, i) => ({ id: `u${String(i).padStart(4, '0')}` }));
     const subs = Array.from({ length: 120 }, (_, i) => sub(`s${String(i).padStart(3, '0')}`));
     adminDb.setTable('User', [{ data: users.slice(0, 1000) }, { data: users.slice(1000) }, { data: [] }]);
@@ -420,6 +424,7 @@ describe('notification.db push delivery', () => {
   });
 
   it('createBroadcast stops for no users, throws on insert errors, and survives a failed subscription read', async () => {
+    legacyDatabase();
     adminDb.setTable('User', { data: [] });
     await notificationDb.createBroadcast({ title: 't', message: 'm', type: 'x' });
     expect(adminDb.callsTo('Notification')).toHaveLength(0);
@@ -434,6 +439,157 @@ describe('notification.db push delivery', () => {
     await notificationDb.createBroadcast({ title: 't', message: 'm', type: 'x', link: '/x' });
     expect(console.error).toHaveBeenCalledWith('[Web Push] Failed to load push subscriptions for broadcast:', { message: 'cannot read' });
     expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  describe('createBroadcast as a job (migration 20261113120000)', () => {
+    const subs = (from: number, n: number) => Array.from({ length: n }, (_, i) => sub(`s${String(from + i).padStart(5, '0')}`));
+    const claimed = (over: Record<string, unknown> = {}) =>
+      ({ id: 'b1', token: 't1', status: 'inserting', title: 'Live now', message: 'Go', type: 'quiz_live', link: '/quizzes?openQuiz=q', pushCursor: null, ...over });
+    /** broadcast_claim answers these in turn, then nothing is due */
+    const claims = (...rows: unknown[]) => {
+      let i = 0;
+      adminDb.setRpc('broadcast_claim', () => ({ data: rows[i++] ?? null }));
+    };
+    const rpcNames = () => adminDb.rpcCalls.map((c) => c.fn);
+    const afterId = (call: QueryCall) => (call.ops.find((o) => o.op === 'gt')?.args[1] ?? null);
+    const limitOf = (call: QueryCall) => argOf(call, 'limit');
+    afterEach(() => {
+      delete process.env.BROADCAST_PUSH_WAVE;
+      delete process.env.BROADCAST_WAVE_SECONDS;
+      delete process.env.FANOUT_V2;
+    });
+
+    it('writes one job and returns at once; the notices go in 5,000 at a time, then one wave of pushes', async () => {
+      adminDb.setRpc('broadcast_create', { data: { success: true, id: 'b1', duplicate: false } });
+      claims(claimed());
+      let step = 0;
+      adminDb.setRpc('broadcast_insert_users', () => ({ data: [{ success: true, inserted: 5000, done: false }, { success: true, inserted: 1200, done: true }][step++] }));
+      adminDb.setRpc('broadcast_wave_done', { data: { success: true } });
+      adminDb.setTable('PushSubscription', { data: subs(0, 120) });
+
+      expect(await notificationDb.createBroadcast({ title: 'Live now', message: 'Go', type: 'quiz_live', link: '/quizzes?openQuiz=q' }))
+        .toEqual({ id: 'b1', duplicate: false, queued: true });
+      expect(adminDb.rpcCalls[0]).toEqual({ fn: 'broadcast_create', args: { p_title: 'Live now', p_message: 'Go', p_type: 'quiz_live', p_link: '/quizzes?openQuiz=q' } });
+      for (let i = 0; i < 6; i++) await flush();
+
+      expect(rpcNames()).toEqual(['broadcast_create', 'broadcast_claim', 'broadcast_insert_users', 'broadcast_insert_users', 'broadcast_wave_done', 'broadcast_claim']);
+      expect(adminDb.rpcCalls[2].args).toEqual({ p_id: 'b1', p_limit: 5000 });
+      // Nothing is read into the web process: the database adds the notices itself
+      expect(adminDb.callsTo('User')).toHaveLength(0);
+      expect(adminDb.callsTo('Notification')).toHaveLength(0);
+      expect(sendNotification).toHaveBeenCalledTimes(120);
+      expect(JSON.parse(sendNotification.mock.calls[0][1])).toMatchObject({ title: 'Live now', body: 'Go', url: '/quizzes?openQuiz=q', tag: 'quiz_live', renotify: true });
+      expect(adminDb.rpcCalls[4].args).toEqual({ p_id: 'b1', p_token: 't1', p_cursor: 's00119', p_sent: 120, p_last: true, p_next_wave_seconds: 60 });
+      expect(loggerLog).toHaveBeenCalledWith('[Broadcast] b1: 120 pushes in this wave, all sent');
+    });
+
+    it('refuses the same broadcast within 15 minutes, and sends nothing for it', async () => {
+      adminDb.setRpc('broadcast_create', { data: { success: true, id: 'b1', duplicate: true } });
+      expect(await notificationDb.createBroadcast({ title: 'Live now', message: 'Go', type: 'quiz_live' })).toEqual({ id: 'b1', duplicate: true, queued: true });
+      await flush();
+      expect(rpcNames()).toEqual(['broadcast_create']);
+      expect(adminDb.rpcCalls[0].args.p_link).toBeNull();
+      expect(loggerLog).toHaveBeenCalledWith('[Broadcast] "Live now" was already sent in the last 15 minutes (b1): not sent again');
+    });
+
+    it('throws when the database refuses or fails, and keeps the request alive when sending fails later', async () => {
+      adminDb.setRpc('broadcast_create', { data: { success: false, error: 'A broadcast needs a title, a message and a type' } });
+      await expect(notificationDb.createBroadcast({ title: ' ', message: 'm', type: 'x' })).rejects.toThrow('A broadcast needs a title');
+      adminDb.setRpc('broadcast_create', { data: null });
+      await expect(notificationDb.createBroadcast({ title: 't', message: 'm', type: 'x' })).rejects.toThrow('The broadcast was refused');
+      adminDb.setRpc('broadcast_create', { error: { code: '57014', message: 'canceling statement' } });
+      await expect(notificationDb.createBroadcast({ title: 't', message: 'm', type: 'x' })).rejects.toEqual({ code: '57014', message: 'canceling statement' });
+
+      adminDb.setRpc('broadcast_create', { data: { success: true, id: 'b2', duplicate: false } });
+      adminDb.setRpc('broadcast_claim', { error: { code: '08006', message: 'connection lost' } });
+      expect((await notificationDb.createBroadcast({ title: 't', message: 'm', type: 'x' })).queued).toBe(true);
+      await flush();
+      await flush();
+      expect(console.error).toHaveBeenCalledWith('[Broadcast] Sending stopped; the minute cron resumes it:', { code: '08006', message: 'connection lost' });
+    });
+
+    it('does the whole job in the request with FANOUT_V2=false', async () => {
+      process.env.FANOUT_V2 = 'false';
+      adminDb.setTable('User', [{ data: [{ id: 'u1' }] }, { data: [] }]);
+      adminDb.setTable('Notification', { error: null });
+      adminDb.setTable('PushSubscription', { data: [] });
+      expect(await notificationDb.createBroadcast({ title: 't', message: 'm', type: 'x' })).toEqual({ id: null, duplicate: false, queued: false });
+      expect(rpcNames()).toEqual([]);
+      expect(adminDb.callsTo('Notification', 'insert')).toHaveLength(1);
+    });
+
+    it('pushes in waves of BROADCAST_PUSH_WAVE from the cursor, pages of 1,000, and finishes on a short page', async () => {
+      process.env.BROADCAST_PUSH_WAVE = '1500';
+      process.env.BROADCAST_WAVE_SECONDS = '30';
+      // Without a link a push opens the notifications page
+      claims(claimed({ status: 'pushing', pushCursor: 's00099', link: null }), claimed({ status: 'pushing', pushCursor: 's01599', token: 't2', link: null }));
+      adminDb.setRpc('broadcast_wave_done', { data: { success: true } });
+      let page = 0;
+      adminDb.setTable('PushSubscription', () => ({ data: [subs(100, 1000), subs(1100, 500), subs(1600, 7)][page++] }));
+
+      expect(await notificationDb.advanceBroadcasts()).toEqual({ broadcasts: ['b1', 'b1'], inserted: 0, pushed: 1507 });
+      const reads = adminDb.callsTo('PushSubscription');
+      expect(reads.map(afterId)).toEqual(['s00099', 's01099', 's01599']);
+      expect(reads.map(limitOf)).toEqual([1000, 500, 1000]);
+      const waves = adminDb.rpcCalls.filter((c) => c.fn === 'broadcast_wave_done').map((c) => c.args);
+      expect(waves).toEqual([
+        { p_id: 'b1', p_token: 't1', p_cursor: 's01599', p_sent: 1500, p_last: false, p_next_wave_seconds: 30 },
+        { p_id: 'b1', p_token: 't2', p_cursor: 's01606', p_sent: 7, p_last: true, p_next_wave_seconds: 30 },
+      ]);
+      expect(loggerLog).toHaveBeenCalledWith('[Broadcast] b1: 1500 pushes in this wave');
+      expect(JSON.parse(sendNotification.mock.calls[0][1]).url).toBe('/notifications');
+    });
+
+    it('ends a broadcast with no devices left, keeping its cursor, and reads defaults from bad settings', async () => {
+      process.env.BROADCAST_PUSH_WAVE = 'many';
+      claims(claimed({ status: 'pushing', pushCursor: 's00005' }));
+      adminDb.setRpc('broadcast_wave_done', { data: { success: true } });
+      adminDb.setTable('PushSubscription', { data: null });
+      expect(await notificationDb.advanceBroadcasts()).toEqual({ broadcasts: ['b1'], inserted: 0, pushed: 0 });
+      expect(limitOf(adminDb.callsTo('PushSubscription')[0])).toBe(1000);
+      expect(adminDb.rpcCalls.find((c) => c.fn === 'broadcast_wave_done')!.args).toMatchObject({ p_cursor: 's00005', p_sent: 0, p_last: true });
+      expect(sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('stops quietly before the migration, and throws what the database refuses', async () => {
+      adminDb.setRpc('broadcast_claim', { error: { code: 'PGRST202', message: 'Could not find the function' } });
+      expect(await notificationDb.advanceBroadcasts()).toEqual({ broadcasts: [], inserted: 0, pushed: 0 });
+
+      claims(claimed());
+      adminDb.setRpc('broadcast_insert_users', { error: { code: '57014', message: 'canceling statement' } });
+      await expect(notificationDb.advanceBroadcasts()).rejects.toEqual({ code: '57014', message: 'canceling statement' });
+      claims(claimed());
+      adminDb.setRpc('broadcast_insert_users', { data: { success: false, code: 'not_found' } });
+      await expect(notificationDb.advanceBroadcasts()).rejects.toThrow('Broadcast b1 could not add its notices');
+      claims(claimed());
+      adminDb.setRpc('broadcast_insert_users', { data: { success: true, done: true } });
+      adminDb.setTable('PushSubscription', { error: { message: 'cannot read' } });
+      await expect(notificationDb.advanceBroadcasts()).rejects.toEqual({ message: 'cannot read' });
+      claims(claimed({ status: 'pushing' }));
+      adminDb.setTable('PushSubscription', { data: [] });
+      adminDb.setRpc('broadcast_wave_done', { error: { message: 'lost' } });
+      await expect(notificationDb.advanceBroadcasts()).rejects.toEqual({ message: 'lost' });
+      // No wave was recorded for any of them: each lease runs out and the next run starts where it stopped
+    });
+
+    it('hands a broadcast back when its time runs out mid-insert, so the next run carries on at once', async () => {
+      let now = 1_000_000;
+      vi.spyOn(Date, 'now').mockImplementation(() => now);
+      claims(claimed());
+      adminDb.setRpc('broadcast_insert_users', () => {
+        now += 30_000;
+        return { data: { success: true, inserted: 5000, done: false } };
+      });
+      expect(await notificationDb.advanceBroadcasts({ budgetMs: 40_000 })).toEqual({ broadcasts: ['b1'], inserted: 10000, pushed: 0 });
+      expect(rpcNames()).toEqual(['broadcast_claim', 'broadcast_insert_users', 'broadcast_insert_users', 'broadcast_release']);
+      expect(adminDb.rpcCalls.at(-1)!.args).toEqual({ p_id: 'b1', p_token: 't1' });
+      expect(sendNotification).not.toHaveBeenCalled();
+    });
+
+    it('does nothing with no time to spend', async () => {
+      expect(await notificationDb.advanceBroadcasts({ budgetMs: 0 })).toEqual({ broadcasts: [], inserted: 0, pushed: 0 });
+      expect(rpcNames()).toEqual([]);
+    });
   });
 
   it('createBatchForUsers looks subscriptions up 120 users at a time', async () => {
@@ -554,7 +710,7 @@ describe('notification.db VAPID setup', () => {
     vi.resetModules();
     setVapidDetails.mockClear();
     await import('@/lib/supabase/db-modules/notification.db');
-    expect(setVapidDetails).toHaveBeenCalledWith('mailto:contact@1think2win.com', 'pub', 'priv');
+    expect(setVapidDetails).toHaveBeenCalledWith('mailto:1think2wins@gmail.com', 'pub', 'priv');
 
     vi.stubEnv('VAPID_PRIVATE_KEY', '');
     vi.resetModules();

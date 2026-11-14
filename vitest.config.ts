@@ -11,11 +11,6 @@ export default defineConfig({
         // load-test/ tooling tests run here too, but stay outside the coverage gate below
         include: ['src/**/*.{test,spec}.{ts,tsx}', 'load-test/**/*.test.ts'],
         exclude: ['node_modules', '.next', 'dist'],
-        // @ts-expect-error - Vitest types mismatch in Next.js build
-        environmentMatchGlobs: [
-            // CI pipeline tests run in Node (they use `fs`, no DOM needed)
-            ['src/tests/ci/**', 'node'],
-        ],
         // In CI, also output JUnit XML for GitHub Actions test reporting
         reporters: process.env.CI
             ? ['verbose', ['junit', { outputFile: 'test-results/junit.xml' }]]

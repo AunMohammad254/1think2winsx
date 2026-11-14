@@ -4,8 +4,8 @@ import path from 'path';
 import { describe, it, expect } from 'vitest';
 import {
   buildIdOf, cloudflareCredentials, decidePurge, parsePageCacheArgs, purgeEverything, rscSearchParam, runPageCacheChecks,
-  AD_LANDING, CACHED_PAGES, FAVICON_PATH, LEADERBOARD_PATH, MANIFEST_CACHE_CONTROL, MANIFEST_PATH, MIXED_LANDING, ORIGIN_PROBE, PAGE_CACHE_CONTROL,
-  PREFETCH_HEADERS, SHARED_PAGES, UNCACHED_PATHS, type PageCacheOptions,
+  AD_LANDING, CACHED_PAGES, FAVICON_PATH, LEADERBOARD_PATH, MANIFEST_CACHE_CONTROL, MANIFEST_PATH, MIXED_LANDING, MIXED_PUSH_LINK, ORIGIN_PROBE,
+  PAGE_CACHE_CONTROL, PREFETCH_HEADERS, PUSH_LINK, SHARED_PAGES, UNCACHED_PATHS, type PageCacheOptions,
 } from './page-cache-checks';
 import type { CheckResult, Fetcher, Probe } from './smoke-checks';
 
@@ -57,6 +57,9 @@ const CACHED_SITE: Record<string, Route | Route[]> = {
   // The rewrite drops the tracking parameters, so the landing gets the cached `/` (already a HIT)
   [`${BASE}${AD_LANDING}`]: page('HIT'),
   [`${BASE}${MIXED_LANDING}`]: page('DYNAMIC'),
+  // The second rewrite drops openQuiz, so a notification's link gets the cached /quizzes
+  [`${BASE}${PUSH_LINK}`]: page('HIT'),
+  [`${BASE}${MIXED_PUSH_LINK}`]: page('DYNAMIC'),
 };
 
 // Production on 2026-10-21, before the rules: the same pages and files, every one DYNAMIC
@@ -73,6 +76,7 @@ const UNCACHED_SITE: Record<string, Route | Route[]> = {
   [`${BASE}${LEADERBOARD_PATH}`]: board('DYNAMIC'),
   [`${BASE}${MANIFEST_PATH}`]: manifest('DYNAMIC'),
   [`${BASE}${AD_LANDING}`]: page('DYNAMIC'),
+  [`${BASE}${PUSH_LINK}`]: page('DYNAMIC'),
 };
 
 /** A fake site keyed by URL, plus " [rsc]" / " [cookie]" when those headers are sent (a list answers in turn). */
@@ -201,6 +205,21 @@ describe('the rules for shared JSON and ad landings (deploy/cloudflare-*-rule.js
     expect(names).not.toContain(ORIGIN_PROBE.slice(2).split('=')[0]);
     expect(rule.action_parameters).toEqual({ uri: { query: { value: '' } } });
   });
+
+  it("drops a query string on /quizzes only when it holds nothing but the page's own link parameters and tracking ones", () => {
+    const namesIn = (file: string) => {
+      const list = /all\(http\.request\.uri\.args\.names\[\*\] in \{([^}]*)\}\)/.exec(read(file).expression)?.[1] ?? '';
+      return [...list.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+    };
+    const rule = read('cloudflare-quizzes-query-rewrite-rule.json');
+    expect(rule.expression).toContain('http.request.uri.path eq "/quizzes"');
+    expect(rule.expression).toContain('http.request.uri.query ne ""');
+    // What src/app/quizzes/page.tsx reads from the address, and the tracking names of the other rewrite
+    expect(namesIn('cloudflare-quizzes-query-rewrite-rule.json').sort())
+      .toEqual(['openQuiz', 'upcoming', ...namesIn('cloudflare-tracking-query-rewrite-rule.json')].sort());
+    for (const name of new URLSearchParams(PUSH_LINK.split('?')[1]).keys()) expect(namesIn('cloudflare-quizzes-query-rewrite-rule.json')).toContain(name);
+    expect(rule.action_parameters).toEqual({ uri: { query: { value: '' } } });
+  });
 });
 
 describe('runPageCacheChecks', () => {
@@ -225,12 +244,14 @@ describe('runPageCacheChecks', () => {
       'pass 200 GET /manifest.json (twice)',
       `pass 200 GET ${AD_LANDING} (ad landing, twice)`,
       `pass 200 GET ${MIXED_LANDING}`,
+      `pass 200 GET ${PUSH_LINK} (notification link, twice)`,
+      `pass 200 GET ${MIXED_PUSH_LINK}`,
       'pass null No cached response sets a cookie',
     ]);
     expect(byName(results, 'GET /faq (twice)').detail).toBe(`MISS then cf-cache-status=HIT, build=${BUILD}`);
     expect(byName(results, 'GET /images/sports/cricket-128.avif (twice)').detail).toBe('MISS then cf-cache-status=HIT');
-    expect(byName(results, 'No cached response sets a cookie').detail).toBe('18 cached responses');
-    expect(calls).toHaveLength(40);
+    expect(byName(results, 'No cached response sets a cookie').detail).toBe('20 cached responses');
+    expect(calls).toHaveLength(43);
     expect(maxInFlight()).toBe(1);
     expect(calls.filter((c) => new Headers(c.init.headers).has('cookie')).map((c) => c.url)).toEqual([`${BASE}/faq`, `${BASE}/quizzes`]);
   });
@@ -247,6 +268,7 @@ describe('runPageCacheChecks', () => {
       'GET /api/leaderboard (twice)',
       'GET /manifest.json (twice)',
       `GET ${AD_LANDING} (ad landing, twice)`,
+      `GET ${PUSH_LINK} (notification link, twice)`,
     ]);
     expect(byName(results, 'GET / (twice)').problems).toEqual([
       'cf-cache-status is DYNAMIC, expected HIT/EXPIRED/REVALIDATED/UPDATING on a repeat request',
@@ -349,8 +371,9 @@ describe('runPageCacheChecks', () => {
     const { results } = await run({
       [`${BASE}${AD_LANDING}`]: page('HIT', OLD_BUILD),
       [`${BASE}${MIXED_LANDING}`]: page('HIT'),
+      [`${BASE}${MIXED_PUSH_LINK}`]: page('HIT'),
     });
-    expect(failures(results)).toEqual([`GET ${AD_LANDING} (ad landing, twice)`, `GET ${MIXED_LANDING}`]);
+    expect(failures(results)).toEqual([`GET ${AD_LANDING} (ad landing, twice)`, `GET ${MIXED_LANDING}`, `GET ${MIXED_PUSH_LINK}`]);
     expect(byName(results, `GET ${MIXED_LANDING}`).problems).toEqual([
       'cf-cache-status is HIT, expected DYNAMIC/BYPASS: the page cache must not answer this',
     ]);

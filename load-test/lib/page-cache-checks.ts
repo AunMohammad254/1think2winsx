@@ -53,6 +53,13 @@ export const FAVICON_PATH = '/favicon.ico';
 export const AD_LANDING = '/?utm_source=cache-check&utm_medium=test';
 /** One parameter that isn't tracking keeps the whole query string, so this one reaches Hostinger. */
 export const MIXED_LANDING = '/?ref=cache-check&utm_source=cache-check';
+/**
+ * The link of a "Live now" notice. The second rewrite (deploy/cloudflare-quizzes-query-rewrite-rule.json) drops
+ * the quizzes page's own link parameters, so a crowd tapping the notice gets the cached page.
+ */
+export const PUSH_LINK = '/quizzes?openQuiz=cache-check';
+/** Any other parameter keeps the whole query string there too, so this one reaches Hostinger. */
+export const MIXED_PUSH_LINK = '/quizzes?openQuiz=cache-check&ref=cache-check';
 
 export interface PageCacheOptions {
   baseUrl: string;
@@ -372,6 +379,9 @@ export async function runPageCacheChecks(
   const firstLanding = await get(`${base}${AD_LANDING}`);
   add(checkCachedTwice(`GET ${AD_LANDING} (ad landing, twice)`, firstLanding, await get(`${base}${AD_LANDING}`), 'text/html', originBuild));
   add(checkNotCached(`GET ${MIXED_LANDING}`, await get(`${base}${MIXED_LANDING}`), 200, 'text/html'));
+  const firstPush = await get(`${base}${PUSH_LINK}`);
+  add(checkCachedTwice(`GET ${PUSH_LINK} (notification link, twice)`, firstPush, await get(`${base}${PUSH_LINK}`), 'text/html', originBuild));
+  add(checkNotCached(`GET ${MIXED_PUSH_LINK}`, await get(`${base}${MIXED_PUSH_LINK}`), 200, 'text/html'));
   add(checkNoCachedCookies(responses));
   return results;
 }

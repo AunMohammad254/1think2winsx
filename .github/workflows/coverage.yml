@@ -1,14 +1,18 @@
 name: 📈 Coverage Reports
 
+# Not on pull requests: the unit job in tests.yml is the one coverage run there (results, the 100%
+# gate and the coverage comment). This workflow keeps the badge and the published report current.
 on:
   push:
-    branches: [main, master]
-  pull_request:
     branches: [main, master]
   schedule:
     # Run every day at 02:00 UTC
     - cron: '0 2 * * *'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   BUN_VERSION: '1.x'
@@ -57,29 +61,6 @@ jobs:
         env:
           CI: true
 
-      - name: Generate HTML coverage report
-        run: |
-          echo "Coverage report generated in coverage/ directory"
-          ls -la coverage/ || echo "No coverage directory found"
-
-      - name: Coverage summary
-        run: |
-          if [ -f coverage/coverage-summary.json ]; then
-            echo "## 📈 Coverage Summary" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```json' >> $GITHUB_STEP_SUMMARY
-            cat coverage/coverage-summary.json | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          total = data.get('total', {})
-          print(f\"Lines:      {total.get('lines', {}).get('pct', 0):.1f}%\")
-          print(f\"Statements: {total.get('statements', {}).get('pct', 0):.1f}%\")
-          print(f\"Functions:  {total.get('functions', {}).get('pct', 0):.1f}%\")
-          print(f\"Branches:   {total.get('branches', {}).get('pct', 0):.1f}%\")
-          " 2>/dev/null || echo "Coverage data not available"
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-
       - name: Upload coverage HTML report
         uses: actions/upload-artifact@v4
         with:
@@ -98,43 +79,10 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+      # The same gate as the unit job in tests.yml: 100% on lines, statements, functions and
+      # branches, naming the files that fall short. It also writes the job summary.
       - name: Check coverage thresholds
-        run: |
-          if [ -f coverage/coverage-summary.json ]; then
-            python3 << 'EOF'
-          import json, sys
-
-          with open('coverage/coverage-summary.json') as f:
-              data = json.load(f)
-
-          total = data.get('total', {})
-          # Every line, statement, function and branch is covered, so any new gap fails CI.
-          thresholds = {
-              'lines': 100,
-              'statements': 100,
-              'functions': 100,
-              'branches': 100,
-          }
-
-          failed = False
-          print("Coverage Threshold Check:")
-          print("=" * 40)
-          for metric, threshold in thresholds.items():
-              actual = total.get(metric, {}).get('pct', 0)
-              status = '✅' if actual >= threshold else '❌'
-              print(f"{status} {metric.capitalize()}: {actual:.1f}% (threshold: {threshold}%)")
-              if actual < threshold:
-                  failed = True
-
-          if failed:
-              print("\n❌ Coverage thresholds not met!")
-              sys.exit(1)
-          else:
-              print("\n✅ All coverage thresholds passed!")
-          EOF
-          else
-            echo "No coverage summary found, skipping threshold check"
-          fi
+        run: node .github/ci/coverage-gate.mjs
 
   # ──────────────────────────────────────────────
   # Job 2: Generate Coverage Badge
@@ -238,65 +186,3 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
         continue-on-error: true
-
-  # ──────────────────────────────────────────────
-  # Job 4: PR Coverage Comment
-  # ──────────────────────────────────────────────
-  pr-coverage-comment:
-    name: 💬 PR Coverage Comment
-    runs-on: ubuntu-latest
-    needs: generate-coverage
-    if: github.event_name == 'pull_request'
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Download coverage report
-        uses: actions/download-artifact@v4
-        with:
-          name: html-coverage-report
-          path: coverage/
-
-      - name: Generate coverage comment
-        id: coverage-comment
-        run: |
-          if [ -f coverage/coverage-summary.json ]; then
-            COMMENT=$(python3 << 'EOF'
-          import json
-
-          with open('coverage/coverage-summary.json') as f:
-              data = json.load(f)
-
-          total = data.get('total', {})
-          lines = total.get('lines', {}).get('pct', 0)
-          stmts = total.get('statements', {}).get('pct', 0)
-          funcs = total.get('functions', {}).get('pct', 0)
-          branches = total.get('branches', {}).get('pct', 0)
-
-          def emoji(pct):
-              if pct >= 90: return '🟢'
-              if pct >= 70: return '🟡'
-              return '🔴'
-
-          print(f"""## 📈 Coverage Report
-
-          | Metric | Coverage | Status |
-          |--------|----------|--------|
-          | Lines | {lines:.1f}% | {emoji(lines)} |
-          | Statements | {stmts:.1f}% | {emoji(stmts)} |
-          | Functions | {funcs:.1f}% | {emoji(funcs)} |
-          | Branches | {branches:.1f}% | {emoji(branches)} |
-
-          > 🟢 ≥90% | 🟡 ≥70% | 🔴 <70%""")
-          EOF
-          )
-            echo "comment<<EOF" >> $GITHUB_OUTPUT
-            echo "$COMMENT" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Post PR comment
-        if: steps.coverage-comment.outputs.comment != ''
-        uses: marocchino/sticky-pull-request-comment@v2
-        with:
-          header: coverage-report
-          message: ${{ steps.coverage-comment.outputs.comment }}

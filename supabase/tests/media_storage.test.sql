@@ -5,6 +5,8 @@
 --     -f supabase/tests/storage-shim.sql -f supabase/migrations/20261018150000_media_storage.sql
 --     -f supabase/tests/media_storage.test.sql
 --   docker stop t2w-media-test
+-- Or, with Docker running: bash .github/ci/storage-sql-tests.sh (these steps and the receipts test,
+-- in a container it starts and removes). CI runs that script in the db-tests job.
 \set ON_ERROR_STOP on
 \set A '11111111-1111-1111-1111-111111111111'
 \set B '22222222-2222-2222-2222-222222222222'

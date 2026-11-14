@@ -160,7 +160,7 @@ describe('LiveQuizPush: answering', () => {
     // No answering window: nothing caps the retries
     expect(opts).toEqual({ retries: 6, retryOn: [502, 503, 504, 520, 521, 522, 523, 524], giveUpAt: undefined });
     expect(init.keepalive).toBe(false);
-    expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
+    expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.');
     expect(onAnswered).toHaveBeenCalledWith('q1');
     // Locked in: the answers are final, and every option says so
     for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
@@ -549,7 +549,7 @@ describe('LiveQuizPush: loading and submitting', () => {
     expect(localStorage.getItem('1t2w_sub_q1')).toBeNull();
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.'));
     expect(localStorage.getItem('1t2w_sub_q1')).toBe('1');
     // A new push of it starts afresh
     act(() => ref.current!.notify('q1', 'Live Cricket'));
@@ -572,7 +572,7 @@ describe('LiveQuizPush: loading and submitting', () => {
     fireEvent.click(option('2009'));
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answer counts.'));
     expect(JSON.parse(h.fetchWithRetry.mock.calls.at(-1)![1].body)).toEqual({ answers: [{ questionId: 'b', selectedOption: 1 }] });
   });
 
@@ -594,7 +594,7 @@ describe('LiveQuizPush: loading and submitting', () => {
       fireEvent.click(option('2009'));
       h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ ok: true }));
       fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
-      await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
+      await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.'));
     } finally {
       vi.mocked(Storage.prototype.getItem).mockRestore();
       vi.mocked(Storage.prototype.setItem).mockRestore();
@@ -698,7 +698,7 @@ describe('LiveQuizPush: loading and submitting', () => {
   it.each([
     { ending: 'is refused', settle: (r: Settle) => r.resolve(new Response('x', { status: 500 })), toast: 'error' as const, message: 'Failed to submit' },
     { ending: 'loses its connection', settle: (r: Settle) => r.reject(new Error('network down')), toast: 'error' as const, message: 'network down' },
-    { ending: 'is saved', settle: (r: Settle) => r.resolve(jsonResponse({ ok: true })), toast: 'success' as const, message: 'Answer locked in!' },
+    { ending: 'is saved', settle: (r: Settle) => r.resolve(jsonResponse({ ok: true })), toast: 'success' as const, message: 'Locked in. Your answers count.' },
   ])('a lock-in still on its way when its quiz makes way for the next one leaves that one alone when it $ending', async ({ settle, toast, message }) => {
     setup();
     act(() => ref.current!.open('q1'));
@@ -820,12 +820,12 @@ describe('LiveQuizPush: lock-ins through the edge Worker', () => {
   }
   const lockIn = () => fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
 
-  it('counts a 202 (taken into the queue, saved shortly) as locked in, and says the answer was received', async () => {
+  it('counts a 202 (taken into the queue, saved shortly) as locked in, and words it the same as a 200', async () => {
     const onAnswered = await answerBoth();
     h.fetchWithRetry.mockResolvedValueOnce(received());
     lockIn();
-    expect(await screen.findByText('Answer received — waiting for results')).toBeInTheDocument();
-    expect(h.toast.success).toHaveBeenCalledWith('Answer received');
+    expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
+    expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.');
     expect(onAnswered).toHaveBeenCalledWith('q1');
     for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Lock in answer' })).toBeNull();
@@ -834,7 +834,7 @@ describe('LiveQuizPush: lock-ins through the edge Worker', () => {
     expect(h.refreshSession).not.toHaveBeenCalled();
   });
 
-  it('says how many answers were received when the deadline lock-in is taken into the queue', async () => {
+  it('says how many answers were locked in when the deadline lock-in is taken into the queue', async () => {
     fakeClock();
     vi.spyOn(Math, 'random').mockReturnValue(0);
     h.fetchWithRetry.mockImplementation(async () => jsonResponse({ quiz: { ...quiz, duration: 1, endsAt: inMs(60_000) } }));
@@ -846,15 +846,15 @@ describe('LiveQuizPush: lock-ins through the edge Worker', () => {
     h.fetchWithRetry.mockImplementation(async () => received());
     await tick(60_000);
     await tick(1_000);
-    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 2 answers were received.");
-    expect(screen.getByText('Answer received — waiting for results')).toBeInTheDocument();
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 2 answers were locked in.");
+    expect(screen.getByText('Answer locked in — waiting for results')).toBeInTheDocument();
   });
 
   it('refreshes a lapsed session (401 session_expired) with the browser client and sends the lock-in once more', async () => {
     const onAnswered = await answerBoth();
     h.fetchWithRetry.mockResolvedValueOnce(sessionExpired()).mockResolvedValueOnce(received());
     lockIn();
-    expect(await screen.findByText('Answer received — waiting for results')).toBeInTheDocument();
+    expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
     expect(h.refreshSession).toHaveBeenCalledTimes(1);
     expect(submits()).toHaveLength(2);
     // The same answers, the same way
@@ -884,7 +884,7 @@ describe('LiveQuizPush: lock-ins through the edge Worker', () => {
     h.fetchWithRetry.mockResolvedValueOnce(jsonResponse({ message: 'Quiz predictions submitted successfully' }));
     lockIn();
     expect(await screen.findByText('Answer locked in — waiting for results')).toBeInTheDocument();
-    expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
+    expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.');
   });
 });
 
@@ -953,7 +953,7 @@ describe('LiveQuizPush: a live match over', () => {
     fireEvent.click(yesRuns);
     fireEvent.click(noWicket);
     fireEvent.click(screen.getByRole('button', { name: 'Lock in answer' }));
-    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!'));
+    await waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.'));
     const [url, init] = h.fetchWithRetry.mock.calls[0];
     expect(url).toBe('/api/quizzes/mq1/submit');
     // Through the edge Worker's queue like any lock-in: the batch save judges each over by its own close time

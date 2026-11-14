@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { verifyUnsubscribeToken } from '@/lib/newsletter-unsubscribe';
 import UnsubscribeButton from './UnsubscribeButton';
+import { CONTACT_EMAIL, CONTACT_MAILTO } from '@/lib/site-contact';
 
 export const metadata: Metadata = {
   title: 'Unsubscribe | 1Think 2Win',
@@ -35,7 +36,7 @@ export default async function UnsubscribePage({
         ) : (
           <p className="text-gray-300">
             This unsubscribe link is invalid or incomplete. Please use the link from your latest newsletter email,
-            or contact <a href="mailto:support@1think2win.com" className="text-blue-400 underline">support@1think2win.com</a>.
+            or contact <a href={CONTACT_MAILTO} className="text-blue-400 underline">{CONTACT_EMAIL}</a>.
           </p>
         )}
         <Link href="/" className="inline-block mt-8 text-sm text-gray-400 hover:text-white">

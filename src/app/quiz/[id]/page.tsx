@@ -6,7 +6,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { useSearchParams } from 'next/navigation';
 import { getCSRFToken } from '@/lib/csrf';
 import { fetchWithRetry } from '@/lib/fetch-retry';
-import { LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
+import { lockedInMessage, sendLockIn } from '@/lib/lock-in';
 import { useQuizCountdown } from '@/hooks/useQuizCountdown';
 import { answeredOnly } from '@/lib/quiz-answers';
 import QuizResults from '@/components/QuizResults';
@@ -45,7 +45,7 @@ interface Answer {
 }
 
 interface SubmissionResult {
-  message?: string;
+  message: string;
   results?: {
     submittedAnswers?: number;
     note?: string;
@@ -54,11 +54,13 @@ interface SubmissionResult {
   };
 }
 
-/** The answers are in: what the submit's response says, worded for a lock-in the edge Worker queued (202). */
-async function submissionOf(response: Response): Promise<SubmissionResult> {
-  const result: SubmissionResult = await response.json();
-  if (response.status !== LOCK_IN_RECEIVED) return result;
-  return { ...result, message: 'Your answers were received!' };
+/**
+ * The answers are in: what the submit's response says. Hostinger (200) and the edge Worker's queue (202)
+ * word it differently, so the player is shown one phrase for both (lockedInMessage).
+ */
+async function submissionOf(response: Response, answers: number): Promise<SubmissionResult> {
+  const result: Omit<SubmissionResult, 'message'> = await response.json();
+  return { ...result, message: lockedInMessage(answers) };
 }
 
 export default function QuizPage() {
@@ -214,7 +216,7 @@ export default function QuizPage() {
       }
 
       // 200 from Hostinger, or 202 from the edge Worker's queue: either way the answers are in
-      const result = await submissionOf(response);
+      const result = await submissionOf(response, toSend.length);
       try {
         localStorage.setItem(`1t2w_sub_${quizId}`, '1');
       } catch {
@@ -257,6 +259,8 @@ export default function QuizPage() {
         setSubmitError('Connection restored! Submitting your saved answers...');
         try {
           const pendingData = JSON.parse(pendingDataStr);
+          // Saved before the fix, it may still hold unanswered questions
+          const saved = answeredOnly(pendingData.answers);
           const csrfToken = await getCSRFToken();
           if (!csrfToken) {
             throw new Error('CSRF verification failed');
@@ -268,15 +272,14 @@ export default function QuizPage() {
               'Content-Type': 'application/json',
               'X-CSRF-Token': csrfToken,
             },
-            // Saved before the fix, it may still hold unanswered questions
-            body: JSON.stringify({ answers: answeredOnly(pendingData.answers) }),
+            body: JSON.stringify({ answers: saved }),
           }));
 
           if (!response.ok) {
             throw new Error('Submission failed');
           }
 
-          const result = await submissionOf(response);
+          const result = await submissionOf(response, saved.length);
           localStorage.removeItem(pendingKey);
           setSubmissionResult(result);
           setShowResults(true);
@@ -383,7 +386,7 @@ export default function QuizPage() {
       <div className="min-h-screen bg-gradient-glass-dark flex items-center justify-center p-4">
         <QuizResults
           success={true}
-          message={submissionResult.message || "Your predictions have been successfully submitted!"}
+          message={submissionResult.message}
           totalQuestions={quiz!.questions.length}
           submittedAnswers={submissionResult.results?.submittedAnswers || getAnsweredCount()}
           note={submissionResult.results?.note || "The admin will review all submissions and add the correct answers. Points will be allocated to the top performers based on accuracy and speed."}

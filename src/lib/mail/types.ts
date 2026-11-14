@@ -18,6 +18,8 @@ export interface OutgoingEmail {
   subject: string;
   html: string;
   text?: string;
+  /** Where a reply goes (sendThrough fills in the contact address when it is left out) */
+  replyTo?: string;
   /** Extra headers, e.g. List-Unsubscribe */
   headers?: Record<string, string>;
 }

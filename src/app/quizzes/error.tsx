@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import Link from 'next/link';
 import * as Sentry from '@sentry/nextjs';
+import PageErrorHint from '@/components/errors/PageErrorHint';
 
 export default function QuizzesError({
     error,
@@ -34,6 +35,8 @@ export default function QuizzesError({
                 <p className="text-gray-400 mb-6">
                     We couldn&apos;t load the quizzes. This might be a temporary issue.
                 </p>
+
+                <PageErrorHint error={error} />
 
                 {/* Error Details (development only) */}
                 {process.env.NODE_ENV === 'development' && (
