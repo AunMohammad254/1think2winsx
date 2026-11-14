@@ -273,6 +273,10 @@ describe('admin-session', () => {
   it('verifyAdminCredentials needs a listed email and the shared password', () => {
     expect(adminSession.verifyAdminCredentials(' BOSS@example.test ', 'correct horse')).toBe(true);
     expect(adminSession.verifyAdminCredentials('boss@example.test', 'wrong')).toBe(false);
+    // Wrong passwords of the password's own length: one in ASCII, and one with the same number of
+    // characters but more bytes (which made a length check on the strings throw, not refuse)
+    expect(adminSession.verifyAdminCredentials('boss@example.test', 'correct house')).toBe(false);
+    expect(adminSession.verifyAdminCredentials('boss@example.test', 'correct hörse')).toBe(false);
     expect(adminSession.verifyAdminCredentials('stranger@example.test', 'correct horse')).toBe(false);
     vi.stubEnv('ADMIN_PASSWORD', '');
     expect(adminSession.verifyAdminCredentials('boss@example.test', '')).toBe(false);
