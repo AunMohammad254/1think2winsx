@@ -227,6 +227,25 @@ describe('QuizFormBuilder: creating', () => {
     expect(onSuccess).toHaveBeenCalledWith(undefined);
   });
 
+  it('says a save that never reached the server may not have saved, and stays open to try again', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.createQuiz.mockRejectedValueOnce(new TypeError('Failed to fetch')).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const onSuccess = vi.fn();
+    render(<QuizFormBuilder onSuccess={onSuccess} />);
+    type('Enter quiz title', 'Cricket Cup');
+    fillValidQuestion();
+    submit();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(
+      "Couldn't reach the server, so the quiz may not be saved. Check your connection, and the quiz list, before saving again."));
+    // Offline: the shared offline message instead
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    submit();
+    await waitFor(() => expect(h.toast.error).toHaveBeenLastCalledWith("You're offline. Check your internet connection and try again."));
+    online.mockRestore();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Create Quiz/ })).toBeEnabled();
+  });
+
   it('shows a busy button while saving', async () => {
     let release!: (v: unknown) => void;
     h.createQuiz.mockReturnValueOnce(new Promise((r) => (release = r)));
@@ -343,6 +362,17 @@ describe('QuizFormBuilder: editing and prizes', () => {
     expect(onSuccess).toHaveBeenCalledWith(undefined);
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onCancel).toHaveBeenCalled();
+  });
+
+  it('asks to save the changes again when the update never reached the server', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.updateQuiz.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const onSuccess = vi.fn();
+    render(<QuizFormBuilder initialData={existing} onSuccess={onSuccess} />);
+    submit();
+    await waitFor(() => expect(h.toast.error).toHaveBeenCalledWith(
+      "Couldn't reach the server, so your changes may not be saved. Check your connection and save again."));
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   it('loads and saves the entry limit and points pool, which start at 2,000 and 0 for a new quiz', async () => {
