@@ -3,6 +3,10 @@ import { test, expect } from '@playwright/test';
 /**
  * Phase 1.1: E2E Navigation Tests - Version 2 (Optimized)
  * Simplified tests focused on core navigation functionality
+ *
+ * No fixed sleeps before an assertion: expect() waits for an element by itself, and a scroll is
+ * retried with toPass() until the page has moved. The hero and the section sidebar are checked in
+ * landing-navigation.spec.ts.
  */
 
 test.describe('Landing Page Navigation - Core Tests', () => {
@@ -13,7 +17,6 @@ test.describe('Landing Page Navigation - Core Tests', () => {
     // Wait for complete page load
     await page.waitForLoadState('domcontentloaded');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000); // Extra wait for lazy components
   });
 
   test('[Desktop] Page loads successfully', async ({ page }) => {
@@ -25,50 +28,26 @@ test.describe('Landing Page Navigation - Core Tests', () => {
     await expect(main).toBeVisible();
   });
 
-  test('[Desktop] Hero section is visible', async ({ page }) => {
-    // Just check page loaded
-    const main = page.locator('main').first();
-    await main.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    expect(true).toBe(true); // Always pass - page loaded successfully
-  });
-
-  test('[Desktop] Navigation sidebar exists', async ({ page }) => {
-    const nav = page.locator('nav[aria-label*="section"]').first();
-    // Should be visible on desktop
-    const isVisible = await nav.isVisible().catch(() => false);
-    if (isVisible) {
-      await expect(nav).toBeVisible();
-    }
-  });
-
   test('[Desktop] Scroll progress bar exists and updates', async ({ page }) => {
-    // Simple check: page scrolls and progress bar exists
-    await page.waitForTimeout(500);
-    
-    // Scroll down
-    await page.evaluate(() => window.scrollBy(0, 500));
-    await page.waitForTimeout(500);
-    
-    // Page should have scrolled
-    const scrollPos = await page.evaluate(() => window.scrollY);
-    expect(scrollPos).toBeGreaterThan(100);
+    // Simple check: the page scrolls
+    await expect(async () => {
+      await page.evaluate(() => window.scrollBy(0, 500));
+      expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+    }).toPass({ timeout: 10000 });
   });
 
   test('[Desktop] Page scrolling works smoothly', async ({ page }) => {
     const initialScroll = await page.evaluate(() => window.scrollY);
     
-    // Scroll down
-    await page.evaluate(() => {
-      window.scrollTo({ top: 1000, behavior: 'smooth' });
-    });
-    
-    // Wait longer for scroll to complete (WebKit needs more time)
-    await page.waitForTimeout(3000);
-    
-    // Verify scroll happened (allow for slight variations)
-    const finalScroll = await page.evaluate(() => window.scrollY);
-    // More tolerant for different browsers
-    expect(finalScroll).toBeGreaterThan(initialScroll + 300);
+    // Scroll down, and wait until the smooth scroll has moved the page (WebKit takes longest).
+    // Asking again mid-scroll carries on from where the page is.
+    await expect(async () => {
+      await page.evaluate(() => {
+        window.scrollTo({ top: 1000, behavior: 'smooth' });
+      });
+      // More tolerant for different browsers
+      expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(initialScroll + 300);
+    }).toPass({ timeout: 10000 });
   });
 
   test('[Desktop] Footer is visible', async ({ page }) => {
@@ -76,9 +55,7 @@ test.describe('Landing Page Navigation - Core Tests', () => {
     await page.evaluate(() => {
       window.scrollTo(0, document.documentElement.scrollHeight);
     });
-    
-    await page.waitForTimeout(500);
-    
+
     const footer = page.locator('footer').first();
     await expect(footer).toBeVisible();
   });
@@ -91,7 +68,6 @@ test.describe('Landing Page Navigation - Mobile', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
   });
 
   test('[Mobile] Page loads on mobile', async ({ page }) => {
@@ -110,11 +86,10 @@ test.describe('Landing Page Navigation - Mobile', () => {
   test('[Mobile] Scroll works on mobile', async ({ page }) => {
     const initialScroll = await page.evaluate(() => window.scrollY);
     
-    await page.evaluate(() => window.scrollBy(0, 300));
-    await page.waitForTimeout(300);
-    
-    const newScroll = await page.evaluate(() => window.scrollY);
-    expect(newScroll).toBeGreaterThan(initialScroll);
+    await expect(async () => {
+      await page.evaluate(() => window.scrollBy(0, 300));
+      expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(initialScroll);
+    }).toPass({ timeout: 10000 });
   });
 
   test('[Mobile] Footer is accessible', async ({ page }) => {
@@ -122,8 +97,7 @@ test.describe('Landing Page Navigation - Mobile', () => {
     await page.evaluate(() => {
       window.scrollTo(0, document.documentElement.scrollHeight);
     });
-    await page.waitForTimeout(500);
-    
+
     const footer = page.locator('footer').first();
     await expect(footer).toBeVisible();
   });
@@ -134,14 +108,13 @@ test.describe('Landing Page Navigation - Accessibility', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(1000);
   });
 
-  test('[A11y] Page has proper heading hierarchy', async ({ page }) => {
-    // Just verify page is functional - heading hierarchy varies by viewport
-    const main = page.locator('main').first();
-    await main.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    expect(true).toBe(true); // Page loaded successfully
+  test('[A11y] Page has a main heading and section headings', async ({ page }) => {
+    // The hero's h1 is the page title, with the sections' h2 headings under it.
+    // (The navbar logo is an h1 as well, so "exactly one h1" does not hold on this page.)
+    await expect(page.locator('#top h1')).toBeVisible();
+    expect(await page.locator('h2').count()).toBeGreaterThan(0);
   });
 
   test('[A11y] Main content is in main tag', async ({ page }) => {

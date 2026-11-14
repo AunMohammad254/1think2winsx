@@ -162,8 +162,9 @@ export async function POST(request: NextRequest) {
           message: `Broadcast notification successfully scheduled at ${new Date(scheduledAt).toLocaleString()}`,
         }, { status: 200 });
       } else {
-        // Default: Broadcast to all users immediately
-        await notificationDb.createBroadcast({
+        // Default: Broadcast to all users immediately. A job since migration 20261113120000: every bell
+        // gets the notice within moments, pushes go out in waves from the minute cron.
+        const outcome = await notificationDb.createBroadcast({
           title,
           message,
           type,
@@ -172,7 +173,12 @@ export async function POST(request: NextRequest) {
 
         return createSecureJsonResponse({
           success: true,
-          message: 'Broadcast notification sent successfully to all users',
+          duplicate: outcome.duplicate,
+          message: outcome.duplicate
+            ? 'This broadcast already went out in the last 15 minutes, so it was not sent again'
+            : outcome.queued
+              ? 'Broadcast started: every player gets the notice now, and pushes go out in waves over the next minutes'
+              : 'Broadcast notification sent successfully to all users',
         }, { status: 200 });
       }
     }

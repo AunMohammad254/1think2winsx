@@ -54,7 +54,12 @@ export function loadLiveSnapshot(maxAgeMs = 0): Promise<boolean> {
   inflight = (async () => {
     try {
       const response = await fetch('/api/live', { credentials: 'omit' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        // Read the error's body too: Chromium keeps a response whose body is never read open, holding a
+        // connection and keeping the page from ever going idle (it stalled every Chromium E2E run)
+        await response.text();
+        throw new Error(`HTTP ${response.status}`);
+      }
       const body = await response.json();
       if (!Array.isArray(body?.quizzes)) throw new Error('Unexpected snapshot');
       fetchedAt = Date.now();

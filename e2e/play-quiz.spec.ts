@@ -103,6 +103,8 @@ test('a player answers a live quiz, the admin saves the result and settles, and 
   const { rows: log } = await db().query(`SELECT action, "adminEmail" FROM "AdminActionLog" WHERE "quizId" = $1 ORDER BY "createdAt"`, [quiz.id]);
   expect(log).toEqual([
     { action: 'result_saved', adminEmail: ADMIN.email },
+    // The preview is on record too, with its draw seed, so a draw can be traced
+    { action: 'settlement_previewed', adminEmail: ADMIN.email },
     { action: 'quiz_settled', adminEmail: ADMIN.email },
   ]);
 

@@ -140,8 +140,16 @@ describe('/api/admin/notifications', () => {
   });
 
   it('POST broadcasts now or later', async () => {
+    // Before migration 20261113120000: the whole job in the request
+    notificationDb.createBroadcast.mockResolvedValueOnce({ id: null, duplicate: false, queued: false });
     expect((await (await post(base)).json()).message).toBe('Broadcast notification sent successfully to all users');
     expect(notificationDb.createBroadcast).toHaveBeenCalledWith(base);
+    // A job: started, notices now, pushes in waves
+    notificationDb.createBroadcast.mockResolvedValueOnce({ id: 'b1', duplicate: false, queued: true });
+    expect(await (await post(base)).json()).toMatchObject({ duplicate: false, message: expect.stringMatching(/^Broadcast started: every player gets the notice now/) });
+    // The same broadcast again within 15 minutes: refused, and the admin is told why
+    notificationDb.createBroadcast.mockResolvedValueOnce({ id: 'b1', duplicate: true, queued: true });
+    expect(await (await post(base)).json()).toMatchObject({ duplicate: true, message: expect.stringContaining('was not sent again') });
     expect((await (await post({ ...base, scheduledAt: later })).json()).message).toMatch(/^Broadcast notification successfully scheduled at/);
     expect(notificationDb.scheduleNotification).toHaveBeenCalledWith({ ...base, targetType: 'broadcast', scheduledAt: later });
   });

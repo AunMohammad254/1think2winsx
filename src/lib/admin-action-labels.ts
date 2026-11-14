@@ -17,6 +17,7 @@ export const QUIZ_ACTION_LABELS = {
   question_edited: 'Edited a question',
   question_deleted: 'Deleted a question',
   result_saved: 'Saved the result',
+  settlement_previewed: 'Previewed the winners',
   quiz_settled: 'Settled the quiz',
   notices_resent: 'Sent the notices again',
   // Match mode (src/lib/match-service.ts). Balls aren't logged here: each "BallEvent" keeps who recorded it.

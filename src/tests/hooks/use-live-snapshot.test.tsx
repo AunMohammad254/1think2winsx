@@ -66,6 +66,13 @@ describe('useLiveSnapshot', () => {
     expect(result.current).toEqual({ status: 'ready', snapshot });
   });
 
+  it('reads the body of an error answer, so the browser can close the request', async () => {
+    const failed = new Response('{"error":"Live quizzes are unavailable"}', { status: 503 });
+    fetchMock.mockImplementationOnce(async () => failed);
+    expect(await loadLiveSnapshot()).toBe(false);
+    expect(failed.bodyUsed).toBe(true);
+  });
+
   it('shares one request between callers asking at once, and skips one while the answer is fresh', async () => {
     const a = loadLiveSnapshot();
     expect(loadLiveSnapshot()).toBe(a);

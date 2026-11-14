@@ -3,6 +3,17 @@
 import { useEffect, useState } from 'react';
 import { QUIZ_ACTION_LABELS, type QuizActionEntry } from '@/lib/admin-action-labels';
 
+const winnerCount = (winners: unknown) =>
+  Array.isArray(winners) ? `${winners.length} winner${winners.length === 1 ? '' : 's'}` : '';
+
+/**
+ * The end of a draw seed: enough to match a preview to the settlement made with it (the whole seed stays in
+ * the record). Empty for a settlement recorded before seeds were.
+ */
+const seedTail = (seed: unknown) => (typeof seed === 'string' ? `seed …${seed.slice(-8)}` : '');
+
+const joined = (parts: string[]) => parts.filter(Boolean).join(', ');
+
 /** A short, readable line for an action's details (the full record stays in the database). */
 function summary(entry: QuizActionEntry): string {
   const d = entry.details;
@@ -17,8 +28,12 @@ function summary(entry: QuizActionEntry): string {
       return typeof d.text === 'string' ? `“${d.text}”` : '';
     case 'result_saved':
       return d.endedNow ? 'Ended the quiz' : '';
+    case 'settlement_previewed':
+      // "new draw": the server drew this seed for the preview. Otherwise the request carried it, as the
+      // settle screen does while rewards are edited; two previews are the same draw when their seeds match.
+      return joined([winnerCount(d.winners), seedTail(d.seed), d.newSeed ? 'new draw' : '']);
     case 'quiz_settled':
-      return Array.isArray(d.winners) ? `${d.winners.length} winner${d.winners.length === 1 ? '' : 's'}` : '';
+      return joined([winnerCount(d.winners), seedTail(d.seed)]);
     case 'notices_resent':
       return typeof d.notified === 'number' ? `${d.notified} sent` : '';
     case 'quiz_announced':
