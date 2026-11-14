@@ -12,6 +12,7 @@ import {
     defaultQuiz
 } from '@/lib/schemas/QuizFormSchema';
 import { createQuiz, updateQuiz } from '@/actions/quiz-actions';
+import { networkAwareMessage } from '@/lib/network-errors';
 import { isTimedStatus } from './quiz-form/constants';
 import QuizDetailsSection from './quiz-form/QuizDetailsSection';
 import PrizeLinkSection, { type PrizeOption } from './quiz-form/PrizeLinkSection';
@@ -178,7 +179,14 @@ export default function QuizFormBuilder({ initialData, onSuccess, onCancel }: Qu
             }
         } catch (error) {
             console.error('Form submission error:', error);
-            toast.error('An unexpected error occurred');
+            // A server action that never reached the server (no network, DNS failure, dropped
+            // connection) throws a TypeError ("Failed to fetch"). navigator.onLine stays true for
+            // most of these, so say so here. A dropped connection may still have saved a new quiz.
+            toast.error(error instanceof TypeError
+                ? networkAwareMessage(isEditing
+                    ? "Couldn't reach the server, so your changes may not be saved. Check your connection and save again."
+                    : "Couldn't reach the server, so the quiz may not be saved. Check your connection, and the quiz list, before saving again.")
+                : 'An unexpected error occurred');
         } finally {
             setIsSubmitting(false);
         }

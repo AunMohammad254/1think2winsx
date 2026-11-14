@@ -149,7 +149,7 @@ export default function Testimonials() {
         description={
           hasReviews && summary
             ? `${summary.count} ${summary.count === 1 ? "review" : "reviews"} from sports fans who play on 1Think 2Win. Every review is checked by our team before it appears.`
-            : "Played a quiz with us? Tell other sports fans how it went. Reviews appear here once our team has checked them."
+            : "Played a quiz with us? Tell other sports fans how it went."
         }
       />
 
