@@ -3,21 +3,29 @@
 import { useRef, useState, useCallback } from "react";
 import { Section, Reveal, useScrollReveal, useCountUp } from "./Primitives";
 
-// ring: the progress ring's gradient stops, matching the from/to colours in `color`
-type Stat = { value: number; prefix?: string; suffix: string; label: string; icon: string; color: string; ring: [string, string] };
+// Facts about how the platform works, each one a rule a visitor can check on How to Play
+// (src/lib/how-to-play-content.ts): the top three scores win, live match quizzes are free to enter, one
+// entry per player. No totals of players, prizes or quizzes: a figure like that belongs here only once it
+// is read from the database, never typed in.
+// value: a number counts up when the card scrolls into view; a word is shown as it is. Short on purpose:
+// at 1024px wide, four cards leave about 64px beside each ring.
+// ring: the progress ring's gradient stops, matching the from/to colours in `color`. fill: how much of the
+// ring is drawn (decoration only).
+type Stat = { value: number | string; suffix: string; label: string; icon: string; color: string; ring: [string, string]; fill: number };
 const STATS: Stat[] = [
-  { value: 10000, suffix: "+", label: "Active Players", icon: "👥", color: "from-emerald-400 to-cyan-400", ring: ["#34d399", "#22d3ee"] },
-  { value: 50000, prefix: "", suffix: " PKR+", label: "Prizes Won", icon: "💰", color: "from-amber-400 to-orange-500", ring: ["#fbbf24", "#f97316"] },
-  { value: 500, suffix: "+", label: "Quizzes Live", icon: "🎯", color: "from-violet-400 to-pink-500", ring: ["#a78bfa", "#e879f9"] },
-  { value: 24, suffix: "/7", label: "Always Live", icon: "⚡", color: "from-rose-400 to-amber-400", ring: ["#fb7185", "#fbbf24"] },
+  { value: 3, suffix: "", label: "Top scores win", icon: "🏆", color: "from-emerald-400 to-cyan-400", ring: ["#34d399", "#22d3ee"], fill: 0.75 },
+  { value: "Free", suffix: "", label: "Match entry", icon: "🏏", color: "from-amber-400 to-orange-500", ring: ["#fbbf24", "#f97316"], fill: 1 },
+  { value: 1, suffix: "", label: "Entry per quiz", icon: "🎯", color: "from-violet-400 to-pink-500", ring: ["#a78bfa", "#e879f9"], fill: 0.5 },
+  { value: 24, suffix: "/7", label: "Always Live", icon: "⚡", color: "from-rose-400 to-amber-400", ring: ["#fb7185", "#fbbf24"], fill: 1 },
 ];
 
 const CIRC = 2 * Math.PI * 40;
 
 function RadialStat({ stat, index, visible }: { stat: Stat; index: number; visible: boolean }) {
-  const countRef = useCountUp(stat.value, 1800, visible);
-  const fraction = Math.min(stat.value / 50000, 1);
-  const offset = CIRC - fraction * CIRC;
+  const counted = typeof stat.value === "number";
+  // A word has no counter to drive: the hook finds no element and does nothing
+  const countRef = useCountUp(counted ? (stat.value as number) : 0, 1800, visible);
+  const offset = CIRC - stat.fill * CIRC;
 
   return (
     <div
@@ -50,7 +58,9 @@ function RadialStat({ stat, index, visible }: { stat: Stat; index: number; visib
         </div>
         <div className="flex-1">
           <div className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            {stat.prefix ?? ""}<span ref={countRef as React.RefObject<HTMLSpanElement>} className="tabular-nums">0</span>
+            {counted
+              ? <span ref={countRef as React.RefObject<HTMLSpanElement>} className="tabular-nums">0</span>
+              : <span>{stat.value}</span>}
             <span className={`bg-gradient-to-r ${stat.color} bg-clip-text text-transparent`}>{stat.suffix}</span>
           </div>
           <p className="mt-1 text-sm font-medium uppercase tracking-[0.16em] text-white/55">{stat.label}</p>
@@ -91,7 +101,7 @@ export default function Stats() {
     <Section  className="!py-16 sm:!py-20">
       <Reveal>
         <p className="text-center text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
-          Trusted by sports fans across Pakistan
+          Built for sports fans across Pakistan
         </p>
       </Reveal>
       <div

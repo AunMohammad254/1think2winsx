@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button, useTypewriter } from "./Primitives";
+import { useLiveSnapshot } from "@/hooks/useLiveSnapshot";
 
 export function Particles() {
   const [mounted, setMounted] = useState(false);
@@ -61,6 +62,30 @@ export function HeroCTA() {
       </Button>
       {/* No backdrop blur here: it paints in the first frame and cost ~45 ms of desktop FCP in lab runs */}
       <Button href="#how" size="lg" variant="secondary" className="backdrop-blur-none">See how it works</Button>
+    </div>
+  );
+}
+
+/**
+ * The hero's line about paying, shown only while the wallet is switched on (Admin → Settings). With the
+ * wallet off the site takes no money, so nothing about deposits, fees or paying may appear. It used to
+ * say "Instant payouts", which the app never had: the wallet takes deposits for the day pass, and prizes
+ * are delivered after a claim.
+ *
+ * The page's HTML is cached for every visitor, so it can't carry the switch: it is read in the browser
+ * from the public snapshot the page loads anyway (/api/live, cached at Cloudflare), and no extra request
+ * reaches Hostinger. The words live in this client component, not in the page, so they are not even in
+ * the HTML while the wallet is off. Until the snapshot arrives, and when it can't be loaded, nothing shows.
+ */
+export function WalletPaymentNote() {
+  const { snapshot } = useLiveSnapshot();
+  if (snapshot?.walletEnabled !== true) return null;
+  return (
+    <div className="flex items-center gap-2">
+      <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500/20 text-emerald-400">
+        <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor"><path d="m10 16-4-4 1.4-1.4 2.6 2.6 5.6-5.6L17 9l-7 7Z" /></svg>
+      </span>
+      <span>Pay with Easypaisa or JazzCash</span>
     </div>
   );
 }
