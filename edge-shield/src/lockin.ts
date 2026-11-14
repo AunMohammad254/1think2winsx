@@ -92,18 +92,18 @@ async function readBody(request: Request): Promise<{ body: unknown } | Response>
  * POST /api/quizzes/<id>/submit at the edge. Any fault answers busy (503, retried by the client) rather than
  * passing the lock-in on to Hostinger: at lock-in volume that would block the whole site.
  */
-export async function handleLockin(request: Request, env: Env, url: URL): Promise<Response> {
+export async function handleLockin(request: Request, env: Env, url: URL, ctx: ExecutionContext): Promise<Response> {
 	// Workers' clock reads the time this request arrived until it does I/O, so this is the receive time
 	const receivedAt = new Date().toISOString();
 	try {
-		return await intake(request, env, url, receivedAt);
+		return await intake(request, env, url, receivedAt, ctx);
 	} catch (error) {
 		console.error(JSON.stringify({ lockinError: String(error), path: url.pathname }));
 		return busy(503);
 	}
 }
 
-async function intake(request: Request, env: Env, url: URL, receivedAt: string): Promise<Response> {
+async function intake(request: Request, env: Env, url: URL, receivedAt: string, ctx: ExecutionContext): Promise<Response> {
 	if (request.headers.get('Origin') !== env.SITE_URL) return json({ error: 'Forbidden', code: 'forbidden' }, 403);
 
 	let session;
@@ -146,20 +146,29 @@ async function intake(request: Request, env: Env, url: URL, receivedAt: string):
 		a: parsed.answers.map(({ questionId, selectedOption }) => ({ q: questionId, o: selectedOption })),
 	};
 
-	// Counted before it is queued, so the tally is never below what the consumer will save
+	// Counted before it is queued, so the tally is never below what the consumer will save. Both steps run under
+	// waitUntil: a player whose connection drops between them (a phone losing signal at the deadline) would otherwise
+	// cancel the request after the count and before the queue, and the tally would stay above what is ever saved.
+	// Saving the quiz's result waits until the two match (src/lib/lockin-drain.ts), so it could never be saved.
+	// Seen in the staging test of 2026-11-13: 707 counted, never queued, after the load generator's calls died.
 	const tally = tallyFor(env, quizId, session.sub);
-	await tally.add(1);
-	try {
-		await env.LOCKIN_QUEUE.send(message, { contentType: 'json' });
-	} catch (error) {
-		console.error(JSON.stringify({ lockinQueueFailed: String(error), quiz: quizId }));
+	const queued = (async () => {
+		await tally.add(1);
 		try {
-			await tally.add(-1);
-		} catch (restoreError) {
-			console.error(JSON.stringify({ lockinTallyRestoreFailed: String(restoreError), quiz: quizId }));
+			await env.LOCKIN_QUEUE.send(message, { contentType: 'json' });
+			return true;
+		} catch (error) {
+			console.error(JSON.stringify({ lockinQueueFailed: String(error), quiz: quizId }));
+			try {
+				await tally.add(-1);
+			} catch (restoreError) {
+				console.error(JSON.stringify({ lockinTallyRestoreFailed: String(restoreError), quiz: quizId }));
+			}
+			return false;
 		}
-		return busy(503);
-	}
+	})();
+	ctx.waitUntil(queued);
+	if (!(await queued)) return busy(503);
 
 	return json(
 		{
