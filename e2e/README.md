@@ -52,3 +52,7 @@ node e2e/stack/stack.mjs down
 - **`down`** stops the stack and deletes its data.
 
 The regular e2e run ignores this test (`testIgnore` in `playwright.config.ts`). The test also skips itself when `e2e/stack/.env.e2e` is missing.
+
+### In CI
+
+The `e2e-quiz` job in `.github/workflows/tests.yml` runs these steps on every pull request: it starts the stack in Docker on the runner, then runs `bun run test:e2e:quiz` in the checkout, which has no `.env` files. With `CI` set, `playwright.stack.config.ts` refuses to run without the stack, so the job cannot pass by skipping the test.

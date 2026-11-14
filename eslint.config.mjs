@@ -14,6 +14,9 @@ const eslintConfig = [
       // Claude Code worktrees: whole copies of the project, each with its own build output
       ".claude/**",
       "coverage/**",
+      // Playwright's output: after a local e2e run its bundled trace viewer added ~2,900 lint errors
+      "playwright-report/**",
+      "test-results/**",
     ],
   },
   {
