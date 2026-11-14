@@ -87,6 +87,7 @@ describe('POST /api/admin/quiz-settlement (settle)', () => {
     expect(logQuizAction).toHaveBeenCalledWith({
       quizId: 'q1', quizTitle: 'Agli ball', action: 'quiz_settled', adminEmail: 'admin@1think2win.com',
       details: {
+        seed: SEED, tieRule: 'random',
         winners: [{ rank: 1, userId: undefined, points: undefined, prizeId: undefined }], unfilled: undefined,
         pool: { percent: 0, each: 0, paid: 100, recipients: 2 },
       },
@@ -180,6 +181,23 @@ describe('POST /api/admin/quiz-settlement/preview', () => {
     expect(run.mock.calls[2][0]).toMatchObject({ poolPercent: 10, poolEach: 5 });
   });
 
+  it("records every preview on the quiz's History: its seed, whether it was drawn for this preview, and whom it picked", async () => {
+    run.mockResolvedValue({ ...ok, preview: true, winners: [{ rank: 1, userId: 'u1', points: 500 }, { rank: 2, userId: 'u2', prizeId: 'p1' }] });
+    await post(preview, '/api/admin/quiz-settlement/preview', body);
+    const drawn = run.mock.calls[0][0].seed;
+    expect(logQuizAction).toHaveBeenCalledWith({
+      quizId: 'q1', quizTitle: 'Agli ball', action: 'settlement_previewed', adminEmail: 'admin@1think2win.com',
+      details: { seed: drawn, newSeed: true, tieRule: 'earliest', winners: [{ rank: 1, userId: 'u1' }, { rank: 2, userId: 'u2' }] },
+    });
+
+    // The settle screen sends the seed back while rewards are edited: the same draw, recorded as such
+    await post(preview, '/api/admin/quiz-settlement/preview', { ...body, seed: drawn, tieRule: 'random' });
+    expect(logQuizAction).toHaveBeenLastCalledWith(expect.objectContaining({
+      details: expect.objectContaining({ seed: drawn, newSeed: false, tieRule: 'random' }),
+    }));
+    expect(logQuizAction).toHaveBeenCalledTimes(2);
+  });
+
   it('maps refusals and bad input, and answers 500 on errors', async () => {
     run.mockResolvedValueOnce({ success: false, code: 'result_missing', error: 'Save the result first' });
     expect((await post(preview, '/api/admin/quiz-settlement/preview', body)).status).toBe(409);
@@ -190,6 +208,8 @@ describe('POST /api/admin/quiz-settlement/preview', () => {
     expect((await post(preview, '/api/admin/quiz-settlement/preview', body)).status).toBe(500);
     guard.mockResolvedValue(NextResponse.json({}, { status: 401 }));
     expect((await post(preview, '/api/admin/quiz-settlement/preview', body)).status).toBe(401);
+    // Nothing was previewed, so nothing is recorded
+    expect(logQuizAction).not.toHaveBeenCalled();
   });
 });
 
