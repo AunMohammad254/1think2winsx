@@ -10,6 +10,12 @@ const createServerClient = vi.fn((_url: string, _key: string, opts: { cookies: t
   return { auth: { getClaims } };
 });
 vi.mock('@supabase/ssr', () => ({ createServerClient: (...a: unknown[]) => createServerClient(...(a as [string, string, { cookies: typeof ssr }])) }));
+// Maintenance mode: off unless a test switches it on (the rest of the module is real)
+const maintenance = vi.hoisted(() => ({ state: vi.fn() }));
+vi.mock('@/lib/maintenance', async (orig) => ({
+  ...(await orig<typeof import('@/lib/maintenance')>()),
+  getMaintenanceState: () => maintenance.state(),
+}));
 
 const { updateSession } = await import('@/lib/supabase/middleware');
 
@@ -155,6 +161,7 @@ describe('updateSession', () => {
 describe('proxy', () => {
   let proxyMod: typeof import('@/proxy');
   beforeEach(async () => {
+    maintenance.state.mockReset().mockResolvedValue({ enabled: false, message: '', until: null });
     vi.resetModules();
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://ref.supabase.co');
     proxyMod = await import('@/proxy');
@@ -219,6 +226,55 @@ describe('proxy', () => {
     const directive = (name: string) => csp.split('; ').find((d) => d.startsWith(`${name} `))!;
     expect(directive('worker-src')).toBe("worker-src 'self' blob:");
     expect(csp).not.toContain('sentry.io');
+  });
+
+  it('passes API routes straight through while the site is open, with no session work or headers', async () => {
+    const res = await proxyMod.proxy(req('/api/quizzes'));
+    expect(res.headers.get('x-middleware-next')).toBe('1');
+    expect(res.headers.get('content-security-policy')).toBeNull();
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  describe('in maintenance mode', () => {
+    const on = { enabled: true, message: 'Upgrading the database', until: null };
+    beforeEach(() => maintenance.state.mockResolvedValue(on));
+
+    it('shows players the maintenance page: a 503 nobody caches, with security headers', async () => {
+      for (const path of ['/', '/quizzes', '/auth', '/profile']) {
+        const res = await proxyMod.proxy(req(path));
+        expect(res.status).toBe(503);
+        expect(res.headers.get('cache-control')).toBe('no-store');
+        expect(res.headers.get('retry-after')).toBe('300');
+        expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
+        expect(res.headers.get('content-security-policy')).toContain("default-src 'self'");
+        expect(await res.text()).toContain('Upgrading the database');
+      }
+    });
+
+    it('answers player APIs with a JSON 503 until the end time', async () => {
+      const until = new Date(Date.now() + 600_000).toISOString();
+      maintenance.state.mockResolvedValue({ enabled: true, message: '', until });
+      const res = await proxyMod.proxy(req('/api/live/quizzes/q1'));
+      expect(res.status).toBe(503);
+      expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(590);
+      expect(await res.json()).toEqual({ error: 'maintenance', message: 'The site is down for maintenance.', until });
+    });
+
+    it('lets admins, the admin area, jobs and webhooks through without even asking', async () => {
+      const admin = await proxyMod.proxy(req('/quizzes', { 'admin-session': 'tok' }));
+      expect(admin.status).toBe(200);
+      const adminApi = await proxyMod.proxy(req('/api/quizzes', { 'admin-session': 'tok' }));
+      expect(adminApi.headers.get('x-middleware-next')).toBe('1');
+      for (const path of ['/admin/login', '/api/admin/maintenance', '/api/cron/scheduler', '/api/webhooks/brevo', '/api/health']) {
+        expect((await proxyMod.proxy(req(path))).status).not.toBe(503);
+      }
+      expect(maintenance.state).not.toHaveBeenCalled();
+    });
+  });
+
+  it('runs for API routes only through the second matcher', () => {
+    const apiMatcher = proxyMod.config.matcher[1];
+    expect(apiMatcher).toBe('/api/:path*');
   });
 
   it('never runs for API routes, Next internals or static files', () => {
