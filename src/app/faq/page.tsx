@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { CONTACT_EMAIL } from '@/lib/site-contact';
 
 export default function FAQPage() {
   const [isMobile, setIsMobile] = useState(false);
@@ -56,7 +57,7 @@ export default function FAQPage() {
     },
     {
       question: "How do I contact support?",
-      answer: "You can reach our support team through multiple channels: email us at support@1think2win.com, use our contact form, or call our helpline during business hours (9 AM - 6 PM PKT). We're here to help with any questions or concerns."
+      answer: `Email us at ${CONTACT_EMAIL} and we'll reply within 24 hours. Signed-in players can also ask the chat assistant (the chat button at the bottom of every page): it answers most questions straight away and can pass a problem to our team as a support ticket.`
     },
     {
       question: "Is my personal information safe?",

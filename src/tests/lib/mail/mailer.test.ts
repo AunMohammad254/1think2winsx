@@ -102,7 +102,8 @@ describe('deliver', () => {
   it('sends through the selected service only, and logs the email', async () => {
     selected('ses');
     expect(await mailer.deliver(email, { kind: 'registration', timeoutMs: 3500 })).toEqual({ success: true, provider: 'ses', messageId: 'ses-1' });
-    expect(sendViaSes).toHaveBeenCalledWith(email, { timeoutMs: 3500 });
+    // Replies go to the contact inbox (src/lib/site-contact.ts)
+    expect(sendViaSes).toHaveBeenCalledWith({ ...email, replyTo: '1think2wins@gmail.com' }, { timeoutMs: 3500 });
     expect(sendViaBrevo).not.toHaveBeenCalled();
     expect(logged()).toEqual([[{ kind: 'registration', recipient: 'fan@example.test', subject: 'Welcome', provider: 'ses', status: 'accepted', providerMessageId: 'ses-1', error: null }]]);
   });
@@ -115,6 +116,12 @@ describe('deliver', () => {
     expect(logged()[0]).toEqual([expect.objectContaining({ provider: 'ses', status: 'failed', providerMessageId: null, error: 'AWS paused sending for this account' })]);
   });
 
+  it('keeps a Reply-To the email already names', async () => {
+    const own = { ...email, replyTo: 'claims@example.test' };
+    await mailer.deliver(own, { kind: 'support' });
+    expect(sendViaBrevo).toHaveBeenCalledWith(own, {});
+  });
+
   it('sends through Brevo by default', async () => {
     expect(await mailer.deliver(email, { kind: 'support' })).toEqual({ success: true, provider: 'brevo', messageId: 'brevo-1' });
     expect(sendViaSes).not.toHaveBeenCalled();
@@ -124,7 +131,7 @@ describe('deliver', () => {
   it('sends through Cloudflare once an admin picks it, and logs it under Cloudflare', async () => {
     selected('cloudflare');
     expect(await mailer.deliver(email, { kind: 'password', timeoutMs: 3500 })).toEqual({ success: true, provider: 'cloudflare', messageId: 'cf-1' });
-    expect(sendViaCloudflare).toHaveBeenCalledWith(email, { timeoutMs: 3500 });
+    expect(sendViaCloudflare).toHaveBeenCalledWith({ ...email, replyTo: '1think2wins@gmail.com' }, { timeoutMs: 3500 });
     expect(sendViaSes).not.toHaveBeenCalled();
     expect(sendViaBrevo).not.toHaveBeenCalled();
     expect(logged()[0]).toEqual([expect.objectContaining({ provider: 'cloudflare', status: 'accepted', providerMessageId: 'cf-1' })]);

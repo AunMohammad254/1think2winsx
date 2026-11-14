@@ -1,7 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Timer, Wifi, Brain, LucideIcon } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import type { Tip } from '@/lib/how-to-play-content';
 
 interface TipCardProps {
     icon: LucideIcon;
@@ -77,28 +78,7 @@ function TipCard({ icon: Icon, title, description, color, delay = 0 }: TipCardPr
     );
 }
 
-export default function WinningTips() {
-    const tips = [
-        {
-            icon: Timer,
-            title: "Manage Your Time",
-            description: "Don't spend too long on tricky questions. Move on and come back if time permits.",
-            color: 'emerald' as const,
-        },
-        {
-            icon: Wifi,
-            title: "Check Your Connection",
-            description: "Ensure stable internet before starting. Your progress is auto-saved, but speed matters!",
-            color: 'amber' as const,
-        },
-        {
-            icon: Brain,
-            title: "Know Your Sports",
-            description: "Stay updated with sports news, stats, and history to boost your quiz performance.",
-            color: 'blue' as const,
-        },
-    ];
-
+export default function WinningTips({ tips }: { tips: Tip[] }) {
     return (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {tips.map((tip, index) => (

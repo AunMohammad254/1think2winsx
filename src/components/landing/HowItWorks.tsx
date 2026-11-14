@@ -11,7 +11,7 @@ const STEPS = [
 
 const HIGHLIGHTS = [
   { icon: "⚡", title: "Lightning Quizzes", desc: "60-second adrenaline matches with instant scoring.", tag: "Real-time", gradient: "from-emerald-400/20 to-cyan-400/20" },
-  { icon: "🇵🇰", title: "National Leaderboard", desc: "Climb the ranks against 10,000+ fans across Pakistan.", tag: "Competitive", gradient: "from-violet-400/20 to-pink-500/20" },
+  { icon: "🇵🇰", title: "National Leaderboard", desc: "Climb the ranks against fans across Pakistan.", tag: "Competitive", gradient: "from-violet-400/20 to-pink-500/20" },
   { icon: "🔥", title: "Streaks & Combos", desc: "Stack correct answers for multiplier boosts up to 5x.", tag: "Bonus", gradient: "from-orange-400/20 to-red-500/20" },
 ];
 

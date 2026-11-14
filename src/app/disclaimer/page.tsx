@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { CONTACT_EMAIL, CONTACT_MAILTO } from '@/lib/site-contact';
 
 export default function DisclaimerPage() {
   const [isMobile, setIsMobile] = useState(false);
@@ -218,13 +219,11 @@ export default function DisclaimerPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-3 sm:mt-4">
                   <div className="glass-card-blue rounded-lg p-3 sm:p-4">
                     <h4 className="font-semibold text-white mb-2 text-sm sm:text-base">📧 Email Support</h4>
-                    <p className="text-xs sm:text-sm text-cyan-300">legal@1think2win.com</p>
-                    <p className="text-xs sm:text-sm text-cyan-300">support@1think2win.com</p>
+                    <a href={CONTACT_MAILTO} className="text-xs sm:text-sm text-cyan-300 underline-offset-2 hover:underline break-all">{CONTACT_EMAIL}</a>
                   </div>
                   <div className="glass-card-blue rounded-lg p-3 sm:p-4">
-                    <h4 className="font-semibold text-white mb-2 text-sm sm:text-base">📱 Contact Information</h4>
-                    <p className="text-xs sm:text-sm text-cyan-300">Phone: +92 XXX XXXXXXX</p>
-                    <p className="text-xs sm:text-sm text-cyan-300">Business Hours: 9 AM - 6 PM PKT</p>
+                    <h4 className="font-semibold text-white mb-2 text-sm sm:text-base">🕒 Response Time</h4>
+                    <p className="text-xs sm:text-sm text-cyan-300">We reply to every email within 24 hours.</p>
                   </div>
                 </div>
               </div>

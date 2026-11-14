@@ -53,6 +53,17 @@ wrong SQL. Covered so far:
   ball was a boundary; `apply_match_change` saves both on a new and a corrected ball and still takes the
   old shape; the checks refuse an unknown kind, a dismissal without a wicket and a boundary that isn't a
   four or a six, applying nothing; the guard stops a second run
+- A time limit for scoring and settling (migration `06-20261112120000`): `apply_match_change`,
+  `save_quiz_result` and `settle_quiz` each carry `statement_timeout=25s` next to their `search_path`,
+  above the service role's default 8 s and under the 30 s the server waits; no other function has one;
+  the migration can run again. A later migration that re-creates one of the three without the setting
+  fails here
+- "Send to all" as a job (migration `06-20261113120000`): `broadcast_create` makes one job and returns it
+  again for the same broadcast within 15 minutes (also when two requests race); `broadcast_insert_users`
+  gives every player exactly one notice by cursor, after a re-run and with three callers at once;
+  `broadcast_claim` leases a due job to one caller, skips jobs older than 6 hours, hands one back after
+  its lease; `broadcast_wave_done` records a wave only for the lease holder; only the service role can
+  reach any of it
 
 ## Running locally
 

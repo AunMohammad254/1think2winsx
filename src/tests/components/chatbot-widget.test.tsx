@@ -7,6 +7,7 @@ const router = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => router, usePathname: () => '/', useSearchParams: () => new URLSearchParams() }));
 
 import ChatbotWidget from '@/components/chatbot/ChatbotWidget';
+import { openChatbot } from '@/components/chatbot/open-chatbot';
 
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
@@ -28,6 +29,14 @@ const input = () => screen.getByPlaceholderText('Ask me anything… 🏏');
 const lastBody = () => JSON.parse(fetchMock.mock.calls.at(-1)![1].body);
 
 describe('ChatbotWidget', () => {
+  it('opens when another page asks it to, and stops listening once unmounted', async () => {
+    const { unmount } = render(<ChatbotWidget />);
+    act(() => openChatbot());
+    expect(await screen.findByText(/I'm the 1Think2Win support assistant/)).toBeInTheDocument();
+    unmount();
+    expect(() => openChatbot()).not.toThrow();
+  });
+
   it('greets, answers a quick question and offers navigation chips', async () => {
     const { container } = render(<ChatbotWidget />);
     await open();

@@ -38,6 +38,7 @@ vi.mock('@/components/admin/DynamicAdminComponents', () => ({
 }));
 vi.mock('@/components/admin/WalletFeatureToggle', () => ({ default: () => <div>wallet toggle</div> }));
 vi.mock('@/components/admin/SupportTicketsManager', () => ({ default: () => <div>tickets manager</div> }));
+vi.mock('@/components/admin/ReviewsManager', () => ({ default: () => <div>reviews manager</div> }));
 vi.mock('next/dynamic', () => ({
   default: (loader: () => Promise<unknown>, opts?: { loading?: () => React.ReactNode }) => {
     h.dynamics.push({ loader, opts });
@@ -59,6 +60,7 @@ import AdminClaimsPage from '@/app/admin/(protected)/claims/page';
 import AdminStreamingPage from '@/app/admin/(protected)/streaming/page';
 import AdminWalletPage from '@/app/admin/(protected)/wallet/page';
 import AdminTicketsPage from '@/app/admin/(protected)/tickets/page';
+import AdminReviewsPage from '@/app/admin/(protected)/reviews/page';
 import LuckyWinnerPage from '@/app/admin/(protected)/lucky-winner/page';
 import { redirect } from 'next/navigation';
 import QuizEvaluationPage from '@/app/admin/(protected)/quiz-evaluation/page';
@@ -99,6 +101,7 @@ describe('admin dashboard', () => {
     expect(screen.getAllByRole('link', { name: /Settle Quizzes/ }).length).toBeGreaterThan(1);
     expect(screen.queryByRole('link', { name: /Lucky Winner/ })).toBeNull();
     expect(screen.getByRole('link', { name: /Support Tickets/ })).toHaveAttribute('href', '/admin/tickets');
+    expect(screen.getByRole('link', { name: /Player Reviews/ })).toHaveAttribute('href', '/admin/reviews');
   });
 
   it('still shows the dashboard when the activity feed cannot be read', async () => {
@@ -134,6 +137,7 @@ describe('admin section pages', () => {
     [AdminStreamingPage, 'Live Streaming', 'stream manager'],
     [AdminWalletPage, 'Wallet Management', 'wallet manager'],
     [AdminTicketsPage, 'Support Tickets', 'tickets manager'],
+    [AdminReviewsPage, 'Player Reviews', 'reviews manager'],
   ])('%o checks the session and renders its manager', async (Page, title, manager) => {
     render(await (Page as () => Promise<React.ReactElement>)());
     expect(h.requireAdminSession).toHaveBeenCalled();

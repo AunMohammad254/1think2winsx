@@ -3,7 +3,7 @@
     "collect": {
       "numberOfRuns": 3,
       "startServerCommand": "bun run start",
-      "startServerReadyPattern": "ready on",
+      "startServerReadyPattern": "Ready in",
       "url": [
         "http://localhost:3000",
         "http://localhost:3000/quiz",

@@ -34,14 +34,16 @@ unchanged. On 2026-10-21 each page sent this to an anonymous visitor:
 Two anonymous fetches of `/` differ only in Cloudflare's email obfuscation, which Cloudflare applies at the edge
 after the cache.
 
-**Never cached by this rule (as applied):** `/quizzes` (until the change in "Signed-in `/quizzes`" below is applied), `/quiz/*`, `/profile*`, `/login` (a redirect to `/auth`), `/register`,
+**Never cached by this rule:** `/quiz/*`, `/profile*`, `/login` (a redirect to `/auth`), `/register`,
 `/auth*`, `/forgot-*`, `/update-password`, `/unsubscribe`, `/admin*` and `/api/*`. They are simply not in the
-path list. `/api/live*` has a rule of its own ("The live API rule" below).
+path list. `/api/live*` has a rule of its own ("The live API rule" below). `/quizzes` has been cached for everyone,
+signed in or not, since 2026-11-07 ("Signed-in `/quizzes`" below).
 
 ## The rule
 
-The API body as applied is the expression below; [`cloudflare-page-cache-rule.json`](./cloudflare-page-cache-rule.json)
-now also holds the `/quizzes` clause that is not applied yet (see "Signed-in `/quizzes`" below). A unit test keeps
+The expression below is the rule as applied on 2026-10-21. Since 2026-11-07 the live rule is the body of
+[`cloudflare-page-cache-rule.json`](./cloudflare-page-cache-rule.json), which adds the `/quizzes` clause (see
+"Signed-in `/quizzes`" below); the expression below stays here as its rollback. A unit test keeps
 its path lists equal to the lists that `bun run cache:check` verifies.
 
 | Setting | Value |
@@ -91,9 +93,9 @@ What each part is for:
 - **Apex host only**: `www` answers with a 301 to the apex.
 
 Plan limits: this made 2 of the 10 Cache Rules on the Free plan. With the rules below, the zone uses 5 of 10
-Cache Rules and 1 of 10 URL Rewrite Rules. No Cache Response Rules or custom cache keys are needed.
+Cache Rules and 2 of 10 URL Rewrite Rules. No Cache Response Rules or custom cache keys are needed.
 
-## Signed-in `/quizzes` (in the repo, NOT applied yet)
+## Signed-in `/quizzes` (applied 2026-11-07)
 
 For a 50,000-player event, every player's `/quizzes` page view (and the `?_rsc=` payload of a client navigation
 to it) would reach Hostinger, because their session cookie keeps them out of the rule above. The rule body in
@@ -136,6 +138,13 @@ Why that is safe:
 3. `bun run cache:check`: it now makes 40 requests, and checks `/quizzes` twice anonymously, once with a fake
    session cookie (it must be the cached copy, with no `Set-Cookie`), and that no cached response sets a cookie.
 
+**Applied 2026-11-07** through the Cloudflare API, after deploying `68234f4` (which has the proxy change) and
+purging: rule `a11809e994204598b915fe08c84df1aa` in the cache settings entrypoint `176e59a2817648a4895a50d0f195df2c`
+was patched with the JSON file as the body (ruleset version 7 → 8, still 5 rules). Before patching, `/quizzes`
+answered 200 with `Cache-Control: s-maxage=31536000` and no `Set-Cookie`, with and without a session cookie.
+Right after, `bun run cache:check` passed 26/26 (`/quizzes` MISS then HIT, HIT with a session cookie, 32 cached
+responses and none sets a cookie) and `bun run smoke:prod` 8/8.
+
 **Rollback:** `PATCH` the rule back to the expression in "The rule" above. Every deploy still needs
 `bun run cache:purge`, which now also clears `/quizzes`.
 
@@ -158,6 +167,15 @@ Notes:
   the origin's TTL instead, because Next's `max-age=0` is what it exists to replace.
 - **The rewrite keeps the whole query string when any parameter is not a tracking one.** `/?ref=x&utm_source=y`
   still reaches Hostinger, and so do `/?page-cache-check=1` (the origin probe) and every `?_rsc=` prefetch.
+- **Notification links to `/quizzes` (live since 2026-11-12).** A second URL Rewrite,
+  [`cloudflare-quizzes-query-rewrite-rule.json`](./cloudflare-quizzes-query-rewrite-rule.json), does the same for
+  `/quizzes`: it drops a query string made only of `openQuiz`, `upcoming` and tracking parameters. Every "Live now"
+  and "Upcoming" notice links to `/quizzes?openQuiz=<id>` or `?upcoming=<id>`, so at the moment a quiz went live
+  each tap was a page request to Hostinger (`DYNAMIC`). The page reads both parameters in the browser
+  (`useSearchParams` in `src/app/quizzes/page.tsx`), and the browser keeps the full address, so the pop-up opens as
+  before. Any other parameter keeps the whole query string, and so does a `?_rsc=` navigation. If `/quizzes` ever
+  reads a parameter on the server, take it out of this rule first. Checked after: `/quizzes?openQuiz=x` answered
+  `HIT`, `/quizzes?openQuiz=x&ref=y` and `/?page-cache-check=1` stayed `DYNAMIC`. **Rollback:** switch the rule off.
 - **Analytics are unaffected.** The rewrite only changes the URL Hostinger sees. The browser keeps the full URL,
   so Cloudflare Web Analytics, which runs in the browser, still records the tracking parameters. The app itself
   never reads them.
@@ -167,7 +185,10 @@ Notes:
 ## The live API rule
 
 The oldest of the zone's Cache Rules, *Live quiz snapshot*, caches what every player polls: `/api/live` (the public
-quiz list, 5 s) and `/api/live/quizzes/*` (a quiz's questions, 10 s). Each route sends its own `Cache-Control`, and
+quiz list, 5 s), `/api/live/quizzes/*` (a quiz's questions, 10 s) and, since 2026-11-12, `/api/streaming/active`
+(whether a stream is on, 5 s; every stream player asks it). That last path was in the JSON below but had never been
+applied: it answered `DYNAMIC` until the rule was patched and the path got a route without the Worker
+(edge-shield/README.md). Checked after: MISS, then HIT. Each route sends its own `Cache-Control`, and
 the rule keeps answers for exactly that long.
 
 [`cloudflare-live-api-cache-rule.json`](./cloudflare-live-api-cache-rule.json) is its body. It was updated in place

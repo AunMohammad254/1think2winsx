@@ -191,7 +191,7 @@ describe('quiz page: answering', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Go Answer Questions' }));
     choose('Gayle');
     submit();
-    expect(await screen.findByText('Locked in!')).toBeInTheDocument();
+    expect(await screen.findByText('Locked in. Your answers count.')).toBeInTheDocument();
     const [, init] = h.fetchWithRetry.mock.calls.find(([u]) => u.endsWith('/submit'))!;
     expect(init.headers['X-CSRF-Token']).toBe('csrf');
   });
@@ -202,7 +202,7 @@ describe('quiz page: answering', () => {
     await start();
     answerAll();
     submit();
-    expect(await screen.findByText('Your predictions have been successfully submitted!')).toBeInTheDocument();
+    expect(await screen.findByText('Locked in. Your answers count.')).toBeInTheDocument();
     expect(screen.getByText('answered 3')).toBeInTheDocument();
     expect(localStorage.getItem('1t2w_sub_q1')).toBe('1');
   });
@@ -328,7 +328,7 @@ describe('quiz page: offline submissions', () => {
     // Saved by a page from before the fix: the unanswered question is left out of the submit
     localStorage.setItem('pending_submit_q1_u1', JSON.stringify({ quizId: 'q1', answers: [{ questionId: 'a', selectedOption: 0 }, { questionId: 'b', selectedOption: -1 }] }));
     render(<QuizPage />);
-    expect(await screen.findByText('Synced!')).toBeInTheDocument();
+    expect(await screen.findByText('Locked in. Your answer counts.')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/api/quizzes/q1/submit', expect.objectContaining({ method: 'POST' }));
     expect(JSON.parse(fetchMock.mock.calls.find(([u]) => u.endsWith('/submit'))![1].body)).toEqual({ answers: [{ questionId: 'a', selectedOption: 0 }] });
     expect(localStorage.getItem('pending_submit_q1_u1')).toBeNull();
@@ -357,6 +357,6 @@ describe('quiz page: offline submissions', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     setOnline(true);
     act(() => void window.dispatchEvent(new Event('online')));
-    expect(await screen.findByText('Synced!')).toBeInTheDocument();
+    expect(await screen.findByText('Locked in. Your answers count.')).toBeInTheDocument();
   });
 });

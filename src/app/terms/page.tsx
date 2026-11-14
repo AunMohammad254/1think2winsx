@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { CONTACT_EMAIL, CONTACT_MAILTO } from '@/lib/site-contact';
 
 export default function TermsOfService() {
   const [isMobile, setIsMobile] = useState(false);
@@ -162,7 +163,7 @@ export default function TermsOfService() {
             <div className="text-gray-300 space-y-3 text-sm sm:text-base leading-relaxed">
               <p>If you have any questions about these Terms of Service, please contact us:</p>
               <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>Email: legal@1think2win.com</li>
+                <li>Email: <a href={CONTACT_MAILTO} className="underline underline-offset-2">{CONTACT_EMAIL}</a></li>
                 <li>Phone: +1 (555) 123-4567</li>
                 <li>Address: 123 Quiz Street, Game City, GC 12345</li>
               </ul>

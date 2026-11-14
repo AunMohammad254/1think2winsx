@@ -64,7 +64,7 @@ describe('Cloudflare', () => {
 
   it('sends one email through the REST API with its headers and returns the message id', async () => {
     fetchMock.mockResolvedValue(cfSent());
-    expect(await sendViaCloudflare(email)).toEqual({ ok: true, messageId: '<cf-1@1think2win.com>' });
+    expect(await sendViaCloudflare({ ...email, replyTo: 'help@example.test' })).toEqual({ ok: true, messageId: '<cf-1@1think2win.com>' });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acc123/email/sending/send');
     expect(init.method).toBe('POST');
@@ -72,6 +72,7 @@ describe('Cloudflare', () => {
     expect(JSON.parse(init.body)).toEqual({
       from: { address: 'support@1think2win.test', name: '1Think "2Win"' },
       to: 'fan@example.test',
+      reply_to: 'help@example.test',
       subject: 'Hello',
       html: '<p>Hi</p>',
       text: 'Hi',
@@ -85,6 +86,7 @@ describe('Cloudflare', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body).not.toHaveProperty('text');
     expect(body).not.toHaveProperty('headers');
+    expect(body).not.toHaveProperty('reply_to');
     fetchMock.mockResolvedValue(json({ success: true, result: null }));
     expect(await sendViaCloudflare(email)).toEqual({ ok: true, messageId: null });
   });
@@ -180,13 +182,14 @@ describe('Brevo', () => {
 
   it('sends one email with its headers and returns the message id', async () => {
     fetchMock.mockResolvedValue(json({ messageId: '<m1@relay>' }, 201));
-    expect(await sendViaBrevo(email)).toEqual({ ok: true, messageId: '<m1@relay>' });
+    expect(await sendViaBrevo({ ...email, replyTo: 'help@example.test' })).toEqual({ ok: true, messageId: '<m1@relay>' });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://api.brevo.com/v3/smtp/email');
     expect(init.headers['api-key']).toBe('brevo-key');
     expect(JSON.parse(init.body)).toEqual({
       sender: { name: '1Think "2Win"', email: 'support@1think2win.test' },
       to: [{ email: 'fan@example.test' }],
+      replyTo: { email: 'help@example.test' },
       subject: 'Hello',
       htmlContent: '<p>Hi</p>',
       textContent: 'Hi',
@@ -200,6 +203,7 @@ describe('Brevo', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.textContent).toBe('Please use an HTML compatible email client.');
     expect(body).not.toHaveProperty('headers');
+    expect(body).not.toHaveProperty('replyTo');
   });
 
   it('reports a refusal, a missing key and an unreachable Brevo', async () => {
@@ -218,7 +222,7 @@ describe('Amazon SES', () => {
 
   it('signs a SES v2 request in Sydney and returns the message id', async () => {
     fetchMock.mockResolvedValue(json({ MessageId: 'ses-1' }));
-    expect(await sendViaSes(email, {}, sleep)).toEqual({ ok: true, messageId: 'ses-1' });
+    expect(await sendViaSes({ ...email, replyTo: 'help@example.test' }, {}, sleep)).toEqual({ ok: true, messageId: 'ses-1' });
     const request = fetchMock.mock.calls[0][0] as Request;
     expect(request.url).toBe('https://email.ap-southeast-2.amazonaws.com/v2/email/outbound-emails');
     expect(request.method).toBe('POST');
@@ -226,6 +230,7 @@ describe('Amazon SES', () => {
     expect(JSON.parse(await request.text())).toEqual({
       FromEmailAddress: '"1Think 2Win" <support@1think2win.test>',
       Destination: { ToAddresses: ['fan@example.test'] },
+      ReplyToAddresses: ['help@example.test'],
       Content: {
         Simple: {
           Subject: { Data: 'Hello', Charset: 'UTF-8' },
@@ -241,6 +246,7 @@ describe('Amazon SES', () => {
     expect(await sendViaSes({ ...email, text: undefined, headers: undefined })).toEqual({ ok: true, messageId: null });
     const body = JSON.parse(await (fetchMock.mock.calls[0][0] as Request).text());
     expect(body.Content.Simple).not.toHaveProperty('Headers');
+    expect(body).not.toHaveProperty('ReplyToAddresses');
     expect(body.Content.Simple.Body).not.toHaveProperty('Text');
   });
 

@@ -61,6 +61,8 @@ export async function POST(request: NextRequest) {
     await logQuizAction({
       quizId: result.quizId, quizTitle: result.quizTitle, action: 'quiz_settled', adminEmail: admin.email,
       details: {
+        // The seed and rule it was settled with, to set against the previews recorded before it
+        seed: parsed.data.seed, tieRule: parsed.data.tieRule,
         winners: result.winners.map((w) => ({ rank: w.rank, userId: w.userId, points: w.points, prizeId: w.prizeId })),
         unfilled: result.unfilled,
         pool: { percent: parsed.data.poolPercent, each: parsed.data.poolEach, paid: result.pool?.paid ?? 0, recipients: result.pool?.recipients ?? 0 },

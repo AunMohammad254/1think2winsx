@@ -343,7 +343,7 @@ Engineering is complete; these items need an owner before going live:
 
 - [ ] Production accounts and keys for Supabase, Cloudinary, Brevo, Gemini and VAPID (see [Environment variables](#environment-variables)).
 - [ ] Apply the Supabase migrations, enable the `pg_cron` leaderboard refresh and schedule `/api/cron/process-scheduled`.
-- [ ] Replace the landing page's **sample content** with verified, licensed material: the statistics (players, prizes won, quizzes live), the "as featured in" partner badges, sample quiz and prize-tier copy, and payout wording that does not match the Easypaisa/JazzCash flow.
+- [ ] Replace the landing page's **sample content** with verified, licensed material: the "as featured in" partner badges, sample quiz and prize-tier copy, and payout wording that does not match the Easypaisa/JazzCash flow.
 - [ ] Prize inventory, images and the delivery process.
 - [ ] Deposit review and payout procedures for the team.
 - [ ] Legal review of Terms, Privacy and Disclaimer.
@@ -397,7 +397,7 @@ Please run `bun run lint` and `bun run test:ci` before submitting.
 
 | | |
 |:--:|:--:|
-| 📧 Email | [contact@1think2wins.com](mailto:contact@1think2wins.com) |
+| 📧 Email | [1think2wins@gmail.com](mailto:1think2wins@gmail.com) |
 | 🐛 Issues | [Report a bug](https://github.com/AunMohammad254/1think2winsx/issues) |
 
 ## 📄 License
