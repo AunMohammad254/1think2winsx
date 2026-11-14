@@ -13,6 +13,8 @@ vi.mock('@sentry/nextjs', () => ({
   replayIntegration: () => ({ name: 'Replay' }),
   consoleLoggingIntegration: (options: unknown) => ({ name: 'ConsoleLogs', options }),
 }));
+// The real stylesheet goes through the Tailwind PostCSS plugin, which the test runner cannot load
+vi.mock('@/app/globals.css', () => ({}));
 
 beforeEach(() => {
   vi.resetModules();
@@ -77,7 +79,7 @@ describe('global error page', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { default: GlobalError } = await import('@/app/global-error');
     const error = Object.assign(new Error('layout exploded'), { digest: 'd9' });
-    const { container } = render(<GlobalError error={error} />);
+    const { container } = render(<GlobalError error={error} retry={() => {}} />);
     expect(h.captureException).toHaveBeenCalledWith(error);
     expect(container.textContent).toMatch(/error/i);
   });

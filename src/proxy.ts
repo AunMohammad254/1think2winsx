@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
+import {
+  getMaintenanceState,
+  isOpenDuringMaintenance,
+  maintenancePageHtml,
+  retryAfterSeconds,
+  type MaintenanceState,
+} from '@/lib/maintenance';
 
 // NOTE: This file must live in `src/` (next to `app/`). The previous root-level
 // `middleware.ts` was silently ignored by Next.js because the project uses `src/`,
@@ -53,8 +60,42 @@ function applySecurityHeaders(response: NextResponse) {
   return response;
 }
 
+/**
+ * The maintenance answer for a player: the "back soon" page for pages, a JSON 503 for APIs. Never
+ * stored by Cloudflare or the browser (no-store), so the site is back the moment maintenance ends.
+ */
+function maintenanceResponse(state: MaintenanceState, isApi: boolean) {
+  const headers = {
+    'Cache-Control': 'no-store',
+    'Retry-After': String(retryAfterSeconds(state.until)),
+  };
+  if (isApi) {
+    return NextResponse.json(
+      { error: 'maintenance', message: state.message || 'The site is down for maintenance.', until: state.until },
+      { status: 503, headers }
+    );
+  }
+  return applySecurityHeaders(
+    new NextResponse(maintenancePageHtml(state), {
+      status: 503,
+      headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8' },
+    })
+  );
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isApi = pathname === '/api' || pathname.startsWith('/api/');
+
+  // Maintenance mode: admins (the admin cookie) and the admin area, jobs and webhooks carry on.
+  // The cookie is only checked for presence: it opens the site's pages, not anything an admin can do,
+  // which every admin page and action still verifies against the database.
+  if (!isOpenDuringMaintenance(pathname) && !request.cookies.get(ADMIN_SESSION_COOKIE)?.value) {
+    const maintenance = await getMaintenanceState();
+    if (maintenance.enabled) return maintenanceResponse(maintenance, isApi);
+  }
+  // API routes authenticate themselves: nothing below applies to them
+  if (isApi) return NextResponse.next();
 
   // Cheap cookie presence check for admin pages (full DB validation happens in the
   // (protected) admin layout and in every admin Server Action via assertAdmin()).
@@ -76,9 +117,11 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Skip API routes (they authenticate themselves), the Sentry tunnel (/monitoring, see
+     * Pages: skip API routes (the next entry), the Sentry tunnel (/monitoring, see
      * src/app/monitoring/route.ts), Next internals, and static files in /public so the proxy never runs for assets.
      */
     '/((?!api|monitoring|_next/static|_next/image|favicon.ico|sw.js|manifest|Favicon|images|.*\\.(?:png|jpg|jpeg|gif|svg|webp|avif|ico|css|js|map|txt|xml|json|woff2?|ttf|glb|gltf|mp4|webm)$).*)',
+    // API routes, only for the maintenance check (no session refresh or headers for them here)
+    '/api/:path*',
   ],
 };

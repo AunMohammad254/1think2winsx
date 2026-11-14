@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import * as Sentry from '@sentry/nextjs';
+import PageErrorHint from '@/components/errors/PageErrorHint';
 
 export default function PrizesError({
     error,
@@ -29,6 +30,7 @@ export default function PrizesError({
                     <p className="text-gray-400 mb-6">
                         We couldn&apos;t load the prizes. This might be a temporary issue.
                     </p>
+                    <PageErrorHint error={error} />
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
