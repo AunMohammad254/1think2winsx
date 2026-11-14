@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { unstable_rethrow } from 'next/navigation';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { securityLogger } from './security-logger';
 import { adminSessionDb } from './supabase/db';
 
@@ -40,7 +40,12 @@ export function verifyAdminCredentials(email: string, password: string): boolean
 
     const normalizedEmail = email.trim().toLowerCase();
     const isEmailValid = adminEmails.includes(normalizedEmail);
-    const isPasswordValid = password.length === adminPassword.length && timingSafeEqual(Buffer.from(password), Buffer.from(adminPassword));
+    // Constant-time, on SHA-256 digests: both sides are always 32 bytes, so the comparison leaks neither
+    // the password's length nor where the first wrong character is. Comparing the strings' lengths first
+    // (characters, not bytes) let timingSafeEqual throw on a wrong password of the same length that
+    // held a non-ASCII character, which answered the sign-in with a server error.
+    const digest = (value: string) => createHash('sha256').update(value).digest();
+    const isPasswordValid = timingSafeEqual(digest(password), digest(adminPassword));
 
     return isEmailValid && isPasswordValid;
 }
