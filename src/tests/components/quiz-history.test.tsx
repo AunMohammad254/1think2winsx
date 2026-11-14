@@ -37,6 +37,10 @@ describe('QuizHistory', () => {
         entry('17', 'something_new'),
         entry('18', 'quiz_scheduled', { startsAt: '2026-11-01T13:00:00Z' }),
         entry('19', 'quiz_scheduled', {}),
+        // Two previews before a settlement: the first drew a seed, the second sent it back, and the quiz was settled with it
+        entry('20', 'settlement_previewed', { seed: '00112233445566778899aabbccddeeff', newSeed: true, tieRule: 'random', winners: [{ rank: 1, userId: 'u1' }] }),
+        entry('21', 'settlement_previewed', { seed: '00112233445566778899aabbccddeeff', newSeed: false, tieRule: 'random', winners: [{ rank: 1, userId: 'u1' }, { rank: 2, userId: 'u2' }] }),
+        entry('22', 'quiz_settled', { seed: '00112233445566778899aabbccddeeff', tieRule: 'random', winners: [{ rank: 1 }, { rank: 2 }] }),
       ],
     }));
     render(<QuizHistory quizId="q 1" />);
@@ -63,6 +67,9 @@ describe('QuizHistory', () => {
       ['boss@example.test', 'something_new', ''],
       ['boss@example.test', 'Scheduled', 'For 1 Nov 2026, 18:00'],
       ['boss@example.test', 'Scheduled', ''],
+      ['boss@example.test', 'Previewed the winners', '1 winner, seed …ccddeeff, new draw'],
+      ['boss@example.test', 'Previewed the winners', '2 winners, seed …ccddeeff'],
+      ['boss@example.test', 'Settled the quiz', '2 winners, seed …ccddeeff'],
     ]);
     // Times in Pakistan time, as the column says
     expect(within(rows[0]).getAllByRole('cell')[0]).toHaveTextContent('24 Oct 2026, 15:00');

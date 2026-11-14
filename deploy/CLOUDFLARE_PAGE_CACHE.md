@@ -91,7 +91,7 @@ What each part is for:
 - **Apex host only**: `www` answers with a 301 to the apex.
 
 Plan limits: this made 2 of the 10 Cache Rules on the Free plan. With the rules below, the zone uses 5 of 10
-Cache Rules and 1 of 10 URL Rewrite Rules. No Cache Response Rules or custom cache keys are needed.
+Cache Rules and 2 of 10 URL Rewrite Rules. No Cache Response Rules or custom cache keys are needed.
 
 ## Signed-in `/quizzes` (in the repo, NOT applied yet)
 
@@ -158,6 +158,15 @@ Notes:
   the origin's TTL instead, because Next's `max-age=0` is what it exists to replace.
 - **The rewrite keeps the whole query string when any parameter is not a tracking one.** `/?ref=x&utm_source=y`
   still reaches Hostinger, and so do `/?page-cache-check=1` (the origin probe) and every `?_rsc=` prefetch.
+- **Notification links to `/quizzes` (live since 2026-11-12).** A second URL Rewrite,
+  [`cloudflare-quizzes-query-rewrite-rule.json`](./cloudflare-quizzes-query-rewrite-rule.json), does the same for
+  `/quizzes`: it drops a query string made only of `openQuiz`, `upcoming` and tracking parameters. Every "Live now"
+  and "Upcoming" notice links to `/quizzes?openQuiz=<id>` or `?upcoming=<id>`, so at the moment a quiz went live
+  each tap was a page request to Hostinger (`DYNAMIC`). The page reads both parameters in the browser
+  (`useSearchParams` in `src/app/quizzes/page.tsx`), and the browser keeps the full address, so the pop-up opens as
+  before. Any other parameter keeps the whole query string, and so does a `?_rsc=` navigation. If `/quizzes` ever
+  reads a parameter on the server, take it out of this rule first. Checked after: `/quizzes?openQuiz=x` answered
+  `HIT`, `/quizzes?openQuiz=x&ref=y` and `/?page-cache-check=1` stayed `DYNAMIC`. **Rollback:** switch the rule off.
 - **Analytics are unaffected.** The rewrite only changes the URL Hostinger sees. The browser keeps the full URL,
   so Cloudflare Web Analytics, which runs in the browser, still records the tracking parameters. The app itself
   never reads them.
@@ -167,7 +176,10 @@ Notes:
 ## The live API rule
 
 The oldest of the zone's Cache Rules, *Live quiz snapshot*, caches what every player polls: `/api/live` (the public
-quiz list, 5 s) and `/api/live/quizzes/*` (a quiz's questions, 10 s). Each route sends its own `Cache-Control`, and
+quiz list, 5 s), `/api/live/quizzes/*` (a quiz's questions, 10 s) and, since 2026-11-12, `/api/streaming/active`
+(whether a stream is on, 5 s; every stream player asks it). That last path was in the JSON below but had never been
+applied: it answered `DYNAMIC` until the rule was patched and the path got a route without the Worker
+(edge-shield/README.md). Checked after: MISS, then HIT. Each route sends its own `Cache-Control`, and
 the rule keeps answers for exactly that long.
 
 [`cloudflare-live-api-cache-rule.json`](./cloudflare-live-api-cache-rule.json) is its body. It was updated in place

@@ -328,7 +328,7 @@ describe('answer lock-in: what waits, and where', () => {
     // The CSRF token the lock-in needs was fetched with it (and is kept for an hour), not as the quiz opened:
     // a crowd opening a quiz at once would all send one
     expect(traffic.filter((t) => t.path === '/api/csrf-token')).toEqual([{ at: 5_000, path: '/api/csrf-token', status: 200 }]);
-    expect(h.toast.success).toHaveBeenCalledWith('Answer locked in!');
+    expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.');
   });
 
   it("spreads a crowd's deadline lock-ins over 22 s, all inside the grace: one request and one RPC each, no batching", async () => {
@@ -582,7 +582,7 @@ describe('answer lock-in: restarts, retries and duplicates', () => {
     expect(outcomes[1]).toMatchObject({ success: true, isReattempt: true, answersSubmitted: 0 });
     expect(answersOf('viewer-1')).toEqual({ a: 0, b: 0 });
     // The laptop shows its own picks as locked in
-    expect(h.toast.success).toHaveBeenNthCalledWith(2, 'Answer locked in!');
+    expect(h.toast.success).toHaveBeenNthCalledWith(2, 'Locked in. Your answers count.');
     expect(laptop.view.getByRole('radio', { name: 'Rizwan' })).toBeChecked();
     expect(laptop.view.getByText('Answer locked in — waiting for results')).toBeInTheDocument();
   });
@@ -793,8 +793,8 @@ describe('answer lock-in: the edge Worker in front (edge-shield/)', () => {
     v.lockIn();
     await tick(0);
     expect(submits()).toEqual([{ at: 0, path: '/api/quizzes/quiz-1/submit', status: 202 }]);
-    expect(h.toast.success).toHaveBeenCalledWith('Answer received');
-    expect(v.view.getByText('Answer received — waiting for results')).toBeInTheDocument();
+    expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.');
+    expect(v.view.getByText('Answer locked in — waiting for results')).toBeInTheDocument();
     expect(db.rpcCalls).toEqual([]);
     expect(saved.size).toBe(0);
 
@@ -821,7 +821,7 @@ describe('answer lock-in: the edge Worker in front (edge-shield/)', () => {
 
     expect(submits()).toHaveLength(crowd);
     expect(submits().every((s) => s.status === 202 && s.at < 82_000)).toBe(true);
-    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was received.");
+    expect(h.toast.success).toHaveBeenCalledWith("Time's up: your 1 answer was locked in.");
     expect(db.rpcCalls).toEqual([]);
     drainQueue();
     expect(attempts.size).toBe(crowd);
@@ -838,7 +838,7 @@ describe('answer lock-in: the edge Worker in front (edge-shield/)', () => {
     await tick(0);
     expect(submits().map((s) => s.status)).toEqual([401, 202]);
     expect(h.refreshSession).toHaveBeenCalledTimes(1);
-    expect(h.toast.success).toHaveBeenCalledWith('Answer received');
+    expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.');
     expect(h.toast.error).not.toHaveBeenCalled();
     drainQueue();
     expect(answersOf('viewer-1')).toEqual({ a: 0, b: 1 });
@@ -871,12 +871,12 @@ describe('answer lock-in: the edge Worker in front (edge-shield/)', () => {
     expect(submits().map((s) => s.status)).toEqual([202]);
     expect(queue).toHaveLength(1);
     expect(answersOf('viewer-1')).toEqual({});
-    expect(h.toast.success).toHaveBeenCalledWith('Answer received');
+    expect(h.toast.success).toHaveBeenCalledWith('Locked in. Your answers count.');
     drainQueue();
     expect(answersOf('viewer-1')).toEqual({ r: 0, w: 1 });
   });
 
-  it('the quiz page counts a 202 as submitted, after refreshing a lapsed session, and shows the answers received', async () => {
+  it('the quiz page counts a 202 as submitted, after refreshing a lapsed session, and shows the same words as a 200', async () => {
     vi.setSystemTime(T0);
     sessionLapsed = true;
     render(<QuizPage />);
@@ -886,7 +886,7 @@ describe('answer lock-in: the edge Worker in front (edge-shield/)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(screen.getByRole('button', { name: /2009/ }));
     fireEvent.click(screen.getByRole('button', { name: /Submit Quiz/ }));
-    expect(await screen.findByText('Your answers were received!')).toBeInTheDocument();
+    expect(await screen.findByText('Locked in. Your answers count.')).toBeInTheDocument();
     expect(submits().map((s) => s.status)).toEqual([401, 202]);
     expect(h.refreshSession).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem('1t2w_sub_quiz-1')).toBe('1');

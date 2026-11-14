@@ -2,7 +2,7 @@
 
 import { memo, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Section, Eyebrow, Reveal, Button, useScrollReveal, useAnimatedCounter } from "./Primitives";
+import { Section, Eyebrow, Reveal, Button, useScrollReveal } from "./Primitives";
 import Link from "next/link";
 import { linkPrefetch } from "@/lib/link-prefetch";
 import { useLiveSnapshot } from "@/hooks/useLiveSnapshot";
@@ -10,11 +10,13 @@ import { useNow } from "@/hooks/useNow";
 import { toLandingQuizzes, formatCountdown, type LandingQuiz } from "@/lib/landing-live";
 import { formatBusinessStart } from "@/lib/schedule-time";
 
-// Shown while the real quiz list loads and when it cannot be loaded, so the section never looks broken
+// Shown while the real quiz list loads and when it cannot be loaded, so the section never looks broken.
+// Examples of the kind of quiz, with no figures: they used to show cash prize pools, player counts and
+// countdowns that nobody had counted, and the site pays no cash prizes with the wallet on or off.
 const QUIZ_DATA = [
-  { badge: "🏏 PSL Mega", title: "Karachi Kings — PSL Ultimate Trivia", prize: 5000, players: 1284, timeLeft: "02h 14m", difficulty: "Pro", accent: "from-amber-400 to-orange-500" },
-  { badge: "🏆 Domestic", title: "National T20 Cup & Quaid-e-Azam Trophy", prize: 2500, players: 892, timeLeft: "05h 41m", difficulty: "Intermediate", accent: "from-emerald-400 to-cyan-400" },
-  { badge: "⚡ Daily", title: "60-Second Sprint: Hockey, Squash & Snooker", prize: 500, players: 3127, timeLeft: "Live now", difficulty: "Beginner", accent: "from-violet-400 to-pink-500" },
+  { badge: "🏏 PSL Mega", title: "Karachi Kings — PSL Ultimate Trivia", difficulty: "Pro", accent: "from-amber-400 to-orange-500" },
+  { badge: "🏆 Domestic", title: "National T20 Cup & Quaid-e-Azam Trophy", difficulty: "Intermediate", accent: "from-emerald-400 to-cyan-400" },
+  { badge: "⚡ Daily", title: "60-Second Sprint: Hockey, Squash & Snooker", difficulty: "Beginner", accent: "from-violet-400 to-pink-500" },
 ];
 
 type Tone = "default" | "trophy" | "live";
@@ -110,24 +112,21 @@ function CardShell({
   );
 }
 
-// Memoized: the carousel re-renders on every carousel tick and animated-counter frame, but only the
-// card whose props change (the active one, which alone gets the live player count) needs to.
+// Memoized: the carousel re-renders on every carousel tick, but only the card whose props change needs to.
 const QuizCarouselCard = memo(function QuizCarouselCard({
   q,
   isActive,
-  livePlayers,
   isLoggedIn
 }: {
   q: typeof QUIZ_DATA[0];
   isActive: boolean;
-  livePlayers: number;
   isLoggedIn: boolean;
 }) {
   return (
-    <CardShell accent={q.accent} badge={q.badge} pill={isActive ? "live" : null} title={q.title} tag={q.difficulty} detail="10 questions" href={isLoggedIn ? "/quizzes" : "/register"} isActive={isActive}>
-      <Metric label="Prize pool" value={`${q.prize.toLocaleString()} PKR`} tone="trophy" />
-      <Metric label="Players" value={livePlayers.toLocaleString()} />
-      <Metric label="Starts in" value={q.timeLeft} tone={q.timeLeft === "Live now" ? "live" : "default"} />
+    <CardShell accent={q.accent} badge={q.badge} pill={null} title={q.title} tag={q.difficulty} detail="Example quiz" href={isLoggedIn ? "/quizzes" : "/register"} isActive={isActive}>
+      <Metric label="Prize" value="Points & prizes" tone="trophy" />
+      <Metric label="Entry" value="Sign in to play" />
+      <Metric label="Starts" value="See schedule" />
     </CardShell>
   );
 });
@@ -196,7 +195,7 @@ function EmptyCard({ isLoggedIn }: { isLoggedIn: boolean }) {
   );
 }
 
-// Memoized: the section re-renders every second (clock) and on every animated-counter frame, but this
+// Memoized: the section re-renders every second (clock), but this
 // column only changes with the sign-in state, so React can skip reconciling it.
 const LiveQuizIntro = memo(function LiveQuizIntro({ isLoggedIn }: { isLoggedIn: boolean }) {
   return (
@@ -239,10 +238,9 @@ function slideLeft(track: HTMLElement, i: number) {
 }
 
 // ⚡ Bolt Performance Optimization:
-// Extracted high-frequency hooks (`useNow`, `useAnimatedCounter`, `setInterval`) and carousel state
+// Extracted high-frequency hooks (`useNow`, `setInterval`) and carousel state
 // into a dedicated `LiveQuizCarousel` component.
-// Why: `LiveQuiz` was re-rendering on every `useNow` tick (every second) and `useAnimatedCounter`
-// frame, needlessly reconciling the entire Section and its grid structure despite the left column
+// Why: `LiveQuiz` was re-rendering on every `useNow` tick (every second), needlessly reconciling the entire Section and its grid structure despite the left column
 // (`LiveQuizIntro`) being memoized.
 // Impact: Significantly reduces React rendering work on the main thread by isolating the re-renders
 // to just the dynamic carousel right column.
@@ -264,9 +262,6 @@ function LiveQuizCarousel({ isLoggedIn, isVisible }: { isLoggedIn: boolean; isVi
   const count = quizzes ? quizzes.length : QUIZ_DATA.length;
   // The list can shrink under the selection (a quiz closes, or real data replaces the demo)
   const current = Math.min(active, Math.max(count - 1, 0));
-
-  // Only the demo cards count players up; a target of 0 leaves the counter idle
-  const livePlayers = useAnimatedCounter(quizzes ? 0 : QUIZ_DATA[current].players, 800);
 
   useEffect(() => {
     // No auto-advance for reduced motion, during hover, or when few cards (WCAG 2.2.2)
@@ -385,7 +380,6 @@ function LiveQuizCarousel({ isLoggedIn, isVisible }: { isLoggedIn: boolean; isVi
                       key={q.title}
                       q={q}
                       isActive={i === current}
-                      livePlayers={i === current ? livePlayers : q.players}
                       isLoggedIn={isLoggedIn}
                     />
                   ))}

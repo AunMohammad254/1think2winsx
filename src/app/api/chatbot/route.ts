@@ -101,7 +101,7 @@ interface EntryTerms {
 function entrySections({ paid, price }: EntryTerms): string {
   if (!paid) {
     return `## ABOUT 1THINK2WIN
-1Think2Win is a Pakistan-based online sports quiz competition where players answer sports knowledge questions, and random winners receive exciting random prizes. Playing is FREE. The platform is available 24/7.
+1Think2Win is a Pakistan-based online sports quiz competition where players answer sports knowledge questions, and the top scorers win prizes and points. Playing is FREE. The platform is available 24/7.
 
 ## ENTRY (FREE TO PLAY)
 - Quizzes are free to play right now: no entry fee, no payment and no wallet top-up needed
@@ -111,10 +111,10 @@ function entrySections({ paid, price }: EntryTerms): string {
 ## HOW IT WORKS (3 steps)
 1. Register — Create a free account
 2. Answer Questions — Sports knowledge quiz
-3. Win Prizes — Random winners are selected after each quiz session`;
+3. Win Prizes — Winners are picked automatically when the quiz is evaluated (see PRIZES AND WINNERS)`;
   }
   return `## ABOUT 1THINK2WIN
-1Think2Win is a Pakistan-based online sports quiz competition where players pay a small entry fee, answer sports knowledge questions, and random winners receive exciting random prizes. The platform is available 24/7.
+1Think2Win is a Pakistan-based online sports quiz competition where players pay a small entry fee, answer sports knowledge questions, and the top scorers win prizes and points. The platform is available 24/7.
 
 ## ENTRY & PAYMENT
 - Entry fee: ${price} PKR, paid from the player's 1Think2Win wallet, unlocks 24 hours of quiz access (play as many quizzes as you like in that time)
@@ -124,22 +124,31 @@ function entrySections({ paid, price }: EntryTerms): string {
 ## HOW IT WORKS (3 steps)
 1. Register & Pay — Create an account, add money to your wallet and pay ${price} PKR for 24-hour access
 2. Answer Questions — Sports knowledge quiz
-3. Win Prizes — Random winners are selected after each quiz session`;
+3. Win Prizes — Winners are picked automatically when the quiz is evaluated (see PRIZES AND WINNERS)`;
 }
 
-const PLATFORM_GUIDE = `## PRIZES AVAILABLE
-- 🏍️  Grand Prize: Brand-new Motorcycle (PKR 150,000+)
-- 📱  Premium Prize: Latest Smartphone (PKR 50,000+)
-- 🎧  Popular Prize: Wireless Earbuds (PKR 15,000+)
-- ⌚  Tech Prize: Smart Watch (PKR 25,000+)
-Winners are selected randomly after each quiz session — everyone has a fair chance!
+/**
+ * How prizes are won, as the owner set it out on 2026-11-12 and as settlement works (settle_quiz,
+ * src/lib/quiz-settlement.ts; the same rules as /how-to-play). No prize names or values here: the bot
+ * used to promise a motorcycle and a smartphone that were sample text. Prizes change, so it points to
+ * /prizes instead of listing any.
+ */
+const PLATFORM_GUIDE = `## PRIZES AND WINNERS
+- Winners are picked automatically when a quiz is evaluated, once its results are in
+- The highest scores win. Players on the same score are separated in one of two ways:
+  - Lucky draw: a recorded random draw among them
+  - Bumper prizes: first come, first served, so the player who locked in their answers first wins
+- A bumper prize is a surprise prize: its name is shown only to the player who wins it
+- Players also earn points by playing quizzes, and points can be exchanged for prizes on /prizes
+- A prize that was won is claimed from the player's profile (name, WhatsApp number and address); delivery is arranged after that
+- Never name a prize or a prize value, and never promise that someone will win. For what can be won right now, send the player to /prizes
 
 ## PLATFORM PAGES (for navigation)
 - Homepage: / — Overview, how it works, prizes, stats
 - Quizzes: /quizzes — Browse and join available quiz sessions
 - Quiz Room: /quiz/[id] — Active quiz session page
 - Leaderboard: /leaderboard — Top players and rankings
-- Prizes: /prizes — Full prize details and past winners
+- Prizes: /prizes — The prizes players can get with their points
 - Profile: /profile — Player stats and quiz history
 - Login: /login — Sign in with email or Google
 - Register: /register — Create a new account (start here!)
@@ -160,7 +169,7 @@ Winners are selected randomly after each quiz session — everyone has a fair ch
 - Sports themed questions
 - Each session is timed
 - Answers are locked after submission
-- Random selection algorithm picks winners (not just highest scorers)
+- Winners come from the scores; equal scores are separated by a lucky draw, or first come first served for bumper prizes
 - Fair play: one account per person
 
 ## NAVIGATION INSTRUCTIONS
