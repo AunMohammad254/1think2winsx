@@ -10,9 +10,16 @@ on:
     - cron: '0 3 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   BUN_VERSION: '1.x'
 
+# One build (bundle-analysis), which the Lighthouse job downloads. There is no Playwright job here:
+# no test is tagged @performance, so the old one reran the whole Chromium suite that tests.yml
+# already runs, and was set never to fail. Add a job back when @performance tests exist.
 jobs:
   # ──────────────────────────────────────────────
   # Job 1: Build & Bundle Analysis
@@ -92,13 +99,28 @@ jobs:
             echo "| Total Static | $TOTAL_SIZE |" >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Upload build artifacts
+      # .next is a hidden folder, which upload-artifact skips: the old upload of `.next/` found no
+      # files and uploaded nothing. Packed into one file, it is also far quicker to move. `next start`
+      # reads neither the build cache nor the standalone copy, so both stay behind.
+      - name: Pack the build
+        run: tar --exclude=.next/cache --exclude=.next/standalone --exclude=.next/analyze -cf next-build.tar .next
+
+      - name: Upload the build
         uses: actions/upload-artifact@v4
         with:
-          name: build-output
-          path: |
-            .next/
-            !.next/cache
+          name: next-build
+          path: next-build.tar
+          if-no-files-found: error
+          retention-days: 1
+
+      # The interactive treemaps from ANALYZE=true (client.html, nodejs.html, edge.html)
+      - name: Upload bundle analyzer report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-analyzer-report
+          path: .next/analyze/
+          include-hidden-files: true
+          if-no-files-found: warn
           retention-days: 7
 
   # ──────────────────────────────────────────────
@@ -107,7 +129,7 @@ jobs:
   lighthouse:
     name: 🔦 Lighthouse Audit
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     needs: bundle-analysis
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
@@ -144,72 +166,30 @@ jobs:
       - name: Install Lighthouse CI
         run: npm install -g @lhci/cli@0.14.x
 
-      - name: Build application
-        run: bun run build
-        env:
-          CI: true
+      - name: Download the build
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
 
-      - name: Start production server
-        run: |
-          bun run start &
-          echo "Waiting for server..."
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:3000 > /dev/null; then echo "Server ready"; exit 0; fi
-            sleep 2
-          done
-          echo "Server not ready after 120s" && exit 1
+      - name: Unpack the build
+        run: tar -xf next-build.tar && rm next-build.tar
 
-      - name: Run Lighthouse CI
-        run: |
-          lhci autorun \
-            --collect.url=http://localhost:3000 \
-            --collect.numberOfRuns=3 \
-            --assert.preset=lighthouse:recommended \
-            --assert.assertions.categories:performance=warn \
-            --assert.assertions.categories:accessibility=error \
-            --assert.assertions.categories:best-practices=warn \
-            --assert.assertions.categories:seo=warn \
-            --output=json \
-            --output-path=./lighthouse-results/ || true
-        env:
-          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+      # lhci starts and stops the server itself (startServerCommand in .lighthouserc.json). This
+      # workflow used to start one on port 3000 as well, so lhci's own failed with "address already
+      # in use", and `|| true` hid that: no report was ever produced. A failure here now fails the job.
+      # The home page only: the other pages in .lighthouserc.json need a database.
+      - name: Run Lighthouse
+        run: lhci collect --url=http://localhost:3000/ --numberOfRuns=3 --settings.chromeFlags="--no-sandbox"
+
+      # The budgets in .lighthouserc.json. Reported, not enforced (as before): a miss is a warning
+      - name: Check Lighthouse budgets
+        run: lhci assert || echo "::warning::Lighthouse budgets in .lighthouserc.json were missed (not blocking); see the log above"
+
+      - name: Save Lighthouse reports
+        run: lhci upload --target=filesystem --outputDir=./lighthouse-results
 
       - name: Process Lighthouse results
-        run: |
-          echo "## 🔦 Lighthouse Audit Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ -d "lighthouse-results" ]; then
-            python3 << 'EOF'
-          import json, os, glob
-
-          reports = glob.glob('lighthouse-results/**/*.json', recursive=True)
-          if not reports:
-              print("No Lighthouse reports found")
-              exit(0)
-
-          # Use the first report
-          with open(reports[0]) as f:
-              data = json.load(f)
-
-          categories = data.get('categories', {})
-
-          def score_emoji(score):
-              if score >= 0.9: return '🟢'
-              if score >= 0.5: return '🟡'
-              return '🔴'
-
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
-              f.write("| Category | Score | Status |\n")
-              f.write("|----------|-------|--------|\n")
-              for cat_id, cat_data in categories.items():
-                  score = cat_data.get('score', 0)
-                  title = cat_data.get('title', cat_id)
-                  f.write(f"| {title} | {int(score * 100)} | {score_emoji(score)} |\n")
-
-          print("Lighthouse report processed successfully")
-          EOF
-          fi
+        run: node .github/ci/lighthouse-summary.mjs lighthouse-results
 
       - name: Upload Lighthouse report
         uses: actions/upload-artifact@v4
@@ -220,82 +200,12 @@ jobs:
           retention-days: 14
 
   # ──────────────────────────────────────────────
-  # Job 3: Performance E2E Tests
-  # ──────────────────────────────────────────────
-  performance-tests:
-    name: ⚡ Performance E2E Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: bundle-analysis
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
-      AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://test.supabase.co' }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'test-anon-key' }}
-      # Cloudflare's always-pass Turnstile key, so the test browsers never load the live widget
-      NEXT_PUBLIC_TURNSTILE_SITE_KEY: '1x00000000000000000000AA'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.bun/install/cache
-            node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install Playwright
-        # .github/ci/playwright-install.sh: 5 minutes a try, 3 tries (apt-get sometimes crawls)
-        run: bash .github/ci/playwright-install.sh install chromium --with-deps
-
-      - name: Build application
-        run: bun run build
-        env:
-          CI: true
-
-      - name: Run performance E2E tests
-        run: |
-          # Run only tests tagged with @performance if they exist
-          if bunx playwright test --list 2>/dev/null | grep -q "@performance"; then
-            bunx playwright test --grep "@performance" --project=chromium --reporter=html,junit
-          else
-            echo "No @performance tagged tests found, running full E2E suite"
-            bunx playwright test --project=chromium --reporter=html,junit
-          fi
-        env:
-          CI: true
-          PLAYWRIGHT_JUNIT_OUTPUT_NAME: test-results/performance-junit.xml
-        continue-on-error: true
-
-      - name: Upload performance test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: performance-test-report
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 14
-
-  # ──────────────────────────────────────────────
-  # Job 4: Performance Regression Alert
+  # Job 3: Performance summary comment on the pull request
   # ──────────────────────────────────────────────
   performance-regression:
     name: 📉 Regression Check
     runs-on: ubuntu-latest
-    needs: [bundle-analysis, performance-tests]
+    needs: [bundle-analysis, lighthouse]
     if: always() && github.event_name == 'pull_request'
     permissions:
       pull-requests: write
@@ -305,7 +215,7 @@ jobs:
         with:
           script: |
             const bundleStatus = '${{ needs.bundle-analysis.result }}';
-            const perfStatus = '${{ needs.performance-tests.result }}';
+            const lighthouseStatus = '${{ needs.lighthouse.result }}';
 
             const statusEmoji = (s) => s === 'success' ? '✅' : s === 'failure' ? '❌' : '⚠️';
 
@@ -314,9 +224,9 @@ jobs:
             | Check | Status |
             |-------|--------|
             | Bundle Analysis | ${statusEmoji(bundleStatus)} ${bundleStatus} |
-            | Performance Tests | ${statusEmoji(perfStatus)} ${perfStatus} |
+            | Lighthouse Audit | ${statusEmoji(lighthouseStatus)} ${lighthouseStatus} |
 
-            > View detailed results in the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+            > Bundle sizes and Lighthouse scores are in the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) summary.
             `;
 
             // Update our previous comment instead of posting a new one on every push

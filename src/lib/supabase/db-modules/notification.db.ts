@@ -100,6 +100,231 @@ async function sendWebPush(subscription: PushSubscriptionRecord, payload: PushPa
     }
 }
 
+type BroadcastInput = { title: string; message: string; type: string; link?: string };
+
+/** queued: a Broadcast job carries it (the migration is applied); duplicate: the same one went out minutes ago. */
+export interface BroadcastOutcome {
+    id: string | null;
+    duplicate: boolean;
+    queued: boolean;
+}
+
+/** What one run of advanceBroadcasts did. */
+export interface BroadcastProgress {
+    broadcasts: string[];
+    inserted: number;
+    pushed: number;
+}
+
+interface ClaimedBroadcast {
+    id: string;
+    token: string;
+    status: 'inserting' | 'pushing';
+    title: string;
+    message: string;
+    type: string;
+    link: string | null;
+    pushCursor: string | null;
+}
+
+/** PostgREST's answer for a function it doesn't know: migration 20261113120000 is not applied yet. */
+const isMissingFunction = (error: unknown) => (error as { code?: string } | null)?.code === 'PGRST202';
+
+function envInt(name: string, fallback: number, min: number, max: number): number {
+    const n = Number.parseInt(process.env[name] ?? '', 10);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+// Players given the notice per database call: one INSERT ... SELECT, well inside the 8 s statement limit
+const BROADCAST_INSERT_CHUNK = 5_000;
+// How long a run holds a broadcast; one whose run died is picked up again after this
+const BROADCAST_LEASE_SECONDS = 300;
+const BROADCAST_PUSH_CONCURRENCY = 50;
+const BROADCAST_BUDGET_MS = 40_000;
+/**
+ * Devices pushed per wave, and the gap between waves. Each push tap opens the site, so the default
+ * (2,000 a minute, about 33 a second) keeps the taps well under what Hostinger takes. Raise it only
+ * with an event's numbers: 20,000 subscribed devices take 10 minutes at the default.
+ */
+const pushWaveSize = () => envInt('BROADCAST_PUSH_WAVE', 2_000, 50, 50_000);
+const waveGapSeconds = () => envInt('BROADCAST_WAVE_SECONDS', 60, 0, 3_600);
+
+function broadcastPayload(data: { title: string; message: string; type: string; link?: string | null }): PushPayload {
+    return {
+        title: data.title,
+        body: data.message,
+        url: data.link || '/notifications',
+        icon: '/Favicon/apple-touch-icon.png',
+        badge: '/Favicon/favicon.ico',
+        tag: data.type,
+        renotify: true,
+    };
+}
+
+/** The next wave of devices after the broadcast's cursor, pushed 50 at a time. */
+async function pushWave(broadcast: ClaimedBroadcast): Promise<{ cursor: string | null; sent: number; last: boolean }> {
+    const adminDb = getAdminDb();
+    const size = pushWaveSize();
+    const subs: PushSubscriptionRecord[] = [];
+    let after = broadcast.pushCursor;
+    let last = false;
+    while (subs.length < size) {
+        const limit = Math.min(1_000, size - subs.length);
+        let q = adminDb.from('PushSubscription').select('*');
+        if (after) q = q.gt('id', after);
+        const { data, error } = await q.order('id', { ascending: true }).limit(limit);
+        if (error) throw error;
+        const page = (data ?? []) as PushSubscriptionRecord[];
+        subs.push(...page);
+        if (page.length < limit) {
+            last = true;
+            break;
+        }
+        after = page[page.length - 1].id;
+    }
+    const payload = broadcastPayload(broadcast);
+    // sendWebPush never throws: a dead subscription is deleted, any other failure is logged
+    await mapWithConcurrency(subs, BROADCAST_PUSH_CONCURRENCY, (sub) => sendWebPush(sub, payload));
+    return { cursor: subs.length > 0 ? subs[subs.length - 1].id : broadcast.pushCursor, sent: subs.length, last };
+}
+
+/**
+ * Moves the broadcasts that are due forward, for up to `budgetMs`: every remaining player's notice
+ * first, then one wave of pushes. Each broadcast is held by one run at a time (a 5-minute lease), so
+ * the minute cron and the in-process loop can both call it. A run that dies leaves the job where it
+ * stopped: notices are never doubled; a push wave cut off part-way is sent again after the lease, and
+ * its tag makes the second copy replace the first on the device.
+ */
+async function advanceBroadcasts({ budgetMs = BROADCAST_BUDGET_MS }: { budgetMs?: number } = {}): Promise<BroadcastProgress> {
+    const adminDb = getAdminDb();
+    const deadline = Date.now() + budgetMs;
+    const progress: BroadcastProgress = { broadcasts: [], inserted: 0, pushed: 0 };
+    while (Date.now() < deadline) {
+        const { data, error } = await adminDb.rpc('broadcast_claim', { p_lease_seconds: BROADCAST_LEASE_SECONDS });
+        if (error) {
+            if (isMissingFunction(error)) return progress;
+            throw error;
+        }
+        if (!data) return progress;
+        const broadcast = data as ClaimedBroadcast;
+        progress.broadcasts.push(broadcast.id);
+
+        let status = broadcast.status;
+        while (status === 'inserting') {
+            if (Date.now() >= deadline) {
+                // Out of time: hand it back so the next run carries on at once
+                await adminDb.rpc('broadcast_release', { p_id: broadcast.id, p_token: broadcast.token });
+                return progress;
+            }
+            const { data: step, error: stepError } = await adminDb.rpc('broadcast_insert_users', {
+                p_id: broadcast.id,
+                p_limit: BROADCAST_INSERT_CHUNK,
+            });
+            const result = step as { success: boolean; inserted?: number; done?: boolean } | null;
+            if (stepError || !result?.success) throw stepError ?? new Error(`Broadcast ${broadcast.id} could not add its notices`);
+            progress.inserted += result.inserted ?? 0;
+            if (result.done) status = 'pushing';
+        }
+
+        const wave = await pushWave(broadcast);
+        progress.pushed += wave.sent;
+        const { error: doneError } = await adminDb.rpc('broadcast_wave_done', {
+            p_id: broadcast.id,
+            p_token: broadcast.token,
+            p_cursor: wave.cursor,
+            p_sent: wave.sent,
+            p_last: wave.last,
+            p_next_wave_seconds: waveGapSeconds(),
+        });
+        if (doneError) throw doneError;
+        logger.log(`[Broadcast] ${broadcast.id}: ${wave.sent} pushes in this wave${wave.last ? ', all sent' : ''}`);
+    }
+    return progress;
+}
+
+/** The whole job in the caller's request, as before migration 20261113120000 (and with FANOUT_V2=false). */
+async function legacyBroadcast(data: BroadcastInput): Promise<void> {
+    const adminDb = getAdminDb()
+
+    // 1. Fetch all user IDs. Keyset pagination in primary-key order: the old offset paging
+    // had no ORDER BY, so concurrent signups could make it skip or repeat users.
+    const users = await fetchAllByKeyset<{ id: string }>(
+        (after, limit) => {
+            let q = adminDb.from('User').select('id');
+            if (after) q = q.gt('id', after);
+            return q.order('id', { ascending: true }).limit(limit);
+        },
+        (u) => u.id,
+    );
+    const allUserIds = users.map((u) => u.id);
+
+    if (allUserIds.length === 0) return;
+
+    const now = new Date().toISOString();
+
+    // 2. Insert notifications in chunks of 500 rows to stay within Supabase limits
+    const INSERT_CHUNK = 500;
+    for (let i = 0; i < allUserIds.length; i += INSERT_CHUNK) {
+        const chunk = allUserIds.slice(i, i + INSERT_CHUNK);
+        const notifications = chunk.map((uid: string) => ({
+            id: generateId(),
+            userId: uid,
+            title: data.title,
+            message: data.message,
+            type: data.type,
+            link: data.link || null,
+            read: false,
+            createdAt: now,
+            updatedAt: now,
+        }));
+
+        const { error: insertError } = await adminDb
+            .from('Notification')
+            .insert(notifications);
+
+        if (insertError) throw insertError;
+    }
+
+    // 3. Fetch ALL push subscriptions (every page: a plain select('*') is silently capped at
+    // PostgREST's 1,000-row limit, so only the first thousand subscribers were ever pushed)
+    // and broadcast web pushes. A failure here must not fail the broadcast: the in-app
+    // notifications above are already stored.
+    let subs: PushSubscriptionRecord[] = [];
+    try {
+        subs = await fetchAllByKeyset<PushSubscriptionRecord>(
+            (after, limit) => {
+                let q = adminDb.from('PushSubscription').select('*');
+                if (after) q = q.gt('id', after);
+                return q.order('id', { ascending: true }).limit(limit);
+            },
+            (s) => s.id,
+        );
+    } catch (subError) {
+        console.error('[Web Push] Failed to load push subscriptions for broadcast:', subError);
+    }
+
+    if (subs.length > 0) {
+        const payload: PushPayload = {
+            title: data.title,
+            body: data.message,
+            url: data.link || '/notifications',
+            icon: '/Favicon/apple-touch-icon.png',
+            badge: '/Favicon/favicon.ico',
+            tag: data.type,
+            renotify: true,
+        };
+        
+        // Dispatch in small batches of 50 to avoid network bottlenecks
+        const batchSize = 50;
+        void (async () => {
+            for (let i = 0; i < subs.length; i += batchSize) {
+                const batch = subs.slice(i, i + batchSize);
+                await Promise.allSettled(batch.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload)));
+            }
+        })(); // only awaits allSettled, so it never rejects
+    }
+}
+
 export interface Notification {
     id: string;
     userId: string;
@@ -255,87 +480,43 @@ export const notificationDb = {
         void Promise.allSettled(sends);
     },
 
-    async createBroadcast(data: { title: string; message: string; type: string; link?: string }): Promise<void> {
-        const adminDb = getAdminDb()
-
-        // 1. Fetch all user IDs. Keyset pagination in primary-key order: the old offset paging
-        // had no ORDER BY, so concurrent signups could make it skip or repeat users.
-        const users = await fetchAllByKeyset<{ id: string }>(
-            (after, limit) => {
-                let q = adminDb.from('User').select('id');
-                if (after) q = q.gt('id', after);
-                return q.order('id', { ascending: true }).limit(limit);
-            },
-            (u) => u.id,
-        );
-        const allUserIds = users.map((u) => u.id);
-
-        if (allUserIds.length === 0) return;
-
-        const now = new Date().toISOString();
-
-        // 2. Insert notifications in chunks of 500 rows to stay within Supabase limits
-        const INSERT_CHUNK = 500;
-        for (let i = 0; i < allUserIds.length; i += INSERT_CHUNK) {
-            const chunk = allUserIds.slice(i, i + INSERT_CHUNK);
-            const notifications = chunk.map((uid: string) => ({
-                id: generateId(),
-                userId: uid,
-                title: data.title,
-                message: data.message,
-                type: data.type,
-                link: data.link || null,
-                read: false,
-                createdAt: now,
-                updatedAt: now,
-            }));
-
-            const { error: insertError } = await adminDb
-                .from('Notification')
-                .insert(notifications);
-
-            if (insertError) throw insertError;
+    /**
+     * Tell every player: a notice in each bell and a push to every device. Since migration
+     * 20261113120000 this writes one "Broadcast" job and returns: the notices are added and the pushes
+     * sent by advanceBroadcasts, now and from the minute cron, so a restart part-way loses nothing and
+     * the pushes go out in paced waves. The same broadcast again within 15 minutes (a double click, a
+     * scheduler re-run) is refused as a duplicate. Before the migration, or with FANOUT_V2=false, it
+     * does the whole job in this request, as it used to.
+     */
+    async createBroadcast(data: BroadcastInput): Promise<BroadcastOutcome> {
+        if (process.env.FANOUT_V2 === 'false') {
+            await legacyBroadcast(data);
+            return { id: null, duplicate: false, queued: false };
         }
-
-        // 3. Fetch ALL push subscriptions (every page: a plain select('*') is silently capped at
-        // PostgREST's 1,000-row limit, so only the first thousand subscribers were ever pushed)
-        // and broadcast web pushes. A failure here must not fail the broadcast: the in-app
-        // notifications above are already stored.
-        let subs: PushSubscriptionRecord[] = [];
-        try {
-            subs = await fetchAllByKeyset<PushSubscriptionRecord>(
-                (after, limit) => {
-                    let q = adminDb.from('PushSubscription').select('*');
-                    if (after) q = q.gt('id', after);
-                    return q.order('id', { ascending: true }).limit(limit);
-                },
-                (s) => s.id,
-            );
-        } catch (subError) {
-            console.error('[Web Push] Failed to load push subscriptions for broadcast:', subError);
+        const { data: created, error } = await getAdminDb().rpc('broadcast_create', {
+            p_title: data.title,
+            p_message: data.message,
+            p_type: data.type,
+            p_link: data.link || null,
+        });
+        if (error) {
+            if (!isMissingFunction(error)) throw error;
+            await legacyBroadcast(data);
+            return { id: null, duplicate: false, queued: false };
         }
-
-        if (subs.length > 0) {
-            const payload: PushPayload = {
-                title: data.title,
-                body: data.message,
-                url: data.link || '/notifications',
-                icon: '/Favicon/apple-touch-icon.png',
-                badge: '/Favicon/favicon.ico',
-                tag: data.type,
-                renotify: true,
-            };
-            
-            // Dispatch in small batches of 50 to avoid network bottlenecks
-            const batchSize = 50;
-            void (async () => {
-                for (let i = 0; i < subs.length; i += batchSize) {
-                    const batch = subs.slice(i, i + batchSize);
-                    await Promise.allSettled(batch.map((sub: PushSubscriptionRecord) => sendWebPush(sub, payload)));
-                }
-            })(); // only awaits allSettled, so it never rejects
+        const result = created as { success: boolean; id?: string; duplicate?: boolean; error?: string } | null;
+        if (!result?.success || !result.id) throw new Error(result?.error || 'The broadcast was refused');
+        if (result.duplicate) {
+            logger.log(`[Broadcast] "${data.title}" was already sent in the last 15 minutes (${result.id}): not sent again`);
+            return { id: result.id, duplicate: true, queued: true };
         }
+        // Start now rather than at the next minute; the minute cron finishes whatever this run doesn't
+        void advanceBroadcasts().catch((advanceError) => console.error('[Broadcast] Sending stopped; the minute cron resumes it:', advanceError));
+        return { id: result.id, duplicate: false, queued: true };
     },
+
+    /** Moves due broadcasts forward (see advanceBroadcasts). The minute cron calls it. */
+    advanceBroadcasts: (options?: { budgetMs?: number }) => advanceBroadcasts(options),
 
     // Create a batch notification for specific users
     async createBatchForUsers(userIds: string[], data: { title: string; message: string; type: string; link?: string }) {

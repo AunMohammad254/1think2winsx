@@ -14,6 +14,12 @@ const PORT = 3100;
 const appDir = path.resolve(process.env.E2E_APP_DIR || '.');
 const stack = readStackEnv();
 
+// The test skips itself without the stack, which suits a laptop. In CI that would be a green job
+// that tested nothing, so refuse to run instead.
+if (process.env.CI && !stack) {
+  throw new Error('The local Supabase stack is not up: run `node e2e/stack/stack.mjs up` first (see e2e/README.md).');
+}
+
 const envFiles = fs.readdirSync(appDir).filter((f) => /^\.env(\..+)?$/.test(f) && f !== '.env.example');
 if (stack && envFiles.length > 0 && !process.env.E2E_BASE_URL) {
   throw new Error(

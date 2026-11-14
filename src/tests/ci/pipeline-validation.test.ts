@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Phase 6: CI/CD Pipeline Validation Tests
  *
@@ -5,13 +6,13 @@
  * the required CI/CD configuration for the 1Think2Wins test suite.
  *
  * Test Categories:
- *   [PE]  Pipeline Execution  (3 tests)
+ *   [PE]  Pipeline Execution  (5 tests)
  *   [RG]  Report Generation   (3 tests)
  *   [ND]  Notification Delivery (3 tests)
- *   [GA]  GitHub Actions Setup (10 tests)
- *   [RN]  Reporting & Notifications (7 tests)
+ *   [GA]  GitHub Actions Setup (12 tests)
+ *   [RN]  Reporting & Notifications (8 tests)
  *
- * Total: 26 tests
+ * Total: 31 tests
  */
 
 import { describe, it, expect } from 'vitest';
@@ -34,6 +35,20 @@ function readFile(relPath: string): string {
   const full = path.join(ROOT, relPath);
   if (!fs.existsSync(full)) return '';
   return fs.readFileSync(full, 'utf-8');
+}
+
+/** How many times a piece of text appears */
+function count(content: string, text: string): number {
+  return content.split(text).length - 1;
+}
+
+/** The text of one job in a workflow: from its "  id:" line to the next job's banner comment */
+function jobSection(content: string, jobId: string): string {
+  const start = content.search(new RegExp(`^  ${jobId}:\\s*$`, 'm'));
+  if (start < 0) return '';
+  const rest = content.slice(start);
+  const end = rest.search(/^  # ─+\s*$/m);
+  return end < 0 ? rest : rest.slice(0, end);
 }
 
 /** Rough YAML key presence check – sufficient for CI config validation */
@@ -64,10 +79,14 @@ describe('[PE] Pipeline Execution', () => {
     const requiredJobs = [
       'lint',
       'unit-tests',
+      'db-tests',
+      'edge-tests',
+      'build',
       'e2e-chromium',
       'e2e-firefox',
       'e2e-webkit',
       'e2e-mobile',
+      'e2e-quiz',
       'report-summary',
     ];
 
@@ -93,6 +112,41 @@ describe('[PE] Pipeline Execution', () => {
       expect(yamlHasKey(content, 'on'), `${wf} must have triggers`).toBe(true);
       expect(yamlHasKey(content, 'jobs'), `${wf} must have jobs`).toBe(true);
     }
+  });
+
+  it('[PE-4] Every test set in the repository has a job that runs it', () => {
+    const content = readFile('.github/workflows/tests.yml');
+
+    // The Cloudflare Worker's own tests and type checks (edge-shield is a separate npm package)
+    const edge = jobSection(content, 'edge-tests');
+    expect(edge).toMatch(/working-directory:\s*edge-shield/);
+    expect(edge).toMatch(/npx vitest run/);
+    expect(edge).toMatch(/npx tsc --noEmit/);
+
+    // The storage rules in supabase/tests/*.test.sql
+    expect(jobSection(content, 'db-tests')).toMatch(/storage-sql-tests\.sh/);
+    const script = readFile('.github/ci/storage-sql-tests.sh');
+    const sqlTests = fs.readdirSync(path.join(ROOT, 'supabase/tests')).filter((f) => f.endsWith('.test.sql'));
+    expect(sqlTests.length).toBeGreaterThan(0);
+    for (const file of sqlTests) {
+      expect(script, `storage-sql-tests.sh must run supabase/tests/${file}`).toContain(file);
+    }
+
+    // The quiz played end to end against the local Supabase stack
+    const quiz = jobSection(content, 'e2e-quiz');
+    expect(quiz).toMatch(/stack\.mjs up/);
+    expect(quiz).toMatch(/test:e2e:quiz/);
+  });
+
+  it('[PE-5] A skipped or hung end-to-end run cannot pass or run to the job limit', () => {
+    // Without the stack the quiz test skips itself; in CI the config must refuse instead
+    const stackConfig = readFile('playwright.stack.config.ts');
+    expect(stackConfig).toMatch(/process\.env\.CI && !stack/);
+    expect(stackConfig).toMatch(/throw new Error/);
+
+    const config = readFile('playwright.config.ts');
+    expect(config).toMatch(/globalTimeout:\s*process\.env\.CI/);
+    expect(config).toMatch(/maxFailures:\s*process\.env\.CI/);
   });
 });
 
@@ -145,12 +199,14 @@ describe('[ND] Notification Delivery', () => {
     expect(content).toMatch(/refs\/heads\/main/);
   });
 
-  it('[ND-3] PR coverage comment action is configured in coverage workflow', () => {
-    const content = readFile('.github/workflows/coverage.yml');
+  it('[ND-3] PR coverage comment is posted by the unit job in the main workflow', () => {
+    const content = readFile('.github/workflows/tests.yml');
+    const unit = jobSection(content, 'unit-tests');
 
     expect(content).toMatch(/pull_request/);
-    expect(content).toMatch(/marocchino\/sticky-pull-request-comment/i);
     expect(content).toMatch(/pull-requests: write/i);
+    expect(unit).toMatch(/marocchino\/sticky-pull-request-comment/i);
+    expect(unit).toMatch(/coverage\/pr-comment\.md/);
   });
 });
 
@@ -224,18 +280,44 @@ describe('[GA] GitHub Actions Setup', () => {
     expect(content).toMatch(/retention-days:/);
   });
 
-  it('[GA-10] Summary job lists all five test jobs as dependencies', () => {
+  it('[GA-10] Summary job lists every test job as a dependency', () => {
     const content = readFile('.github/workflows/tests.yml');
 
     // The report-summary job needs array must contain these
     const reportSummarySection = content.split('report-summary:')[1] ?? '';
     const needsSection = reportSummarySection.split('steps:')[0];
 
-    expect(needsSection).toContain('unit-tests');
-    expect(needsSection).toContain('e2e-chromium');
-    expect(needsSection).toContain('e2e-firefox');
-    expect(needsSection).toContain('e2e-webkit');
-    expect(needsSection).toContain('e2e-mobile');
+    for (const job of ['lint', 'unit-tests', 'db-tests', 'edge-tests', 'build', 'e2e-chromium', 'e2e-firefox', 'e2e-webkit', 'e2e-mobile', 'e2e-quiz']) {
+      expect(needsSection, `report-summary must need "${job}"`).toContain(job);
+    }
+  });
+
+  it('[GA-11] The app is built once and the browser jobs share that build', () => {
+    const content = readFile('.github/workflows/tests.yml');
+
+    expect(count(content, 'run: bun run build')).toBe(1);
+    expect(jobSection(content, 'build')).toMatch(/run: bun run build/);
+    // .next is a hidden folder, which upload-artifact skips: it travels as one tar file
+    expect(jobSection(content, 'build')).toMatch(/tar .*-cf next-build\.tar \.next/);
+
+    for (const job of ['e2e-chromium', 'e2e-firefox', 'e2e-webkit', 'e2e-mobile']) {
+      const section = jobSection(content, job);
+      expect(section, `${job} must wait for the build`).toMatch(/needs:\s*build/);
+      expect(section, `${job} must download the build`).toMatch(/name:\s*next-build/);
+      expect(section, `${job} must unpack the build`).toMatch(/tar -xf next-build\.tar/);
+    }
+  });
+
+  it('[GA-12] A pull request runs the unit suite with coverage once, behind the 100% gate', () => {
+    const tests = readFile('.github/workflows/tests.yml');
+    const coverage = readFile('.github/workflows/coverage.yml');
+
+    expect(count(tests, 'bun run test:coverage')).toBe(1);
+    expect(jobSection(tests, 'unit-tests')).toMatch(/node \.github\/ci\/coverage-gate\.mjs/);
+    // coverage.yml is for main and the nightly run; on pull requests it would repeat the unit job
+    expect(coverage).not.toMatch(/^\s*pull_request:/m);
+    expect(coverage).toMatch(/node \.github\/ci\/coverage-gate\.mjs/);
+    expect(readFile('.github/ci/coverage-gate.mjs')).toMatch(/const THRESHOLD = 100;/);
   });
 });
 
@@ -292,5 +374,18 @@ describe('[RN] Reporting & Notifications', () => {
     expect(content).toMatch(/lighthouse/i);
     expect(content).toMatch(/upload-artifact/);
     expect(content).toMatch(/lighthouse-report/i);
+  });
+
+  it('[RN-8] Lighthouse cannot fail without anyone noticing', () => {
+    const content = readFile('.github/workflows/performance.yml');
+    const lighthouse = jobSection(content, 'lighthouse');
+
+    // lhci starts the server itself; a second one on the same port made every run fail
+    expect(lighthouse).not.toMatch(/bun run start &/);
+    expect(readFile('.lighthouserc.json')).toMatch(/"startServerCommand"/);
+    // The collect step's exit code is not swallowed, and a run without a report fails the job
+    expect(lighthouse).toMatch(/run: lhci collect [^|\n]*$/m);
+    expect(lighthouse).toMatch(/node \.github\/ci\/lighthouse-summary\.mjs/);
+    expect(lighthouse).toMatch(/--target=filesystem --outputDir=\.\/lighthouse-results/);
   });
 });

@@ -105,7 +105,7 @@ from an old build. So the zone rules below stop applying, and each one needs a r
 |---|---|
 | Cache Rule for `/api/live` and `/api/live/quizzes/*` | Not needed: Vercel's CDN follows the routes' own `s-maxage` |
 | WAF custom rule: block `/api/live*` when it has a query string | Vercel Firewall custom rule with the same condition (custom rules are free) |
-| Rate limit D5: 600 `/api/` requests per 10 s per IP | Vercel's built-in DDoS protection, the app's own limits (Upstash), and optionally a Vercel rate-limit rule on write routes only. Rate-limit rules cost $0.55–0.65 per million requests that pass |
+| Rate limit D5: 600 requests to the origin per 10 s per IP (every path since 2026-11-13) | Vercel's built-in DDoS protection, the app's own limits (Upstash), and optionally a Vercel rate-limit rule on write routes only. Rate-limit rules cost $0.55–0.65 per million requests that pass |
 | `edge-shield` Worker | Only the staging Worker is deployed, and Worker routes need a proxied hostname. Don't deploy it to production |
 
 DNS records that aren't for the website (MX, SPF/DKIM for Brevo, verification TXT records) stay as they are.

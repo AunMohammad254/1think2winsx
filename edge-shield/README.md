@@ -111,6 +111,7 @@ gain nothing:
 | `1think2win.com/api/live` | cached by a Cache Rule for 5 s; players poll it every 5–7 s (~600 requests per player-hour) |
 | `1think2win.com/api/live/*` | shared quiz copies, cached by the same rule |
 | `1think2win.com/api/leaderboard` | cached by a Cache Rule (deploy/cloudflare-leaderboard-cache-rule.json) |
+| `1think2win.com/api/streaming/active*` | whether a stream is on: cached for 5 s by the live API Cache Rule (since 2026-11-12) |
 | `1think2win.com/api/webhooks/*` | Brevo and AWS SES callbacks |
 | `1think2win.com/api/auth/send-email-hook` | Supabase's send-email hook |
 
@@ -159,6 +160,19 @@ Settings → Domains & Routes). Traffic then goes straight to Hostinger, as befo
   gets 401: turn `LOCKIN_EDGE` off.
 - Requests that reach Hostinger without going through Cloudflare skip the Worker. The app's own limits and load
   shedding remain the backstop.
-- The zone also has a Cloudflare rate-limit rule, "API flood guard (D5)": 600 requests per 10 s per IP and location on
-  `/api/*` except `/api/live`. It runs before this Worker.
+- The zone also has a Cloudflare rate-limit rule, "Origin flood guard (D5)"
+  ([deploy/cloudflare-origin-rate-limit-rule.json](../deploy/cloudflare-origin-rate-limit-rule.json)): one address
+  (per Cloudflare location) may send 600 requests per 10 s to Hostinger, on any path; past that, the address is
+  refused for 10 s. It runs before this Worker. Since 2026-11-13 it counts only requests that go to the origin
+  (`requests_to_origin`, which the Free plan accepts), on every path:
+  - Before, it covered `/api/*` only, so one address could send any number of page requests (`/quizzes?x=1`,
+    `/login`, a made-up path) and trip Hostinger's site-wide block alone.
+  - Before, it also counted cached polls (`/api/live/quizzes/*`, the match feed every 3 s), so about 200 viewers
+    behind one carrier address would have been refused. Cached answers no longer count against anyone.
+  - Nothing is left out by path except Cloudflare's own `/cdn-cgi/`: a made-up path under `/_next/static/` or
+    `/api/live/` is a cache miss, reaches Hostinger, and so is counted.
+  - The number is unchanged, and it is a ceiling per shared address: about 150 to 200 players behind one address
+    acting in the same 10 s. Raise it from an event's data, not by guess. **Rollback:** `PATCH` the rule back to
+    `(starts_with(http.request.uri.path, "/api/") and http.request.uri.path ne "/api/live")` without
+    `requests_to_origin`.
 - These tests run locally (`npx vitest run`), not in CI.

@@ -5,7 +5,7 @@ import { X, Loader2, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCSRFToken } from '@/lib/csrf';
 import { CLOUDFLARE_ORIGIN_ERRORS, fetchWithRetry } from '@/lib/fetch-retry';
-import { LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
+import { lockedInMessage, sendLockIn } from '@/lib/lock-in';
 import { isWindowClosed, localWindowEnd } from '@/lib/quiz-clock';
 import { ENTRIES_CLOSED_MESSAGE } from '@/lib/quiz-entries';
 import { describeStart, formatClock } from '@/lib/live-countdown';
@@ -228,8 +228,6 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
     const [loadError, setLoadError] = useState<string | null>(null);
     const [answers, setAnswers] = useState<Record<string, number>>({});
     const [locked, setLocked] = useState(false);
-    // Locked in through the edge Worker's queue (202): saved within a couple of minutes
-    const [received, setReceived] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     // Time is up and the answers given are about to be locked in (see AUTO_LOCK_SPREAD_MS)
     const [autoLocking, setAutoLocking] = useState(false);
@@ -358,7 +356,6 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
         setQuiz(entry.match?.quiz ?? null);
         setAnswers({});
         setLocked(false);
-        setReceived(false);
         setLoadError(null);
         setSubmitting(false);
         setAutoLocking(false);
@@ -552,17 +549,13 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
             // They are one of its players now: questions added later stay open to them even once it is full
             enteredRef.current.add(loaded.id);
             closedEntriesRef.current.delete(loaded.id);
-            // 202: the edge Worker took it, and saves it shortly; 200: Hostinger saved it (the Worker's kill switch)
-            const queued = res.status === LOCK_IN_RECEIVED;
-            if (own()) {
-                setLocked(true);
-                setReceived(queued);
-            }
+            // 202: the edge Worker took it, and saves it shortly; 200: Hostinger saved it (the Worker's kill
+            // switch). The player is told the same either way: the answers count (lockedInMessage).
+            if (own()) setLocked(true);
             const n = picked.length;
-            const outcome = queued ? 'received' : 'locked in';
             toast.success(atDeadline
-                ? `Time's up: your ${n} answer${n === 1 ? ' was' : 's were'} ${outcome}.`
-                : queued ? 'Answer received' : 'Answer locked in!');
+                ? `Time's up: your ${n} answer${n === 1 ? ' was' : 's were'} locked in.`
+                : lockedInMessage(n));
             // Not the page's refresh for a live match's over: every player locks one in each over, and the
             // refresh is a request to the server per player. The page remembers the over instead.
             if (live?.match) onMatchLocked?.(loaded.id, picked.map((q) => q.id));
@@ -723,7 +716,7 @@ const LiveQuizPush = forwardRef<LiveQuizPushHandle, LiveQuizPushProps>(function 
                                         ) : (
                                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
                                         )}
-                                        <span>{locked ? `Answer ${received ? 'received' : 'locked in'} — waiting for results` : 'Active'}</span>
+                                        <span>{locked ? 'Answer locked in — waiting for results' : 'Active'}</span>
                                     </div>
 
                                     <LiveQuizQuestions

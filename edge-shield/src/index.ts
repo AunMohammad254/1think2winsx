@@ -43,7 +43,7 @@ export default {
 		if (url.pathname === STATUS_PATH) return lockinStatus(request, env, url);
 		if (env.LOCKIN_EDGE === 'true') {
 			if (request.method === 'GET' && url.pathname === CSRF_PATH) return csrfToken();
-			if (isEdgeLockin(request, env, url)) return handleLockin(request, env, url);
+			if (isEdgeLockin(request, env, url)) return handleLockin(request, env, url, ctx);
 		}
 
 		if (!UNLIMITED_PATH.test(url.pathname)) {

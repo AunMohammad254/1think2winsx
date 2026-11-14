@@ -214,6 +214,14 @@ export async function runScheduledJobs(): Promise<ScheduledJobsResult> {
     console.error('[Jobs] Failed to process media deletions:', mediaErr);
   }
 
+  // 7. "Send to all" jobs: notices still to add, and the next wave of pushes (notificationDb.createBroadcast).
+  // Last, because a wave can take several seconds; a job this run doesn't finish waits for the next one.
+  try {
+    await notificationDb.advanceBroadcasts();
+  } catch (broadcastErr) {
+    console.error('[Jobs] Failed to advance broadcasts:', broadcastErr);
+  }
+
   if (processedQuizIds.length > 0 || announcedAny) clearQuizListCache();
 
   return {

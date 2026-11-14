@@ -8,8 +8,9 @@ const createNotification = vi.fn();
 const invalidateQuizCatalog = vi.fn();
 const loggerLog = vi.fn();
 const runMediaCleanupIfDue = vi.fn();
+const advanceBroadcasts = vi.fn();
 
-vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, notificationDb: { createBroadcast: (...a: unknown[]) => createBroadcast(...a), create: (...a: unknown[]) => createNotification(...a) } }));
+vi.mock('@/lib/supabase/db', () => ({ getAdminDb: () => adminDb.client, notificationDb: { createBroadcast: (...a: unknown[]) => createBroadcast(...a), create: (...a: unknown[]) => createNotification(...a), advanceBroadcasts: (...a: unknown[]) => advanceBroadcasts(...a) } }));
 vi.mock('@/lib/quiz-catalog', () => ({ invalidateQuizCatalog: (...a: unknown[]) => invalidateQuizCatalog(...a) }));
 vi.mock('@/lib/logger', () => ({ default: { log: (...a: unknown[]) => loggerLog(...a) } }));
 vi.mock('@/lib/media/deletion-queue', () => ({ runMediaCleanupIfDue: (...a: unknown[]) => runMediaCleanupIfDue(...a) }));
@@ -24,8 +25,9 @@ const isClaim = (call: QueryCall) => hasOp(call, 'update');
 
 beforeEach(() => {
   adminDb = createSupabaseMock();
-  for (const fn of [createBroadcast, createNotification, invalidateQuizCatalog, loggerLog, runMediaCleanupIfDue]) fn.mockReset();
+  for (const fn of [createBroadcast, createNotification, invalidateQuizCatalog, loggerLog, runMediaCleanupIfDue, advanceBroadcasts]) fn.mockReset();
   runMediaCleanupIfDue.mockResolvedValue(null);
+  advanceBroadcasts.mockResolvedValue({ broadcasts: [], inserted: 0, pushed: 0 });
   createBroadcast.mockResolvedValue(undefined);
   createNotification.mockResolvedValue({});
   cache.quizListCache.clear();
@@ -267,6 +269,15 @@ describe('runScheduledJobs', () => {
     expect(res.processedMediaDeletions).toEqual([]);
     expect(console.error).toHaveBeenCalledWith('[Jobs] Failed to process media deletions:', expect.any(Error));
     expect(runMediaCleanupIfDue).toHaveBeenCalledTimes(2);
+  });
+
+  it('moves "send to all" jobs forward on every run, last, and survives their failure', async () => {
+    world();
+    await runScheduledJobs();
+    expect(advanceBroadcasts).toHaveBeenCalledTimes(1);
+    advanceBroadcasts.mockRejectedValueOnce(new Error('Broadcast table missing'));
+    expect((await runScheduledJobs()).processedQuizzes).toEqual([]);
+    expect(console.error).toHaveBeenCalledWith('[Jobs] Failed to advance broadcasts:', expect.any(Error));
   });
 
   it('skips deposit expiry when the pending read fails', async () => {

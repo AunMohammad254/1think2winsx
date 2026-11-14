@@ -22,7 +22,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# publish-unit-test-result-action needs checks + PR write access to post results
+# publish-unit-test-result-action and the coverage comment need checks + PR write access
 permissions:
   contents: read
   checks: write
@@ -31,6 +31,8 @@ permissions:
 env:
   BUN_VERSION: '1.x'
 
+# Every job starts at once. The app is built once (job `build`) and the four browser jobs download
+# that build; only the quiz job builds its own, because its Supabase address is baked into the build.
 jobs:
   # ──────────────────────────────────────────────
   # Job 1: Lint & Type Check
@@ -80,13 +82,14 @@ jobs:
           retention-days: 7
 
   # ──────────────────────────────────────────────
-  # Job 2: Unit & API Tests (Vitest)
+  # Job 2: Unit & API Tests (Vitest) + the coverage gate
+  # The one coverage run for a pull request: test results, the 100% gate and the coverage comment.
+  # coverage.yml repeats it only on main and nightly, for the badge and the published report.
   # ──────────────────────────────────────────────
   unit-tests:
     name: 🧬 Unit & API Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: lint
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
       AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
@@ -120,6 +123,11 @@ jobs:
         env:
           CI: true
 
+      # Fails when a line, statement, function or branch of src/ is uncovered, and names the files.
+      # It also writes coverage/pr-comment.md for the comment step below.
+      - name: Check coverage thresholds
+        run: node .github/ci/coverage-gate.mjs
+
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -145,6 +153,18 @@ jobs:
           comment_title: 🧬 Unit & API Test Results
           fail_on: test failures
 
+      # One comment per pull request, updated on each push. A fork's token cannot comment, so skip it there
+      - name: Post PR coverage comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: >-
+          always() && !cancelled() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          hashFiles('coverage/pr-comment.md') != ''
+        with:
+          header: coverage-report
+          path: coverage/pr-comment.md
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         if: always()
@@ -164,7 +184,6 @@ jobs:
     name: 🗄️ Database Tests (Postgres + RLS)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: lint
     services:
       postgres:
         # Same major version as the Supabase project
@@ -207,6 +226,12 @@ jobs:
         env:
           CI: true
 
+      # The storage rules for receipts and media (supabase/tests/*.test.sql), in a second throwaway
+      # Postgres container of their own: see the script for why they cannot share the one above
+      - name: Run storage SQL tests
+        if: always() && !cancelled()
+        run: bash .github/ci/storage-sql-tests.sh
+
       - name: Upload JUnit XML
         uses: actions/upload-artifact@v4
         if: always()
@@ -225,13 +250,116 @@ jobs:
           fail_on: test failures
 
   # ──────────────────────────────────────────────
-  # Job 3: E2E Tests - Chromium
+  # Job 2c: Edge Worker Tests (Cloudflare)
+  # edge-shield is its own npm package: the Worker in front of /api/* (rate limits, the lock-in
+  # queue and tally). Its tests run inside workerd through @cloudflare/vitest-plugin.
+  # ──────────────────────────────────────────────
+  edge-tests:
+    name: 🛡️ Edge Worker Tests (Cloudflare)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: edge-shield
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: edge-shield/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript type check (Worker)
+        run: npx tsc --noEmit
+
+      - name: TypeScript type check (tests)
+        run: npx tsc --noEmit -p test
+
+      - name: Run Worker tests
+        run: npx vitest run --reporter=verbose --reporter=junit --outputFile.junit=../test-results/edge-junit.xml
+        env:
+          CI: true
+
+      - name: Upload JUnit XML
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: edge-test-results
+          path: test-results/edge-junit.xml
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Job 3: Build once for the four browser jobs
+  # They used to build the same commit four times. The build is packed into one file because
+  # .next is a hidden folder (upload-artifact skips those) holding thousands of small files.
+  # ──────────────────────────────────────────────
+  build:
+    name: 🏗️ Build (for the E2E jobs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://test.supabase.co' }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'test-anon-key' }}
+      # Cloudflare's always-pass Turnstile key, so the test browsers never load the live widget.
+      # Next.js bakes it into the build, so it is set here and not only where the server starts
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: '1x00000000000000000000AA'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build application
+        run: bun run build
+        env:
+          CI: true
+
+      # `next start` reads neither the build cache (about 800 MB) nor the standalone copy (about 90 MB)
+      - name: Pack the build
+        run: tar --exclude=.next/cache --exclude=.next/standalone -cf next-build.tar .next
+
+      - name: Upload the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: next-build.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  # ──────────────────────────────────────────────
+  # Job 4: E2E Tests - Chromium
   # ──────────────────────────────────────────────
   e2e-chromium:
     name: 🌐 E2E Tests (Chromium)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: lint
+    # Playwright stops itself after 15 minutes (globalTimeout in playwright.config.ts) and still
+    # writes its report; this limit is only the backstop
+    timeout-minutes: 25
+    needs: build
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
       AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
@@ -277,10 +405,13 @@ jobs:
         run: bash .github/ci/playwright-install.sh install-deps chromium
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
-      - name: Build application
-        run: bun run build
-        env:
-          CI: true
+      - name: Download the build
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+
+      - name: Unpack the build
+        run: tar -xf next-build.tar && rm next-build.tar
 
       - name: Run Playwright E2E tests (Chromium)
         run: bunx playwright test --project=chromium --reporter=html,junit
@@ -313,13 +444,13 @@ jobs:
           retention-days: 14
 
   # ──────────────────────────────────────────────
-  # Job 4: E2E Tests - Firefox
+  # Job 5: E2E Tests - Firefox
   # ──────────────────────────────────────────────
   e2e-firefox:
     name: 🦊 E2E Tests (Firefox)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: lint
+    timeout-minutes: 25
+    needs: build
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
       AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
@@ -364,10 +495,13 @@ jobs:
         run: bash .github/ci/playwright-install.sh install-deps firefox
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
-      - name: Build application
-        run: bun run build
-        env:
-          CI: true
+      - name: Download the build
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+
+      - name: Unpack the build
+        run: tar -xf next-build.tar && rm next-build.tar
 
       - name: Run Playwright E2E tests (Firefox)
         run: bunx playwright test --project=firefox --reporter=html,junit
@@ -392,7 +526,7 @@ jobs:
           retention-days: 14
 
   # ──────────────────────────────────────────────
-  # Job 5: E2E Tests - WebKit (Safari)
+  # Job 6: E2E Tests - WebKit (Safari)
   # ──────────────────────────────────────────────
   e2e-webkit:
     name: 🍎 E2E Tests (WebKit)
@@ -400,8 +534,8 @@ jobs:
     # (libicudata.so.74). ubuntu-latest is moving to 26.04, which doesn't have it, so WebKit
     # failed to launch on every test there.
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    needs: lint
+    timeout-minutes: 25
+    needs: build
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
       AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
@@ -446,13 +580,18 @@ jobs:
         run: bash .github/ci/playwright-install.sh install-deps webkit
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
-      - name: Build application
-        run: bun run build
-        env:
-          CI: true
+      - name: Download the build
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
 
+      - name: Unpack the build
+        run: tar -xf next-build.tar && rm next-build.tar
+
+      # One at a time here (the other browser jobs run two): WebKit's scroll tests are timing-sensitive
+      # and already needed a retry in about 1 run in 4; with two workers that became about every run
       - name: Run Playwright E2E tests (WebKit)
-        run: bunx playwright test --project=webkit --reporter=html,junit
+        run: bunx playwright test --project=webkit --workers=1 --reporter=html,junit
         env:
           CI: true
           PLAYWRIGHT_JUNIT_OUTPUT_NAME: test-results/e2e-webkit-junit.xml
@@ -474,14 +613,14 @@ jobs:
           retention-days: 14
 
   # ──────────────────────────────────────────────
-  # Job 6: Mobile Browser Tests
+  # Job 7: Mobile Browser Tests
   # ──────────────────────────────────────────────
   e2e-mobile:
     name: 📱 E2E Tests (Mobile)
     # Pinned for Mobile Safari (WebKit), as e2e-webkit is
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    needs: lint
+    timeout-minutes: 25
+    needs: build
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL || 'mongodb://localhost:27017/test' }}
       AUTH_SECRET: ${{ secrets.AUTH_SECRET || 'test-secret-for-ci-only' }}
@@ -526,10 +665,13 @@ jobs:
         run: bash .github/ci/playwright-install.sh install-deps chromium webkit
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
-      - name: Build application
-        run: bun run build
-        env:
-          CI: true
+      - name: Download the build
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+
+      - name: Unpack the build
+        run: tar -xf next-build.tar && rm next-build.tar
 
       - name: Run mobile E2E tests
         run: bunx playwright test --project="Mobile Chrome" --project="Mobile Safari" --reporter=html,junit
@@ -554,42 +696,137 @@ jobs:
           retention-days: 14
 
   # ──────────────────────────────────────────────
-  # Job 7: Summary & Notifications
+  # Job 8: E2E Quiz Flow (local Supabase stack)
+  # e2e/play-quiz.spec.ts: a real browser plays a live quiz against a real database, Auth server
+  # and API, then the admin saves the result and settles it. The stack runs in Docker on the
+  # runner (e2e/README.md), never against a hosted project. This job builds the app itself: the
+  # stack's address and keys are baked into that build.
+  # ──────────────────────────────────────────────
+  e2e-quiz:
+    name: 🎯 E2E Quiz Flow (local Supabase)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # e2e/stack/stack.mjs runs the Supabase CLI through npx
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The same cache as e2e-chromium (same runner image, same browser)
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+
+      - name: Install Playwright Chromium
+        run: bash .github/ci/playwright-install.sh install chromium --with-deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+
+      - name: Install Playwright system deps
+        run: bash .github/ci/playwright-install.sh install-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+
+      - name: Start the local Supabase stack
+        run: node e2e/stack/stack.mjs up
+
+      # With CI set, playwright.stack.config.ts refuses to run without the stack, so this step
+      # cannot pass by skipping the test
+      - name: Run the quiz E2E test
+        run: bun run test:e2e:quiz
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-quiz
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload Playwright traces
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces-quiz
+          path: test-results/quiz-e2e/
+          retention-days: 7
+
+      - name: Stop the stack
+        if: always()
+        run: node e2e/stack/stack.mjs down || true
+
+  # ──────────────────────────────────────────────
+  # Job 9: Summary & Notifications
   # ──────────────────────────────────────────────
   report-summary:
     name: 📊 Report & Notify
     runs-on: ubuntu-latest
-    needs: [unit-tests, db-tests, e2e-chromium, e2e-firefox, e2e-webkit, e2e-mobile]
+    needs: [lint, unit-tests, db-tests, edge-tests, build, e2e-chromium, e2e-firefox, e2e-webkit, e2e-mobile, e2e-quiz]
     if: always()
     # `secrets` is not allowed in `if:` expressions, so expose it via env and test that instead
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: all-reports/
-
       - name: Generate combined summary
+        env:
+          RESULTS: |
+            🔍 Lint & Type Check=${{ needs.lint.result }}
+            🧬 Unit & API Tests + coverage gate=${{ needs.unit-tests.result }}
+            🗄️ Database + storage SQL Tests=${{ needs.db-tests.result }}
+            🛡️ Edge Worker Tests=${{ needs.edge-tests.result }}
+            🏗️ Build=${{ needs.build.result }}
+            🌐 E2E Chromium=${{ needs.e2e-chromium.result }}
+            🦊 E2E Firefox=${{ needs.e2e-firefox.result }}
+            🍎 E2E WebKit=${{ needs.e2e-webkit.result }}
+            📱 E2E Mobile=${{ needs.e2e-mobile.result }}
+            🎯 E2E Quiz Flow=${{ needs.e2e-quiz.result }}
         run: |
-          echo "## 🧪 1Think2Wins Test Suite Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 🧬 Unit & API Tests | ${{ needs.unit-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🗄️ Database Tests | ${{ needs.db-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🌐 E2E Chromium | ${{ needs.e2e-chromium.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🦊 E2E Firefox | ${{ needs.e2e-firefox.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🍎 E2E WebKit | ${{ needs.e2e-webkit.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 📱 E2E Mobile | ${{ needs.e2e-mobile.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🧪 1Think2Wins Test Suite Results"
+            echo ""
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            while IFS='=' read -r job result; do
+              [ -n "$job" ] || continue
+              case "$result" in
+                success)   status='✅ Passed' ;;
+                failure)   status='❌ Failed' ;;
+                cancelled) status='🚫 Cancelled' ;;
+                *)         status='⏭️ Skipped' ;;
+              esac
+              echo "| $job | $status |"
+            done <<< "$RESULTS"
+            echo ""
+            echo "**Commit:** ${{ github.sha }}"
+            echo "**Branch:** ${{ github.ref_name }}"
+            echo "**Run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify Slack on failure
         if: |
