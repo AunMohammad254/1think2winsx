@@ -357,6 +357,27 @@ describe('static landing sections', () => {
     expect(screen.getByText('Imad Wasim')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Scroll down' })).toHaveAttribute('href', '#stats');
   });
+
+  it('Hero says how to pay only once the wallet is known to be on, and never promises payouts', async () => {
+    const paying = () => screen.queryByText('Pay with Easypaisa or JazzCash');
+    // Not known yet (the snapshot has not answered): nothing about paying
+    const unknown = render(<Hero />);
+    expect(paying()).toBeNull();
+    expect(unknown.container.textContent).not.toMatch(/payout/i);
+    unknown.unmount();
+
+    // (the render above left a request pending; start each case from scratch)
+    resetLiveSnapshot();
+    await primeLive([], false);
+    const off = render(<Hero />);
+    expect(paying()).toBeNull();
+    off.unmount();
+
+    resetLiveSnapshot();
+    await primeLive([], true);
+    render(<Hero />);
+    expect(paying()).toBeInTheDocument();
+  });
 });
 
 describe('landing copy', () => {
@@ -367,6 +388,10 @@ describe('landing copy', () => {
       </>
     );
     expect(container.textContent).not.toMatch(/\b(IPL|India|Indian|IST|UPI|BCCI|Hotstar)\b/);
+    // No made-up totals: player, prize and quiz counts are shown only when read from the database
+    expect(container.textContent).not.toMatch(/10,000|Active Players|Prizes Won|Quizzes Live|Verified by/);
+    // No wording about money while the wallet is not known to be on
+    expect(container.textContent).not.toMatch(/payout|PKR|Easypaisa|JazzCash/i);
     // The weekly board is a rolling 7-day window (compute_leaderboard), not a Sunday reset
     expect(container.textContent).toContain('Weekly board counts the last 7 days');
     expect(container.textContent).toContain('Karachi Kings — PSL Ultimate Trivia');
@@ -480,7 +505,13 @@ describe('Stats', () => {
     const { container } = render(<Stats />);
     intersect();
     advance(2000);
-    expect(screen.getByText('10,000')).toBeInTheDocument();
+    expect(screen.getByText('24')).toBeInTheDocument();
+    // Rules a visitor can check, not totals nobody counted (the page used to claim 10,000+ players)
+    expect(screen.getByText('Top scores win')).toBeInTheDocument();
+    // A word is shown as it is; only numbers count up
+    expect(screen.getByText('Free')).toBeInTheDocument();
+    expect(screen.getByText('Match entry')).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/Active Players|Prizes Won|Quizzes Live|10,000|50,000/);
     // "from-rose-400 to-amber-400" starts at rose (it used to match "amber" first)
     expect([...container.querySelectorAll('#ring-grad-3 stop')].map((s) => s.getAttribute('stop-color'))).toEqual(['#fb7185', '#fbbf24']);
     const strip = container.querySelector('.snap-x') as HTMLElement;
@@ -714,7 +745,9 @@ describe('LiveQuiz', () => {
     advance(5000);
     expect(active()).toBe(1);
     advance(1000);
-    expect(screen.getAllByText('892')[0]).toBeInTheDocument();
+    // The placeholder cards carry no figures: no prize money, player counts or countdowns
+    expect(screen.getAllByText('Points & prizes')).toHaveLength(3);
+    expect(document.body.textContent).not.toMatch(/PKR|Prize pool|1,284|892|3,127|Live now|\d\dh \d\dm/);
     intersect(false);
     advance(10000);
     expect(active()).toBe(1);

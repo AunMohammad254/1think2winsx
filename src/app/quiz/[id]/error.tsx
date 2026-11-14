@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { AlertTriangle, RefreshCw, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import * as Sentry from '@sentry/nextjs';
+import PageErrorHint from '@/components/errors/PageErrorHint';
 
 export default function QuizError({
     error,
@@ -54,6 +55,8 @@ export default function QuizError({
                             ? 'This quiz may have been removed or is no longer available.'
                             : 'Something went wrong while loading the quiz.'}
                 </p>
+
+                <PageErrorHint error={error} />
 
                 {/* Error Details (development only) */}
                 {process.env.NODE_ENV === 'development' && !isAccessError && (

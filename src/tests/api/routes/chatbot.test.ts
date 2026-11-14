@@ -340,3 +340,19 @@ describe('POST /api/chatbot: support tickets', () => {
     expect(h.tickets.create).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('POST /api/chatbot: how prizes are won', () => {
+  it('gives the model the real rules, and no prize to name', async () => {
+    await chat();
+    const prompt = sentPrompt();
+    expect(prompt).toContain('## PRIZES AND WINNERS');
+    expect(prompt).toContain('Winners are picked automatically when a quiz is evaluated');
+    expect(prompt).toContain('Lucky draw: a recorded random draw among them');
+    expect(prompt).toContain('Bumper prizes: first come, first served');
+    expect(prompt).toContain('points can be exchanged for prizes on /prizes');
+    // The sample text it used to carry: prizes nobody offered, and winners picked whatever their score
+    for (const old of ['Motorcycle', 'Smartphone', 'PKR 150,000', 'selected randomly', 'Random winners', 'not just highest scorers']) {
+      expect(prompt).not.toContain(old);
+    }
+  });
+});

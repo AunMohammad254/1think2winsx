@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createExecutionContext } from 'cloudflare:test';
 import { JWKS_REFETCH_GAP_MS, resetJwksCache } from '../src/jwt';
 import { readAnswers } from '../src/lockin';
 import { tallyShardName } from '../src/tally';
@@ -413,6 +414,23 @@ describe('lock-in intake', () => {
 		expect(await received(env, quiz)).toBe(0);
 		expect(originCalls).toEqual([]);
 		expect(error.mock.calls.some(([line]) => String(line).includes('lockinQueueFailed'))).toBe(true);
+	});
+
+	it('keeps counting and queueing alive with waitUntil, so a player who drops the connection never leaves the tally above what is saved', async () => {
+		const { env, queueSend } = makeEnv();
+		stubFetch(jwksResponse);
+		const quiz = newQuiz();
+		const ctx = createExecutionContext();
+		const waitUntil = vi.spyOn(ctx, 'waitUntil');
+
+		const response = await call(lockinRequest(quiz, { cookie: await validCookie() }), env, ctx);
+
+		expect(response.status).toBe(202);
+		expect(waitUntil).toHaveBeenCalledTimes(1);
+		// What it was handed is the count and the queue step together, already done when the player is answered
+		await expect(waitUntil.mock.calls[0][0]).resolves.toBe(true);
+		expect(queueSend).toHaveBeenCalledTimes(1);
+		expect(await received(env, quiz)).toBe(1);
 	});
 
 	it('answers busy (503), not Hostinger, on an unexpected fault', async () => {

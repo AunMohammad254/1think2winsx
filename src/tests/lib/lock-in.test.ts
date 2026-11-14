@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const h = vi.hoisted(() => ({ refreshSession: vi.fn() }));
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: { refreshSession: h.refreshSession } }) }));
 
-import { LOCK_IN_RECEIVED, sendLockIn } from '@/lib/lock-in';
+import { LOCK_IN_RECEIVED, lockedInMessage, sendLockIn } from '@/lib/lock-in';
 
 const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const expired = () => json({ error: 'Your session has expired', code: 'session_expired' }, 401);
@@ -16,6 +16,11 @@ beforeEach(() => {
 describe('sendLockIn', () => {
   it("names the edge Worker's answer", () => {
     expect(LOCK_IN_RECEIVED).toBe(202);
+  });
+
+  it('words a taken lock-in one way, whichever server took it, for one answer or several', () => {
+    expect(lockedInMessage(1)).toBe('Locked in. Your answer counts.');
+    expect(lockedInMessage(3)).toBe('Locked in. Your answers count.');
   });
 
   it('sends once and hands back any answer that is not a lapsed session, untouched', async () => {

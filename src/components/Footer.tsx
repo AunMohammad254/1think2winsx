@@ -93,11 +93,11 @@ const Footer = memo(function Footer() {
               </div>
               <p className="mt-5 text-sm leading-relaxed text-white/55">
                 Test your sports knowledge and win amazing prizes in our innovative quiz competition.
-                Join thousands of smart thinkers in this exciting journey of knowledge and rewards!
+                Join sports fans across Pakistan in this exciting journey of knowledge and rewards!
               </p>
               <div className="mt-5 flex items-center gap-2 text-xs text-white/60">
                 <span className="flex h-2 w-2 rounded-full bg-blue-400" />
-                <span>Trusted by <span className="font-semibold text-white/70">10,000+</span> players</span>
+                <span><span className="font-semibold text-white/70">Top 3</span> scores win every quiz</span>
               </div>
             </div>
           </Reveal>

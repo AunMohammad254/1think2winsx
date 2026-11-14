@@ -15,6 +15,14 @@ import { createClient } from '@/lib/supabase/client';
  */
 export const LOCK_IN_RECEIVED = 202;
 
+/**
+ * What a player is told once a lock-in is taken. The same words for 200 and 202: both count, and a second
+ * wording ("received") reads as "not counted yet" to someone who has just paid to play.
+ */
+export function lockedInMessage(answers: number): string {
+  return `Locked in. Your answer${answers === 1 ? ' counts' : 's count'}.`;
+}
+
 /** The Worker's answer when the access token in the session cookie has lapsed. */
 async function sessionExpired(res: Response): Promise<boolean> {
   if (res.status !== 401) return false;

@@ -16,8 +16,14 @@ export default defineConfig({
     forbidOnly: !!process.env.CI,
     /* Retry on CI only */
     retries: process.env.CI ? 2 : 0,
-    /* Opt out of parallel tests on CI. */
-    workers: process.env.CI ? 1 : undefined,
+    /* Two at a time on CI: the runners have 4 CPUs, and the server under test is already built.
+       The desktop WebKit job passes --workers=1 (tests.yml): its scroll tests flake with two. */
+    workers: process.env.CI ? 2 : undefined,
+    /* On CI, stop a run that hangs or is broken throughout, and still write the report: a frozen page
+       once ran to the job's 30-minute limit and was cancelled with nothing to read. A normal run takes
+       about 2 minutes. */
+    globalTimeout: process.env.CI ? 15 * 60 * 1000 : undefined,
+    maxFailures: process.env.CI ? 10 : undefined,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: process.env.CI
         ? [

@@ -1,6 +1,6 @@
 import { Eyebrow, Reveal } from "./Primitives";
 import { SportsBall } from "@/components/hero";
-import { Particles, TypedTitle, HeroCTA } from "./HeroClient";
+import { Particles, TypedTitle, HeroCTA, WalletPaymentNote } from "./HeroClient";
 
 const SUBHEADS = ["Test your Sports IQ", "Win random prizes", "Beat Karachi's best"];
 
@@ -162,17 +162,13 @@ export default function Hero() {
                 </span>
                 <span>No credit card</span>
               </div>
+              {/* About paying: only while the wallet is switched on (it used to say "Instant payouts" here, always) */}
+              <WalletPaymentNote />
               <div className="flex items-center gap-2">
                 <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500/20 text-emerald-400">
                   <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor"><path d="m10 16-4-4 1.4-1.4 2.6 2.6 5.6-5.6L17 9l-7 7Z" /></svg>
                 </span>
-                <span>Instant payouts</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500/20 text-emerald-400">
-                  <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor"><path d="m10 16-4-4 1.4-1.4 2.6 2.6 5.6-5.6L17 9l-7 7Z" /></svg>
-                </span>
-                <span>Verified by 10,000+ players</span>
+                <span>Free entry on match days</span>
               </div>
             </div>
           </div>
